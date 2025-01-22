@@ -1,7 +1,7 @@
 import dataclasses
 
 from posthog.client import sync_execute
-from posthog.hogql.bytecode import create_bytecode
+from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.property import action_to_expr
 from posthog.models.action import Action
@@ -13,7 +13,7 @@ from posthog.test.base import (
     _create_event,
     _create_person,
 )
-from hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H, HOGQL_BYTECODE_VERSION
+from common.hogvm.python.operation import Operation as op, HOGQL_BYTECODE_IDENTIFIER as _H, HOGQL_BYTECODE_VERSION
 
 
 @dataclasses.dataclass

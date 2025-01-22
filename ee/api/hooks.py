@@ -23,6 +23,7 @@ def create_zapier_hog_function(hook: Hook, serializer_context: dict) -> HogFunct
     serializer = HogFunctionSerializer(
         data={
             "template_id": template_zapier.id,
+            "type": "destination",
             "name": f"Zapier webhook for action {hook.resource_id}",
             "filters": {"actions": [{"id": str(hook.resource_id), "name": "", "type": "actions", "order": 0}]},
             "inputs": {
@@ -32,19 +33,19 @@ def create_zapier_hog_function(hook: Hook, serializer_context: dict) -> HogFunct
                 "body": {
                     # NOTE: This is for backwards compatibility with the old webhook format
                     "value": {
-                        "hook": {
-                            "id": "{eventUuid}",
-                            "event": "{event}",
-                            "target": "https://hooks.zapier.com/{inputs.hook}",
-                        },
                         "data": {
-                            "eventUuid": "{event.uuid}",
-                            "event": "{event.name}",
+                            "event": "{event.event}",
+                            "person": {"uuid": "{person.id}", "properties": "{person.properties}"},
                             "teamId": "{project.id}",
+                            "eventUuid": "{event.uuid}",
+                            "timestamp": "{event.timestamp}",
                             "distinctId": "{event.distinct_id}",
                             "properties": "{event.properties}",
-                            "timestamp": "{event.timestamp}",
-                            "person": {"uuid": "{person.uuid}", "properties": "{person.properties}"},
+                        },
+                        "hook": {
+                            "id": "{event.uuid}",
+                            "event": "{event.event}",
+                            "target": "https://hooks.zapier.com/{inputs.hook}",
                         },
                     }
                 },

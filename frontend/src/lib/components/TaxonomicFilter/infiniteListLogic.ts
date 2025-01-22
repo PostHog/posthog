@@ -246,7 +246,11 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     const group = taxonomicGroups.find((g) => g.type === props.listGroupType)
 
                     if (group?.logic && group?.value) {
-                        const items = group.logic.selectors[group.value]?.(state)
+                        let items = group.logic.selectors[group.value]?.(state)
+                        // Handle paginated responses for cohorts, which return a CountedPaginatedResponse
+                        if (items?.results) {
+                            items = items.results
+                        }
                         // TRICKY: Feature flags don't support dynamic behavioral cohorts,
                         // so we don't want to show them as selectable options in the taxonomic filter
                         // in the feature flag UI.
@@ -255,6 +259,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         if (Array.isArray(items) && items.every((item) => 'filters' in item)) {
                             return filterOutBehavioralCohorts(items, props.hideBehavioralCohorts)
                         }
+
                         return items
                     }
                     if (group?.options) {

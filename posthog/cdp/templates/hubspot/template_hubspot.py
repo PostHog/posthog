@@ -61,6 +61,7 @@ if (res.status == 200) {
             "type": "integration",
             "integration": "hubspot",
             "label": "Hubspot connection",
+            "requiredScopes": "crm.objects.contacts.write crm.objects.contacts.read",
             "secret": False,
             "required": True,
         },
@@ -150,6 +151,9 @@ let eventSchema := fetch(f'https://api.hubapi.com/events/v3/event-definitions/{i
 fun getPropValueType(propValue) {
     let propType := typeof(propValue)
     if (propType == 'string') {
+        if (match(propValue, '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}.[0-9]{3}Z$')) {
+            return 'datetime'
+        }
         return 'string'
     } else if (propType == 'integer') {
         return 'number'
@@ -167,6 +171,14 @@ fun getPropValueType(propValue) {
 fun getPropValueTypeDefinition(name, propValue) {
     let propType := typeof(propValue)
     if (propType == 'string' or propType == 'object' or propType == 'array' or propType == 'tuple') {
+        if (match(propValue, '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}.[0-9]{3}Z$')) {
+            return {
+                'name': name,
+                'label': name,
+                'type': 'datetime',
+                'description': f'{name} - (created by PostHog)'
+            }
+        }
         return {
             'name': name,
             'label': name,
@@ -296,6 +308,7 @@ if (res.status >= 400) {
             "type": "integration",
             "integration": "hubspot",
             "label": "Hubspot connection",
+            "requiredScopes": "analytics.behavioral_events.send behavioral_events.event_definitions.read_write",
             "secret": False,
             "required": True,
         },

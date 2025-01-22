@@ -6,7 +6,7 @@ from rest_framework.response import Response
 from hogql_parser import parse_program
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.hogql.bytecode import create_bytecode, Local
+from posthog.hogql.compiler.bytecode import create_bytecode, Local
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.schema import HogCompileResponse
 

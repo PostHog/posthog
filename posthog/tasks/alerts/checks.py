@@ -1,14 +1,12 @@
-import math
-import time
 import traceback
 
 from datetime import datetime, timedelta, UTC
 from typing import cast
+from collections.abc import Callable
 from dateutil.relativedelta import relativedelta
 
 from celery import shared_task
 from celery.canvas import chain
-from django.conf import settings
 from django.db import transaction
 import structlog
 from sentry_sdk import capture_exception, set_tag
@@ -17,7 +15,7 @@ from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import (
     conversion_to_query_based,
 )
-from posthog.models import AlertConfiguration
+from posthog.models import AlertConfiguration, User
 from posthog.models.alert import AlertCheck
 from posthog.tasks.utils import CeleryQueue
 from posthog.schema import (
@@ -26,18 +24,19 @@ from posthog.schema import (
     AlertState,
 )
 from posthog.utils import get_from_dict_or_attr
-from prometheus_client import Counter, Gauge
 from django.db.models import Q, F
 from collections import defaultdict
 from posthog.tasks.alerts.utils import (
     AlertEvaluationResult,
     calculation_interval_to_order,
-    send_notifications_for_errors,
+    next_check_time,
     send_notifications_for_breaches,
+    send_notifications_for_errors,
+    skip_because_of_weekend,
     WRAPPER_NODE_KINDS,
-    alert_calculation_interval_to_relativedelta,
 )
 from posthog.tasks.alerts.trends import check_trends_alert
+from posthog.ph_client import ph_us_client
 
 
 logger = structlog.get_logger(__name__)
@@ -54,25 +53,7 @@ class AlertCheckException(Exception):
         self.__traceback__ = err.__traceback__
 
 
-HOURLY_ALERTS_BACKLOG_GAUGE = Gauge(
-    "hourly_alerts_backlog",
-    "Number of hourly alerts that are not being checked in the last hour.",
-)
-
-DAILY_ALERTS_BACKLOG_GAUGE = Gauge(
-    "daily_alerts_backlog",
-    "Number of daily alerts that are not being checked in the last 24 hours.",
-)
-
-ALERT_CHECK_ERROR_COUNTER = Counter(
-    "alerts_check_failures",
-    "Number of alert check errors that don't notify the user",
-)
-
-ALERT_COMPUTED_COUNTER = Counter(
-    "alerts_computed",
-    "Number of alerts we calculated",
-)
+ANIRUDH_DISTINCT_ID = "wcPbDRs08GtNzrNIXfzHvYAkwUaekW7UrAo4y3coznT"
 
 
 @shared_task(ignore_result=True)
@@ -100,8 +81,6 @@ def alerts_backlog_task() -> None:
         )
     ).count()
 
-    HOURLY_ALERTS_BACKLOG_GAUGE.set(hourly_alerts_breaching_sla)
-
     now = datetime.now(UTC)
 
     daily_alerts_breaching_sla = AlertConfiguration.objects.filter(
@@ -112,10 +91,51 @@ def alerts_backlog_task() -> None:
         )
     ).count()
 
-    DAILY_ALERTS_BACKLOG_GAUGE.set(daily_alerts_breaching_sla)
+    with ph_us_client() as capture_ph_event:
+        capture_ph_event(
+            ANIRUDH_DISTINCT_ID,
+            "alert check backlog",
+            properties={
+                "calculation_interval": AlertCalculationInterval.DAILY,
+                "backlog": daily_alerts_breaching_sla,
+            },
+        )
 
-    # sleeping 30s for prometheus to pick up the metrics sent during task
-    time.sleep(30)
+        capture_ph_event(
+            ANIRUDH_DISTINCT_ID,
+            "alert check backlog",
+            properties={
+                "calculation_interval": AlertCalculationInterval.HOURLY,
+                "backlog": hourly_alerts_breaching_sla,
+            },
+        )
+
+
+@shared_task(
+    ignore_result=True,
+    expires=60 * 60,
+)
+def reset_stuck_alerts_task() -> None:
+    now = datetime.now(UTC)
+
+    # TRICKY: When celery task exits due to timeout/insight calc taking too long
+    # the finally block below isn't run and the alert gets stuck with is_calculating = True
+    # hence when checking is_calculating, we also need to check if task has been stuck in is_calculating for too long
+    stuck_alerts = AlertConfiguration.objects.filter(
+        Q(enabled=True, is_calculating=True, last_checked_at__lte=now - relativedelta(minutes=45))
+        | Q(
+            enabled=True,
+            is_calculating=True,
+            last_checked_at__isnull=True,
+            created_at__lte=now - relativedelta(minutes=45),
+        )
+    )
+
+    for alert in stuck_alerts:
+        # we need to check the alert, reset is_calculating
+        logger.info(f"Alert {alert.id} is stuck in is_calculating for too long, resetting is_calculating")
+        alert.is_calculating = False
+        alert.save()
 
 
 @shared_task(
@@ -169,12 +189,11 @@ def check_alerts_task() -> None:
 )
 # @limit_concurrency(5)  Concurrency controlled by CeleryQueue.ALERTS for now
 def check_alert_task(alert_id: str) -> None:
-    check_alert(alert_id)
+    with ph_us_client() as capture_ph_event:
+        check_alert(alert_id, capture_ph_event)
 
 
-def check_alert(alert_id: str) -> None:
-    task_start_time = time.time()
-
+def check_alert(alert_id: str, capture_ph_event: Callable = lambda *args, **kwargs: None) -> None:
     try:
         alert = AlertConfiguration.objects.get(id=alert_id, enabled=True)
     except AlertConfiguration.DoesNotExist:
@@ -182,8 +201,9 @@ def check_alert(alert_id: str) -> None:
         return
 
     now = datetime.now(UTC)
+
     if alert.next_check_at and alert.next_check_at > now:
-        logger.warning(
+        logger.info(
             """Alert took too long to compute or was queued too long during which it already got computed.
             So not attempting to compute it again until it's due next""",
             alert=alert,
@@ -191,15 +211,26 @@ def check_alert(alert_id: str) -> None:
         return
 
     if alert.is_calculating:
-        logger.warning(
+        logger.info(
             "Alert is already being computed so skipping checking it now",
             alert=alert,
         )
         return
 
+    if skip_because_of_weekend(alert):
+        logger.info(
+            "Skipping alert check because weekend checking is disabled",
+            alert=alert,
+        )
+
+        # ignore alert check until due again
+        alert.next_check_at = next_check_time(alert)
+        alert.save()
+        return
+
     if alert.snoozed_until:
         if alert.snoozed_until > now:
-            logger.warning(
+            logger.info(
                 "Alert has been snoozed so skipping checking it now",
                 alert=alert,
             )
@@ -209,13 +240,26 @@ def check_alert(alert_id: str) -> None:
             alert.snoozed_until = None
             alert.state = AlertState.NOT_FIRING
 
+    # we will attempt to check alert
+    logger.info(f"Checking alert id = {alert.id}")
+    alert.last_checked_at = datetime.now(UTC)
     alert.is_calculating = True
     alert.save()
 
     try:
-        check_alert_and_notify_atomically(alert)
+        check_alert_and_notify_atomically(alert, capture_ph_event)
     except Exception as err:
-        ALERT_CHECK_ERROR_COUNTER.inc()
+        user = cast(User, alert.created_by)
+
+        capture_ph_event(
+            user.distinct_id,
+            "alert check failed",
+            properties={
+                "alert_id": alert.id,
+                "error": f"AlertCheckError: {err}",
+                "traceback": traceback.format_exc(),
+            },
+        )
 
         logger.exception(AlertCheckException(err))
         capture_exception(
@@ -228,30 +272,37 @@ def check_alert(alert_id: str) -> None:
         # raise again so alert check is retried depending on error type
         raise
     finally:
+        # TRICKY: When celery task exits due to timeout/insight calc taking too long
+        # this finally block isn't run and the alert gets stuck with is_calculating = True
+        # hence when checking is_calculating, we also need to check if task has been stuck in is_calculating for too long
+
         # Get all updates with alert checks
         alert.refresh_from_db()
         alert.is_calculating = False
         alert.save()
 
-        # only in PROD
-        if not settings.DEBUG and not settings.TEST:
-            task_duration = time.time() - task_start_time
-
-            # Ensure task runs at least 40s
-            # for prometheus to pick up the metrics sent during task
-            time_left_to_run = 40 - math.floor(task_duration)
-            time.sleep(time_left_to_run)
-
 
 @transaction.atomic
-def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
+def check_alert_and_notify_atomically(alert: AlertConfiguration, capture_ph_event: Callable) -> None:
     """
     Computes insight results, checks alert for breaches and notifies user.
     Only commits updates to alert state if all of the above complete successfully.
     TODO: Later separate notification mechanism from alert checking mechanism (when we move to CDP)
         so we can retry notification without re-computing insight.
     """
-    ALERT_COMPUTED_COUNTER.inc()
+    set_tag("alert_config_id", alert.id)
+    user = cast(User, alert.created_by)
+
+    # Event to count alert checks
+    capture_ph_event(
+        user.distinct_id,
+        "alert check",
+        properties={
+            "alert_id": alert.id,
+            "calculation_interval": alert.calculation_interval,
+        },
+    )
+
     value = breaches = error = None
 
     # 1. Evaluate insight and get alert value
@@ -264,7 +315,21 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
         # as celery task can be retried according to config
         raise
     except Exception as err:
+        error_message = f"Alert id = {alert.id}, failed to evaluate"
+
+        capture_ph_event(
+            user.distinct_id,
+            "alert check failed",
+            properties={
+                "alert_id": alert.id,
+                "error": error_message,
+                "traceback": traceback.format_exc(),
+            },
+        )
+
+        logger.exception(error_message, exc_info=err)
         capture_exception(AlertCheckException(err))
+
         # error can be on user side (incorrectly configured insight/alert)
         # we won't retry and set alert to errored state
         error = {"message": str(err), "traceback": traceback.format_exc()}
@@ -281,17 +346,14 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration) -> None:
             case AlertState.NOT_FIRING:
                 logger.info("Check state is %s", alert_check.state, alert_id=alert.id)
             case AlertState.ERRORED:
+                logger.info("Sending alert error notifications", alert_id=alert.id, error=alert_check.error)
                 send_notifications_for_errors(alert, alert_check.error)
             case AlertState.FIRING:
                 assert breaches is not None
                 send_notifications_for_breaches(alert, breaches)
     except Exception as err:
         error_message = f"AlertCheckError: error sending notifications for alert_id = {alert.id}"
-        logger.exception(error_message)
-
-        set_tag("alert_config_id", alert.id)
-        set_tag("evaluation_error_message", str(err))
-
+        logger.exception(error_message, exc_info=err)
         capture_exception(Exception(error_message))
 
         # don't want alert state to be updated (so that it's retried as next_check_at won't be updated)
@@ -343,9 +405,7 @@ def add_alert_check(
 
     # IMPORTANT: update next_check_at according to interval
     # ensure we don't recheck alert until the next interval is due
-    alert.next_check_at = (alert.next_check_at or now) + alert_calculation_interval_to_relativedelta(
-        cast(AlertCalculationInterval, alert.calculation_interval)
-    )
+    alert.next_check_at = next_check_time(alert)
 
     if notify:
         alert.last_notified_at = now

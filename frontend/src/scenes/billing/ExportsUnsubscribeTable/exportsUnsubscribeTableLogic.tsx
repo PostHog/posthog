@@ -3,6 +3,7 @@ import { actions, afterMount, connect, kea, listeners, path, selectors } from 'k
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { DESTINATION_TYPES } from 'scenes/pipeline/destinations/constants'
 import { pipelineDestinationsLogic } from 'scenes/pipeline/destinations/destinationsLogic'
 import { HogFunctionIcon } from 'scenes/pipeline/hogfunctions/HogFunctionIcon'
 import { pipelineAccessLogic } from 'scenes/pipeline/pipelineAccessLogic'
@@ -29,17 +30,17 @@ export interface ItemToDisable {
 
 export const exportsUnsubscribeTableLogic = kea<exportsUnsubscribeTableLogicType>([
     path(['scenes', 'pipeline', 'ExportsUnsubscribeTableLogic']),
-    connect({
+    connect(() => ({
         values: [
             pipelineAccessLogic,
             ['canConfigurePlugins'],
             userLogic,
             ['user'],
-            pipelineDestinationsLogic,
+            pipelineDestinationsLogic({ types: DESTINATION_TYPES }),
             ['paidHogFunctions'],
         ],
-        actions: [pipelineDestinationsLogic, ['toggleNodeHogFunction']],
-    }),
+        actions: [pipelineDestinationsLogic({ types: DESTINATION_TYPES }), ['toggleNodeHogFunction']],
+    })),
 
     actions({
         disablePlugin: (id: number) => ({ id }),

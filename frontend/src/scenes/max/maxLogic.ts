@@ -3,8 +3,9 @@ import { shuffle } from 'd3'
 import { createParser } from 'eventsource-parser'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import api from 'lib/api'
-import { isHumanMessage, isVisualizationMessage } from 'scenes/max/utils'
+import api, { ApiError } from 'lib/api'
+import { uuid } from 'lib/utils'
+import { isAssistantMessage, isHumanMessage, isReasoningMessage, isVisualizationMessage } from 'scenes/max/utils'
 import { projectLogic } from 'scenes/projectLogic'
 
 import {
@@ -13,46 +14,51 @@ import {
     AssistantGenerationStatusType,
     AssistantMessageType,
     FailureMessage,
-    NodeKind,
-    RefreshType,
+    HumanMessage,
+    ReasoningMessage,
     RootAssistantMessage,
-    SuggestedQuestionsQuery,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-assistant-messages'
+import { NodeKind, RefreshType, SuggestedQuestionsQuery } from '~/queries/schema/schema-general'
+import { Conversation } from '~/types'
 
+import { maxGlobalLogic } from './maxGlobalLogic'
 import type { maxLogicType } from './maxLogicType'
 
 export interface MaxLogicProps {
-    sessionId: string
+    conversationId?: string
 }
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
 export type ThreadMessage = RootAssistantMessage & {
-    status?: MessageStatus
+    status: MessageStatus
 }
 
-const FAILURE_MESSAGE: FailureMessage = {
+const FAILURE_MESSAGE: FailureMessage & ThreadMessage = {
     type: AssistantMessageType.Failure,
     content: 'Oops! It looks like I’m having trouble generating this trends insight. Could you please try again?',
+    status: 'completed',
 }
 
 export const maxLogic = kea<maxLogicType>([
     path(['scenes', 'max', 'maxLogic']),
     props({} as MaxLogicProps),
-    key(({ sessionId }) => sessionId),
+    key(({ conversationId }) => conversationId || 'new-conversation'),
     connect({
-        values: [projectLogic, ['currentProject']],
+        values: [projectLogic, ['currentProject'], maxGlobalLogic, ['dataProcessingAccepted']],
     }),
     actions({
         askMax: (prompt: string) => ({ prompt }),
         setThreadLoaded: (testOnlyOverride = false) => ({ testOnlyOverride }),
         addMessage: (message: ThreadMessage) => ({ message }),
         replaceMessage: (index: number, message: ThreadMessage) => ({ index, message }),
-        setMessageStatus: (index: number, status: ThreadMessage['status']) => ({ index, status }),
+        setMessageStatus: (index: number, status: MessageStatus) => ({ index, status }),
         setQuestion: (question: string) => ({ question }),
         setVisibleSuggestions: (suggestions: string[]) => ({ suggestions }),
         shuffleVisibleSuggestions: true,
         retryLastMessage: true,
+        scrollThreadToBottom: true,
+        setConversation: (conversation: Conversation) => ({ conversation }),
     }),
     reducers({
         question: [
@@ -62,7 +68,13 @@ export const maxLogic = kea<maxLogicType>([
                 askMax: () => '',
             },
         ],
-        thread: [
+        conversation: [
+            (_, props) => (props.conversationId ? ({ id: props.conversationId } as Conversation) : null),
+            {
+                setConversation: (_, { conversation }) => conversation,
+            },
+        ],
+        threadRaw: [
             [] as ThreadMessage[],
             {
                 addMessage: (state, { message }) => [...state, message],
@@ -79,6 +91,7 @@ export const maxLogic = kea<maxLogicType>([
                     },
                     ...state.slice(index + 1),
                 ],
+                setThreadLoaded: (state) => state.filter((message) => !isReasoningMessage(message)),
             },
         ],
         threadLoading: [
@@ -96,6 +109,7 @@ export const maxLogic = kea<maxLogicType>([
         ],
     }),
     loaders({
+        // TODO: Move question suggestions to `maxGlobalLogic`, which will make this logic `maxThreadLogic`
         allSuggestions: [
             null as string[] | null,
             {
@@ -111,7 +125,7 @@ export const maxLogic = kea<maxLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values }) => ({
         [projectLogic.actionTypes.updateCurrentProjectSuccess]: ({ payload }) => {
             // Load suggestions anew after product description is changed on the project
             // Most important when description is set for the first time, but also when updated,
@@ -149,13 +163,11 @@ export const maxLogic = kea<maxLogicType>([
             )
         },
         askMax: async ({ prompt }) => {
-            actions.addMessage({ type: AssistantMessageType.Human, content: prompt })
-            const newIndex = values.thread.length
-
+            actions.addMessage({ type: AssistantMessageType.Human, content: prompt, status: 'completed' })
             try {
-                const response = await api.chat({
-                    session_id: props.sessionId,
-                    messages: values.thread.map(({ status, ...message }) => message),
+                const response = await api.conversations.create({
+                    content: prompt,
+                    conversation: values.conversation?.id,
                 })
                 const reader = response.body?.getReader()
 
@@ -165,8 +177,6 @@ export const maxLogic = kea<maxLogicType>([
 
                 const decoder = new TextDecoder()
 
-                let firstChunk = true
-
                 const parser = createParser({
                     onEvent: ({ data, event }) => {
                         if (event === AssistantEventType.Message) {
@@ -175,16 +185,20 @@ export const maxLogic = kea<maxLogicType>([
                                 return
                             }
 
-                            if (firstChunk) {
-                                firstChunk = false
-
-                                if (parsedResponse) {
-                                    actions.addMessage({ ...parsedResponse, status: 'loading' })
-                                }
-                            } else if (parsedResponse) {
-                                actions.replaceMessage(newIndex, {
+                            if (isHumanMessage(parsedResponse)) {
+                                actions.replaceMessage(values.threadRaw.length - 1, {
                                     ...parsedResponse,
-                                    status: values.thread[newIndex].status,
+                                    status: 'completed',
+                                })
+                            } else if (values.threadRaw[values.threadRaw.length - 1].status === 'completed') {
+                                actions.addMessage({
+                                    ...parsedResponse,
+                                    status: !parsedResponse.id ? 'loading' : 'completed',
+                                })
+                            } else if (parsedResponse) {
+                                actions.replaceMessage(values.threadRaw.length - 1, {
+                                    ...parsedResponse,
+                                    status: !parsedResponse.id ? 'loading' : 'completed',
                                 })
                             }
                         } else if (event === AssistantEventType.Status) {
@@ -194,56 +208,139 @@ export const maxLogic = kea<maxLogicType>([
                             }
 
                             if (parsedResponse.type === AssistantGenerationStatusType.GenerationError) {
-                                actions.setMessageStatus(newIndex, 'error')
+                                actions.setMessageStatus(values.threadRaw.length - 1, 'error')
                             }
+                        } else if (event === AssistantEventType.Conversation) {
+                            const parsedResponse = parseResponse<Conversation>(data)
+                            if (!parsedResponse) {
+                                return
+                            }
+                            actions.setConversation(parsedResponse)
                         }
                     },
                 })
 
                 while (true) {
                     const { done, value } = await reader.read()
-
                     parser.feed(decoder.decode(value))
-
                     if (done) {
-                        const generatedMessage = values.thread[newIndex]
-                        if (generatedMessage && isVisualizationMessage(generatedMessage) && generatedMessage.plan) {
-                            actions.setMessageStatus(newIndex, 'completed')
-                        } else if (generatedMessage) {
-                            actions.replaceMessage(newIndex, FAILURE_MESSAGE)
-                        } else {
-                            actions.addMessage({
-                                ...FAILURE_MESSAGE,
-                                status: 'completed',
-                            })
-                        }
                         break
                     }
                 }
             } catch (e) {
-                captureException(e)
-
-                if (values.thread[newIndex]) {
-                    actions.replaceMessage(newIndex, FAILURE_MESSAGE)
+                const relevantErrorMessage = { ...FAILURE_MESSAGE, id: uuid() } // Generic message by default
+                if (e instanceof ApiError && e.status === 429) {
+                    relevantErrorMessage.content = "You've reached my usage limit for now. Please try again later."
                 } else {
-                    actions.addMessage({
-                        ...FAILURE_MESSAGE,
-                        status: 'completed',
-                    })
+                    captureException(e) // Unhandled error, log to Sentry
+                }
+
+                if (values.threadRaw[values.threadRaw.length - 1]?.status === 'loading') {
+                    actions.replaceMessage(values.threadRaw.length - 1, relevantErrorMessage)
+                } else if (values.threadRaw[values.threadRaw.length - 1]?.status !== 'error') {
+                    actions.addMessage(relevantErrorMessage)
                 }
             }
 
             actions.setThreadLoaded()
         },
         retryLastMessage: () => {
-            const lastMessage = values.thread.filter(isHumanMessage).pop()
+            const lastMessage = values.threadRaw.filter(isHumanMessage).pop() as HumanMessage | undefined
             if (lastMessage) {
                 actions.askMax(lastMessage.content)
             }
         },
+        addMessage: (payload) => {
+            if (isHumanMessage(payload.message) || isVisualizationMessage(payload.message)) {
+                actions.scrollThreadToBottom()
+            }
+        },
+        replaceMessage: (payload) => {
+            if (isVisualizationMessage(payload.message)) {
+                actions.scrollThreadToBottom()
+            }
+        },
+        scrollThreadToBottom: () => {
+            requestAnimationFrame(() => {
+                // On next frame so that the message has been rendered
+                const mainEl = document.querySelector('main')
+                mainEl?.scrollTo({
+                    top: mainEl?.scrollHeight,
+                    behavior: 'smooth',
+                })
+            })
+        },
     })),
     selectors({
-        sessionId: [(_, p) => [p.sessionId], (sessionId) => sessionId],
+        threadGrouped: [
+            (s) => [s.threadRaw, s.threadLoading],
+            (thread, threadLoading): ThreadMessage[][] => {
+                const threadGrouped: ThreadMessage[][] = []
+                for (let i = 0; i < thread.length; i++) {
+                    const currentMessage: ThreadMessage = thread[i]
+                    const previousMessage: ThreadMessage | undefined = thread[i - 1]
+                    if (currentMessage.type.split('/')[0] === previousMessage?.type.split('/')[0]) {
+                        const lastThreadSoFar = threadGrouped[threadGrouped.length - 1]
+                        if (currentMessage.id && previousMessage.type === AssistantMessageType.Reasoning) {
+                            // Only preserve the latest reasoning message, and remove once reasoning is done
+                            lastThreadSoFar[lastThreadSoFar.length - 1] = currentMessage
+                        } else {
+                            lastThreadSoFar.push(currentMessage)
+                        }
+                    } else {
+                        threadGrouped.push([currentMessage])
+                    }
+                }
+                if (threadLoading) {
+                    const finalMessageSoFar = threadGrouped.at(-1)?.at(-1)
+                    if (
+                        finalMessageSoFar?.type === AssistantMessageType.Human ||
+                        (finalMessageSoFar?.id && finalMessageSoFar.type !== AssistantMessageType.Reasoning)
+                    ) {
+                        // If now waiting for the current node to start streaming, add "Thinking" message
+                        // so that there's _some_ indication of processing
+                        const thinkingMessage: ReasoningMessage & ThreadMessage = {
+                            type: AssistantMessageType.Reasoning,
+                            content: 'Thinking',
+                            status: 'completed',
+                            id: 'loader',
+                        }
+                        if (finalMessageSoFar.type === AssistantMessageType.Human) {
+                            // If the last message was human, we need to add a new "ephemeral" AI group
+                            threadGrouped.push([thinkingMessage])
+                        } else {
+                            // Otherwise, add to the last group
+                            threadGrouped[threadGrouped.length - 1].push(thinkingMessage)
+                        }
+                    }
+                }
+                return threadGrouped
+            },
+        ],
+        formPending: [
+            (s) => [s.threadRaw],
+            (threadRaw) => {
+                const lastMessage = threadRaw[threadRaw.length - 1]
+                if (lastMessage && isAssistantMessage(lastMessage)) {
+                    return !!lastMessage.meta?.form
+                }
+                return false
+            },
+        ],
+        inputDisabled: [(s) => [s.formPending], (formPending) => formPending],
+        submissionDisabledReason: [
+            (s) => [s.formPending, s.dataProcessingAccepted, s.question, s.threadLoading],
+            (formPending, dataProcessingAccepted, question, threadLoading): string | undefined =>
+                !dataProcessingAccepted
+                    ? 'Please accept OpenAI processing data'
+                    : formPending
+                    ? 'Please choose one of the options above'
+                    : !question
+                    ? 'I need some input first'
+                    : threadLoading
+                    ? 'Thinking…'
+                    : undefined,
+        ],
     }),
     afterMount(({ actions, values }) => {
         // We only load suggestions on mount if the product description is already set

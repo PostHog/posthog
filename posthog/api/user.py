@@ -21,11 +21,12 @@ from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 from django_filters.rest_framework import DjangoFilterBackend
 from django_otp import login as otp_login
+from django_otp.plugins.otp_static.models import StaticDevice, StaticToken
+from django_otp.plugins.otp_totp.models import TOTPDevice
 from django_otp.util import random_hex
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
 from rest_framework import exceptions, mixins, serializers, viewsets
-from posthog.api.utils import action
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -36,9 +37,10 @@ from posthog.api.email_verification import EmailVerifier
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.api.utils import (
-    PublicIPOnlyHttpAdapter,
-    raise_if_user_provided_url_unsafe,
     ClassicBehaviorBooleanFieldSerializer,
+    PublicIPOnlyHttpAdapter,
+    action,
+    raise_if_user_provided_url_unsafe,
     unparsed_hostname_in_allowed_url_list,
 )
 from posthog.auth import (
@@ -57,7 +59,7 @@ from posthog.event_usage import (
 from posthog.middleware import get_impersonated_session_expires_at
 from posthog.models import Dashboard, Team, User, UserScenePersonalisation
 from posthog.models.organization import Organization
-from posthog.models.user import NOTIFICATION_DEFAULTS, Notifications
+from posthog.models.user import NOTIFICATION_DEFAULTS, Notifications, ROLE_CHOICES
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import UserAuthenticationThrottle, UserEmailVerificationThrottle
 from posthog.tasks import user_identify
@@ -92,6 +94,7 @@ class UserSerializer(serializers.ModelSerializer):
     notification_settings = serializers.DictField(required=False)
     scene_personalisation = ScenePersonalisationBasicSerializer(many=True, read_only=True)
     anonymize_data = ClassicBehaviorBooleanFieldSerializer()
+    role_at_organization = serializers.ChoiceField(choices=ROLE_CHOICES, required=False)
 
     class Meta:
         model = User
@@ -126,6 +129,7 @@ class UserSerializer(serializers.ModelSerializer):
             "scene_personalisation",
             "theme_mode",
             "hedgehog_config",
+            "role_at_organization",
         ]
 
         read_only_fields = [
@@ -208,15 +212,42 @@ class UserSerializer(serializers.ModelSerializer):
         raise serializers.ValidationError(f"Object with id={value} does not exist.", code="does_not_exist")
 
     def validate_notification_settings(self, notification_settings: Notifications) -> Notifications:
+        instance = cast(User, self.instance)
+        current_settings = {**NOTIFICATION_DEFAULTS, **(instance.partial_notification_settings or {})}
+
         for key, value in notification_settings.items():
             if key not in Notifications.__annotations__:
-                raise serializers.ValidationError(f"Key {key} is not valid as a key for notification settings")
-
-            if not isinstance(value, Notifications.__annotations__[key]):
                 raise serializers.ValidationError(
-                    f"{value} is not a valid type for notification settings, should be {Notifications.__annotations__[key]}"
+                    f"Key {key} is not valid as a key for notification settings", code="invalid_input"
                 )
-        return {**NOTIFICATION_DEFAULTS, **notification_settings}
+
+            expected_type = Notifications.__annotations__[key]
+
+            if key == "project_weekly_digest_disabled":
+                if not isinstance(value, dict):
+                    raise serializers.ValidationError(
+                        f"project_weekly_digest_disabled must be a dictionary mapping project IDs to boolean values",
+                        code="invalid_input",
+                    )
+                # Validate each project setting is a boolean
+                for _, disabled in value.items():
+                    if not isinstance(disabled, bool):
+                        raise serializers.ValidationError(
+                            f"Project notification setting values must be boolean, got {type(disabled)} instead",
+                            code="invalid_input",
+                        )
+                # Merge with existing settings
+                current_settings[key] = {**current_settings.get("project_weekly_digest_disabled", {}), **value}
+            else:
+                # For non-dict settings, validate type directly
+                if not isinstance(value, expected_type):
+                    raise serializers.ValidationError(
+                        f"{value} is not a valid type for notification settings, should be {expected_type}",
+                        code="invalid_input",
+                    )
+                current_settings[key] = value
+
+        return cast(Notifications, current_settings)
 
     def validate_password_change(
         self, instance: User, current_password: Optional[str], password: Optional[str]
@@ -246,6 +277,11 @@ class UserSerializer(serializers.ModelSerializer):
     def validate_is_staff(self, value: bool) -> bool:
         if not self.context["request"].user.is_staff:
             raise exceptions.PermissionDenied("You are not a staff user, contact your instance admin.")
+        return value
+
+    def validate_role_at_organization(self, value):
+        if value and value not in dict(ROLE_CHOICES):
+            raise serializers.ValidationError("Invalid role selected")
         return value
 
     def update(self, instance: "User", validated_data: Any) -> Any:
@@ -380,32 +416,11 @@ class UserViewSet(
             "user_permissions": UserPermissions(cast(User, self.request.user)),
         }
 
-    @action(methods=["GET"], detail=True)
-    def start_2fa_setup(self, request, **kwargs):
-        key = random_hex(20)
-        self.request.session["django_two_factor-hex"] = key
-        rawkey = unhexlify(key.encode("ascii"))
-        b32key = b32encode(rawkey).decode("utf-8")
-        self.request.session["django_two_factor-qr_secret_key"] = b32key
-        return Response({"success": True})
-
-    @action(methods=["POST"], detail=True)
-    def validate_2fa(self, request, **kwargs):
-        form = TOTPDeviceForm(
-            request.session["django_two_factor-hex"],
-            request.user,
-            data={"token": request.data["token"]},
-        )
-        if not form.is_valid():
-            raise serializers.ValidationError("Token is not valid", code="token_invalid")
-        form.save()
-        otp_login(request, default_device(request.user))
-        return Response({"success": True})
-
-    @action(methods=["POST"], detail=True, permission_classes=[AllowAny])
+    @action(methods=["POST"], detail=False, permission_classes=[AllowAny])
     def verify_email(self, request, **kwargs):
         token = request.data["token"] if "token" in request.data else None
         user_uuid = request.data["uuid"]
+
         if not token:
             raise serializers.ValidationError({"token": ["This field is required."]}, code="required")
 
@@ -441,7 +456,7 @@ class UserViewSet(
 
     @action(
         methods=["POST"],
-        detail=True,
+        detail=False,
         permission_classes=[AllowAny],
         throttle_classes=[UserEmailVerificationThrottle],
     )
@@ -486,6 +501,93 @@ class UserViewSet(
             instance.hedgehog_config = request.data
             instance.save()
             return Response(instance.hedgehog_config)
+
+    # Deprecated - use two_factor_start_setup instead
+    @action(methods=["GET"], detail=True)
+    def start_2fa_setup(self, request, **kwargs):
+        return self.two_factor_start_setup(request, **kwargs)
+
+    @action(methods=["GET"], detail=True)
+    def two_factor_start_setup(self, request, **kwargs):
+        key = random_hex(20)
+        self.request.session["django_two_factor-hex"] = key
+        rawkey = unhexlify(key.encode("ascii"))
+        b32key = b32encode(rawkey).decode("utf-8")
+        self.request.session["django_two_factor-qr_secret_key"] = b32key
+        return Response({"success": True})
+
+    # Deprecated - use two_factor_validate instead
+    @action(methods=["POST"], detail=True)
+    def validate_2fa(self, request, **kwargs):
+        return self.two_factor_validate(request, **kwargs)
+
+    @action(methods=["POST"], detail=True)
+    def two_factor_validate(self, request, **kwargs):
+        form = TOTPDeviceForm(
+            request.session["django_two_factor-hex"],
+            request.user,
+            data={"token": request.data["token"]},
+        )
+        if not form.is_valid():
+            raise serializers.ValidationError("Token is not valid", code="token_invalid")
+        form.save()
+        otp_login(request, default_device(request.user))
+        return Response({"success": True})
+
+    @action(methods=["GET"], detail=True)
+    def two_factor_status(self, request, **kwargs):
+        """Get current 2FA status including backup codes if enabled"""
+        user = self.get_object()
+        totp_device = TOTPDevice.objects.filter(user=user).first()
+        static_device = StaticDevice.objects.filter(user=user).first()
+
+        backup_codes = []
+        if static_device:
+            backup_codes = [token.token for token in static_device.token_set.all()]
+
+        return Response(
+            {
+                "is_enabled": default_device(user) is not None,
+                "backup_codes": backup_codes if totp_device else [],
+                "method": "TOTP" if totp_device else None,
+            }
+        )
+
+    @action(methods=["POST"], detail=True)
+    def two_factor_backup_codes(self, request, **kwargs):
+        """Generate new backup codes, invalidating any existing ones"""
+        user = self.get_object()
+
+        # Ensure user has 2FA enabled
+        if not default_device(user):
+            raise serializers.ValidationError("2FA must be enabled first", code="2fa_not_enabled")
+
+        # Remove existing backup codes
+        static_device = StaticDevice.objects.filter(user=user).first()
+        if static_device:
+            static_device.token_set.all().delete()
+        else:
+            static_device = StaticDevice.objects.create(user=user, name="Backup Codes")
+
+        # Generate new backup codes
+        backup_codes = []
+        for _ in range(5):  # Generate 5 backup codes
+            token = StaticToken.random_token()
+            static_device.token_set.create(token=token)
+            backup_codes.append(token)
+
+        return Response({"backup_codes": backup_codes})
+
+    @action(methods=["POST"], detail=True)
+    def two_factor_disable(self, request, **kwargs):
+        """Disable 2FA and remove all related devices"""
+        user = self.get_object()
+
+        # Remove all 2FA devices
+        TOTPDevice.objects.filter(user=user).delete()
+        StaticDevice.objects.filter(user=user).delete()
+
+        return Response({"success": True})
 
 
 @authenticate_secondarily

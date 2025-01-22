@@ -3,7 +3,7 @@ import LRU from 'lru-cache'
 
 import { ONE_MINUTE } from '../../config/constants'
 import { TeamIDWithConfig } from '../../main/ingestion-queues/session-recording/session-recordings-consumer'
-import { PipelineEvent, PluginsServerConfig, Team, TeamId } from '../../types'
+import { PipelineEvent, PluginsServerConfig, ProjectId, Team, TeamId } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
 import { posthog } from '../../utils/posthog'
@@ -170,7 +170,9 @@ export async function fetchTeam(client: PostgresRouter, teamId: Team['id']): Pro
                 heatmaps_opt_in,
                 ingested_event,
                 person_display_name_properties,
-                test_account_filters
+                test_account_filters,
+                cookieless_server_hash_mode,
+                timezone
             FROM posthog_team
             WHERE id = $1
             `,
@@ -182,7 +184,7 @@ export async function fetchTeam(client: PostgresRouter, teamId: Team['id']): Pro
     }
     // pg returns int8 as a string, since it can be larger than JS's max safe integer,
     // but this is not a problem for project_id, which is a long long way from that limit.
-    selectResult.rows[0].project_id = parseInt(selectResult.rows[0].project_id as unknown as string)
+    selectResult.rows[0].project_id = Number(selectResult.rows[0].project_id) as ProjectId
     return selectResult.rows[0]
 }
 
@@ -203,7 +205,10 @@ export async function fetchTeamByToken(client: PostgresRouter, token: string): P
                 person_processing_opt_out,
                 heatmaps_opt_in,
                 ingested_event,
-                test_account_filters
+                person_display_name_properties,
+                test_account_filters,
+                cookieless_server_hash_mode,
+                timezone
             FROM posthog_team
             WHERE api_token = $1
             LIMIT 1
@@ -216,7 +221,7 @@ export async function fetchTeamByToken(client: PostgresRouter, token: string): P
     }
     // pg returns int8 as a string, since it can be larger than JS's max safe integer,
     // but this is not a problem for project_id, which is a long long way from that limit.
-    selectResult.rows[0].project_id = parseInt(selectResult.rows[0].project_id as unknown as string)
+    selectResult.rows[0].project_id = Number(selectResult.rows[0].project_id) as ProjectId
     return selectResult.rows[0]
 }
 

@@ -9,7 +9,7 @@ use cymbal::{
         sourcemap::SourcemapProvider,
         Catalog,
     },
-    types::{ErrProps, Stacktrace},
+    types::{RawErrProps, Stacktrace},
 };
 use httpmock::MockServer;
 use tokio::sync::Mutex;
@@ -35,10 +35,10 @@ async fn end_to_end_resolver_test() {
     });
 
     let exception: ClickHouseEvent = serde_json::from_str(EXAMPLE_EXCEPTION).unwrap();
-    let props: ErrProps = serde_json::from_str(&exception.properties.unwrap()).unwrap();
+    let mut props: RawErrProps = serde_json::from_str(&exception.properties.unwrap()).unwrap();
     let Stacktrace::Raw {
         frames: mut test_stack,
-    } = props.exception_list.unwrap().swap_remove(0).stack.unwrap()
+    } = props.exception_list.swap_remove(0).stack.unwrap()
     else {
         panic!("Expected a Raw stacktrace")
     };
@@ -46,12 +46,16 @@ async fn end_to_end_resolver_test() {
     // We're going to pretend out stack consists exclusively of JS frames whose source
     // we have locally
     test_stack.retain(|s| {
-        let RawFrame::JavaScript(s) = s;
+        let RawFrame::JavaScript(s) = s else {
+            panic!("Expected a JavaScript frame")
+        };
         s.source_url.as_ref().unwrap().contains(CHUNK_PATH)
     });
 
     for frame in test_stack.iter_mut() {
-        let RawFrame::JavaScript(frame) = frame;
+        let RawFrame::JavaScript(frame) = frame else {
+            panic!("Expected a JavaScript frame")
+        };
         // Our test data contains our /actual/ source urls - we need to swap that to localhost
         // When I first wrote this test, I forgot to do this, and it took me a while to figure out
         // why the test was passing before I'd even set up the mockserver - which was pretty cool, tbh

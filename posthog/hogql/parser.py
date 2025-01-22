@@ -338,12 +338,18 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         for subsequent in ctx.subsequentSelectSetClause():
             if subsequent.UNION() and subsequent.ALL():
                 union_type = "UNION ALL"
+            elif subsequent.UNION() and subsequent.DISTINCT():
+                union_type = "UNION DISTINCT"
+            elif subsequent.INTERSECT() and subsequent.DISTINCT():
+                union_type = "INTERSECT DISTINCT"
             elif subsequent.INTERSECT():
                 union_type = "INTERSECT"
             elif subsequent.EXCEPT():
                 union_type = "EXCEPT"
             else:
-                raise SyntaxError("Set operator must be one of UNION ALL, INTERSECT, and EXCEPT")
+                raise SyntaxError(
+                    "Set operator must be one of UNION ALL, UNION DISTINCT, INTERSECT, INTERSECT DISTINCT, and EXCEPT"
+                )
             select_query = self.visit(subsequent.selectStmtWithParens())
             select_queries.append(
                 SelectSetNode(select_query=select_query, set_operator=cast(ast.SetOperator, union_type))
@@ -801,6 +807,39 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             raise NotImplementedError(f"Unsupported interval type: {ctx.interval().getText()}")
 
         return ast.Call(name=name, args=[self.visit(ctx.columnExpr())])
+
+    def visitColumnExprIntervalString(self, ctx: HogQLParser.ColumnExprIntervalStringContext):
+        if ctx.STRING_LITERAL():
+            text = parse_string_literal_ctx(ctx.STRING_LITERAL())
+        else:
+            raise NotImplementedError(f"Unsupported interval type: {ctx.STRING_LITERAL()}")
+
+        count, unit = text.split(" ")
+        if count.isdigit():
+            int_count = int(count)
+        else:
+            raise NotImplementedError(f"Unsupported interval count: {count}")
+
+        if unit == "second" or unit == "seconds":
+            name = "toIntervalSecond"
+        elif unit == "minute" or unit == "minutes":
+            name = "toIntervalMinute"
+        elif unit == "hour" or unit == "hours":
+            name = "toIntervalHour"
+        elif unit == "day" or unit == "days":
+            name = "toIntervalDay"
+        elif unit == "week" or unit == "weeks":
+            name = "toIntervalWeek"
+        elif unit == "month" or unit == "months":
+            name = "toIntervalMonth"
+        elif unit == "quarter" or unit == "quarters":
+            name = "toIntervalQuarter"
+        elif unit == "year" or unit == "years":
+            name = "toIntervalYear"
+        else:
+            raise NotImplementedError(f"Unsupported interval unit: {unit}")
+
+        return ast.Call(name=name, args=[ast.Constant(value=int_count)])
 
     def visitColumnExprIsNull(self, ctx: HogQLParser.ColumnExprIsNullContext):
         return ast.CompareOperation(

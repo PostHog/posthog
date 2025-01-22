@@ -106,7 +106,7 @@ export const useHogfetti = (options: HogfettiOptions = {}): HogfettiHook => {
 
     const trigger = useCallback((): void => {
         const centerX = Math.random() * dimensions.width
-        const centerY = Math.random() * dimensions.height
+        const centerY = Math.random() * dimensions.height * 0.5
 
         const newParticles = Array.from({ length: count }, () => createParticle(centerX, centerY))
         setParticleSets((prev) => [...prev, newParticles])

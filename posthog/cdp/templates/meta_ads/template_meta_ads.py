@@ -1,7 +1,7 @@
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="alpha",
+    status="beta",
     type="destination",
     id="template-meta-ads",
     name="Meta Ads Conversions",
@@ -15,16 +15,22 @@ let body := {
             'event_name': inputs.eventName,
             'event_time': inputs.eventTime,
             'action_source': inputs.actionSource,
-            'user_data': {}
+            'user_data': {},
+            'custom_data': {}
         }
     ],
     'access_token': inputs.accessToken
 }
 
 for (let key, value in inputs.userData) {
-    // e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 is an empty string hashed
-    if (not empty(value) and value != 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855') {
+    if (not empty(value)) {
         body.data.1.user_data[key] := value
+    }
+}
+
+for (let key, value in inputs.customData) {
+    if (not empty(value)) {
+        body.data.1.custom_data[key] := value
     }
 }
 
@@ -127,10 +133,19 @@ if (res.status >= 400) {
             "label": "User data",
             "description": "A map that contains customer information data. See this page for options: https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/customer-information-parameters",
             "default": {
-                "em": "{sha256Hex(person.properties.email ?? '')}",
-                "fn": "{sha256Hex(person.properties.first_name ?? '')}",
-                "ln": "{sha256Hex(person.properties.last_name ?? '')}",
+                "em": "{sha256Hex(person.properties.email)}",
+                "fn": "{sha256Hex(person.properties.first_name)}",
+                "ln": "{sha256Hex(person.properties.last_name)}",
             },
+            "secret": False,
+            "required": True,
+        },
+        {
+            "key": "customData",
+            "type": "dictionary",
+            "label": "Custom data",
+            "description": "A map that contains custom data. See this page for options: https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/custom-data",
+            "default": {"currency": "USD", "price": "{event.properties.price}"},
             "secret": False,
             "required": True,
         },

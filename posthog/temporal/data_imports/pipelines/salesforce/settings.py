@@ -12,6 +12,7 @@ INCREMENTAL_ENDPOINTS = (
     "Pricebook2",
     "PricebookEntry",
     "Order",
+    "Opportunity",
 )
 
 ENDPOINTS = [
@@ -84,6 +85,14 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
         }
     ],
     "Order": [
+        {
+            "label": "SystemModstamp",
+            "type": IncrementalFieldType.DateTime,
+            "field": "SystemModstamp",
+            "field_type": IncrementalFieldType.DateTime,
+        }
+    ],
+    "Opportunity": [
         {
             "label": "SystemModstamp",
             "type": IncrementalFieldType.DateTime,

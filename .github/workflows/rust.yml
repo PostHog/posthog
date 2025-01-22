@@ -13,7 +13,7 @@ jobs:
     # Job to decide if we should run rust ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog'
         name: Determine need to run Rust checks

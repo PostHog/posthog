@@ -1,8 +1,11 @@
+import decimal
+import json
+import math
 from typing import Any, Optional
 from collections.abc import Sequence
 
 from dlt.common.schema.typing import TTableSchemaColumns
-from dlt.common import logger, json
+from dlt.common import logger, json as orjson
 from dlt.common.configuration import with_config
 from dlt.common.destination import DestinationCapabilitiesContext
 from dlt.common.json import custom_encode, map_nested_in_place
@@ -91,8 +94,13 @@ def row_tuples_to_arrow(rows: Sequence[RowAny], columns: TTableSchemaColumns, tz
             logger.warning(
                 f"Field {field.name} was reflected as JSON type and needs to be serialized back to string to be placed in arrow table. This will slow data extraction down. You should cast JSON field to STRING in your database system ie. by creating and extracting an SQL VIEW that selects with cast."
             )
-            json_str_array = pa.array([None if s is None else json.dumps(s) for s in columnar_known_types[field.name]])
+            json_str_array = pa.array([None if s is None else json_dumps(s) for s in columnar_known_types[field.name]])
             columnar_known_types[field.name] = json_str_array
+        if issubclass(py_type, decimal.Decimal):
+            # Remove any NaN values from decimal columns
+            columnar_known_types[field.name] = np.array(
+                [None if x is not None and math.isnan(x) else x for x in columnar_known_types[field.name]]
+            )
 
     # If there are unknown type columns, first create a table to infer their types
     if columnar_unknown_types:
@@ -139,3 +147,12 @@ def row_tuples_to_arrow(rows: Sequence[RowAny], columns: TTableSchemaColumns, tz
         )
 
     return pa.Table.from_pydict(columnar_known_types, schema=arrow_schema)
+
+
+def json_dumps(obj: Any) -> str:
+    try:
+        return orjson.dumps(obj)
+    except TypeError as e:
+        if str(e) == "Integer exceeds 64-bit range":
+            return json.dumps(obj)
+        raise TypeError(e)

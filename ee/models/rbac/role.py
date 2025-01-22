@@ -5,6 +5,9 @@ from posthog.models.utils import UUIDModel
 
 
 class Role(UUIDModel):
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["organization", "name"], name="unique_role_name")]
+
     name = models.CharField(max_length=200)
     organization = models.ForeignKey(
         "posthog.Organization",
@@ -12,10 +15,7 @@ class Role(UUIDModel):
         related_name="roles",
         related_query_name="role",
     )
-    feature_flags_access_level = models.PositiveSmallIntegerField(
-        default=OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT,
-        choices=OrganizationResourceAccess.AccessLevel.choices,
-    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(
         "posthog.User",
@@ -25,11 +25,17 @@ class Role(UUIDModel):
         null=True,
     )
 
-    class Meta:
-        constraints = [models.UniqueConstraint(fields=["organization", "name"], name="unique_role_name")]
+    # TODO: Deprecate this field
+    feature_flags_access_level = models.PositiveSmallIntegerField(
+        default=OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT,
+        choices=OrganizationResourceAccess.AccessLevel.choices,
+    )
 
 
 class RoleMembership(UUIDModel):
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["role", "user"], name="unique_user_and_role")]
+
     role = models.ForeignKey(
         "Role",
         on_delete=models.CASCADE,
@@ -53,6 +59,3 @@ class RoleMembership(UUIDModel):
     )
     joined_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        constraints = [models.UniqueConstraint(fields=["role", "user"], name="unique_user_and_role")]

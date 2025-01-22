@@ -1,4 +1,5 @@
 import json
+from django.http import HttpRequest
 from rest_framework.decorators import action as drf_action
 from functools import wraps
 from posthog.api.documentation import extend_schema
@@ -312,7 +313,7 @@ def create_event_definitions_sql(
             SELECT {",".join(event_definition_fields)}
             FROM posthog_eventdefinition
             {enterprise_join}
-            WHERE team_id = %(project_id)s {conditions}
+            WHERE coalesce(project_id, team_id) = %(project_id)s {conditions}
             ORDER BY {additional_ordering}name ASC
         """
 
@@ -425,6 +426,25 @@ def hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]], hostname
 
 def parse_domain(url: Any) -> Optional[str]:
     return urlparse(url).hostname
+
+
+def on_permitted_recording_domain(permitted_domains: list[str], request: HttpRequest) -> bool:
+    origin = parse_domain(request.headers.get("Origin"))
+    referer = parse_domain(request.headers.get("Referer"))
+
+    user_agent = request.META.get("HTTP_USER_AGENT")
+
+    is_authorized_web_client: bool = hostname_in_allowed_url_list(
+        permitted_domains, origin
+    ) or hostname_in_allowed_url_list(permitted_domains, referer)
+    # TODO this is a short term fix for beta testers
+    # TODO we will match on the app identifier in the origin instead and allow users to auth those
+    is_authorized_mobile_client: bool = user_agent is not None and any(
+        keyword in user_agent
+        for keyword in ["posthog-android", "posthog-ios", "posthog-react-native", "posthog-flutter"]
+    )
+
+    return is_authorized_web_client or is_authorized_mobile_client
 
 
 # By default, DRF spectacular uses the serializer of the view as the response format for actions. However, most actions don't return a version of the model, but something custom. This function removes the response from all actions in the documentation.

@@ -3,7 +3,7 @@
   '''
   
   SELECT team_id,
-         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', JSONExtractString(properties, '$lib') = 'web', 'web_events', JSONExtractString(properties, '$lib') = 'posthog-node', 'node_events', JSONExtractString(properties, '$lib') = 'posthog-android', 'android_events', JSONExtractString(properties, '$lib') = 'posthog-flutter', 'flutter_events', JSONExtractString(properties, '$lib') = 'posthog-ios', 'ios_events', JSONExtractString(properties, '$lib') = 'posthog-go', 'go_events', JSONExtractString(properties, '$lib') = 'posthog-java', 'java_events', JSONExtractString(properties, '$lib') = 'posthog-react-native', 'react_native_events', JSONExtractString(properties, '$lib') = 'posthog-ruby', 'ruby_events', JSONExtractString(properties, '$lib') = 'posthog-python', 'python_events', JSONExtractString(properties, '$lib') = 'posthog-php', 'php_events', 'other') AS metric,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', 'other') AS metric,
          count(1) as count
   FROM events
   WHERE timestamp BETWEEN '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
@@ -37,7 +37,6 @@
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
-    AND query_type IN (['hogql_query', 'HogQLQuery'])
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND access_method = ''
   GROUP BY team_id
@@ -54,7 +53,6 @@
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
-    AND query_type IN (['hogql_query', 'HogQLQuery'])
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND access_method = 'personal_api_key'
   GROUP BY team_id
@@ -71,7 +69,6 @@
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
-    AND query_type IN (['hogql_query', 'HogQLQuery'])
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND access_method = 'personal_api_key'
   GROUP BY team_id
@@ -88,7 +85,6 @@
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
-    AND query_type IN (['hogql_query', 'HogQLQuery'])
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND access_method = 'personal_api_key'
   GROUP BY team_id
@@ -342,7 +338,6 @@
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
-    AND query_type IN (['hogql_query', 'HogQLQuery'])
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND access_method = ''
   GROUP BY team_id
@@ -359,7 +354,6 @@
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
-    AND query_type IN (['hogql_query', 'HogQLQuery'])
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND access_method = ''
   GROUP BY team_id

@@ -24,7 +24,7 @@ from posthog.batch_exports.models import (
     BatchExportDestination,
     BatchExportRun,
 )
-from posthog.constants import BATCH_EXPORTS_TASK_QUEUE
+from posthog.constants import BATCH_EXPORTS_TASK_QUEUE, SYNC_BATCH_EXPORTS_TASK_QUEUE
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
     a_pause_schedule,
@@ -79,6 +79,7 @@ class S3BatchExportInputs:
         region: The AWS region where the bucket is located.
         prefix: A prefix for the file name to be created in S3.
             For example, for one hour batches, this should be 3600.
+        max_file_size_mb: The maximum file size in MB for each file to be uploaded.
         data_interval_end: For manual runs, the end date of the batch. This should be set to `None` for regularly
             scheduled runs and for backfills.
     """
@@ -99,10 +100,15 @@ class S3BatchExportInputs:
     kms_key_id: str | None = None
     endpoint_url: str | None = None
     file_format: str = "JSONLines"
+    max_file_size_mb: int | None = None
     is_backfill: bool = False
     is_earliest_backfill: bool = False
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
+
+    def __post_init__(self):
+        if self.max_file_size_mb:
+            self.max_file_size_mb = int(self.max_file_size_mb)
 
 
 @dataclass
@@ -152,6 +158,14 @@ class PostgresBatchExportInputs:
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
 
+    def __post_init__(self):
+        if self.has_self_signed_cert == "True":  # type: ignore
+            self.has_self_signed_cert = True
+        elif self.has_self_signed_cert == "False":  # type: ignore
+            self.has_self_signed_cert = False
+
+        self.port = int(self.port)
+
 
 @dataclass
 class RedshiftBatchExportInputs(PostgresBatchExportInputs):
@@ -183,6 +197,12 @@ class BigQueryBatchExportInputs:
 
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
+
+    def __post_init__(self):
+        if self.use_json_type == "True":  # type: ignore
+            self.use_json_type = True
+        elif self.use_json_type == "False":  # type: ignore
+            self.use_json_type = False
 
 
 @dataclass
@@ -643,6 +663,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
 
     destination_config_fields = {field.name for field in fields(workflow_inputs)}
     destination_config = {k: v for k, v in batch_export.destination.config.items() if k in destination_config_fields}
+    task_queue = SYNC_BATCH_EXPORTS_TASK_QUEUE if batch_export.destination.type == "HTTP" else BATCH_EXPORTS_TASK_QUEUE
 
     temporal = sync_connect()
     schedule = Schedule(
@@ -667,7 +688,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
                 )
             ),
             id=str(batch_export.id),
-            task_queue=BATCH_EXPORTS_TASK_QUEUE,
+            task_queue=task_queue,
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),
@@ -679,7 +700,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
             start_at=batch_export.start_at,
             end_at=batch_export.end_at,
             intervals=[ScheduleIntervalSpec(every=batch_export.interval_time_delta)],
-            jitter=(batch_export.interval_time_delta / 12),
+            jitter=max(dt.timedelta(minutes=1), (batch_export.interval_time_delta / 6)),
             time_zone_name=batch_export.team.timezone,
         ),
         state=state,
@@ -786,3 +807,43 @@ async def aupdate_batch_export_backfill_status(backfill_id: UUID, status: str) -
         raise ValueError(f"BatchExportBackfill with id {backfill_id} not found.")
 
     return await model.aget()
+
+
+async def aupdate_records_total_count(
+    batch_export_id: UUID, interval_start: dt.datetime, interval_end: dt.datetime, count: int
+) -> int:
+    """Update the expected records count for a set of batch export runs.
+
+    Typically, there is one batch export run per batch export interval, however
+    there could be multiple if data has been backfilled.
+    """
+    rows_updated = await BatchExportRun.objects.filter(
+        batch_export_id=batch_export_id,
+        data_interval_start=interval_start,
+        data_interval_end=interval_end,
+    ).aupdate(records_total_count=count)
+    return rows_updated
+
+
+async def afetch_batch_export_runs_in_range(
+    batch_export_id: UUID,
+    interval_start: dt.datetime,
+    interval_end: dt.datetime,
+) -> list[BatchExportRun]:
+    """Async fetch all BatchExportRuns for a given batch export within a time interval.
+
+    Arguments:
+        batch_export_id: The UUID of the BatchExport to fetch runs for.
+        interval_start: The start of the time interval to fetch runs from.
+        interval_end: The end of the time interval to fetch runs until.
+
+    Returns:
+        A list of BatchExportRun objects within the given interval, ordered by data_interval_start.
+    """
+    queryset = BatchExportRun.objects.filter(
+        batch_export_id=batch_export_id,
+        data_interval_start__gte=interval_start,
+        data_interval_end__lte=interval_end,
+    ).order_by("data_interval_start")
+
+    return [run async for run in queryset]

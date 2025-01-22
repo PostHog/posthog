@@ -9,7 +9,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import FeatureFlag
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import sort_cohorts_topologically
-from posthog.models.early_access_feature import EarlyAccessFeature
+from products.early_access_features.backend.models import EarlyAccessFeature
 from posthog.models.experiment import Experiment
 from posthog.models.feedback.survey import Survey
 from posthog.models.team.team import Team
@@ -115,10 +115,10 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,
             "rollout_percentage": self.rollout_percentage_to_copy,
             "deleted": False,
-            "created_by": self.user.id,
-            "id": "__ignore__",
-            "created_at": "__ignore__",
-            "usage_dashboard": "__ignore__",
+            "created_by": ANY,
+            "id": ANY,
+            "created_at": ANY,
+            "usage_dashboard": ANY,
             "is_simple_flag": True,
             "experiment_set": [],
             "surveys": [],
@@ -129,22 +129,13 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "analytics_dashboards": [],
             "has_enriched_analytics": False,
             "tags": [],
+            "user_access_level": "editor",
         }
 
         flag_response = response.json()["success"][0]
 
-        for key, expected_value in expected_flag_response.items():
-            self.assertIn(key, flag_response)
-            if expected_value != "__ignore__":
-                if key == "created_by":
-                    self.assertEqual(flag_response[key]["id"], expected_value)
-                else:
-                    self.assertEqual(flag_response[key], expected_value)
-
-        self.assertSetEqual(
-            set(expected_flag_response.keys()),
-            set(flag_response.keys()),
-        )
+        assert flag_response == expected_flag_response
+        assert flag_response["created_by"]["id"] == self.user.id
 
     def test_copy_feature_flag_update_existing(self):
         target_project = self.team_2
@@ -201,43 +192,34 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,
             "rollout_percentage": self.rollout_percentage_to_copy,
             "deleted": False,
-            "created_by": self.user.id,
+            "created_by": ANY,
             "is_simple_flag": True,
             "rollback_conditions": None,
             "performed_rollback": False,
             "can_edit": True,
             "has_enriched_analytics": False,
             "tags": [],
-            "id": "__ignore__",
-            "created_at": "__ignore__",
-            "usage_dashboard": "__ignore__",
-            "experiment_set": "__ignore__",
-            "surveys": "__ignore__",
-            "features": "__ignore__",
-            "analytics_dashboards": "__ignore__",
+            "id": ANY,
+            "created_at": ANY,
+            "usage_dashboard": ANY,
+            "experiment_set": ANY,
+            "surveys": ANY,
+            "features": ANY,
+            "analytics_dashboards": ANY,
+            "user_access_level": "editor",
         }
 
         flag_response = response.json()["success"][0]
 
-        for key, expected_value in expected_flag_response.items():
-            self.assertIn(key, flag_response)
-            if expected_value != "__ignore__":
-                if key == "created_by":
-                    self.assertEqual(flag_response[key]["id"], expected_value)
-                else:
-                    self.assertEqual(flag_response[key], expected_value)
+        assert flag_response == expected_flag_response
 
         # Linked instances must remain linked
-        self.assertEqual(experiment.id, flag_response["experiment_set"][0])
-        self.assertEqual(str(survey.id), flag_response["surveys"][0]["id"])
-        self.assertEqual(str(feature.id), flag_response["features"][0]["id"])
-        self.assertEqual(analytics_dashboard.id, flag_response["analytics_dashboards"][0])
-        self.assertEqual(usage_dashboard.id, flag_response["usage_dashboard"])
-
-        self.assertSetEqual(
-            set(expected_flag_response.keys()),
-            set(flag_response.keys()),
-        )
+        assert flag_response["created_by"]["id"] == self.user.id
+        assert experiment.id == flag_response["experiment_set"][0]
+        assert str(survey.id) == flag_response["surveys"][0]["id"]
+        assert str(feature.id) == flag_response["features"][0]["id"]
+        assert analytics_dashboard.id == flag_response["analytics_dashboards"][0]
+        assert usage_dashboard.id == flag_response["usage_dashboard"]
 
     def test_copy_feature_flag_with_old_legacy_flags(self):
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
@@ -331,41 +313,32 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,
             "rollout_percentage": self.rollout_percentage_to_copy,
             "deleted": False,
-            "created_by": self.user.id,
+            "created_by": ANY,
             "is_simple_flag": True,
             "rollback_conditions": None,
             "performed_rollback": False,
             "can_edit": True,
             "has_enriched_analytics": False,
             "tags": [],
-            "id": "__ignore__",
-            "created_at": "__ignore__",
-            "usage_dashboard": "__ignore__",
-            "experiment_set": "__ignore__",
-            "surveys": "__ignore__",
-            "features": "__ignore__",
-            "analytics_dashboards": "__ignore__",
+            "id": ANY,
+            "created_at": ANY,
+            "usage_dashboard": ANY,
+            "experiment_set": ANY,
+            "surveys": ANY,
+            "features": ANY,
+            "analytics_dashboards": ANY,
+            "user_access_level": "editor",
         }
         flag_response = response.json()["success"][0]
 
-        for key, expected_value in expected_flag_response.items():
-            self.assertIn(key, flag_response)
-            if expected_value != "__ignore__":
-                if key == "created_by":
-                    self.assertEqual(flag_response[key]["id"], expected_value)
-                else:
-                    self.assertEqual(flag_response[key], expected_value)
+        assert flag_response == expected_flag_response
+        assert flag_response["created_by"]["id"] == self.user.id
 
-        # Linked instances must be overriden for a soft-deleted flag
+        # Linked instances must be overridden for a soft-deleted flag
         self.assertEqual(flag_response["experiment_set"], [])
         self.assertEqual(flag_response["surveys"], [])
         self.assertNotEqual(flag_response["usage_dashboard"], existing_deleted_flag.usage_dashboard.id)
         self.assertEqual(flag_response["analytics_dashboards"], [])
-
-        self.assertSetEqual(
-            set(expected_flag_response.keys()),
-            set(flag_response.keys()),
-        )
 
         # target_project_2 should have failed
         self.assertEqual(len(response.json()["failed"]), 1)

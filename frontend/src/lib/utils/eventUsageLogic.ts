@@ -14,14 +14,18 @@ import { TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { isCoreFilter, PROPERTY_KEYS } from 'lib/taxonomy'
 import { objectClean } from 'lib/utils'
 import posthog from 'posthog-js'
+import { Holdout } from 'scenes/experiments/holdoutsLogic'
+import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
 import { isFilterWithDisplay, isFunnelsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { EventIndex } from 'scenes/session-recordings/player/eventIndex'
+import { MiniFilterKey } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
+import { InspectorListItemType } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { filtersFromUniversalFilterGroups } from 'scenes/session-recordings/utils'
 import { NewSurvey, SurveyTemplateType } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
 
-import { Node } from '~/queries/schema'
+import { ExperimentFunnelsQuery, ExperimentTrendsQuery, Node } from '~/queries/schema'
 import {
     getBreakdown,
     getCompareFilter,
@@ -62,7 +66,6 @@ import {
     RecordingUniversalFilters,
     Resource,
     SessionPlayerData,
-    SessionRecordingPlayerTab,
     SessionRecordingType,
     SessionRecordingUsageType,
     Survey,
@@ -154,7 +157,7 @@ function usedCohortFilterIds(properties: AnyPropertyFilter[] | PropertyGroupFilt
     const cohortIds = flattenedProperties
         .filter((p) => p.type === 'cohort')
         .map((p) => p.value)
-        .filter((a) => !!a) as number[]
+        .filter((a): a is number => !!a)
 
     return cohortIds || []
 }
@@ -335,6 +338,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 type?: EntityType
             }>
         ) => ({ filters }),
+        reportInsightWhitelabelToggled: (isWhiteLabelled: boolean) => ({ isWhiteLabelled }),
         reportEntityFilterVisibilitySet: (index: number, visible: boolean) => ({ index, visible }),
         reportInsightsTableCalcToggled: (mode: string) => ({ mode }),
         reportPropertyGroupFilterAdded: true,
@@ -397,6 +401,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             newLength: number
         ) => ({ attribute, originalLength, newLength }),
         reportDashboardShareToggled: (isShared: boolean) => ({ isShared }),
+        reportDashboardWhitelabelToggled: (isWhiteLabelled: boolean) => ({ isWhiteLabelled }),
         reportUpgradeModalShown: (featureName: string) => ({ featureName }),
         reportTimezoneComponentViewed: (
             component: 'label' | 'indicator',
@@ -408,6 +413,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportPersonsJoinModeUpdated: (mode: string) => ({ mode }),
         reportBounceRatePageViewModeUpdated: (mode: string) => ({ mode }),
         reportSessionTableVersionUpdated: (version: string) => ({ version }),
+        reportCustomChannelTypeRulesUpdated: (numRules: number) => ({ numRules }),
         reportPropertySelectOpened: true,
         reportCreatedDashboardFromModal: true,
         reportSavedInsightToDashboard: true,
@@ -438,13 +444,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportRecordingsListPropertiesFetched: (loadTime: number) => ({ loadTime }),
         reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => ({ filterType }),
         reportRecordingPlayerSeekbarEventHovered: true,
-        reportRecordingPlayerSpeedChanged: (newSpeed: number) => ({ newSpeed }),
-        reportRecordingPlayerSkipInactivityToggled: (skipInactivity: boolean) => ({ skipInactivity }),
-        reportRecordingInspectorTabViewed: (tab: SessionRecordingPlayerTab) => ({ tab }),
-        reportRecordingInspectorItemExpanded: (tab: SessionRecordingPlayerTab, index: number) => ({ tab, index }),
-        reportRecordingInspectorMiniFilterViewed: (tab: SessionRecordingPlayerTab, minifilterKey: string) => ({
-            tab,
+        reportRecordingInspectorItemExpanded: (tab: InspectorListItemType, index: number) => ({ tab, index }),
+        reportRecordingInspectorMiniFilterViewed: (minifilterKey: MiniFilterKey, enabled: boolean) => ({
             minifilterKey,
+            enabled,
         }),
         reportNextRecordingTriggered: (automatic: boolean) => ({
             automatic,
@@ -485,7 +488,30 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportExperimentResultsLoadingTimeout: (experimentId: ExperimentIdType) => ({ experimentId }),
         reportExperimentReleaseConditionsViewed: (experimentId: ExperimentIdType) => ({ experimentId }),
         reportExperimentReleaseConditionsUpdated: (experimentId: ExperimentIdType) => ({ experimentId }),
-
+        reportExperimentHoldoutCreated: (holdout: Holdout) => ({ holdout }),
+        reportExperimentHoldoutAssigned: ({
+            experimentId,
+            holdoutId,
+        }: {
+            experimentId: ExperimentIdType
+            holdoutId: Holdout['id']
+        }) => ({ experimentId, holdoutId }),
+        reportExperimentSharedMetricCreated: (sharedMetric: SharedMetric) => ({ sharedMetric }),
+        reportExperimentSharedMetricAssigned: (experimentId: ExperimentIdType, sharedMetric: SharedMetric) => ({
+            experimentId,
+            sharedMetric,
+        }),
+        reportExperimentDashboardCreated: (experiment: Experiment, dashboardId: number) => ({
+            experiment,
+            dashboardId,
+        }),
+        reportExperimentMetricTimeout: (
+            experimentId: ExperimentIdType,
+            metric: ExperimentTrendsQuery | ExperimentFunnelsQuery
+        ) => ({
+            experimentId,
+            metric,
+        }),
         // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
@@ -638,10 +664,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             // "insight created" essentially means that the user clicked "New insight"
             await breakpoint(500) // Debounce to avoid multiple quick "New insight" clicks being reported
 
-            posthog.capture('insight created', {
-                query_kind: query?.kind,
-                query_source_kind: isNodeWithSource(query) ? query.source.kind : undefined,
-            })
+            posthog.capture('insight created', sanitizeQuery(query))
         },
         reportInsightSaved: async ({ query, isNewInsight }) => {
             // "insight saved" is a proxy for the new insight's results being valuable to the user
@@ -783,6 +806,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportDashboardShareToggled: async ({ isShared }) => {
             posthog.capture(`dashboard share toggled`, { is_shared: isShared })
         },
+        reportDashboardWhitelabelToggled: async ({ isWhiteLabelled }) => {
+            posthog.capture(`dashboard whitelabel toggled`, { is_whitelabelled: isWhiteLabelled })
+        },
         reportUpgradeModalShown: async (payload) => {
             posthog.capture('upgrade modal shown', payload)
         },
@@ -810,6 +836,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSessionTableVersionUpdated: async ({ version }) => {
             posthog.capture('session table version updated', { version })
         },
+        reportCustomChannelTypeRulesUpdated: async ({ numRules }) => {
+            posthog.capture('custom channel type rules updated', { numRules })
+        },
         reportInsightFilterRemoved: async ({ index }) => {
             posthog.capture('local filter removed', { index })
         },
@@ -818,6 +847,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportInsightFilterSet: async ({ filters }) => {
             posthog.capture('filters set', { filters })
+        },
+        reportInsightWhitelabelToggled: async ({ isWhiteLabelled }) => {
+            posthog.capture(`insight whitelabel toggled`, { is_whitelabelled: isWhiteLabelled })
         },
         reportEntityFilterVisibilitySet: async ({ index, visible }) => {
             posthog.capture('entity filter visbility set', { index, visible })
@@ -935,20 +967,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportRecordingPlayerSeekbarEventHovered: () => {
             posthog.capture('recording player seekbar event hovered')
         },
-        reportRecordingPlayerSpeedChanged: ({ newSpeed }) => {
-            posthog.capture('recording player speed changed', { new_speed: newSpeed })
-        },
-        reportRecordingPlayerSkipInactivityToggled: ({ skipInactivity }) => {
-            posthog.capture('recording player skip inactivity toggled', { skip_inactivity: skipInactivity })
-        },
-        reportRecordingInspectorTabViewed: ({ tab }) => {
-            posthog.capture('recording inspector tab viewed', { tab })
-        },
         reportRecordingInspectorItemExpanded: ({ tab, index }) => {
-            posthog.capture('recording inspector item expanded', { tab, index })
+            posthog.capture('recording inspector item expanded', { tab: 'replay-4000', type: tab, index })
         },
-        reportRecordingInspectorMiniFilterViewed: ({ tab, minifilterKey }) => {
-            posthog.capture('recording inspector minifilter selected', { tab, minifilterKey })
+        reportRecordingInspectorMiniFilterViewed: ({ minifilterKey, enabled }) => {
+            posthog.capture('recording inspector minifilter selected', { tab: 'replay-4000', enabled, minifilterKey })
         },
         reportNextRecordingTriggered: ({ automatic }) => {
             posthog.capture('recording next recording triggered', { automatic })
@@ -988,6 +1011,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('experiment created', {
                 name: experiment.name,
                 id: experiment.id,
+                type: experiment.type,
                 filters: sanitizeFilterParams(experiment.filters),
                 parameters: experiment.parameters,
                 secondary_metrics_count: experiment.secondary_metrics.length,
@@ -1076,6 +1100,44 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('experiment release conditions updated', {
                 experiment_id: experimentId,
             })
+        },
+        reportExperimentHoldoutCreated: ({ holdout }) => {
+            posthog.capture('experiment holdout created', {
+                name: holdout.name,
+                holdout_id: holdout.id,
+                filters: holdout.filters,
+            })
+        },
+        reportExperimentHoldoutAssigned: ({ experimentId, holdoutId }) => {
+            posthog.capture('experiment holdout assigned', {
+                experiment_id: experimentId,
+                holdout_id: holdoutId,
+            })
+        },
+        reportExperimentSharedMetricCreated: ({ sharedMetric }) => {
+            posthog.capture('experiment shared metric created', {
+                name: sharedMetric.name,
+                id: sharedMetric.id,
+                kind: sharedMetric.query.kind,
+            })
+        },
+        reportExperimentSharedMetricAssigned: ({ experimentId, sharedMetric }) => {
+            posthog.capture('experiment shared metric assigned', {
+                experiment_id: experimentId,
+                shared_metric_name: sharedMetric.name,
+                shared_metric_id: sharedMetric.id,
+                shared_metric_kind: sharedMetric.query.kind,
+            })
+        },
+        reportExperimentDashboardCreated: ({ experiment, dashboardId }) => {
+            posthog.capture('experiment dashboard created', {
+                experiment_name: experiment.name,
+                experiment_id: experiment.id,
+                dashboard_id: dashboardId,
+            })
+        },
+        reportExperimentMetricTimeout: ({ experimentId, metric }) => {
+            posthog.capture('experiment metric timeout', { experiment_id: experimentId, metric })
         },
         reportPropertyGroupFilterAdded: () => {
             posthog.capture('property group filter added')

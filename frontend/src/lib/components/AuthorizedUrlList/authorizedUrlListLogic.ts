@@ -22,7 +22,7 @@ import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema'
+import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { ExperimentIdType, ToolbarParams, ToolbarUserIntent } from '~/types'
 
@@ -49,9 +49,9 @@ export function sanitizePossibleWildCardedURL(url: string): URL {
 }
 
 /**
- * Checks if the URL has a wildcard (*) in the port position eg http://localhost:*
+ * Checks if the URL has a wildcard (*) in the port position e.g. http://localhost:*
  */
-export function hasPortWildcard(input: string): boolean {
+export function hasPortWildcard(input: unknown): boolean {
     if (!input || typeof input !== 'string') {
         return false
     }
@@ -139,19 +139,27 @@ export const checkUrlIsAuthorized = (url: string | URL, authorizedUrls: string[]
     return false
 }
 
-export const filterNotAuthorizedUrls = (urls: string[], authorizedUrls: string[]): string[] => {
-    const suggestedDomains: string[] = []
+export interface SuggestedDomain {
+    url: string
+    count: number
+}
 
-    urls.forEach((url) => {
+export const filterNotAuthorizedUrls = (
+    suggestions: SuggestedDomain[],
+    authorizedUrls: string[]
+): SuggestedDomain[] => {
+    const suggestedDomains: SuggestedDomain[] = []
+
+    suggestions.forEach(({ url, count }) => {
         const parsedUrl = sanitizePossibleWildCardedURL(url)
         const urlWithoutPath = parsedUrl.protocol + '//' + parsedUrl.host
         // Have we already added this domain?
-        if (suggestedDomains.indexOf(urlWithoutPath) > -1) {
+        if (suggestedDomains.some((sd) => sd.url === urlWithoutPath)) {
             return
         }
 
         if (!checkUrlIsAuthorized(parsedUrl, authorizedUrls)) {
-            suggestedDomains.push(urlWithoutPath)
+            suggestedDomains.push({ url: urlWithoutPath, count })
         }
     })
 
@@ -164,6 +172,8 @@ export interface KeyedAppUrl {
     url: string
     type: 'authorized' | 'suggestion'
     originalIndex: number
+    // how many seen in the last three days
+    count?: number
 }
 
 export interface AuthorizedUrlListLogicProps {
@@ -200,7 +210,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
     })),
     loaders(({ values }) => ({
         suggestions: {
-            __default: [] as string[],
+            __default: [] as SuggestedDomain[],
             loadSuggestions: async () => {
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
@@ -222,7 +232,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                 }
 
                 const suggestedDomains = filterNotAuthorizedUrls(
-                    result.map(([url]) => url),
+                    result.map(([url, count]) => ({ url, count })),
                     values.authorizedUrls
                 )
 
@@ -282,7 +292,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
         suggestions: [
             [],
             {
-                addUrl: (state, { url }) => [...state].filter((item) => url !== item),
+                addUrl: (state, { url }) => [...state].filter((sd) => url !== sd.url),
             },
         ],
         searchTerm: [
@@ -365,10 +375,11 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                         originalIndex: index,
                     }))
                     .concat(
-                        suggestions.map((url, index) => ({
+                        suggestions.map(({ url, count }, index) => ({
                             url,
                             type: 'suggestion',
                             originalIndex: index,
+                            count,
                         }))
                     ) as KeyedAppUrl[]
 

@@ -15,6 +15,7 @@ from posthog.api.team import (
     TeamSerializer,
     validate_team_attrs,
 )
+from ee.api.rbac.access_control import AccessControlViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
@@ -122,6 +123,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "surveys_opt_in",  # Compat with TeamSerializer
             "heatmaps_opt_in",  # Compat with TeamSerializer
             "product_intents",  # Compat with TeamSerializer
+            "flags_persistence_default",  # Compat with TeamSerializer
         )
         read_only_fields = (
             "id",
@@ -183,6 +185,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "has_completed_onboarding_for",
             "surveys_opt_in",
             "heatmaps_opt_in",
+            "flags_persistence_default",
         }
 
     def get_effective_membership_level(self, project: Project) -> Optional[OrganizationMembership.Level]:
@@ -190,7 +193,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         return self.user_permissions.team(team).effective_membership_level
 
     def get_has_group_types(self, project: Project) -> bool:
-        return GroupTypeMapping.objects.filter(team_id=project.id).exists()
+        return GroupTypeMapping.objects.filter(project_id=project.id).exists()
 
     def get_live_events_token(self, project: Project) -> Optional[str]:
         team = project.teams.get(pk=project.pk)
@@ -343,14 +346,13 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
 
         should_team_be_saved_too = False
         for attr, value in validated_data.items():
-            if attr in self.Meta.team_passthrough_fields:
+            if attr not in self.Meta.team_passthrough_fields:
+                # This attr is a Project field
+                setattr(instance, attr, value)
+            else:
+                # This attr is actually on the Project's passthrough Team
                 should_team_be_saved_too = True
                 setattr(team, attr, value)
-            else:
-                if attr == "name":  # `name` should be updated on _both_ the Project and Team
-                    should_team_be_saved_too = True
-                    setattr(team, attr, value)
-                setattr(instance, attr, value)
 
         instance.save()
         if should_team_be_saved_too:
@@ -395,7 +397,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         return instance
 
 
-class ProjectViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Projects for the current organization.
     """

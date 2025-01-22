@@ -13,7 +13,6 @@ from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
 )
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Action
-from posthog.queries.funnels import ClickhouseFunnelActors
 from posthog.schema import FunnelsQuery, FunnelsQueryResponse
 from posthog.test.base import (
     ClickhouseTestMixin,
@@ -21,7 +20,7 @@ from posthog.test.base import (
     _create_person,
 )
 from posthog.test.test_journeys import journeys_for
-from test_funnel import funnel_test_factory
+from test_funnel import funnel_test_factory, PseudoFunnelActors
 from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import (
     funnel_conversion_time_test_factory,
 )
@@ -43,7 +42,7 @@ class TestFunnelBreakdownUDF(
     ClickhouseTestMixin,
     funnel_breakdown_test_factory(  # type: ignore
         FunnelOrderType.ORDERED,
-        ClickhouseFunnelActors,
+        PseudoFunnelActors,
         _create_action,
         _create_person,
     ),
@@ -57,7 +56,7 @@ class TestFunnelGroupBreakdownUDF(
     ClickhouseTestMixin,
     funnel_breakdown_group_test_factory(  # type: ignore
         FunnelOrderType.ORDERED,
-        ClickhouseFunnelActors,
+        PseudoFunnelActors,
     ),
 ):
     pass
@@ -199,7 +198,7 @@ class TestFOSSFunnelUDF(funnel_test_factory(Funnel, _create_event, _create_perso
 @patch("posthoganalytics.feature_enabled", new=Mock(side_effect=use_udf_funnel_flag_side_effect))
 class TestFunnelConversionTimeUDF(
     ClickhouseTestMixin,
-    funnel_conversion_time_test_factory(FunnelOrderType.ORDERED, ClickhouseFunnelActors),  # type: ignore
+    funnel_conversion_time_test_factory(FunnelOrderType.ORDERED, PseudoFunnelActors),  # type: ignore
 ):
     maxDiff = None
     pass

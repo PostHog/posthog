@@ -1,6 +1,6 @@
 from typing import cast
 from posthog.hogql_queries.experiments.experiment_funnels_query_runner import ExperimentFunnelsQueryRunner
-from posthog.models.experiment import Experiment
+from posthog.models.experiment import Experiment, ExperimentHoldout
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.schema import (
     EventsNode,
@@ -16,6 +16,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.constants import ExperimentNoResultsErrorKeys
 import json
 from posthog.test.test_journeys import journeys_for
+from flaky import flaky
 
 
 class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -54,6 +55,17 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             start_date=timezone.now(),
             end_date=timezone.now() + timedelta(days=14),
         )
+
+    def create_holdout_for_experiment(self, experiment):
+        holdout = ExperimentHoldout.objects.create(
+            team=self.team,
+            name="Test Experiment holdout",
+        )
+        holdout.filters = [{"properties": [], "rollout_percentage": 20, "variant": f"holdout-{holdout.id}"}]
+        holdout.save()
+        experiment.holdout = holdout
+        experiment.save()
+        return holdout
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner(self):
@@ -101,6 +113,8 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         result = query_runner.calculate()
 
+        self.assertEqual(result.stats_version, 1)
+
         self.assertEqual(len(result.variants), 2)
 
         control_variant = next(variant for variant in result.variants if variant.key == "control")
@@ -111,12 +125,91 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(test_variant.success_count, 8)
         self.assertEqual(test_variant.failure_count, 2)
 
-        self.assertIn("control", result.probability)
-        self.assertIn("test", result.probability)
+        self.assertAlmostEqual(result.probability["control"], 0.2, delta=0.1)
+        self.assertAlmostEqual(result.probability["test"], 0.8, delta=0.1)
 
-        self.assertIn("control", result.credible_intervals)
-        self.assertIn("test", result.credible_intervals)
+        self.assertEqual(result.significant, False)
+        self.assertEqual(result.significance_code, ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE)
+        self.assertEqual(result.expected_loss, 1.0)
 
+        self.assertAlmostEqual(result.credible_intervals["control"][0], 0.3, delta=0.1)
+        self.assertAlmostEqual(result.credible_intervals["control"][1], 0.8, delta=0.1)
+        self.assertAlmostEqual(result.credible_intervals["test"][0], 0.5, delta=0.1)
+        self.assertAlmostEqual(result.credible_intervals["test"][1], 0.9, delta=0.1)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    def test_query_runner_v2(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"version": 2}
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        funnels_query = FunnelsQuery(
+            series=[EventsNode(event="$pageview"), EventsNode(event="purchase")],
+            dateRange={"date_from": "2020-01-01", "date_to": "2020-01-14"},
+        )
+        experiment_query = ExperimentFunnelsQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentFunnelsQuery",
+            funnels_query=funnels_query,
+        )
+
+        experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
+        experiment.save()
+
+        for variant, purchase_count in [("control", 6), ("test", 8)]:
+            for i in range(10):
+                _create_person(distinct_ids=[f"user_{variant}_{i}"], team_id=self.team.pk)
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=f"user_{variant}_{i}",
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={feature_flag_property: variant},
+                )
+                if i < purchase_count:
+                    _create_event(
+                        team=self.team,
+                        event="purchase",
+                        distinct_id=f"user_{variant}_{i}",
+                        timestamp="2020-01-02T12:01:00Z",
+                        properties={feature_flag_property: variant},
+                    )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentFunnelsQueryRunner(
+            query=ExperimentFunnelsQuery(**experiment.metrics[0]["query"]), team=self.team
+        )
+        result = query_runner.calculate()
+
+        self.assertEqual(result.stats_version, 2)
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_variant = next(variant for variant in result.variants if variant.key == "control")
+        test_variant = next(variant for variant in result.variants if variant.key == "test")
+
+        self.assertEqual(control_variant.success_count, 6)
+        self.assertEqual(control_variant.failure_count, 4)
+        self.assertEqual(test_variant.success_count, 8)
+        self.assertEqual(test_variant.failure_count, 2)
+
+        self.assertAlmostEqual(result.probability["control"], 0.2, delta=0.1)
+        self.assertAlmostEqual(result.probability["test"], 0.8, delta=0.1)
+
+        self.assertEqual(result.significant, False)
+        self.assertEqual(result.significance_code, ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE)
+        self.assertEqual(result.expected_loss, 1.0)
+
+        self.assertAlmostEqual(result.credible_intervals["control"][0], 0.3, delta=0.1)
+        self.assertAlmostEqual(result.credible_intervals["control"][1], 0.8, delta=0.1)
+        self.assertAlmostEqual(result.credible_intervals["test"][0], 0.5, delta=0.1)
+        self.assertAlmostEqual(result.credible_intervals["test"][1], 0.9, delta=0.1)
+
+    @flaky(max_runs=10, min_passes=1)
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner_standard_flow(self):
         feature_flag = self.create_feature_flag()
@@ -200,6 +293,74 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(result.significant)
         self.assertEqual(len(result.variants), 2)
         self.assertAlmostEqual(result.expected_loss, 1.0, places=1)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    def test_query_runner_with_holdout(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        holdout = self.create_holdout_for_experiment(experiment)
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        funnels_query = FunnelsQuery(
+            series=[EventsNode(event="$pageview"), EventsNode(event="purchase")],
+            dateRange={"date_from": "2020-01-01", "date_to": "2020-01-14"},
+        )
+        experiment_query = ExperimentFunnelsQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentFunnelsQuery",
+            funnels_query=funnels_query,
+        )
+
+        experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
+        experiment.save()
+
+        for variant, purchase_count in [("control", 6), ("test", 8), (f"holdout-{holdout.id}", 3)]:
+            for i in range(10):
+                _create_person(distinct_ids=[f"user_{variant}_{i}"], team_id=self.team.pk)
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=f"user_{variant}_{i}",
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={feature_flag_property: variant},
+                )
+                if i < purchase_count:
+                    _create_event(
+                        team=self.team,
+                        event="purchase",
+                        distinct_id=f"user_{variant}_{i}",
+                        timestamp="2020-01-02T12:01:00Z",
+                        properties={feature_flag_property: variant},
+                    )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentFunnelsQueryRunner(
+            query=ExperimentFunnelsQuery(**experiment.metrics[0]["query"]), team=self.team
+        )
+        result = query_runner.calculate()
+
+        self.assertEqual(len(result.variants), 3)
+
+        control_variant = next(variant for variant in result.variants if variant.key == "control")
+        test_variant = next(variant for variant in result.variants if variant.key == "test")
+        holdout_variant = next(variant for variant in result.variants if variant.key == f"holdout-{holdout.id}")
+
+        self.assertEqual(control_variant.success_count, 6)
+        self.assertEqual(control_variant.failure_count, 4)
+        self.assertEqual(test_variant.success_count, 8)
+        self.assertEqual(test_variant.failure_count, 2)
+        self.assertEqual(holdout_variant.success_count, 3)
+        self.assertEqual(holdout_variant.failure_count, 7)
+
+        self.assertIn("control", result.probability)
+        self.assertIn("test", result.probability)
+        self.assertIn(f"holdout-{holdout.id}", result.probability)
+
+        self.assertIn("control", result.credible_intervals)
+        self.assertIn("test", result.credible_intervals)
+        self.assertIn(f"holdout-{holdout.id}", result.credible_intervals)
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_validate_event_variants_no_events(self):

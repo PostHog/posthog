@@ -57,7 +57,7 @@ class TestExperimentCRUD(APILicensedTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(FuzzyInt(9, 10)):
+        with self.assertNumQueries(FuzzyInt(13, 14)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -74,7 +74,7 @@ class TestExperimentCRUD(APILicensedTest):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(FuzzyInt(9, 10)):
+        with self.assertNumQueries(FuzzyInt(13, 14)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -102,6 +102,11 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["name"], "Test Experiment")
         self.assertEqual(response.json()["feature_flag_key"], ff_key)
+        self.assertEqual(response.json()["stats_config"], {"version": 2})
+
+        id = response.json()["id"]
+        experiment = Experiment.objects.get(pk=id)
+        self.assertEqual(experiment.get_stats_config("version"), 2)
 
         created_ff = FeatureFlag.objects.get(key=ff_key)
 
@@ -110,13 +115,12 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(created_ff.filters["multivariate"]["variants"][1]["key"], "test")
         self.assertEqual(created_ff.filters["groups"][0]["properties"], [])
 
-        id = response.json()["id"]
         end_date = "2021-12-10T00:00"
 
         # Now update
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{id}",
-            {"description": "Bazinga", "end_date": end_date},
+            {"description": "Bazinga", "end_date": end_date, "stats_config": {"version": 1}},
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -124,6 +128,7 @@ class TestExperimentCRUD(APILicensedTest):
         experiment = Experiment.objects.get(pk=id)
         self.assertEqual(experiment.description, "Bazinga")
         self.assertEqual(experiment.end_date.strftime("%Y-%m-%dT%H:%M"), end_date)
+        self.assertEqual(experiment.get_stats_config("version"), 1)
 
     def test_creating_updating_web_experiment(self):
         ff_key = "a-b-tests"
@@ -370,7 +375,13 @@ class TestExperimentCRUD(APILicensedTest):
             {
                 "name": "Test Experiment saved metric",
                 "description": "Test description",
-                "query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                "query": {
+                    "kind": "ExperimentTrendsQuery",
+                    "count_query": {
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    },
+                },
             },
         )
 
@@ -380,7 +391,10 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.json()["description"], "Test description")
         self.assertEqual(
             response.json()["query"],
-            {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+            {
+                "kind": "ExperimentTrendsQuery",
+                "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+            },
         )
         self.assertEqual(response.json()["created_by"]["id"], self.user.pk)
 
@@ -418,7 +432,11 @@ class TestExperimentCRUD(APILicensedTest):
         saved_metric = Experiment.objects.get(pk=exp_id).saved_metrics.first()
         self.assertEqual(saved_metric.id, saved_metric_id)
         self.assertEqual(
-            saved_metric.query, {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}
+            saved_metric.query,
+            {
+                "kind": "ExperimentTrendsQuery",
+                "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+            },
         )
 
         # Now try updating experiment with new saved metric
@@ -427,7 +445,10 @@ class TestExperimentCRUD(APILicensedTest):
             {
                 "name": "Test Experiment saved metric 2",
                 "description": "Test description 2",
-                "query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageleave"}]},
+                "query": {
+                    "kind": "ExperimentTrendsQuery",
+                    "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageleave"}]},
+                },
             },
         )
 
@@ -513,7 +534,10 @@ class TestExperimentCRUD(APILicensedTest):
             {
                 "name": "Test Experiment saved metric",
                 "description": "Test description",
-                "query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                "query": {
+                    "kind": "ExperimentTrendsQuery",
+                    "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                },
             },
         )
 
@@ -1235,42 +1259,6 @@ class TestExperimentCRUD(APILicensedTest):
 
         self.assertIsNotNone(Experiment.objects.get(pk=id))
 
-    def test_cant_add_global_properties_to_new_experiment(self):
-        ff_key = "a-b-tests"
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": None,
-                "end_date": None,
-                "feature_flag_key": ff_key,
-                "parameters": None,
-                "filters": {
-                    "events": [
-                        {"order": 0, "id": "$pageview"},
-                        {"order": 1, "id": "$pageleave"},
-                    ],
-                    "properties": [
-                        {
-                            "key": "industry",
-                            "type": "group",
-                            "value": ["technology"],
-                            "operator": "exact",
-                            "group_type_index": 1,
-                        }
-                    ],
-                    "aggregation_group_type_index": 1,
-                },
-            },
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json()["detail"],
-            "Experiments do not support global filter properties",
-        )
-
     def test_creating_updating_experiment_with_group_aggregation(self):
         ff_key = "a-b-tests"
         response = self.client.post(
@@ -1488,7 +1476,7 @@ class TestExperimentCRUD(APILicensedTest):
         ).json()
 
         # TODO: Make sure permission bool doesn't cause n + 1
-        with self.assertNumQueries(12):
+        with self.assertNumQueries(17):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -1789,78 +1777,113 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.json()["name"], "Test Experiment")
         self.assertEqual(response.json()["feature_flag_key"], ff_key)
 
-    def test_create_launched_experiment_without_filters(self) -> None:
-        ff_key = "a-b-tests"
+    def test_feature_flag_and_experiment_sync(self):
+        # Create an experiment with control and test variants
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
                 "name": "Test Experiment",
-                "description": "",
-                "start_date": "2021-12-01T10:23",
-                "end_date": None,
-                "feature_flag_key": ff_key,
-                "parameters": None,
-                "filters": {},
-            },
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Filters are required when creating a launched experiment")
-
-    def test_launch_draft_experiment_without_filters(self) -> None:
-        ff_key = "a-b-tests"
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": None,
-                "end_date": None,
-                "feature_flag_key": ff_key,
-                "parameters": None,
-                "filters": {},
-            },
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        draft_exp = response.json()
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{draft_exp['id']}",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": "2021-12-01T10:23",
-                "end_date": None,
-                "feature_flag_key": ff_key,
-                "parameters": None,
-                "filters": {},
-            },
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Filters are required when launching an experiment")
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{draft_exp['id']}",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": "2021-12-01T10:23",
-                "end_date": None,
-                "feature_flag_key": ff_key,
-                "parameters": None,
-                "filters": {
-                    "events": [
-                        {"order": 0, "id": "$pageview"},
-                        {"order": 1, "id": "$pageleave"},
-                    ],
-                    "properties": [],
+                "description": "My test experiment",
+                "feature_flag_key": "experiment-test-flag",
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control Group", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
+                    ]
                 },
+                "filters": {"insight": "TRENDS", "events": [{"order": 0, "id": "$pageview"}]},
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, 201)
+        experiment_id = response.json()["id"]
+        feature_flag_id = response.json()["feature_flag"]["id"]
+
+        # Fetch the FeatureFlag object
+        feature_flag = FeatureFlag.objects.get(id=feature_flag_id)
+
+        variants = feature_flag.filters["multivariate"]["variants"]
+
+        # Verify that the variants are correctly populated
+        self.assertEqual(len(variants), 2)
+
+        self.assertEqual(variants[0]["key"], "control")
+        self.assertEqual(variants[0]["name"], "Control Group")
+        self.assertEqual(variants[0]["rollout_percentage"], 50)
+
+        self.assertEqual(variants[1]["key"], "test")
+        self.assertEqual(variants[1]["name"], "Test Variant")
+        self.assertEqual(variants[1]["rollout_percentage"], 50)
+
+        # Change the rollout percentages and groups of the feature flag
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{feature_flag_id}",
+            {
+                "filters": {
+                    "groups": [
+                        {"properties": [], "rollout_percentage": 99},
+                        {"properties": [], "rollout_percentage": 1},
+                    ],
+                    "payloads": {},
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 10},
+                            {"key": "test", "rollout_percentage": 90},
+                        ]
+                    },
+                    "aggregation_group_type_index": 1,
+                }
+            },
+        )
+
+        # Verify that Experiment.parameters.feature_flag_variants reflects the updated FeatureFlag.filters.multivariate.variants
+        experiment = Experiment.objects.get(id=experiment_id)
+        self.assertEqual(
+            experiment.parameters["feature_flag_variants"],
+            [{"key": "control", "rollout_percentage": 10}, {"key": "test", "rollout_percentage": 90}],
+        )
+        self.assertEqual(experiment.parameters["aggregation_group_type_index"], 1)
+
+        # Update the experiment with an unrelated change
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}",
+            {"name": "Updated Test Experiment"},
+        )
+
+        # Verify that the feature flag variants and groups remain unchanged
+        feature_flag = FeatureFlag.objects.get(id=feature_flag_id)
+        self.assertEqual(
+            feature_flag.filters["multivariate"]["variants"],
+            [{"key": "control", "rollout_percentage": 10}, {"key": "test", "rollout_percentage": 90}],
+        )
+        self.assertEqual(
+            feature_flag.filters["groups"],
+            [{"properties": [], "rollout_percentage": 99}, {"properties": [], "rollout_percentage": 1}],
+        )
+
+        # Test removing aggregation_group_type_index
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{feature_flag_id}",
+            {
+                "filters": {
+                    "groups": [
+                        {"properties": [], "rollout_percentage": 99},
+                        {"properties": [], "rollout_percentage": 1},
+                    ],
+                    "payloads": {},
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 10},
+                            {"key": "test", "rollout_percentage": 90},
+                        ]
+                    },
+                }
+            },
+        )
+
+        # Verify that aggregation_group_type_index is removed from experiment parameters
+        experiment = Experiment.objects.get(id=experiment_id)
+        self.assertNotIn("aggregation_group_type_index", experiment.parameters)
 
 
 class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):

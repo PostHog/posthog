@@ -6,6 +6,7 @@ from django.test import TestCase, override_settings
 from posthog.kafka_client.client import _KafkaProducer, build_kafka_consumer
 
 
+@override_settings(TEST=False)
 class KafkaClientTestCase(TestCase):
     def setUp(self):
         self.topic = "test_topic"

@@ -22,7 +22,7 @@ from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
 from posthog.plugins.access import can_configure_plugins, can_install_plugins
 from posthog.plugins.plugin_server_api import populate_plugin_capabilities_on_workers, reload_plugins_on_workers
-from posthog.plugins.site import get_decide_site_apps
+from posthog.plugins.site import get_decide_site_apps, get_decide_site_functions
 from posthog.plugins.utils import (
     download_plugin_archive,
     extract_plugin_code,
@@ -303,10 +303,14 @@ class PluginLogEntryType(StrEnum):
     ERROR = "ERROR"
 
 
+class TranspilerError(Exception):
+    pass
+
+
 def transpile(input_string: str, type: Literal["site", "frontend"] = "site") -> Optional[str]:
     from posthog.settings.base_variables import BASE_DIR
 
-    transpiler_path = os.path.join(BASE_DIR, "plugin-transpiler/dist/index.js")
+    transpiler_path = os.path.join(BASE_DIR, "common/plugin_transpiler/dist/index.js")
     if type not in ["site", "frontend"]:
         raise Exception('Invalid type. Must be "site" or "frontend".')
 
@@ -317,7 +321,7 @@ def transpile(input_string: str, type: Literal["site", "frontend"] = "site") -> 
 
     if process.returncode != 0:
         error = stderr.decode()
-        raise Exception(error)
+        raise TranspilerError(error)
     return stdout.decode()
 
 
@@ -506,7 +510,7 @@ def fetch_plugin_log_entries(
         clickhouse_kwargs["types"] = type_filter
     clickhouse_query = f"""
         SELECT id, team_id, plugin_id, plugin_config_id, timestamp, source, type, message, instance_id FROM plugin_log_entries
-        WHERE {' AND '.join(clickhouse_where_parts)} ORDER BY timestamp DESC {f'LIMIT {limit}' if limit else ''}
+        WHERE {" AND ".join(clickhouse_where_parts)} ORDER BY timestamp DESC {f"LIMIT {limit}" if limit else ""}
     """
     return [PluginLogEntry(*result) for result in cast(list, sync_execute(clickhouse_query, clickhouse_kwargs))]
 
@@ -584,7 +588,7 @@ def plugin_config_reload_needed(sender, instance, created=None, **kwargs):
 
 
 def sync_team_inject_web_apps(team: Team):
-    inject_web_apps = len(get_decide_site_apps(team)) > 0
+    inject_web_apps = len(get_decide_site_apps(team)) > 0 or len(get_decide_site_functions(team)) > 0
     if inject_web_apps != team.inject_web_apps:
         team.inject_web_apps = inject_web_apps
         team.save(update_fields=["inject_web_apps"])

@@ -66,13 +66,15 @@ struct IntervalData {
     entered_timestamp: Vec<EnteredTimestamp>,
 }
 
+type ResultsMap = HashMap<u64, ResultStruct>;
+
 struct Vars {
     interval_start_to_entered_timestamps: HashMap<u64, IntervalData>,
+    results: ResultsMap,
 }
 
 struct AggregateFunnelRow {
     breakdown_step: Option<usize>,
-    results: HashMap<u64, ResultStruct>,
 }
 
 const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
@@ -81,13 +83,11 @@ const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
 };
 
 pub fn process_line(line: &str) -> Value {
-    let args = parse_args(&line);
+    let args = parse_args(line);
     let mut aggregate_funnel_row = AggregateFunnelRow {
-        results: HashMap::new(),
         breakdown_step: Option::None,
     };
-    aggregate_funnel_row.calculate_funnel_from_user_events(&args);
-    let result: Vec<ResultStruct> = aggregate_funnel_row.results.into_values().collect();
+    let result: Vec<ResultStruct> = aggregate_funnel_row.calculate_funnel_from_user_events(&args);
     json!({ "result": result })
 }
 
@@ -98,17 +98,21 @@ fn parse_args(line: &str) -> Args {
 
 impl AggregateFunnelRow {
     #[inline(always)]
-    fn calculate_funnel_from_user_events(&mut self, args: &Args) {
+    fn calculate_funnel_from_user_events(&mut self, args: &Args) -> Vec<ResultStruct> {
         if args.breakdown_attribution_type.starts_with("step_") {
             self.breakdown_step = args.breakdown_attribution_type[5..].parse::<usize>().ok()
         }
 
-        args.prop_vals.iter().for_each(|prop_val| self.loop_prop_val(args, prop_val));
+        args.prop_vals.iter().flat_map(|prop_val| {
+            let results_map= self.loop_prop_val(args, prop_val);
+            results_map.into_values().collect::<Vec<ResultStruct>>()
+        }).collect()
     }
 
     #[inline(always)]
-    fn loop_prop_val(&mut self, args: &Args, prop_val: &PropVal) {
+    fn loop_prop_val(&mut self, args: &Args, prop_val: &PropVal) -> ResultsMap {
         let mut vars = Vars {
+            results: HashMap::new(),
             interval_start_to_entered_timestamps: HashMap::new(),
         };
 
@@ -128,7 +132,7 @@ impl AggregateFunnelRow {
                 self.process_event(
                     args,
                     &mut vars,
-                    &event,
+                    event,
                     prop_val,
                 );
             }
@@ -139,11 +143,13 @@ impl AggregateFunnelRow {
         let fully_excluded = vars.interval_start_to_entered_timestamps.values().find(|interval_data| interval_data.max_step.excluded == Exclusion::Full);
         if fully_excluded.is_none() {
             for (interval_start, interval_data) in vars.interval_start_to_entered_timestamps.into_iter() {
-                if !self.results.contains_key(&interval_start) && interval_data.max_step.step >= args.from_step + 1 && interval_data.max_step.excluded != Exclusion::Partial {
-                    self.results.insert(interval_start, ResultStruct(interval_start, -1, prop_val.clone(), interval_data.max_step.event_uuid));
+                if !vars.results.contains_key(&interval_start) && interval_data.max_step.step >= args.from_step + 1 && interval_data.max_step.excluded != Exclusion::Partial {
+                    vars.results.insert(interval_start, ResultStruct(interval_start, -1, prop_val.clone(), interval_data.max_step.event_uuid));
                 }
             }
         }
+
+        vars.results
     }
 
     #[inline(always)]
@@ -163,8 +169,10 @@ impl AggregateFunnelRow {
                 *step
             }) as usize;
 
+            let is_unmatched_step_attribution = self.breakdown_step.map(|breakdown_step| step - 1 == breakdown_step).unwrap_or(false) && *prop_val != event.breakdown;
+
             if step == 1 {
-                if !self.results.contains_key(&event.interval_start) {
+                if !is_unmatched_step_attribution && !vars.results.contains_key(&event.interval_start) {
                     let entered_timestamp_one = EnteredTimestamp { timestamp: event.timestamp, excluded: false };
                     let interval = vars.interval_start_to_entered_timestamps.get_mut(&event.interval_start);
                     if interval.is_none() || interval.as_ref().map( | interval | interval.max_step.step == 1 && interval.max_step.excluded != Exclusion::Not).unwrap() {
@@ -201,7 +209,6 @@ impl AggregateFunnelRow {
                                 }
                             }
                         } else {
-                            let is_unmatched_step_attribution = self.breakdown_step.map(|breakdown_step| step == breakdown_step - 1).unwrap_or(false) && *prop_val != event.breakdown;
                             if !is_unmatched_step_attribution {
                                 if !previous_step_excluded {
                                     interval_data.entered_timestamp[step] = EnteredTimestamp {
@@ -211,7 +218,7 @@ impl AggregateFunnelRow {
                                 }
                                 // check if we have hit the goal. if we have, remove it from the list and add it to the successful_timestamps
                                 if interval_data.entered_timestamp[args.num_steps].timestamp != 0.0 {
-                                    self.results.insert(
+                                    vars.results.insert(
                                         interval_start,
                                         ResultStruct(interval_start, 1, prop_val.clone(), event.uuid)
                                     );

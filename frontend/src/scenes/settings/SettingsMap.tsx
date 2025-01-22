@@ -1,7 +1,13 @@
+import { ErrorTrackingAlerting } from 'scenes/error-tracking/configuration/alerting/ErrorTrackingAlerting'
+import { ErrorTrackingSymbolSets } from 'scenes/error-tracking/configuration/symbol-sets/ErrorTrackingSymbolSets'
+import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
+import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
+import { CustomChannelTypes } from 'scenes/settings/environment/CustomChannelTypes'
 import { DeadClicksAutocaptureSettings } from 'scenes/settings/environment/DeadClicksAutocaptureSettings'
 import { PersonsJoinMode } from 'scenes/settings/environment/PersonsJoinMode'
 import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
+import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
 
 import { Realm } from '~/types'
@@ -13,8 +19,11 @@ import {
 } from './environment/AutocaptureSettings'
 import { CorrelationConfig } from './environment/CorrelationConfig'
 import { DataAttributes } from './environment/DataAttributes'
+import { DataColorThemes } from './environment/DataColorThemes'
+import { FeatureFlagSettings } from './environment/FeatureFlagSettings'
 import { GroupAnalyticsConfig } from './environment/GroupAnalyticsConfig'
 import { HeatmapsSettings } from './environment/HeatmapsSettings'
+import { HumanFriendlyComparisonPeriodsSetting } from './environment/HumanFriendlyComparisonPeriodsSetting'
 import { IPAllowListInfo } from './environment/IPAllowListInfo'
 import { IPCapture } from './environment/IPCapture'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
@@ -41,6 +50,7 @@ import {
     WebSnippet,
 } from './environment/TeamSettings'
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
+import { UserGroups } from './environment/UserGroups'
 import { WebhookIntegration } from './environment/WebhookIntegration'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
@@ -48,7 +58,7 @@ import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
 import { OrganizationLogo } from './organization/OrgLogo'
-import { PermissionsGrid } from './organization/Permissions/PermissionsGrid'
+import { RoleBasedAccess } from './organization/Permissions/RoleBasedAccess'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
 import { ProjectDisplayName, ProjectProductDescription } from './project/ProjectSettings'
@@ -58,7 +68,7 @@ import { HedgehogModeSettings } from './user/HedgehogModeSettings'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
-import { TwoFactorAuthentication } from './user/TwoFactorAuthentication'
+import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
 import { UserDetails } from './user/UserDetails'
 
@@ -80,7 +90,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Describe your product in a few sentences. This context helps our AI assistant provide relevant answers and suggestions.',
                 component: <ProjectProductDescription />,
-                flag: '!ENVIRONMENTS',
+                flag: ['ARTIFICIAL_HOG', '!ENVIRONMENTS'],
             },
             {
                 id: 'snippet',
@@ -135,7 +145,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'dead-clicks-autocapture',
                 title: 'Dead clicks autocapture',
                 component: <DeadClicksAutocaptureSettings />,
-                flag: 'DEAD_CLICKS_AUTOCAPTURE',
             },
         ],
     },
@@ -154,6 +163,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'internal-user-filtering',
                 title: 'Filter out internal and test users',
                 component: <ProjectAccountFiltersSetting />,
+            },
+            {
+                id: 'data-theme',
+                title: 'Data colors',
+                component: <DataColorThemes />,
+                flag: 'INSIGHT_COLORS',
             },
             {
                 id: 'persons-on-events',
@@ -182,6 +197,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <IPCapture />,
             },
             {
+                id: 'human-friendly-comparison-periods',
+                title: 'Human friendly comparison periods',
+                component: <HumanFriendlyComparisonPeriodsSetting />,
+            },
+            {
                 id: 'group-analytics',
                 title: 'Group analytics',
                 component: <GroupAnalyticsConfig />,
@@ -193,16 +213,40 @@ export const SETTINGS_MAP: SettingSection[] = [
                 flag: 'SETTINGS_PERSONS_JOIN_MODE',
             },
             {
-                id: 'bounce-rate-page-view-mode',
-                title: 'Bounce rate page view mode',
-                component: <BounceRatePageViewModeSetting />,
-                flag: 'SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE',
-            },
-            {
                 id: 'session-table-version',
                 title: 'Sessions Table Version',
                 component: <SessionsTableVersion />,
                 flag: 'SETTINGS_SESSION_TABLE_VERSION',
+            },
+        ],
+    },
+
+    {
+        level: 'environment',
+        id: 'environment-web-analytics',
+        title: 'Web analytics',
+        settings: [
+            {
+                id: 'channel-type',
+                title: 'Custom channel type',
+                component: <CustomChannelTypes />,
+            },
+            {
+                id: 'cookieless-server-hash-mode',
+                title: 'Cookieless server hash mode',
+                component: <CookielessServerHashModeSetting />,
+                flag: 'COOKIELESS_SERVER_HASH_MODE_SETTING',
+            },
+            {
+                id: 'bounce-rate-duration',
+                title: 'Bounce rate duration',
+                component: <BounceRateDurationSetting />,
+            },
+            {
+                id: 'bounce-rate-page-view-mode',
+                title: 'Bounce rate page view mode',
+                component: <BounceRatePageViewModeSetting />,
+                flag: 'SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE',
             },
         ],
     },
@@ -226,6 +270,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'replay-authorized-domains',
                 title: 'Authorized domains for replay',
                 component: <ReplayAuthorizedDomains />,
+                allowForTeam: (t) => !!t?.recording_domains?.length,
+            },
+            {
+                id: 'replay-triggers',
+                title: 'Replay triggers',
+                component: <ReplayTriggers />,
             },
             {
                 id: 'replay-ingestion',
@@ -252,7 +302,43 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
         ],
     },
-
+    {
+        level: 'environment',
+        id: 'environment-feature-flags',
+        title: 'Feature flags',
+        settings: [
+            {
+                id: 'feature-flags-interface',
+                title: 'Feature flags',
+                component: <FeatureFlagSettings />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-error-tracking',
+        title: 'Error tracking',
+        flag: 'ERROR_TRACKING',
+        settings: [
+            {
+                id: 'error-tracking-user-groups',
+                title: 'User groups',
+                description: 'Allow collections of users to be assigned to issues',
+                component: <UserGroups />,
+            },
+            {
+                id: 'error-tracking-symbol-sets',
+                title: 'Symbol sets',
+                component: <ErrorTrackingSymbolSets />,
+            },
+            {
+                id: 'error-tracking-alerting',
+                title: 'Alerting',
+                flag: 'ERROR_TRACKING_ALERTING',
+                component: <ErrorTrackingAlerting />,
+            },
+        ],
+    },
     {
         level: 'environment',
         id: 'environment-toolbar',
@@ -294,11 +380,11 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
-        id: 'environment-rbac',
+        id: 'environment-access-control',
         title: 'Access control',
         settings: [
             {
-                id: 'environment-rbac',
+                id: 'environment-access-control',
                 title: 'Access control',
                 component: <TeamAccessControl />,
             },
@@ -393,6 +479,18 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'organization',
+        id: 'organization-roles',
+        title: 'Roles',
+        settings: [
+            {
+                id: 'organization-roles',
+                title: 'Roles',
+                component: <RoleBasedAccess />,
+            },
+        ],
+    },
+    {
+        level: 'organization',
         id: 'organization-authentication',
         title: 'Authentication domains & SSO',
         settings: [
@@ -400,18 +498,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'authentication-domains',
                 title: 'Authentication Domains',
                 component: <VerifiedDomains />,
-            },
-        ],
-    },
-    {
-        level: 'organization',
-        id: 'organization-rbac',
-        title: 'Role-based access',
-        settings: [
-            {
-                id: 'organization-rbac',
-                title: 'Role-based access',
-                component: <PermissionsGrid />,
             },
         ],
     },
@@ -459,7 +545,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: '2fa',
                 title: 'Two-factor authentication',
-                component: <TwoFactorAuthentication />,
+                component: <TwoFactorSettings />,
             },
         ],
     },

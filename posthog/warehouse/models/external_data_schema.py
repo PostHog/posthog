@@ -1,10 +1,14 @@
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Optional
+import tempfile
+import os
+from typing import Any, Optional
 from django.db import models
 from django_deprecate_fields import deprecate_field
+import numpy
 import snowflake.connector
 from django.conf import settings
+from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE_V2
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel, UpdatedMetaFields, sane_repr
 import uuid
@@ -48,6 +52,8 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     status = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
     sync_type = models.CharField(max_length=128, choices=SyncType.choices, null=True, blank=True)
+
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_last_value_v2": any }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
@@ -66,6 +72,44 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     @property
     def is_incremental(self):
         return self.sync_type == self.SyncType.INCREMENTAL
+
+    def update_incremental_field_last_value(self, last_value: Any) -> None:
+        incremental_field_type = self.sync_type_config.get("incremental_field_type")
+
+        last_value_py = last_value.item() if isinstance(last_value, numpy.generic) else last_value
+        last_value_json: Any
+
+        if last_value_py is None:
+            return
+
+        if (
+            incremental_field_type == IncrementalFieldType.Integer
+            or incremental_field_type == IncrementalFieldType.Numeric
+        ):
+            if isinstance(last_value_py, int | float):
+                last_value_json = last_value_py
+            elif isinstance(last_value_py, datetime):
+                last_value_json = last_value_py.isoformat()
+            else:
+                last_value_json = int(last_value_py)
+        elif (
+            incremental_field_type == IncrementalFieldType.DateTime
+            or incremental_field_type == IncrementalFieldType.Timestamp
+        ):
+            if isinstance(last_value_py, datetime):
+                last_value_json = last_value_py.isoformat()
+            else:
+                last_value_json = str(last_value_py)
+        else:
+            last_value_json = str(last_value_py)
+
+        if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE_V2:
+            key = "incremental_field_last_value_v2"
+        else:
+            key = "incremental_field_last_value"
+
+        self.sync_type_config[key] = last_value_json
+        self.save()
 
     def soft_delete(self):
         self.deleted = True
@@ -99,8 +143,7 @@ def aget_schema_by_id(schema_id: str, team_id: int) -> ExternalDataSchema | None
     )
 
 
-@database_sync_to_async
-def aupdate_should_sync(schema_id: str, team_id: int, should_sync: bool) -> ExternalDataSchema | None:
+def update_should_sync(schema_id: str, team_id: int, should_sync: bool) -> ExternalDataSchema | None:
     schema = ExternalDataSchema.objects.get(id=schema_id, team_id=team_id)
     schema.should_sync = should_sync
     schema.save()
@@ -117,15 +160,6 @@ def aupdate_should_sync(schema_id: str, team_id: int, should_sync: bool) -> Exte
             sync_external_data_job_workflow(schema, create=True)
 
     return schema
-
-
-@database_sync_to_async
-def get_active_schemas_for_source_id(source_id: uuid.UUID, team_id: int):
-    return list(
-        ExternalDataSchema.objects.exclude(deleted=True)
-        .filter(team_id=team_id, source_id=source_id, should_sync=True)
-        .all()
-    )
 
 
 def get_all_schemas_for_source_id(source_id: uuid.UUID, team_id: int):
@@ -203,16 +237,43 @@ def filter_snowflake_incremental_fields(columns: list[tuple[str, str]]) -> list[
 
 
 def get_snowflake_schemas(
-    account_id: str, database: str, warehouse: str, user: str, password: str, schema: str, role: Optional[str] = None
+    account_id: str,
+    database: str,
+    warehouse: str,
+    user: Optional[str],
+    password: Optional[str],
+    passphrase: Optional[str],
+    private_key: Optional[str],
+    auth_type: str,
+    schema: str,
+    role: Optional[str] = None,
 ) -> dict[str, list[tuple[str, str]]]:
+    auth_connect_args: dict[str, str | None] = {}
+    file_name: str | None = None
+
+    if auth_type == "keypair" and private_key is not None:
+        with tempfile.NamedTemporaryFile(delete=False) as tf:
+            tf.write(private_key.encode("utf-8"))
+            file_name = tf.name
+
+        auth_connect_args = {
+            "user": user,
+            "private_key_file": file_name,
+            "private_key_file_pwd": passphrase,
+        }
+    else:
+        auth_connect_args = {
+            "password": password,
+            "user": user,
+        }
+
     with snowflake.connector.connect(
-        user=user,
-        password=password,
         account=account_id,
         warehouse=warehouse,
         database=database,
         schema="information_schema",
         role=role,
+        **auth_connect_args,
     ) as connection:
         with connection.cursor() as cursor:
             if cursor is None:
@@ -228,7 +289,10 @@ def get_snowflake_schemas(
             for row in result:
                 schema_list[row[0]].append((row[1], row[2]))
 
-            return schema_list
+    if file_name is not None:
+        os.unlink(file_name)
+
+    return schema_list
 
 
 def filter_postgres_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
@@ -310,9 +374,15 @@ def get_mysql_schemas(
     user: str,
     password: str,
     schema: str,
+    using_ssl: bool,
     ssh_tunnel: SSHTunnel,
 ) -> dict[str, list[tuple[str, str]]]:
     def get_schemas(mysql_host: str, mysql_port: int):
+        ssl_ca: str | None = None
+
+        if using_ssl:
+            ssl_ca = "/etc/ssl/cert.pem" if settings.DEBUG else "/etc/ssl/certs/ca-certificates.crt"
+
         connection = pymysql.connect(
             host=mysql_host,
             port=mysql_port,
@@ -320,7 +390,7 @@ def get_mysql_schemas(
             user=user,
             password=password,
             connect_timeout=5,
-            ssl_ca="/etc/ssl/cert.pem" if settings.DEBUG else "/etc/ssl/certs/ca-certificates.crt",
+            ssl_ca=ssl_ca,
         )
 
         with connection.cursor() as cursor:
@@ -413,11 +483,12 @@ def get_sql_schemas_for_source_type(
     password: str,
     schema: str,
     ssh_tunnel: SSHTunnel,
+    using_ssl: bool = True,
 ) -> dict[str, list[tuple[str, str]]]:
     if source_type == ExternalDataSource.Type.POSTGRES:
         schemas = get_postgres_schemas(host, port, database, user, password, schema, ssh_tunnel)
     elif source_type == ExternalDataSource.Type.MYSQL:
-        schemas = get_mysql_schemas(host, port, database, user, password, schema, ssh_tunnel)
+        schemas = get_mysql_schemas(host, port, database, user, password, schema, using_ssl, ssh_tunnel)
     elif source_type == ExternalDataSource.Type.MSSQL:
         schemas = get_mssql_schemas(host, port, database, user, password, schema, ssh_tunnel)
     else:

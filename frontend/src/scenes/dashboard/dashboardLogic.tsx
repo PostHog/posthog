@@ -30,14 +30,23 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import { getQueryBasedDashboard, getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { pollForResults } from '~/queries/query'
-import { DashboardFilter, DataVisualizationNode, HogQLVariable, NodeKind, RefreshType } from '~/queries/schema'
 import {
+    BreakdownFilter,
+    DashboardFilter,
+    DataVisualizationNode,
+    HogQLVariable,
+    NodeKind,
+    RefreshType,
+} from '~/queries/schema/schema-general'
+import {
+    ActivityScope,
     AnyPropertyFilter,
     Breadcrumb,
     DashboardLayoutSize,
@@ -206,6 +215,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             date_to,
         }),
         setProperties: (properties: AnyPropertyFilter[] | null) => ({ properties }),
+        setBreakdownFilter: (breakdown_filter: BreakdownFilter | null) => ({ breakdown_filter }),
         setFiltersAndLayoutsAndVariables: (filters: DashboardFilter, variables: Record<string, HogQLVariable>) => ({
             filters,
             variables,
@@ -248,6 +258,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             allVariables: values.variables,
         }),
         resetVariables: () => ({ variables: values.insightVariables }),
+        setAccessDeniedToDashboard: true,
     })),
 
     loaders(({ actions, props, values }) => ({
@@ -293,6 +304,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     } catch (error: any) {
                         if (error.status === 404) {
                             return null
+                        }
+                        if (error.status === 403 && error.code === 'permission_denied') {
+                            actions.setAccessDeniedToDashboard()
                         }
                         throw error
                     }
@@ -423,6 +437,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setPageVisibility: (_, { visible }) => visible,
             },
         ],
+        accessDeniedToDashboard: [
+            false,
+            {
+                setAccessDeniedToDashboard: () => true,
+            },
+        ],
         dashboardFailedToLoad: [
             false,
             {
@@ -495,6 +515,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 date_from: null,
                 date_to: null,
                 properties: null,
+                breakdown_filter: null,
             } as DashboardFilter,
             {
                 setDates: (state, { date_from, date_to }) => ({
@@ -506,6 +527,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     ...state,
                     properties: properties || null,
                 }),
+                setBreakdownFilter: (state, { breakdown_filter }) => ({
+                    ...state,
+                    breakdown_filter: breakdown_filter || null,
+                }),
                 loadDashboardSuccess: (state, { dashboard }) =>
                     dashboard
                         ? {
@@ -513,6 +538,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                               date_from: dashboard?.filters.date_from || null,
                               date_to: dashboard?.filters.date_to || null,
                               properties: dashboard?.filters.properties || [],
+                              breakdown_filter: dashboard?.filters.breakdown_filter || null,
                           }
                         : state,
             },
@@ -522,6 +548,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 date_from: null,
                 date_to: null,
                 properties: null,
+                breakdown_filter: null,
             } as DashboardFilter,
             {
                 setFiltersAndLayoutsAndVariables: (state, { filters }) => ({
@@ -539,6 +566,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                         date_from: dashboard?.filters.date_from || null,
                                         date_to: dashboard?.filters.date_to || null,
                                         properties: dashboard?.filters.properties || [],
+                                        breakdown_filter: dashboard?.filters.breakdown_filter || null,
                                     }),
                           }
                         : state,
@@ -991,6 +1019,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
             ],
         ],
+
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.dashboard],
+            (dashboard): SidePanelSceneContext | null => {
+                return dashboard
+                    ? {
+                          activity_scope: ActivityScope.DASHBOARD,
+                          activity_item_id: `${dashboard.id}`,
+                          access_control_resource: 'dashboard',
+                          access_control_resource_id: `${dashboard.id}`,
+                      }
+                    : null
+            },
+        ],
+
         sortTilesByLayout: [
             (s) => [s.layoutForItem],
             (layoutForItem) => (tiles: Array<DashboardTile>) => {
@@ -1308,6 +1351,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     // reset filters to that before previewing
                     actions.setDates(values.filters.date_from ?? null, values.filters.date_to ?? null)
                     actions.setProperties(values.filters.properties ?? null)
+                    actions.setBreakdownFilter(values.filters.breakdown_filter ?? null)
                     actions.resetVariables()
 
                     // also reset layout to that we stored in dashboardLayouts
@@ -1409,6 +1453,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.loadDashboard({ action: 'preview' })
         },
         setDates: () => {
+            actions.loadDashboard({ action: 'preview' })
+        },
+        setBreakdownFilter: () => {
             actions.loadDashboard({ action: 'preview' })
         },
         overrideVariableValue: () => {

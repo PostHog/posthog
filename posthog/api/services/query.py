@@ -4,10 +4,10 @@ from typing import Optional
 from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
-from hogvm.python.debugger import color_bytecode
+from common.hogvm.python.debugger import color_bytecode
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.hogql.bytecode import execute_hog
+from posthog.hogql.compiler.bytecode import execute_hog
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database, serialize_database

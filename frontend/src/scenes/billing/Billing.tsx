@@ -5,7 +5,9 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { router } from 'kea-router'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -21,6 +23,7 @@ import { BillingCTAHero } from './BillingCTAHero'
 import { billingLogic } from './billingLogic'
 import { BillingProduct } from './BillingProduct'
 import { CreditCTAHero } from './CreditCTAHero'
+import { PaymentEntryModal } from './PaymentEntryModal'
 import { UnsubscribeCard } from './UnsubscribeCard'
 
 export const scene: SceneExport = {
@@ -34,6 +37,11 @@ export function Billing(): JSX.Element {
     const { reportBillingShown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
+
+    const restrictionReason = useRestrictedArea({
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        scope: RestrictionScope.Organization,
+    })
 
     if (preflight && !isCloudOrDev) {
         router.actions.push(urls.default())
@@ -55,6 +63,20 @@ export function Billing(): JSX.Element {
             <>
                 <SpinnerOverlay sceneLevel />
             </>
+        )
+    }
+
+    if (restrictionReason) {
+        return (
+            <div className="space-y-4">
+                <h1>Billing</h1>
+                <LemonBanner type="warning">{restrictionReason}</LemonBanner>
+                <div className="flex">
+                    <LemonButton type="primary" to={urls.default()}>
+                        Go back home
+                    </LemonButton>
+                </div>
+            </div>
         )
     }
 
@@ -82,6 +104,8 @@ export function Billing(): JSX.Element {
     const platformAndSupportProduct = products?.find((product) => product.type === 'platform_and_support')
     return (
         <div ref={ref}>
+            <PaymentEntryModal />
+
             {showLicenseDirectInput && (
                 <>
                     <Form logic={billingLogic} formKey="activateLicense" enableFormOnSubmit className="space-y-4">

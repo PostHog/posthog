@@ -86,7 +86,7 @@
                       and isNull(max(max_steps))))
      GROUP BY prop)
   GROUP BY final_prop
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 101 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
@@ -183,7 +183,7 @@
                       and isNull(max(max_steps))))
      GROUP BY prop)
   GROUP BY final_prop
-  LIMIT 100 SETTINGS readonly=2,
+  LIMIT 101 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,

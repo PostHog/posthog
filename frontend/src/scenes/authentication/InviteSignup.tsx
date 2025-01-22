@@ -196,7 +196,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
     const { preflight } = useValues(preflightLogic)
 
     const { precheck } = useActions(loginLogic)
-    const { precheckResponse, precheckResponseLoading, login } = useValues(loginLogic)
+    const { precheckResponse, precheckResponseLoading } = useValues(loginLogic)
 
     const areExtraFieldsHidden = precheckResponse.sso_enforcement
 
@@ -290,7 +290,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                 {precheckResponse.sso_enforcement && (
                     <SSOEnforcedLoginButton
                         provider={precheckResponse.sso_enforcement}
-                        email={login.email}
+                        email={invite?.target_email}
                         actionText="Continue"
                         extraQueryParams={invite ? { invite_id: invite.id } : undefined}
                     />
@@ -300,7 +300,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                 {precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
                     <SSOEnforcedLoginButton
                         provider="saml"
-                        email={login.email}
+                        email={invite?.target_email}
                         actionText="Continue"
                         extraQueryParams={invite ? { invite_id: invite.id } : undefined}
                     />

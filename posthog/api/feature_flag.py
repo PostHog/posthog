@@ -4,6 +4,8 @@ from datetime import datetime
 
 from django.db.models import QuerySet, Q, deletion
 from django.conf import settings
+from drf_spectacular.utils import OpenApiParameter
+from drf_spectacular.types import OpenApiTypes
 from rest_framework import (
     exceptions,
     request,
@@ -17,7 +19,10 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from sentry_sdk import capture_exception
 from posthog.api.cohort import CohortSerializer
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
+from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -51,6 +56,7 @@ from posthog.models.feature_flag.flag_matching import check_flag_evaluation_quer
 from posthog.models.feedback.survey import Survey
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
+from posthog.models.feature_flag.flag_status import FeatureFlagStatusChecker, FeatureFlagStatus
 from posthog.queries.base import (
     determine_parsed_date_for_property_matching,
 )
@@ -85,7 +91,9 @@ class CanEditFeatureFlag(BasePermission):
             return can_user_edit_feature_flag(request, feature_flag)
 
 
-class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSerializer):
+class FeatureFlagSerializer(
+    TaggedItemSerializerMixin, UserAccessControlSerializerMixin, serializers.HyperlinkedModelSerializer
+):
     created_by = UserBasicSerializer(read_only=True)
     # :TRICKY: Needed for backwards compatibility
     filters = serializers.DictField(source="get_filters", required=False)
@@ -112,6 +120,14 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
     )
     can_edit = serializers.SerializerMethodField()
 
+    CREATION_CONTEXT_CHOICES = ("feature_flags", "experiments", "surveys", "early_access_features", "web_experiments")
+    creation_context = serializers.ChoiceField(
+        choices=CREATION_CONTEXT_CHOICES,
+        write_only=True,
+        required=False,
+        help_text="Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments'.",
+    )
+
     class Meta:
         model = FeatureFlag
         fields = [
@@ -136,11 +152,16 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             "usage_dashboard",
             "analytics_dashboards",
             "has_enriched_analytics",
+            "user_access_level",
+            "creation_context",
         ]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
         # TODO: make sure this isn't n+1
-        return can_user_edit_feature_flag(self.context["request"], feature_flag)
+        return (
+            can_user_edit_feature_flag(self.context["request"], feature_flag)
+            and self.get_user_access_level(feature_flag) == "editor"
+        )
 
     # Simple flags are ones that only have rollout_percentage
     #  That means server side libraries are able to gate these flags without calling to the server
@@ -153,7 +174,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
         )
 
     def get_features(self, feature_flag: FeatureFlag) -> dict:
-        from posthog.api.early_access_feature import MinimalEarlyAccessFeatureSerializer
+        from products.early_access_features.backend.api import MinimalEarlyAccessFeatureSerializer
 
         return MinimalEarlyAccessFeatureSerializer(feature_flag.features, many=True).data
 
@@ -236,7 +257,9 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
 
                 if prop.type == "cohort":
                     try:
-                        initial_cohort: Cohort = Cohort.objects.get(pk=prop.value, team_id=self.context["team_id"])
+                        initial_cohort: Cohort = Cohort.objects.get(
+                            pk=prop.value, team__project_id=self.context["project_id"]
+                        )
                         dependent_cohorts = get_dependent_cohorts(initial_cohort)
                         for cohort in [initial_cohort, *dependent_cohorts]:
                             if [prop for prop in cohort.properties.flat if prop.type == "behavioral"]:
@@ -314,6 +337,9 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
         validated_data["created_by"] = request.user
         validated_data["team_id"] = self.context["team_id"]
         tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
+        creation_context = validated_data.pop(
+            "creation_context", "feature_flags"
+        )  # default to "feature_flags" if an alternative value is not provided
 
         self._update_filters(validated_data)
 
@@ -329,7 +355,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
 
         try:
             FeatureFlag.objects.filter(
-                key=validated_data["key"], team_id=self.context["team_id"], deleted=True
+                key=validated_data["key"], team__project_id=self.context["project_id"], deleted=True
             ).delete()
         except deletion.RestrictedError:
             raise exceptions.ValidationError(
@@ -344,7 +370,9 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
 
         _create_usage_dashboard(instance, request.user)
 
-        report_user_action(request.user, "feature flag created", instance.get_analytics_metadata())
+        analytics_metadata = instance.get_analytics_metadata()
+        analytics_metadata["creation_context"] = creation_context
+        report_user_action(request.user, "feature flag created", analytics_metadata)
 
         return instance
 
@@ -357,7 +385,10 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
         request = self.context["request"]
         validated_key = validated_data.get("key", None)
         if validated_key:
-            FeatureFlag.objects.filter(key=validated_key, team=instance.team, deleted=True).delete()
+            # Delete any soft deleted feature flags with the same key to prevent conflicts
+            FeatureFlag.objects.filter(
+                key=validated_key, team__project_id=instance.team.project_id, deleted=True
+            ).delete()
         self._update_filters(validated_data)
 
         analytics_dashboards = validated_data.pop("analytics_dashboards", None)
@@ -366,7 +397,29 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             for dashboard in analytics_dashboards:
                 FeatureFlagDashboards.objects.get_or_create(dashboard=dashboard, feature_flag=instance)
 
+        old_key = instance.key
+
         instance = super().update(instance, validated_data)
+
+        # Propagate the new variants and aggregation group type index to the linked experiments
+        if "filters" in validated_data:
+            filters = validated_data["filters"] or {}
+            multivariate = filters.get("multivariate") or {}
+            variants = multivariate.get("variants", [])
+            aggregation_group_type_index = filters.get("aggregation_group_type_index")
+
+            for experiment in instance.experiment_set.all():
+                if experiment.parameters is None:
+                    experiment.parameters = {}
+                experiment.parameters["feature_flag_variants"] = variants
+                if aggregation_group_type_index is not None:
+                    experiment.parameters["aggregation_group_type_index"] = aggregation_group_type_index
+                else:
+                    experiment.parameters.pop("aggregation_group_type_index", None)
+                experiment.save()
+
+        if old_key != instance.key:
+            _update_feature_flag_dashboard(instance, old_key)
 
         report_user_action(request.user, "feature flag updated", instance.get_analytics_metadata())
 
@@ -390,6 +443,7 @@ def _create_usage_dashboard(feature_flag: FeatureFlag, user):
         description="This dashboard was generated by the feature flag with key (" + feature_flag.key + ")",
         team=feature_flag.team,
         created_by=user,
+        creation_mode="template",
     )
     create_feature_flag_dashboard(feature_flag, usage_dashboard)
 
@@ -397,6 +451,15 @@ def _create_usage_dashboard(feature_flag: FeatureFlag, user):
     feature_flag.save()
 
     return usage_dashboard
+
+
+def _update_feature_flag_dashboard(feature_flag: FeatureFlag, old_key: str) -> None:
+    from posthog.helpers.dashboard_templates import update_feature_flag_dashboard
+
+    if not old_key:
+        return
+
+    update_feature_flag_dashboard(feature_flag, old_key)
 
 
 class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
@@ -418,6 +481,7 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
 
 class FeatureFlagViewSet(
     TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
     TaggedItemViewSetMixin,
     ForbidDestroyModel,
     viewsets.ModelViewSet,
@@ -436,6 +500,33 @@ class FeatureFlagViewSet(
         TemporaryTokenAuthentication,  # Allows endpoint to be called from the Toolbar
     ]
 
+    def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
+        filters = request.GET.dict()
+
+        for key in filters:
+            if key == "active":
+                queryset = queryset.filter(active=filters[key] == "true")
+            elif key == "created_by_id":
+                queryset = queryset.filter(created_by_id=request.GET["created_by_id"])
+            elif key == "search":
+                queryset = queryset.filter(
+                    Q(key__icontains=request.GET["search"]) | Q(name__icontains=request.GET["search"])
+                )
+            elif key == "type":
+                type = request.GET["type"]
+                if type == "boolean":
+                    queryset = queryset.filter(
+                        Q(filters__multivariate__variants__isnull=True) | Q(filters__multivariate__variants=[])
+                    )
+                elif type == "multivariant":
+                    queryset = queryset.filter(
+                        Q(filters__multivariate__variants__isnull=False) & ~Q(filters__multivariate__variants=[])
+                    )
+                elif type == "experiment":
+                    queryset = queryset.filter(~Q(experiment__isnull=True))
+
+        return queryset
+
     def safely_get_queryset(self, queryset) -> QuerySet:
         if self.action == "list":
             queryset = (
@@ -446,18 +537,59 @@ class FeatureFlagViewSet(
                 .prefetch_related("surveys_linked_flag")
             )
 
-            survey_targeting_flags = Survey.objects.filter(team=self.team, targeting_flag__isnull=False).values_list(
-                "targeting_flag_id", flat=True
-            )
+            survey_targeting_flags = Survey.objects.filter(
+                team__project_id=self.team.project_id, targeting_flag__isnull=False
+            ).values_list("targeting_flag_id", flat=True)
             survey_internal_targeting_flags = Survey.objects.filter(
-                team=self.team, internal_targeting_flag__isnull=False
+                team__project_id=self.team.project_id, internal_targeting_flag__isnull=False
             ).values_list("internal_targeting_flag_id", flat=True)
             queryset = queryset.exclude(Q(id__in=survey_targeting_flags)).exclude(
                 Q(id__in=survey_internal_targeting_flags)
             )
 
-        return queryset.select_related("created_by").order_by("-created_at")
+            # add additional filters provided by the client
+            queryset = self._filter_request(self.request, queryset)
 
+        order = self.request.GET.get("order", None)
+        if order:
+            queryset = queryset.order_by(order)
+        else:
+            queryset = queryset.order_by("-created_at")
+
+        return queryset.select_related("created_by")
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "active",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["true", "false"],
+            ),
+            OpenApiParameter(
+                "created_by_id",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="The User ID which initially created the feature flag.",
+            ),
+            OpenApiParameter(
+                "search",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Search by feature flag key or name. Case insensitive.",
+            ),
+            OpenApiParameter(
+                "type",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["boolean", "multivariant", "experiment"],
+            ),
+        ]
+    )
     def list(self, request, *args, **kwargs):
         if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
             # Add request for analytics only if request coming with personal API key authentication
@@ -536,7 +668,9 @@ class FeatureFlagViewSet(
         if not request.user.is_authenticated:  # for mypy
             raise exceptions.NotAuthenticated()
 
-        feature_flags = list(FeatureFlag.objects.filter(team=self.team, deleted=False).order_by("-created_at"))
+        feature_flags = list(
+            FeatureFlag.objects.filter(team__project_id=self.team.project_id, deleted=False).order_by("-created_at")
+        )
 
         if not feature_flags:
             return Response([])
@@ -572,7 +706,7 @@ class FeatureFlagViewSet(
             seen_cohorts_cache = {
                 cohort.pk: cohort
                 for cohort in Cohort.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
-                    team_id=self.team_id, deleted=False
+                    team__project_id=self.project_id, deleted=False
                 )
             }
 
@@ -635,7 +769,7 @@ class FeatureFlagViewSet(
                 "group_type_mapping": {
                     str(row.group_type_index): row.group_type
                     for row in GroupTypeMapping.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
-                        team_id=self.team_id
+                        project_id=self.project_id
                     )
                 },
                 "cohorts": cohorts,
@@ -660,9 +794,9 @@ class FeatureFlagViewSet(
                 "evaluation": reasons[flag_key],
             }
 
-        disabled_flags = FeatureFlag.objects.filter(team_id=self.team_id, active=False, deleted=False).values_list(
-            "key", flat=True
-        )
+        disabled_flags = FeatureFlag.objects.filter(
+            team__project_id=self.project_id, active=False, deleted=False
+        ).values_list("key", flat=True)
 
         for flag_key in disabled_flags:
             flags_with_evaluation_reasons[flag_key] = {
@@ -701,7 +835,7 @@ class FeatureFlagViewSet(
             data={
                 "is_static": True,
                 "key": feature_flag_key,
-                "name": f'Users with feature flag {feature_flag_key} enabled at {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}',
+                "name": f"Users with feature flag {feature_flag_key} enabled at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
                 "is_calculating": True,
             },
             context={
@@ -725,13 +859,27 @@ class FeatureFlagViewSet(
 
         return activity_page_response(activity_page, limit, page, request)
 
+    @action(methods=["GET"], detail=True, required_scopes=["feature_flag:read"])
+    def status(self, request: request.Request, **kwargs):
+        feature_flag_id = kwargs["pk"]
+
+        checker = FeatureFlagStatusChecker(
+            feature_flag_id=feature_flag_id,
+        )
+        flag_status, reason = checker.get_status()
+
+        return Response(
+            {"status": flag_status, "reason": reason},
+            status=status.HTTP_404_NOT_FOUND if flag_status == FeatureFlagStatus.UNKNOWN else status.HTTP_200_OK,
+        )
+
     @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
 
         item_id = kwargs["pk"]
-        if not FeatureFlag.objects.filter(id=item_id, team_id=self.team_id).exists():
+        if not FeatureFlag.objects.filter(id=item_id, team__project_id=self.project_id).exists():
             return Response("", status=status.HTTP_404_NOT_FOUND)
 
         activity_page = load_activity(

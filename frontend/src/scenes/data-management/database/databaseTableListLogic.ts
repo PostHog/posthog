@@ -9,7 +9,7 @@ import {
     DatabaseSchemaTable,
     DatabaseSchemaViewTable,
     NodeKind,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 
 import type { databaseTableListLogicType } from './databaseTableListLogicType'
 

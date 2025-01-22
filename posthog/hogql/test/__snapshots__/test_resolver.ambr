@@ -37,7 +37,9 @@
                           elements_chain_ids: {},
                           elements_chain_texts: {},
                           event: {},
+                          event_issue_id: {},
                           event_person_id: {},
+                          exception_issue_override: {},
                           goe_0: {},
                           goe_1: {},
                           goe_2: {},
@@ -48,6 +50,7 @@
                           group_2: {},
                           group_3: {},
                           group_4: {},
+                          issue_id: {},
                           override: {},
                           pdi: {},
                           person: {},
@@ -161,11 +164,51 @@
                     table_type: <recursion ...>
                   }
                 },
+                event_issue_id: {
+                  alias: "event_issue_id"
+                  type: {
+                    arg_types: [
+                      {
+                        data_type: "str"
+                        nullable: False
+                      }
+                    ]
+                    name: "toUUID"
+                    return_type: {
+                      data_type: "unknown"
+                      nullable: True
+                    }
+                  }
+                },
                 event_person_id: {
                   alias: "event_person_id"
                   type: {
                     name: "event_person_id"
                     table_type: <recursion ...>
+                  }
+                },
+                issue_id: {
+                  alias: "issue_id"
+                  type: {
+                    arg_types: [
+                      {
+                        data_type: "unknown"
+                        nullable: True
+                      },
+                      {
+                        data_type: "str"
+                        nullable: False
+                      },
+                      {
+                        data_type: "unknown"
+                        nullable: True
+                      }
+                    ]
+                    name: "if"
+                    return_type: {
+                      data_type: "unknown"
+                      nullable: True
+                    }
                   }
                 },
                 person_id: {
@@ -549,6 +592,40 @@
           alias: "event_person_id"
           type: <recursion ...>
         }
+      },
+      {
+        alias: "event_issue_id"
+        expr: {
+          chain: [
+            "event_issue_id"
+          ]
+          type: {
+            name: "event_issue_id"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "event_issue_id"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "issue_id"
+        expr: {
+          chain: [
+            "issue_id"
+          ]
+          type: {
+            name: "issue_id"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "issue_id"
+          type: <recursion ...>
+        }
       }
     ]
     select_from: {
@@ -895,6 +972,210 @@
             }
             hidden: True
             type: <recursion ...>
+          },
+          {
+            alias: "event_issue_id"
+            expr: {
+              args: [
+                {
+                  alias: "$exception_issue_id"
+                  expr: {
+                    chain: [
+                      "properties",
+                      "$exception_issue_id"
+                    ]
+                    end: 37
+                    start: 7
+                    type: {
+                      chain: [
+                        "$exception_issue_id"
+                      ]
+                      field_type: {
+                        name: "properties"
+                        table_type: <recursion ...>
+                      }
+                    }
+                  }
+                  hidden: True
+                  type: {
+                    alias: "$exception_issue_id"
+                    type: <recursion ...>
+                  }
+                }
+              ]
+              distinct: False
+              end: 38
+              name: "toUUID"
+              start: 0
+              type: <recursion ...>
+            }
+            hidden: True
+            type: <recursion ...>
+          },
+          {
+            alias: "issue_id"
+            expr: {
+              args: [
+                {
+                  args: [
+                    {
+                      args: [
+                        {
+                          alias: "issue_id"
+                          expr: {
+                            chain: [
+                              "exception_issue_override",
+                              "issue_id"
+                            ]
+                            type: {
+                              name: "issue_id"
+                              table_type: {
+                                field: "exception_issue_override"
+                                lazy_join: {
+                                  from_field: [
+                                    "fingerprint"
+                                  ],
+                                  join_function: <function>,
+                                  join_table: {
+                                    fields: {
+                                      fingerprint: {},
+                                      issue_id: {},
+                                      team_id: {}
+                                    }
+                                  },
+                                  to_field: None
+                                }
+                                table_type: <recursion ...>
+                              }
+                            }
+                          }
+                          hidden: True
+                          type: {
+                            alias: "issue_id"
+                            type: <recursion ...>
+                          }
+                        }
+                      ]
+                      distinct: False
+                      name: "empty"
+                      type: {
+                        arg_types: [
+                          {
+                            data_type: "str"
+                            nullable: False
+                          }
+                        ]
+                        name: "empty"
+                        return_type: {
+                          data_type: "unknown"
+                          nullable: True
+                        }
+                      }
+                    }
+                  ]
+                  distinct: False
+                  name: "not"
+                  type: {
+                    arg_types: [
+                      <recursion ...>
+                    ]
+                    name: "not"
+                    return_type: <recursion ...>
+                  }
+                },
+                {
+                  alias: "issue_id"
+                  expr: {
+                    chain: [
+                      "exception_issue_override",
+                      "issue_id"
+                    ]
+                    type: {
+                      name: "issue_id"
+                      table_type: {
+                        field: "exception_issue_override"
+                        lazy_join: {
+                          from_field: [
+                            "fingerprint"
+                          ],
+                          join_function: <function>,
+                          join_table: {
+                            fields: {
+                              fingerprint: {},
+                              issue_id: {},
+                              team_id: {}
+                            }
+                          },
+                          to_field: None
+                        }
+                        table_type: <recursion ...>
+                      }
+                    }
+                  }
+                  hidden: True
+                  type: {
+                    alias: "issue_id"
+                    type: <recursion ...>
+                  }
+                },
+                {
+                  alias: "event_issue_id"
+                  expr: {
+                    args: [
+                      {
+                        alias: "$exception_issue_id"
+                        expr: {
+                          chain: [
+                            "properties",
+                            "$exception_issue_id"
+                          ]
+                          end: 37
+                          start: 7
+                          type: {
+                            chain: [
+                              "$exception_issue_id"
+                            ]
+                            field_type: {
+                              name: "properties"
+                              table_type: <recursion ...>
+                            }
+                          }
+                        }
+                        hidden: True
+                        type: {
+                          alias: "$exception_issue_id"
+                          type: <recursion ...>
+                        }
+                      }
+                    ]
+                    distinct: False
+                    end: 38
+                    name: "toUUID"
+                    start: 0
+                    type: {
+                      arg_types: [
+                        {
+                          data_type: "str"
+                          nullable: False
+                        }
+                      ]
+                      name: "toUUID"
+                      return_type: <recursion ...>
+                    }
+                  }
+                  hidden: True
+                  type: {
+                    alias: "event_issue_id"
+                    type: <recursion ...>
+                  }
+                }
+              ]
+              distinct: False
+              name: "if"
+              type: <recursion ...>
+            }
+            hidden: True
+            type: <recursion ...>
           }
         ]
         select_from: {
@@ -931,7 +1212,9 @@
         elements_chain_ids: <recursion ...>,
         elements_chain_texts: <recursion ...>,
         event: <recursion ...>,
+        event_issue_id: <recursion ...>,
         event_person_id: <recursion ...>,
+        issue_id: <recursion ...>,
         person_id: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
@@ -973,7 +1256,9 @@
                   elements_chain_ids: {},
                   elements_chain_texts: {},
                   event: {},
+                  event_issue_id: {},
                   event_person_id: {},
+                  exception_issue_override: {},
                   goe_0: {},
                   goe_1: {},
                   goe_2: {},
@@ -985,6 +1270,7 @@
                   group_3: {},
                   group_4: {},
                   hidden_field: {},
+                  issue_id: {},
                   override: {},
                   pdi: {},
                   person: {},
@@ -1467,6 +1753,248 @@
           alias: "event_person_id"
           type: <recursion ...>
         }
+      },
+      {
+        alias: "event_issue_id"
+        expr: {
+          args: [
+            {
+              alias: "$exception_issue_id"
+              expr: {
+                chain: [
+                  "properties",
+                  "$exception_issue_id"
+                ]
+                end: 37
+                start: 7
+                type: {
+                  chain: [
+                    "$exception_issue_id"
+                  ]
+                  field_type: {
+                    name: "properties"
+                    table_type: <recursion ...>
+                  }
+                }
+              }
+              hidden: True
+              type: {
+                alias: "$exception_issue_id"
+                type: <recursion ...>
+              }
+            }
+          ]
+          distinct: False
+          end: 38
+          name: "toUUID"
+          start: 0
+          type: {
+            arg_types: [
+              {
+                data_type: "str"
+                nullable: False
+              }
+            ]
+            name: "toUUID"
+            return_type: {
+              data_type: "unknown"
+              nullable: True
+            }
+          }
+        }
+        hidden: True
+        type: {
+          alias: "event_issue_id"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "issue_id"
+        expr: {
+          args: [
+            {
+              args: [
+                {
+                  args: [
+                    {
+                      alias: "issue_id"
+                      expr: {
+                        chain: [
+                          "exception_issue_override",
+                          "issue_id"
+                        ]
+                        type: {
+                          name: "issue_id"
+                          table_type: {
+                            field: "exception_issue_override"
+                            lazy_join: {
+                              from_field: [
+                                "fingerprint"
+                              ],
+                              join_function: <function>,
+                              join_table: {
+                                fields: {
+                                  fingerprint: {},
+                                  issue_id: {},
+                                  team_id: {}
+                                }
+                              },
+                              to_field: None
+                            }
+                            table_type: <recursion ...>
+                          }
+                        }
+                      }
+                      hidden: True
+                      type: {
+                        alias: "issue_id"
+                        type: <recursion ...>
+                      }
+                    }
+                  ]
+                  distinct: False
+                  name: "empty"
+                  type: {
+                    arg_types: [
+                      {
+                        data_type: "str"
+                        nullable: False
+                      }
+                    ]
+                    name: "empty"
+                    return_type: {
+                      data_type: "unknown"
+                      nullable: True
+                    }
+                  }
+                }
+              ]
+              distinct: False
+              name: "not"
+              type: {
+                arg_types: [
+                  <recursion ...>
+                ]
+                name: "not"
+                return_type: {
+                  data_type: "unknown"
+                  nullable: True
+                }
+              }
+            },
+            {
+              alias: "issue_id"
+              expr: {
+                chain: [
+                  "exception_issue_override",
+                  "issue_id"
+                ]
+                type: {
+                  name: "issue_id"
+                  table_type: {
+                    field: "exception_issue_override"
+                    lazy_join: {
+                      from_field: [
+                        "fingerprint"
+                      ],
+                      join_function: <function>,
+                      join_table: {
+                        fields: {
+                          fingerprint: {},
+                          issue_id: {},
+                          team_id: {}
+                        }
+                      },
+                      to_field: None
+                    }
+                    table_type: <recursion ...>
+                  }
+                }
+              }
+              hidden: True
+              type: {
+                alias: "issue_id"
+                type: <recursion ...>
+              }
+            },
+            {
+              alias: "event_issue_id"
+              expr: {
+                args: [
+                  {
+                    alias: "$exception_issue_id"
+                    expr: {
+                      chain: [
+                        "properties",
+                        "$exception_issue_id"
+                      ]
+                      end: 37
+                      start: 7
+                      type: {
+                        chain: [
+                          "$exception_issue_id"
+                        ]
+                        field_type: {
+                          name: "properties"
+                          table_type: <recursion ...>
+                        }
+                      }
+                    }
+                    hidden: True
+                    type: {
+                      alias: "$exception_issue_id"
+                      type: <recursion ...>
+                    }
+                  }
+                ]
+                distinct: False
+                end: 38
+                name: "toUUID"
+                start: 0
+                type: {
+                  arg_types: [
+                    {
+                      data_type: "str"
+                      nullable: False
+                    }
+                  ]
+                  name: "toUUID"
+                  return_type: {
+                    data_type: "unknown"
+                    nullable: True
+                  }
+                }
+              }
+              hidden: True
+              type: {
+                alias: "event_issue_id"
+                type: <recursion ...>
+              }
+            }
+          ]
+          distinct: False
+          name: "if"
+          type: {
+            arg_types: [
+              <recursion ...>,
+              {
+                data_type: "str"
+                nullable: False
+              },
+              <recursion ...>
+            ]
+            name: "if"
+            return_type: {
+              data_type: "unknown"
+              nullable: True
+            }
+          }
+        }
+        hidden: True
+        type: {
+          alias: "issue_id"
+          type: <recursion ...>
+        }
       }
     ]
     select_from: {
@@ -1497,7 +2025,9 @@
         elements_chain_ids: <recursion ...>,
         elements_chain_texts: <recursion ...>,
         event: <recursion ...>,
+        event_issue_id: <recursion ...>,
         event_person_id: <recursion ...>,
+        issue_id: <recursion ...>,
         person_id: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
@@ -1506,6 +2036,684 @@
       ctes: {}
       tables: {
         events: <recursion ...>
+      }
+    }
+  }
+  '''
+# ---
+# name: TestResolver.test_asterisk_expander_multiple_base_table_with_scope
+  '''
+  {
+    select: [
+      {
+        alias: "session_id"
+        expr: {
+          chain: [
+            "e",
+            "session_id"
+          ]
+          type: {
+            name: "session_id"
+            table_type: {
+              alias: "e"
+              table_type: {
+                table: {
+                  fields: {
+                    active_milliseconds: {},
+                    click_count: {},
+                    console_error_count: {},
+                    console_log_count: {},
+                    console_logs: {},
+                    console_warn_count: {},
+                    distinct_id: {},
+                    end_time: {},
+                    event_count: {},
+                    events: {},
+                    first_url: {},
+                    keypress_count: {},
+                    message_count: {},
+                    mouse_activity_count: {},
+                    pdi: {},
+                    person: {},
+                    person_id: {},
+                    properties: {},
+                    session: {},
+                    session_id: {},
+                    size: {},
+                    snapshot_source: {},
+                    start_time: {},
+                    team_id: {}
+                  }
+                }
+              }
+            }
+          }
+        }
+        hidden: True
+        type: {
+          alias: "session_id"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "distinct_id"
+        expr: {
+          chain: [
+            "e",
+            "distinct_id"
+          ]
+          type: {
+            name: "distinct_id"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "distinct_id"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "first_url"
+        expr: {
+          chain: [
+            "e",
+            "first_url"
+          ]
+          type: {
+            name: "first_url"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "first_url"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "click_count"
+        expr: {
+          chain: [
+            "e",
+            "click_count"
+          ]
+          type: {
+            name: "click_count"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "click_count"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "keypress_count"
+        expr: {
+          chain: [
+            "e",
+            "keypress_count"
+          ]
+          type: {
+            name: "keypress_count"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "keypress_count"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "mouse_activity_count"
+        expr: {
+          chain: [
+            "e",
+            "mouse_activity_count"
+          ]
+          type: {
+            name: "mouse_activity_count"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "mouse_activity_count"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "active_milliseconds"
+        expr: {
+          chain: [
+            "e",
+            "active_milliseconds"
+          ]
+          type: {
+            name: "active_milliseconds"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "active_milliseconds"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "console_log_count"
+        expr: {
+          chain: [
+            "e",
+            "console_log_count"
+          ]
+          type: {
+            name: "console_log_count"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "console_log_count"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "console_warn_count"
+        expr: {
+          chain: [
+            "e",
+            "console_warn_count"
+          ]
+          type: {
+            name: "console_warn_count"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "console_warn_count"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "console_error_count"
+        expr: {
+          chain: [
+            "e",
+            "console_error_count"
+          ]
+          type: {
+            name: "console_error_count"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "console_error_count"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "size"
+        expr: {
+          chain: [
+            "e",
+            "size"
+          ]
+          type: {
+            name: "size"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "size"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "event_count"
+        expr: {
+          chain: [
+            "e",
+            "event_count"
+          ]
+          type: {
+            name: "event_count"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "event_count"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "message_count"
+        expr: {
+          chain: [
+            "e",
+            "message_count"
+          ]
+          type: {
+            name: "message_count"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "message_count"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "snapshot_source"
+        expr: {
+          chain: [
+            "e",
+            "snapshot_source"
+          ]
+          type: {
+            name: "snapshot_source"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "snapshot_source"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "start_time"
+        expr: {
+          chain: [
+            "e",
+            "start_time"
+          ]
+          type: {
+            name: "start_time"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "start_time"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "end_time"
+        expr: {
+          chain: [
+            "e",
+            "end_time"
+          ]
+          type: {
+            name: "end_time"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "end_time"
+          type: <recursion ...>
+        }
+      }
+    ]
+    select_from: {
+      alias: "e"
+      next_join: {
+        alias: "s"
+        constraint: {
+          constraint_type: "ON"
+          expr: {
+            left: {
+              alias: "session_id"
+              expr: {
+                chain: [
+                  "s",
+                  "session_id"
+                ]
+                type: {
+                  name: "session_id"
+                  table_type: {
+                    alias: "s"
+                    table_type: {
+                      table: {
+                        fields: {
+                          $autocapture_count: {},
+                          $channel_type: {},
+                          $end_current_url: {},
+                          $end_hostname: {},
+                          $end_pathname: {},
+                          $end_timestamp: {},
+                          $entry_current_url: {},
+                          $entry_fbclid: {},
+                          $entry_gad_source: {},
+                          $entry_gclid: {},
+                          $entry_hostname: {},
+                          $entry_pathname: {},
+                          $entry_referring_domain: {},
+                          $entry_utm_campaign: {},
+                          $entry_utm_content: {},
+                          $entry_utm_medium: {},
+                          $entry_utm_source: {},
+                          $entry_utm_term: {},
+                          $exit_current_url: {},
+                          $exit_pathname: {},
+                          $is_bounce: {},
+                          $last_external_click_url: {},
+                          $num_uniq_urls: {},
+                          $page_screen_autocapture_count_up_to: {},
+                          $pageview_count: {},
+                          $screen_count: {},
+                          $session_duration: {},
+                          $start_timestamp: {},
+                          $urls: {},
+                          $vitals_lcp: {},
+                          distinct_id: {},
+                          duration: {},
+                          id: {},
+                          session_id: {},
+                          session_id_v7: {},
+                          team_id: {}
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+              hidden: True
+              type: {
+                alias: "session_id"
+                type: <recursion ...>
+              }
+            }
+            op: "=="
+            right: {
+              alias: "session_id"
+              expr: {
+                chain: [
+                  "e",
+                  "session_id"
+                ]
+                type: {
+                  name: "session_id"
+                  table_type: <recursion ...>
+                }
+              }
+              hidden: True
+              type: {
+                alias: "session_id"
+                type: <recursion ...>
+              }
+            }
+            type: {
+              data_type: "bool"
+              nullable: False
+            }
+          }
+        }
+        join_type: "JOIN"
+        table: {
+          chain: [
+            "sessions"
+          ]
+          type: <recursion ...>
+        }
+        type: <recursion ...>
+      }
+      table: {
+        chain: [
+          "session_replay_events"
+        ]
+        type: <recursion ...>
+      }
+      type: <recursion ...>
+    }
+    type: {
+      aliases: {}
+      anonymous_tables: []
+      columns: {
+        active_milliseconds: <recursion ...>,
+        click_count: <recursion ...>,
+        console_error_count: <recursion ...>,
+        console_log_count: <recursion ...>,
+        console_warn_count: <recursion ...>,
+        distinct_id: <recursion ...>,
+        end_time: <recursion ...>,
+        event_count: <recursion ...>,
+        first_url: <recursion ...>,
+        keypress_count: <recursion ...>,
+        message_count: <recursion ...>,
+        mouse_activity_count: <recursion ...>,
+        session_id: <recursion ...>,
+        size: <recursion ...>,
+        snapshot_source: <recursion ...>,
+        start_time: <recursion ...>
+      }
+      ctes: {}
+      tables: {
+        e: <recursion ...>,
+        s: <recursion ...>
+      }
+    }
+  }
+  '''
+# ---
+# name: TestResolver.test_asterisk_expander_multiple_table_with_scope
+  '''
+  {
+    select: [
+      {
+        alias: "a"
+        expr: {
+          chain: [
+            "x",
+            "a"
+          ]
+          type: {
+            name: "a"
+            table_type: {
+              alias: "x"
+              select_query_type: {
+                aliases: {
+                  a: {
+                    alias: "a"
+                    type: {
+                      data_type: "int"
+                      nullable: False
+                    }
+                  },
+                  b: {
+                    alias: "b"
+                    type: {
+                      data_type: "int"
+                      nullable: False
+                    }
+                  }
+                }
+                anonymous_tables: []
+                columns: {
+                  a: <recursion ...>,
+                  b: <recursion ...>
+                }
+                ctes: {}
+                tables: {}
+              }
+            }
+          }
+        }
+        hidden: True
+        type: {
+          alias: "a"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "b"
+        expr: {
+          chain: [
+            "x",
+            "b"
+          ]
+          type: {
+            name: "b"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "b"
+          type: <recursion ...>
+        }
+      }
+    ]
+    select_from: {
+      alias: "x"
+      next_join: {
+        alias: "y"
+        constraint: {
+          constraint_type: "ON"
+          expr: {
+            left: {
+              alias: "a"
+              expr: {
+                chain: [
+                  "x",
+                  "a"
+                ]
+                type: {
+                  name: "a"
+                  table_type: <recursion ...>
+                }
+              }
+              hidden: True
+              type: {
+                alias: "a"
+                type: <recursion ...>
+              }
+            }
+            op: "=="
+            right: {
+              alias: "a"
+              expr: {
+                chain: [
+                  "y",
+                  "a"
+                ]
+                type: {
+                  name: "a"
+                  table_type: {
+                    alias: "y"
+                    select_query_type: {
+                      aliases: {
+                        a: {
+                          alias: "a"
+                          type: {
+                            data_type: "int"
+                            nullable: False
+                          }
+                        },
+                        b: {
+                          alias: "b"
+                          type: {
+                            data_type: "int"
+                            nullable: False
+                          }
+                        }
+                      }
+                      anonymous_tables: []
+                      columns: {
+                        a: <recursion ...>,
+                        b: <recursion ...>
+                      }
+                      ctes: {}
+                      tables: {}
+                    }
+                  }
+                }
+              }
+              hidden: True
+              type: {
+                alias: "a"
+                type: <recursion ...>
+              }
+            }
+            type: {
+              data_type: "bool"
+              nullable: False
+            }
+          }
+        }
+        join_type: "LEFT JOIN"
+        table: {
+          select: [
+            {
+              alias: "a"
+              expr: {
+                type: <recursion ...>
+                value: 1
+              }
+              hidden: False
+              type: <recursion ...>
+            },
+            {
+              alias: "b"
+              expr: {
+                type: <recursion ...>
+                value: 2
+              }
+              hidden: False
+              type: <recursion ...>
+            }
+          ]
+          type: <recursion ...>
+        }
+        type: <recursion ...>
+      }
+      table: {
+        select: [
+          {
+            alias: "a"
+            expr: {
+              type: <recursion ...>
+              value: 1
+            }
+            hidden: False
+            type: <recursion ...>
+          },
+          {
+            alias: "b"
+            expr: {
+              type: <recursion ...>
+              value: 2
+            }
+            hidden: False
+            type: <recursion ...>
+          }
+        ]
+        type: <recursion ...>
+      }
+      type: <recursion ...>
+    }
+    type: {
+      aliases: {}
+      anonymous_tables: []
+      columns: {
+        a: <recursion ...>,
+        b: <recursion ...>
+      }
+      ctes: {}
+      tables: {
+        x: <recursion ...>,
+        y: <recursion ...>
       }
     }
   }
@@ -1549,7 +2757,9 @@
                           elements_chain_ids: {},
                           elements_chain_texts: {},
                           event: {},
+                          event_issue_id: {},
                           event_person_id: {},
+                          exception_issue_override: {},
                           goe_0: {},
                           goe_1: {},
                           goe_2: {},
@@ -1560,6 +2770,7 @@
                           group_2: {},
                           group_3: {},
                           group_4: {},
+                          issue_id: {},
                           override: {},
                           pdi: {},
                           person: {},
@@ -1673,11 +2884,51 @@
                     table_type: <recursion ...>
                   }
                 },
+                event_issue_id: {
+                  alias: "event_issue_id"
+                  type: {
+                    arg_types: [
+                      {
+                        data_type: "str"
+                        nullable: False
+                      }
+                    ]
+                    name: "toUUID"
+                    return_type: {
+                      data_type: "unknown"
+                      nullable: True
+                    }
+                  }
+                },
                 event_person_id: {
                   alias: "event_person_id"
                   type: {
                     name: "event_person_id"
                     table_type: <recursion ...>
+                  }
+                },
+                issue_id: {
+                  alias: "issue_id"
+                  type: {
+                    arg_types: [
+                      {
+                        data_type: "unknown"
+                        nullable: True
+                      },
+                      {
+                        data_type: "str"
+                        nullable: False
+                      },
+                      {
+                        data_type: "unknown"
+                        nullable: True
+                      }
+                    ]
+                    name: "if"
+                    return_type: {
+                      data_type: "unknown"
+                      nullable: True
+                    }
                   }
                 },
                 person_id: {
@@ -2061,6 +3312,40 @@
           alias: "event_person_id"
           type: <recursion ...>
         }
+      },
+      {
+        alias: "event_issue_id"
+        expr: {
+          chain: [
+            "event_issue_id"
+          ]
+          type: {
+            name: "event_issue_id"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "event_issue_id"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "issue_id"
+        expr: {
+          chain: [
+            "issue_id"
+          ]
+          type: {
+            name: "issue_id"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "issue_id"
+          type: <recursion ...>
+        }
       }
     ]
     select_from: {
@@ -2408,6 +3693,210 @@
               }
               hidden: True
               type: <recursion ...>
+            },
+            {
+              alias: "event_issue_id"
+              expr: {
+                args: [
+                  {
+                    alias: "$exception_issue_id"
+                    expr: {
+                      chain: [
+                        "properties",
+                        "$exception_issue_id"
+                      ]
+                      end: 37
+                      start: 7
+                      type: {
+                        chain: [
+                          "$exception_issue_id"
+                        ]
+                        field_type: {
+                          name: "properties"
+                          table_type: <recursion ...>
+                        }
+                      }
+                    }
+                    hidden: True
+                    type: {
+                      alias: "$exception_issue_id"
+                      type: <recursion ...>
+                    }
+                  }
+                ]
+                distinct: False
+                end: 38
+                name: "toUUID"
+                start: 0
+                type: <recursion ...>
+              }
+              hidden: True
+              type: <recursion ...>
+            },
+            {
+              alias: "issue_id"
+              expr: {
+                args: [
+                  {
+                    args: [
+                      {
+                        args: [
+                          {
+                            alias: "issue_id"
+                            expr: {
+                              chain: [
+                                "exception_issue_override",
+                                "issue_id"
+                              ]
+                              type: {
+                                name: "issue_id"
+                                table_type: {
+                                  field: "exception_issue_override"
+                                  lazy_join: {
+                                    from_field: [
+                                      "fingerprint"
+                                    ],
+                                    join_function: <function>,
+                                    join_table: {
+                                      fields: {
+                                        fingerprint: {},
+                                        issue_id: {},
+                                        team_id: {}
+                                      }
+                                    },
+                                    to_field: None
+                                  }
+                                  table_type: <recursion ...>
+                                }
+                              }
+                            }
+                            hidden: True
+                            type: {
+                              alias: "issue_id"
+                              type: <recursion ...>
+                            }
+                          }
+                        ]
+                        distinct: False
+                        name: "empty"
+                        type: {
+                          arg_types: [
+                            {
+                              data_type: "str"
+                              nullable: False
+                            }
+                          ]
+                          name: "empty"
+                          return_type: {
+                            data_type: "unknown"
+                            nullable: True
+                          }
+                        }
+                      }
+                    ]
+                    distinct: False
+                    name: "not"
+                    type: {
+                      arg_types: [
+                        <recursion ...>
+                      ]
+                      name: "not"
+                      return_type: <recursion ...>
+                    }
+                  },
+                  {
+                    alias: "issue_id"
+                    expr: {
+                      chain: [
+                        "exception_issue_override",
+                        "issue_id"
+                      ]
+                      type: {
+                        name: "issue_id"
+                        table_type: {
+                          field: "exception_issue_override"
+                          lazy_join: {
+                            from_field: [
+                              "fingerprint"
+                            ],
+                            join_function: <function>,
+                            join_table: {
+                              fields: {
+                                fingerprint: {},
+                                issue_id: {},
+                                team_id: {}
+                              }
+                            },
+                            to_field: None
+                          }
+                          table_type: <recursion ...>
+                        }
+                      }
+                    }
+                    hidden: True
+                    type: {
+                      alias: "issue_id"
+                      type: <recursion ...>
+                    }
+                  },
+                  {
+                    alias: "event_issue_id"
+                    expr: {
+                      args: [
+                        {
+                          alias: "$exception_issue_id"
+                          expr: {
+                            chain: [
+                              "properties",
+                              "$exception_issue_id"
+                            ]
+                            end: 37
+                            start: 7
+                            type: {
+                              chain: [
+                                "$exception_issue_id"
+                              ]
+                              field_type: {
+                                name: "properties"
+                                table_type: <recursion ...>
+                              }
+                            }
+                          }
+                          hidden: True
+                          type: {
+                            alias: "$exception_issue_id"
+                            type: <recursion ...>
+                          }
+                        }
+                      ]
+                      distinct: False
+                      end: 38
+                      name: "toUUID"
+                      start: 0
+                      type: {
+                        arg_types: [
+                          {
+                            data_type: "str"
+                            nullable: False
+                          }
+                        ]
+                        name: "toUUID"
+                        return_type: <recursion ...>
+                      }
+                    }
+                    hidden: True
+                    type: {
+                      alias: "event_issue_id"
+                      type: <recursion ...>
+                    }
+                  }
+                ]
+                distinct: False
+                name: "if"
+                type: <recursion ...>
+              }
+              hidden: True
+              type: <recursion ...>
             }
           ]
           select_from: {
@@ -2451,7 +3940,9 @@
                             elements_chain_ids: {},
                             elements_chain_texts: {},
                             event: {},
+                            event_issue_id: {},
                             event_person_id: {},
+                            exception_issue_override: {},
                             goe_0: {},
                             goe_1: {},
                             goe_2: {},
@@ -2462,6 +3953,7 @@
                             group_2: {},
                             group_3: {},
                             group_4: {},
+                            issue_id: {},
                             override: {},
                             pdi: {},
                             person: {},
@@ -2944,6 +4436,248 @@
                     alias: "event_person_id"
                     type: <recursion ...>
                   }
+                },
+                {
+                  alias: "event_issue_id"
+                  expr: {
+                    args: [
+                      {
+                        alias: "$exception_issue_id"
+                        expr: {
+                          chain: [
+                            "properties",
+                            "$exception_issue_id"
+                          ]
+                          end: 37
+                          start: 7
+                          type: {
+                            chain: [
+                              "$exception_issue_id"
+                            ]
+                            field_type: {
+                              name: "properties"
+                              table_type: <recursion ...>
+                            }
+                          }
+                        }
+                        hidden: True
+                        type: {
+                          alias: "$exception_issue_id"
+                          type: <recursion ...>
+                        }
+                      }
+                    ]
+                    distinct: False
+                    end: 38
+                    name: "toUUID"
+                    start: 0
+                    type: {
+                      arg_types: [
+                        {
+                          data_type: "str"
+                          nullable: False
+                        }
+                      ]
+                      name: "toUUID"
+                      return_type: {
+                        data_type: "unknown"
+                        nullable: True
+                      }
+                    }
+                  }
+                  hidden: True
+                  type: {
+                    alias: "event_issue_id"
+                    type: <recursion ...>
+                  }
+                },
+                {
+                  alias: "issue_id"
+                  expr: {
+                    args: [
+                      {
+                        args: [
+                          {
+                            args: [
+                              {
+                                alias: "issue_id"
+                                expr: {
+                                  chain: [
+                                    "exception_issue_override",
+                                    "issue_id"
+                                  ]
+                                  type: {
+                                    name: "issue_id"
+                                    table_type: {
+                                      field: "exception_issue_override"
+                                      lazy_join: {
+                                        from_field: [
+                                          "fingerprint"
+                                        ],
+                                        join_function: <function>,
+                                        join_table: {
+                                          fields: {
+                                            fingerprint: {},
+                                            issue_id: {},
+                                            team_id: {}
+                                          }
+                                        },
+                                        to_field: None
+                                      }
+                                      table_type: <recursion ...>
+                                    }
+                                  }
+                                }
+                                hidden: True
+                                type: {
+                                  alias: "issue_id"
+                                  type: <recursion ...>
+                                }
+                              }
+                            ]
+                            distinct: False
+                            name: "empty"
+                            type: {
+                              arg_types: [
+                                {
+                                  data_type: "str"
+                                  nullable: False
+                                }
+                              ]
+                              name: "empty"
+                              return_type: {
+                                data_type: "unknown"
+                                nullable: True
+                              }
+                            }
+                          }
+                        ]
+                        distinct: False
+                        name: "not"
+                        type: {
+                          arg_types: [
+                            <recursion ...>
+                          ]
+                          name: "not"
+                          return_type: {
+                            data_type: "unknown"
+                            nullable: True
+                          }
+                        }
+                      },
+                      {
+                        alias: "issue_id"
+                        expr: {
+                          chain: [
+                            "exception_issue_override",
+                            "issue_id"
+                          ]
+                          type: {
+                            name: "issue_id"
+                            table_type: {
+                              field: "exception_issue_override"
+                              lazy_join: {
+                                from_field: [
+                                  "fingerprint"
+                                ],
+                                join_function: <function>,
+                                join_table: {
+                                  fields: {
+                                    fingerprint: {},
+                                    issue_id: {},
+                                    team_id: {}
+                                  }
+                                },
+                                to_field: None
+                              }
+                              table_type: <recursion ...>
+                            }
+                          }
+                        }
+                        hidden: True
+                        type: {
+                          alias: "issue_id"
+                          type: <recursion ...>
+                        }
+                      },
+                      {
+                        alias: "event_issue_id"
+                        expr: {
+                          args: [
+                            {
+                              alias: "$exception_issue_id"
+                              expr: {
+                                chain: [
+                                  "properties",
+                                  "$exception_issue_id"
+                                ]
+                                end: 37
+                                start: 7
+                                type: {
+                                  chain: [
+                                    "$exception_issue_id"
+                                  ]
+                                  field_type: {
+                                    name: "properties"
+                                    table_type: <recursion ...>
+                                  }
+                                }
+                              }
+                              hidden: True
+                              type: {
+                                alias: "$exception_issue_id"
+                                type: <recursion ...>
+                              }
+                            }
+                          ]
+                          distinct: False
+                          end: 38
+                          name: "toUUID"
+                          start: 0
+                          type: {
+                            arg_types: [
+                              {
+                                data_type: "str"
+                                nullable: False
+                              }
+                            ]
+                            name: "toUUID"
+                            return_type: {
+                              data_type: "unknown"
+                              nullable: True
+                            }
+                          }
+                        }
+                        hidden: True
+                        type: {
+                          alias: "event_issue_id"
+                          type: <recursion ...>
+                        }
+                      }
+                    ]
+                    distinct: False
+                    name: "if"
+                    type: {
+                      arg_types: [
+                        <recursion ...>,
+                        {
+                          data_type: "str"
+                          nullable: False
+                        },
+                        <recursion ...>
+                      ]
+                      name: "if"
+                      return_type: {
+                        data_type: "unknown"
+                        nullable: True
+                      }
+                    }
+                  }
+                  hidden: True
+                  type: {
+                    alias: "issue_id"
+                    type: <recursion ...>
+                  }
                 }
               ]
               select_from: {
@@ -2974,7 +4708,9 @@
                   elements_chain_ids: <recursion ...>,
                   elements_chain_texts: <recursion ...>,
                   event: <recursion ...>,
+                  event_issue_id: <recursion ...>,
                   event_person_id: <recursion ...>,
+                  issue_id: <recursion ...>,
                   person_id: <recursion ...>,
                   properties: <recursion ...>,
                   timestamp: <recursion ...>,
@@ -3019,7 +4755,9 @@
         elements_chain_ids: <recursion ...>,
         elements_chain_texts: <recursion ...>,
         event: <recursion ...>,
+        event_issue_id: <recursion ...>,
         event_person_id: <recursion ...>,
+        issue_id: <recursion ...>,
         person_id: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
@@ -3143,6 +4881,7 @@
         alias: "a"
         expr: {
           chain: [
+            "x",
             "a"
           ]
           type: {
@@ -3187,6 +4926,7 @@
         alias: "b"
         expr: {
           chain: [
+            "x",
             "b"
           ]
           type: {
@@ -3273,7 +5013,9 @@
                   elements_chain_ids: {},
                   elements_chain_texts: {},
                   event: {},
+                  event_issue_id: {},
                   event_person_id: {},
+                  exception_issue_override: {},
                   goe_0: {},
                   goe_1: {},
                   goe_2: {},
@@ -3284,6 +5026,7 @@
                   group_2: {},
                   group_3: {},
                   group_4: {},
+                  issue_id: {},
                   override: {},
                   pdi: {},
                   person: {},
@@ -3766,6 +5509,248 @@
           alias: "event_person_id"
           type: <recursion ...>
         }
+      },
+      {
+        alias: "event_issue_id"
+        expr: {
+          args: [
+            {
+              alias: "$exception_issue_id"
+              expr: {
+                chain: [
+                  "properties",
+                  "$exception_issue_id"
+                ]
+                end: 37
+                start: 7
+                type: {
+                  chain: [
+                    "$exception_issue_id"
+                  ]
+                  field_type: {
+                    name: "properties"
+                    table_type: <recursion ...>
+                  }
+                }
+              }
+              hidden: True
+              type: {
+                alias: "$exception_issue_id"
+                type: <recursion ...>
+              }
+            }
+          ]
+          distinct: False
+          end: 38
+          name: "toUUID"
+          start: 0
+          type: {
+            arg_types: [
+              {
+                data_type: "str"
+                nullable: False
+              }
+            ]
+            name: "toUUID"
+            return_type: {
+              data_type: "unknown"
+              nullable: True
+            }
+          }
+        }
+        hidden: True
+        type: {
+          alias: "event_issue_id"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "issue_id"
+        expr: {
+          args: [
+            {
+              args: [
+                {
+                  args: [
+                    {
+                      alias: "issue_id"
+                      expr: {
+                        chain: [
+                          "exception_issue_override",
+                          "issue_id"
+                        ]
+                        type: {
+                          name: "issue_id"
+                          table_type: {
+                            field: "exception_issue_override"
+                            lazy_join: {
+                              from_field: [
+                                "fingerprint"
+                              ],
+                              join_function: <function>,
+                              join_table: {
+                                fields: {
+                                  fingerprint: {},
+                                  issue_id: {},
+                                  team_id: {}
+                                }
+                              },
+                              to_field: None
+                            }
+                            table_type: <recursion ...>
+                          }
+                        }
+                      }
+                      hidden: True
+                      type: {
+                        alias: "issue_id"
+                        type: <recursion ...>
+                      }
+                    }
+                  ]
+                  distinct: False
+                  name: "empty"
+                  type: {
+                    arg_types: [
+                      {
+                        data_type: "str"
+                        nullable: False
+                      }
+                    ]
+                    name: "empty"
+                    return_type: {
+                      data_type: "unknown"
+                      nullable: True
+                    }
+                  }
+                }
+              ]
+              distinct: False
+              name: "not"
+              type: {
+                arg_types: [
+                  <recursion ...>
+                ]
+                name: "not"
+                return_type: {
+                  data_type: "unknown"
+                  nullable: True
+                }
+              }
+            },
+            {
+              alias: "issue_id"
+              expr: {
+                chain: [
+                  "exception_issue_override",
+                  "issue_id"
+                ]
+                type: {
+                  name: "issue_id"
+                  table_type: {
+                    field: "exception_issue_override"
+                    lazy_join: {
+                      from_field: [
+                        "fingerprint"
+                      ],
+                      join_function: <function>,
+                      join_table: {
+                        fields: {
+                          fingerprint: {},
+                          issue_id: {},
+                          team_id: {}
+                        }
+                      },
+                      to_field: None
+                    }
+                    table_type: <recursion ...>
+                  }
+                }
+              }
+              hidden: True
+              type: {
+                alias: "issue_id"
+                type: <recursion ...>
+              }
+            },
+            {
+              alias: "event_issue_id"
+              expr: {
+                args: [
+                  {
+                    alias: "$exception_issue_id"
+                    expr: {
+                      chain: [
+                        "properties",
+                        "$exception_issue_id"
+                      ]
+                      end: 37
+                      start: 7
+                      type: {
+                        chain: [
+                          "$exception_issue_id"
+                        ]
+                        field_type: {
+                          name: "properties"
+                          table_type: <recursion ...>
+                        }
+                      }
+                    }
+                    hidden: True
+                    type: {
+                      alias: "$exception_issue_id"
+                      type: <recursion ...>
+                    }
+                  }
+                ]
+                distinct: False
+                end: 38
+                name: "toUUID"
+                start: 0
+                type: {
+                  arg_types: [
+                    {
+                      data_type: "str"
+                      nullable: False
+                    }
+                  ]
+                  name: "toUUID"
+                  return_type: {
+                    data_type: "unknown"
+                    nullable: True
+                  }
+                }
+              }
+              hidden: True
+              type: {
+                alias: "event_issue_id"
+                type: <recursion ...>
+              }
+            }
+          ]
+          distinct: False
+          name: "if"
+          type: {
+            arg_types: [
+              <recursion ...>,
+              {
+                data_type: "str"
+                nullable: False
+              },
+              <recursion ...>
+            ]
+            name: "if"
+            return_type: {
+              data_type: "unknown"
+              nullable: True
+            }
+          }
+        }
+        hidden: True
+        type: {
+          alias: "issue_id"
+          type: <recursion ...>
+        }
       }
     ]
     select_from: {
@@ -3796,7 +5781,9 @@
         elements_chain_ids: <recursion ...>,
         elements_chain_texts: <recursion ...>,
         event: <recursion ...>,
+        event_issue_id: <recursion ...>,
         event_person_id: <recursion ...>,
+        issue_id: <recursion ...>,
         person_id: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
@@ -3842,7 +5829,9 @@
                     elements_chain_ids: {},
                     elements_chain_texts: {},
                     event: {},
+                    event_issue_id: {},
                     event_person_id: {},
+                    exception_issue_override: {},
                     goe_0: {},
                     goe_1: {},
                     goe_2: {},
@@ -3853,6 +5842,7 @@
                     group_2: {},
                     group_3: {},
                     group_4: {},
+                    issue_id: {},
                     override: {},
                     pdi: {},
                     person: {},
@@ -4336,6 +6326,248 @@
           alias: "event_person_id"
           type: <recursion ...>
         }
+      },
+      {
+        alias: "event_issue_id"
+        expr: {
+          args: [
+            {
+              alias: "$exception_issue_id"
+              expr: {
+                chain: [
+                  "properties",
+                  "$exception_issue_id"
+                ]
+                end: 37
+                start: 7
+                type: {
+                  chain: [
+                    "$exception_issue_id"
+                  ]
+                  field_type: {
+                    name: "properties"
+                    table_type: <recursion ...>
+                  }
+                }
+              }
+              hidden: True
+              type: {
+                alias: "$exception_issue_id"
+                type: <recursion ...>
+              }
+            }
+          ]
+          distinct: False
+          end: 38
+          name: "toUUID"
+          start: 0
+          type: {
+            arg_types: [
+              {
+                data_type: "str"
+                nullable: False
+              }
+            ]
+            name: "toUUID"
+            return_type: {
+              data_type: "unknown"
+              nullable: True
+            }
+          }
+        }
+        hidden: True
+        type: {
+          alias: "event_issue_id"
+          type: <recursion ...>
+        }
+      },
+      {
+        alias: "issue_id"
+        expr: {
+          args: [
+            {
+              args: [
+                {
+                  args: [
+                    {
+                      alias: "issue_id"
+                      expr: {
+                        chain: [
+                          "exception_issue_override",
+                          "issue_id"
+                        ]
+                        type: {
+                          name: "issue_id"
+                          table_type: {
+                            field: "exception_issue_override"
+                            lazy_join: {
+                              from_field: [
+                                "fingerprint"
+                              ],
+                              join_function: <function>,
+                              join_table: {
+                                fields: {
+                                  fingerprint: {},
+                                  issue_id: {},
+                                  team_id: {}
+                                }
+                              },
+                              to_field: None
+                            }
+                            table_type: <recursion ...>
+                          }
+                        }
+                      }
+                      hidden: True
+                      type: {
+                        alias: "issue_id"
+                        type: <recursion ...>
+                      }
+                    }
+                  ]
+                  distinct: False
+                  name: "empty"
+                  type: {
+                    arg_types: [
+                      {
+                        data_type: "str"
+                        nullable: False
+                      }
+                    ]
+                    name: "empty"
+                    return_type: {
+                      data_type: "unknown"
+                      nullable: True
+                    }
+                  }
+                }
+              ]
+              distinct: False
+              name: "not"
+              type: {
+                arg_types: [
+                  <recursion ...>
+                ]
+                name: "not"
+                return_type: {
+                  data_type: "unknown"
+                  nullable: True
+                }
+              }
+            },
+            {
+              alias: "issue_id"
+              expr: {
+                chain: [
+                  "exception_issue_override",
+                  "issue_id"
+                ]
+                type: {
+                  name: "issue_id"
+                  table_type: {
+                    field: "exception_issue_override"
+                    lazy_join: {
+                      from_field: [
+                        "fingerprint"
+                      ],
+                      join_function: <function>,
+                      join_table: {
+                        fields: {
+                          fingerprint: {},
+                          issue_id: {},
+                          team_id: {}
+                        }
+                      },
+                      to_field: None
+                    }
+                    table_type: <recursion ...>
+                  }
+                }
+              }
+              hidden: True
+              type: {
+                alias: "issue_id"
+                type: <recursion ...>
+              }
+            },
+            {
+              alias: "event_issue_id"
+              expr: {
+                args: [
+                  {
+                    alias: "$exception_issue_id"
+                    expr: {
+                      chain: [
+                        "properties",
+                        "$exception_issue_id"
+                      ]
+                      end: 37
+                      start: 7
+                      type: {
+                        chain: [
+                          "$exception_issue_id"
+                        ]
+                        field_type: {
+                          name: "properties"
+                          table_type: <recursion ...>
+                        }
+                      }
+                    }
+                    hidden: True
+                    type: {
+                      alias: "$exception_issue_id"
+                      type: <recursion ...>
+                    }
+                  }
+                ]
+                distinct: False
+                end: 38
+                name: "toUUID"
+                start: 0
+                type: {
+                  arg_types: [
+                    {
+                      data_type: "str"
+                      nullable: False
+                    }
+                  ]
+                  name: "toUUID"
+                  return_type: {
+                    data_type: "unknown"
+                    nullable: True
+                  }
+                }
+              }
+              hidden: True
+              type: {
+                alias: "event_issue_id"
+                type: <recursion ...>
+              }
+            }
+          ]
+          distinct: False
+          name: "if"
+          type: {
+            arg_types: [
+              <recursion ...>,
+              {
+                data_type: "str"
+                nullable: False
+              },
+              <recursion ...>
+            ]
+            name: "if"
+            return_type: {
+              data_type: "unknown"
+              nullable: True
+            }
+          }
+        }
+        hidden: True
+        type: {
+          alias: "issue_id"
+          type: <recursion ...>
+        }
       }
     ]
     select_from: {
@@ -4367,7 +6599,9 @@
         elements_chain_ids: <recursion ...>,
         elements_chain_texts: <recursion ...>,
         event: <recursion ...>,
+        event_issue_id: <recursion ...>,
         event_person_id: <recursion ...>,
+        issue_id: <recursion ...>,
         person_id: <recursion ...>,
         properties: <recursion ...>,
         timestamp: <recursion ...>,
@@ -4413,7 +6647,9 @@
                       elements_chain_ids: {},
                       elements_chain_texts: {},
                       event: {},
+                      event_issue_id: {},
                       event_person_id: {},
+                      exception_issue_override: {},
                       goe_0: {},
                       goe_1: {},
                       goe_2: {},
@@ -4424,6 +6660,7 @@
                       group_2: {},
                       group_3: {},
                       group_4: {},
+                      issue_id: {},
                       override: {},
                       pdi: {},
                       person: {},
@@ -4518,7 +6755,9 @@
                       elements_chain_ids: {},
                       elements_chain_texts: {},
                       event: {},
+                      event_issue_id: {},
                       event_person_id: {},
+                      exception_issue_override: {},
                       goe_0: {},
                       goe_1: {},
                       goe_2: {},
@@ -4529,6 +6768,7 @@
                       group_2: {},
                       group_3: {},
                       group_4: {},
+                      issue_id: {},
                       override: {},
                       pdi: {},
                       person: {},
@@ -4903,7 +7143,9 @@
                   elements_chain_ids: {},
                   elements_chain_texts: {},
                   event: {},
+                  event_issue_id: {},
                   event_person_id: {},
+                  exception_issue_override: {},
                   goe_0: {},
                   goe_1: {},
                   goe_2: {},
@@ -4914,6 +7156,7 @@
                   group_2: {},
                   group_3: {},
                   group_4: {},
+                  issue_id: {},
                   override: {},
                   pdi: {},
                   person: {},
@@ -5042,7 +7285,9 @@
                     elements_chain_ids: {},
                     elements_chain_texts: {},
                     event: {},
+                    event_issue_id: {},
                     event_person_id: {},
+                    exception_issue_override: {},
                     goe_0: {},
                     goe_1: {},
                     goe_2: {},
@@ -5053,6 +7298,7 @@
                     group_2: {},
                     group_3: {},
                     group_4: {},
+                    issue_id: {},
                     override: {},
                     pdi: {},
                     person: {},
@@ -5185,7 +7431,9 @@
                       elements_chain_ids: {},
                       elements_chain_texts: {},
                       event: {},
+                      event_issue_id: {},
                       event_person_id: {},
+                      exception_issue_override: {},
                       goe_0: {},
                       goe_1: {},
                       goe_2: {},
@@ -5196,6 +7444,7 @@
                       group_2: {},
                       group_3: {},
                       group_4: {},
+                      issue_id: {},
                       override: {},
                       pdi: {},
                       person: {},
@@ -5364,7 +7613,9 @@
                               elements_chain_ids: {},
                               elements_chain_texts: {},
                               event: {},
+                              event_issue_id: {},
                               event_person_id: {},
+                              exception_issue_override: {},
                               goe_0: {},
                               goe_1: {},
                               goe_2: {},
@@ -5375,6 +7626,7 @@
                               group_2: {},
                               group_3: {},
                               group_4: {},
+                              issue_id: {},
                               override: {},
                               pdi: {},
                               person: {},
@@ -5548,7 +7800,9 @@
                   elements_chain_ids: {},
                   elements_chain_texts: {},
                   event: {},
+                  event_issue_id: {},
                   event_person_id: {},
+                  exception_issue_override: {},
                   goe_0: {},
                   goe_1: {},
                   goe_2: {},
@@ -5559,6 +7813,7 @@
                   group_2: {},
                   group_3: {},
                   group_4: {},
+                  issue_id: {},
                   override: {},
                   pdi: {},
                   person: {},
@@ -5685,7 +7940,9 @@
                     elements_chain_ids: {},
                     elements_chain_texts: {},
                     event: {},
+                    event_issue_id: {},
                     event_person_id: {},
+                    exception_issue_override: {},
                     goe_0: {},
                     goe_1: {},
                     goe_2: {},
@@ -5696,6 +7953,7 @@
                     group_2: {},
                     group_3: {},
                     group_4: {},
+                    issue_id: {},
                     override: {},
                     pdi: {},
                     person: {},
@@ -5823,7 +8081,9 @@
                   elements_chain_ids: {},
                   elements_chain_texts: {},
                   event: {},
+                  event_issue_id: {},
                   event_person_id: {},
+                  exception_issue_override: {},
                   goe_0: {},
                   goe_1: {},
                   goe_2: {},
@@ -5834,6 +8094,7 @@
                   group_2: {},
                   group_3: {},
                   group_4: {},
+                  issue_id: {},
                   override: {},
                   pdi: {},
                   person: {},
@@ -5948,7 +8209,9 @@
                     elements_chain_ids: {},
                     elements_chain_texts: {},
                     event: {},
+                    event_issue_id: {},
                     event_person_id: {},
+                    exception_issue_override: {},
                     goe_0: {},
                     goe_1: {},
                     goe_2: {},
@@ -5959,6 +8222,7 @@
                     group_2: {},
                     group_3: {},
                     group_4: {},
+                    issue_id: {},
                     override: {},
                     pdi: {},
                     person: {},
@@ -6159,7 +8423,9 @@
                     elements_chain_ids: {},
                     elements_chain_texts: {},
                     event: {},
+                    event_issue_id: {},
                     event_person_id: {},
+                    exception_issue_override: {},
                     goe_0: {},
                     goe_1: {},
                     goe_2: {},
@@ -6170,6 +8436,7 @@
                     group_2: {},
                     group_3: {},
                     group_4: {},
+                    issue_id: {},
                     override: {},
                     pdi: {},
                     person: {},
@@ -6261,7 +8528,9 @@
                         elements_chain_ids: {},
                         elements_chain_texts: {},
                         event: {},
+                        event_issue_id: {},
                         event_person_id: {},
+                        exception_issue_override: {},
                         goe_0: {},
                         goe_1: {},
                         goe_2: {},
@@ -6272,6 +8541,7 @@
                         group_2: {},
                         group_3: {},
                         group_4: {},
+                        issue_id: {},
                         override: {},
                         pdi: {},
                         person: {},
@@ -6375,7 +8645,9 @@
                   elements_chain_ids: {},
                   elements_chain_texts: {},
                   event: {},
+                  event_issue_id: {},
                   event_person_id: {},
+                  exception_issue_override: {},
                   goe_0: {},
                   goe_1: {},
                   goe_2: {},
@@ -6386,6 +8658,7 @@
                   group_2: {},
                   group_3: {},
                   group_4: {},
+                  issue_id: {},
                   override: {},
                   pdi: {},
                   person: {},

@@ -12,7 +12,7 @@ const globals = {
 }
 
 module.exports = {
-    ignorePatterns: ['node_modules', 'plugin-server'],
+    ignorePatterns: ['node_modules', 'plugin-server', 'rust', 'livestream'],
     env,
     settings: {
         react: {
@@ -42,7 +42,7 @@ module.exports = {
     },
     plugins: [
         'react',
-        "react-hooks",
+        'react-hooks',
         'cypress',
         '@typescript-eslint',
         'compat',
@@ -50,10 +50,11 @@ module.exports = {
         'simple-import-sort',
         'import',
         'unused-imports',
+        'react-google-translate',
     ],
     rules: {
-        "react-hooks/rules-of-hooks": "error",
-        "react-hooks/exhaustive-deps": "warn",
+        'react-hooks/rules-of-hooks': 'error',
+        'react-hooks/exhaustive-deps': 'warn',
         // PyCharm always adds curly braces, I guess vscode doesn't, PR reviewers often complain they are present on props that don't need them
         // let's save the humans time and let the machines do the work
         // "never" means if the prop does not need the curly braces, they will be removed/errored
@@ -116,7 +117,7 @@ module.exports = {
                     {
                         name: 'dayjs',
                         message: 'Do not directly import dayjs. Only import the dayjs exported from lib/dayjs.',
-                    }
+                    },
                 ],
             },
         ],
@@ -273,6 +274,8 @@ module.exports = {
             },
         ],
         'no-else-return': 'warn',
+        'react-google-translate/no-conditional-text-nodes-with-siblings': 'warn',
+        'react-google-translate/no-return-text-nodes': 'warn',
     },
     overrides: [
         {
@@ -282,8 +285,8 @@ module.exports = {
                 node: true,
                 'jest/globals': true,
             },
-            "plugins": ["jest"],
-            "extends": ["plugin:jest/recommended"],
+            plugins: ['jest'],
+            extends: ['plugin:jest/recommended'],
             globals: {
                 ...globals,
                 given: 'readonly',
@@ -310,8 +313,8 @@ module.exports = {
                 node: true,
                 'jest/globals': true,
             },
-            "plugins": ["jest"],
-            "extends": ["plugin:jest/recommended"],
+            plugins: ['jest'],
+            extends: ['plugin:jest/recommended'],
             globals: {
                 ...globals,
                 given: 'readonly',
@@ -320,7 +323,7 @@ module.exports = {
                 // don't complain about unknown expect statements
                 'jest/valid-expect': 'off',
                 // don't warn about missing expect
-                'jest/expect-expect': 'off'
+                'jest/expect-expect': 'off',
             },
         },
         {

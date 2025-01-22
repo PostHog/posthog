@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+from datetime import datetime, date
 from typing import Any, Literal, Optional
 from collections.abc import Iterator, Sequence
 import uuid
@@ -5,7 +7,16 @@ import uuid
 import dlt
 from django.conf import settings
 from django.db.models import Prefetch
+import dlt.common
+import dlt.common.libs
+import dlt.common.libs.pyarrow
+import dlt.extract
+import dlt.extract.incremental
+import dlt.extract.incremental.transform
 from dlt.pipeline.exceptions import PipelineStepFailed
+from deltalake import DeltaTable
+import pendulum
+import pyarrow
 
 from posthog.settings.base_variables import TEST
 from structlog.typing import FilteringBoundLogger
@@ -34,7 +45,6 @@ from collections import Counter
 from clickhouse_driver.errors import ServerException
 
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
-from posthog.temporal.data_imports.pipelines.pipeline import PipelineInputs
 from posthog.warehouse.data_load.validate_schema import dlt_to_hogql_type
 from posthog.warehouse.models.credential import get_or_create_datawarehouse_credential
 from posthog.warehouse.models.external_data_job import ExternalDataJob
@@ -42,6 +52,31 @@ from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
+
+
+def _from_arrow_scalar(arrow_value: pyarrow.Scalar) -> Any:
+    """Converts arrow scalar into Python type. Currently adds "UTC" to naive date times and converts all others to UTC"""
+    row_value = arrow_value.as_py()
+
+    if isinstance(row_value, date) and not isinstance(row_value, datetime):
+        return row_value
+    elif isinstance(row_value, datetime):
+        row_value = pendulum.instance(row_value).in_tz("UTC")
+    return row_value
+
+
+dlt.common.libs.pyarrow.from_arrow_scalar = _from_arrow_scalar
+dlt.extract.incremental.transform.from_arrow_scalar = _from_arrow_scalar
+
+
+@dataclass
+class PipelineInputs:
+    source_id: uuid.UUID
+    run_id: str
+    schema_id: uuid.UUID
+    dataset_name: str
+    job_type: ExternalDataSource.Type
+    team_id: int
 
 
 class DataImportPipelineSync:
@@ -78,9 +113,9 @@ class DataImportPipelineSync:
     def _get_pipeline_name(self):
         return f"{self.inputs.job_type}_pipeline_{self.inputs.team_id}_run_{self.inputs.schema_id}"
 
-    def _get_destination(self):
+    def _get_credentials(self):
         if TEST:
-            credentials = {
+            return {
                 "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
                 "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
                 "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
@@ -88,16 +123,18 @@ class DataImportPipelineSync:
                 "AWS_ALLOW_HTTP": "true",
                 "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
             }
-        else:
-            credentials = {
-                "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
-                "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
-                "region_name": settings.AIRBYTE_BUCKET_REGION,
-                "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-            }
 
+        return {
+            "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
+            "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
+            "region_name": settings.AIRBYTE_BUCKET_REGION,
+            "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    def _get_destination(self):
         return dlt.destinations.filesystem(
-            credentials=credentials,
+            credentials=self._get_credentials(),
             bucket_url=settings.BUCKET_URL,  # type: ignore
         )
 
@@ -141,16 +178,14 @@ class DataImportPipelineSync:
                 yield lst[i : i + n]
 
         # Monkey patch to fix large memory consumption until https://github.com/dlt-hub/dlt/pull/2031 gets merged in
-        # This only works on incremental syncs right now though
-        if self._incremental:
-            FilesystemDestinationClientConfiguration.delta_jobs_per_write = 1
-            FilesystemClient.create_table_chain_completed_followup_jobs = create_table_chain_completed_followup_jobs  # type: ignore
-            FilesystemClient._iter_chunks = _iter_chunks  # type: ignore
+        FilesystemDestinationClientConfiguration.delta_jobs_per_write = 1
+        FilesystemClient.create_table_chain_completed_followup_jobs = create_table_chain_completed_followup_jobs  # type: ignore
+        FilesystemClient._iter_chunks = _iter_chunks  # type: ignore
 
-            dlt.config["data_writer.file_max_items"] = 500_000
-            dlt.config["data_writer.file_max_bytes"] = 500_000_000  # 500 MB
-            dlt.config["loader_parallelism_strategy"] = "table-sequential"
-            dlt.config["delta_jobs_per_write"] = 1
+        dlt.config["data_writer.file_max_items"] = 500_000
+        dlt.config["data_writer.file_max_bytes"] = 500_000_000  # 500 MB
+        dlt.config["parallelism_strategy"] = "table-sequential"
+        dlt.config["delta_jobs_per_write"] = 1
 
         dlt.config["normalize.parquet_normalizer.add_dlt_load_id"] = True
         dlt.config["normalize.parquet_normalizer.add_dlt_id"] = True
@@ -172,11 +207,39 @@ class DataImportPipelineSync:
 
         prepare_s3_files_for_querying(job.folder_path(), schema.name, file_uris)
 
+    def _get_delta_table(self, resouce_name: str) -> DeltaTable | None:
+        normalized_schema_name = NamingConvention().normalize_identifier(resouce_name)
+        delta_uri = f"{settings.BUCKET_URL}/{self.inputs.dataset_name}/{normalized_schema_name}"
+        storage_options = self._get_credentials()
+
+        self.logger.debug(f"delta_uri={delta_uri}")
+
+        is_delta_table = DeltaTable.is_deltatable(delta_uri, storage_options)
+
+        self.logger.debug(f"is_delta_table={is_delta_table}")
+
+        if is_delta_table:
+            return DeltaTable(delta_uri, storage_options=storage_options)
+
+        return None
+
     def _run(self) -> dict[str, int]:
         if self.refresh_dlt:
             self.logger.info("Pipeline getting a full refresh due to reset_pipeline being set")
 
         pipeline = self._create_pipeline()
+
+        # Workaround for full refresh schemas while we wait for Rust to fix memory issue
+        for name, resource in self.source._resources.items():
+            if resource.write_disposition == "replace":
+                delta_table = self._get_delta_table(name)
+
+                if delta_table is not None:
+                    self.logger.debug("Deleting existing delta table")
+                    delta_table.delete()
+
+                self.logger.debug("Updating table write_disposition to append")
+                resource.apply_hints(write_disposition="append")
 
         total_counts: Counter[str] = Counter({})
 
@@ -216,7 +279,17 @@ class DataImportPipelineSync:
                 total_counts = counts + total_counts
 
                 if total_counts.total() > 0:
-                    delta_tables = get_delta_tables(pipeline)
+                    # Fix to upgrade all tables to DeltaS3Wrapper
+                    resouce_names = list(self.source._resources.keys())
+                    if len(resouce_names) > 0:
+                        name = resouce_names[0]
+                        table = self._get_delta_table(name)
+                        if table is not None:
+                            delta_tables = {name: table}
+                        else:
+                            delta_tables = get_delta_tables(pipeline)
+                    else:
+                        delta_tables = get_delta_tables(pipeline)
 
                     table_format = DataWarehouseTable.TableFormat.DeltaS3Wrapper
 
@@ -277,7 +350,17 @@ class DataImportPipelineSync:
             total_counts = total_counts + counts
 
             if total_counts.total() > 0:
-                delta_tables = get_delta_tables(pipeline)
+                # Fix to upgrade all tables to DeltaS3Wrapper
+                resouce_names = list(self.source._resources.keys())
+                if len(resouce_names) > 0:
+                    name = resouce_names[0]
+                    table = self._get_delta_table(name)
+                    if table is not None:
+                        delta_tables = {name: table}
+                    else:
+                        delta_tables = get_delta_tables(pipeline)
+                else:
+                    delta_tables = get_delta_tables(pipeline)
 
                 table_format = DataWarehouseTable.TableFormat.DeltaS3Wrapper
 
@@ -313,6 +396,10 @@ class DataImportPipelineSync:
             job_id=self.inputs.run_id, schema_id=str(self.inputs.schema_id), team_id=self.inputs.team_id
         )
 
+        if self._incremental:
+            self.logger.debug("Saving last incremental value...")
+            save_last_incremental_value(str(self.inputs.schema_id), str(self.inputs.team_id), self.source, self.logger)
+
         # Cleanup: delete local state from the file system
         pipeline.drop()
 
@@ -339,6 +426,34 @@ def update_last_synced_at_sync(job_id: str, schema_id: str, team_id: int) -> Non
     schema.save()
 
 
+def save_last_incremental_value(schema_id: str, team_id: str, source: DltSource, logger: FilteringBoundLogger) -> None:
+    schema = ExternalDataSchema.objects.exclude(deleted=True).get(id=schema_id, team_id=team_id)
+
+    incremental_field = schema.sync_type_config.get("incremental_field")
+    resource = next(iter(source.resources.values()))
+
+    incremental: dict | None = resource.state.get("incremental")
+
+    if incremental is None:
+        return
+
+    incremental_object: dict | None = incremental.get(incremental_field)
+    if incremental_object is None:
+        return
+
+    last_value = incremental_object.get("last_value")
+
+    logger.debug(f"Updating incremental_field_last_value with {last_value}")
+
+    if last_value is None:
+        logger.debug(
+            f"Incremental value is None. This could mean the table has zero rows. Full incremental object: {incremental_object}"
+        )
+        return
+
+    schema.update_incremental_field_last_value(last_value)
+
+
 def validate_schema_and_update_table_sync(
     run_id: str,
     team_id: int,
@@ -346,6 +461,7 @@ def validate_schema_and_update_table_sync(
     table_schema: TSchemaTables,
     row_count: int,
     table_format: DataWarehouseTable.TableFormat,
+    table_schema_dict: Optional[dict[str, str]] = None,
 ) -> None:
     """
 
@@ -369,6 +485,18 @@ def validate_schema_and_update_table_sync(
     job = ExternalDataJob.objects.prefetch_related(
         "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
     ).get(pk=run_id)
+
+    using_v2_pipeline = job.pipeline_version == ExternalDataJob.PipelineVersion.V2
+    pipeline_version = (
+        ExternalDataJob.PipelineVersion.V1
+        if job.pipeline_version is None
+        else ExternalDataJob.PipelineVersion(job.pipeline_version)
+    )
+
+    # Temp so we dont create a bunch of orphaned Table objects
+    if using_v2_pipeline:
+        logger.debug("Using V2 pipeline - dont create table object or get columns")
+        return
 
     credential = get_or_create_datawarehouse_credential(
         team_id=team_id,
@@ -419,41 +547,63 @@ def validate_schema_and_update_table_sync(
         assert isinstance(table_created, DataWarehouseTable) and table_created is not None
 
         # Temp fix #2 for Delta tables without table_format
-        try:
-            table_created.get_columns()
-        except Exception as e:
-            if table_format == DataWarehouseTable.TableFormat.DeltaS3Wrapper:
-                logger.exception("get_columns exception with DeltaS3Wrapper format - trying Delta format", exc_info=e)
-
-                table_created.format = DataWarehouseTable.TableFormat.Delta
+        if not using_v2_pipeline:
+            try:
                 table_created.get_columns()
-                table_created.save()
+            except Exception as e:
+                if table_format == DataWarehouseTable.TableFormat.DeltaS3Wrapper:
+                    logger.exception(
+                        "get_columns exception with DeltaS3Wrapper format - trying Delta format", exc_info=e
+                    )
 
-                logger.info("Delta format worked - updating table to use Delta")
-            else:
-                raise
+                    table_created.format = DataWarehouseTable.TableFormat.Delta
+                    table_created.get_columns()
+                    table_created.save()
 
-        for schema in table_schema.values():
-            if schema.get("resource") == _schema_name:
-                schema_columns = schema.get("columns") or {}
-                raw_db_columns: dict[str, dict[str, str]] = table_created.get_columns()
-                db_columns = {key: column.get("clickhouse", "") for key, column in raw_db_columns.items()}
+                    logger.info("Delta format worked - updating table to use Delta")
+                else:
+                    raise
 
-                columns = {}
-                for column_name, db_column_type in db_columns.items():
-                    dlt_column = schema_columns.get(column_name)
-                    if dlt_column is not None:
-                        dlt_data_type = dlt_column.get("data_type")
-                        hogql_type = dlt_to_hogql_type(dlt_data_type)
-                    else:
-                        hogql_type = dlt_to_hogql_type(None)
+        # If using new non-DLT pipeline
+        if using_v2_pipeline and table_schema_dict is not None:
+            raw_db_columns: dict[str, dict[str, str]] = table_created.get_columns(pipeline_version=pipeline_version)
+            db_columns = {key: column.get("clickhouse", "") for key, column in raw_db_columns.items()}
 
-                    columns[column_name] = {
-                        "clickhouse": db_column_type,
-                        "hogql": hogql_type,
-                    }
-                table_created.columns = columns
-                break
+            columns = {}
+            for column_name, db_column_type in db_columns.items():
+                hogql_type = table_schema_dict.get(column_name)
+
+                if hogql_type is None:
+                    raise Exception(f"HogQL type not found for column: {column_name}")
+
+                columns[column_name] = {
+                    "clickhouse": db_column_type,
+                    "hogql": hogql_type,
+                }
+            table_created.columns = columns
+        else:
+            # If using DLT pipeline
+            for schema in table_schema.values():
+                if schema.get("resource") == _schema_name:
+                    schema_columns = schema.get("columns") or {}
+                    raw_db_columns: dict[str, dict[str, str]] = table_created.get_columns()
+                    db_columns = {key: column.get("clickhouse", "") for key, column in raw_db_columns.items()}
+
+                    columns = {}
+                    for column_name, db_column_type in db_columns.items():
+                        dlt_column = schema_columns.get(column_name)
+                        if dlt_column is not None:
+                            dlt_data_type = dlt_column.get("data_type")
+                            hogql_type = dlt_to_hogql_type(dlt_data_type)
+                        else:
+                            hogql_type = dlt_to_hogql_type(None)
+
+                        columns[column_name] = {
+                            "clickhouse": db_column_type,
+                            "hogql": hogql_type,
+                        }
+                    table_created.columns = columns
+                    break
 
         table_created.save()
 
@@ -464,7 +614,7 @@ def validate_schema_and_update_table_sync(
             .get(id=_schema_id, team_id=team_id)
         )
 
-        if schema_model:
+        if not using_v2_pipeline and schema_model:
             schema_model.table = table_created
             schema_model.save()
 

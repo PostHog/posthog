@@ -1,9 +1,6 @@
-import {
-    CdpCyclotronWorker,
-    CdpCyclotronWorkerFetch,
-    CdpFunctionCallbackConsumer,
-    CdpProcessedEventsConsumer,
-} from '../../src/cdp/cdp-consumers'
+import { CdpCyclotronWorker, CdpCyclotronWorkerFetch } from '../../src/cdp/consumers/cdp-cyclotron-worker.consumer'
+import { CdpFunctionCallbackConsumer } from '../../src/cdp/consumers/cdp-function-callback.consumer'
+import { CdpProcessedEventsConsumer } from '../../src/cdp/consumers/cdp-processed-events.consumer'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
 import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../src/config/kafka-topics'
 import { Hub, Team } from '../../src/types'
@@ -129,11 +126,11 @@ describe('CDP E2E', () => {
             expect(mockFetch).toHaveBeenCalledTimes(1)
 
             expect(mockFetch.mock.calls[0]).toMatchInlineSnapshot(`
-                Array [
+                [
                   "https://example.com/posthog-webhook",
-                  Object {
-                    "body": "{\\"event\\":{\\"uuid\\":\\"b3a1fe86-b10c-43cc-acaf-d208977608d0\\",\\"event\\":\\"$pageview\\",\\"elements_chain\\":\\"\\",\\"distinct_id\\":\\"distinct_id\\",\\"url\\":\\"http://localhost:8000/events/1\\",\\"properties\\":{\\"$current_url\\":\\"https://posthog.com\\",\\"$lib_version\\":\\"1.0.0\\"},\\"timestamp\\":\\"2024-09-03T09:00:00Z\\"},\\"groups\\":{},\\"nested\\":{\\"foo\\":\\"http://localhost:8000/events/1\\"},\\"person\\":{\\"id\\":\\"uuid\\",\\"name\\":\\"test\\",\\"url\\":\\"http://localhost:8000/persons/1\\",\\"properties\\":{\\"email\\":\\"test@posthog.com\\",\\"first_name\\":\\"Pumpkin\\"}},\\"event_url\\":\\"http://localhost:8000/events/1-test\\"}",
-                    "headers": Object {
+                  {
+                    "body": "{"event":{"uuid":"b3a1fe86-b10c-43cc-acaf-d208977608d0","event":"$pageview","elements_chain":"","distinct_id":"distinct_id","url":"http://localhost:8000/events/1","properties":{"$current_url":"https://posthog.com","$lib_version":"1.0.0"},"timestamp":"2024-09-03T09:00:00Z"},"groups":{},"nested":{"foo":"http://localhost:8000/events/1"},"person":{"id":"uuid","name":"test","url":"http://localhost:8000/persons/1","properties":{"email":"test@posthog.com","first_name":"Pumpkin"}},"event_url":"http://localhost:8000/events/1-test"}",
+                    "headers": {
                       "version": "v=1.0.0",
                     },
                     "method": "POST",

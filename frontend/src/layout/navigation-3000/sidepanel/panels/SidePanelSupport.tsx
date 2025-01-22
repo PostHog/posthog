@@ -2,21 +2,24 @@ import {
     IconAI,
     IconChevronDown,
     IconDatabase,
-    IconDecisionTree,
     IconFeatures,
+    IconGraph,
     IconHelmet,
     IconMap,
     IconMessage,
     IconPieChart,
+    IconPlug,
     IconRewindPlay,
     IconStack,
+    IconTestTube,
     IconToggle,
-    IconTrends,
 } from '@posthog/icons'
 import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SupportForm } from 'lib/components/Support/SupportForm'
 import { getPublicSupportSnippet, supportLogic } from 'lib/components/Support/supportLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -41,7 +44,7 @@ const PRODUCTS = [
     {
         name: 'Product analytics',
         slug: 'product-analytics',
-        icon: <IconTrends className="text-brand-blue h-5 w-5" />,
+        icon: <IconGraph className="text-[#2F80FA] h-5 w-5" />,
     },
     {
         name: 'Web analytics',
@@ -56,7 +59,12 @@ const PRODUCTS = [
     {
         name: 'Feature flags',
         slug: 'feature-flags',
-        icon: <IconToggle className="text-success h-5 w-5" />,
+        icon: <IconToggle className="text-[#30ABC6] h-5 w-5" />,
+    },
+    {
+        name: 'Experiments',
+        slug: 'experiments',
+        icon: <IconTestTube className="text-[#B62AD9] h-5 w-5" />,
     },
     {
         name: 'Surveys',
@@ -66,7 +74,7 @@ const PRODUCTS = [
     {
         name: 'Data pipelines',
         slug: 'cdp',
-        icon: <IconDecisionTree className="text-[#2EA2D3] h-5 w-5" />,
+        icon: <IconPlug className="text-[#2EA2D3] h-5 w-5" />,
     },
     {
         name: 'Data warehouse',
@@ -89,8 +97,14 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
     )
 }
 
+// In order to set these turn on the `support-message-override` feature flag.
+const SUPPORT_MESSAGE_OVERRIDE_TITLE = '🎄 🎅 Support during the holidays 🎁 ⛄'
+const SUPPORT_MESSAGE_OVERRIDE_BODY =
+    "We're offering reduced support while we celebrate the holidays. Responses may be slower than normal over the holiday period (23rd December to the 6th January), and between the 25th and 27th of December we'll only be responding to critical issues. Thanks for your patience!"
+
 const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element => {
     const { supportPlans, hasSupportAddonPlan } = useValues(billingLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <Section title="Email an engineer">
@@ -117,37 +131,46 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
                 Cancel
             </LemonButton>
             <br />
-            <div className="grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 mb-4 bg-bg-light pt-4">
-                <div className="col-span-full flex justify-between border-b bg-bg-white py-1">
-                    <div>
-                        <strong>Avg support response times</strong>
-                    </div>
-                    <div>
-                        <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}>Explore options</Link>
-                    </div>
+            {featureFlags[FEATURE_FLAGS.SUPPORT_MESSAGE_OVERRIDE] ? (
+                <div className="border bg-bg-light p-2 rounded gap-2">
+                    <strong>{SUPPORT_MESSAGE_OVERRIDE_TITLE}</strong>
+                    <p className="mt-2 mb-0">{SUPPORT_MESSAGE_OVERRIDE_BODY}</p>
                 </div>
-                {supportPlans?.map((plan) => {
-                    // If they have an addon plan, only show the addon plan
-                    const currentPlan = plan.current_plan && (!hasSupportAddonPlan || plan.plan_key?.includes('addon'))
-                    return (
-                        <React.Fragment key={`support-panel-${plan.plan_key}`}>
-                            <div className={currentPlan ? 'font-bold' : undefined}>
-                                {plan.name}
-                                {currentPlan && (
-                                    <>
-                                        {' '}
-                                        <span className="font-normal opacity-60 text-sm">(your plan)</span>
-                                    </>
-                                )}
-                            </div>
-                            <div className={currentPlan ? 'font-bold' : undefined}>
-                                {/* TODO(@zach): remove fallback after updated plans w/ support levels are shipped */}
-                                {plan.features.find((f) => f.key == AvailableFeature.SUPPORT_RESPONSE_TIME)?.note}
-                            </div>
-                        </React.Fragment>
-                    )
-                })}
-            </div>
+            ) : (
+                <div className="grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 mb-4 bg-bg-light pt-4">
+                    <div className="col-span-full flex justify-between py-1">
+                        {/* If placing a support message, replace the line below with explanation */}
+                        <strong>Avg support response times</strong>
+                        <div>
+                            <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}>
+                                Explore options
+                            </Link>
+                        </div>
+                    </div>
+                    {/* If placing a support message, comment out (don't remove) the section below */}
+                    {supportPlans?.map((plan) => {
+                        // If they have an addon plan, only show the addon plan
+                        const currentPlan =
+                            plan.current_plan && (!hasSupportAddonPlan || plan.plan_key?.includes('addon'))
+                        return (
+                            <React.Fragment key={`support-panel-${plan.plan_key}`}>
+                                <div className={currentPlan ? 'font-bold' : undefined}>
+                                    {plan.name}
+                                    {currentPlan && (
+                                        <>
+                                            {' '}
+                                            <span className="font-normal opacity-60 text-sm">(your plan)</span>
+                                        </>
+                                    )}
+                                </div>
+                                <div className={currentPlan ? 'font-bold' : undefined}>
+                                    {plan.features.find((f) => f.key == AvailableFeature.SUPPORT_RESPONSE_TIME)?.note}
+                                </div>
+                            </React.Fragment>
+                        )
+                    })}
+                </div>
+            )}
         </Section>
     )
 }

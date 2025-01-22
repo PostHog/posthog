@@ -20,14 +20,14 @@ const FALLBACK_CANVAS_HEIGHT = 0
 
 export function Paths(): JSX.Element {
     const canvasRef = useRef<HTMLDivElement>(null)
+    const canvasContainerRef = useRef<HTMLDivElement>(null)
     const { width: canvasWidth = FALLBACK_CANVAS_WIDTH, height: canvasHeight = FALLBACK_CANVAS_HEIGHT } =
         useResizeObserver({ ref: canvasRef })
     const [nodeCards, setNodeCards] = useState<PathNodeData[]>([])
 
     const { insight, insightProps } = useValues(insightLogic)
-    const { insightQuery, paths, pathsFilter, funnelPathsFilter, insightDataLoading, insightDataError } = useValues(
-        pathsDataLogic(insightProps)
-    )
+    const { insightQuery, paths, pathsFilter, funnelPathsFilter, insightDataLoading, insightDataError, theme } =
+        useValues(pathsDataLogic(insightProps))
 
     const id = `'${insight?.short_id || DEFAULT_PATHS_ID}'`
 
@@ -36,7 +36,8 @@ export function Paths(): JSX.Element {
 
         // Remove the existing SVG canvas(es). The .Paths__canvas selector is crucial, as we have to be sure
         // we're only removing the Paths viz and not, for example, button icons.
-        const elements = document?.getElementById(id)?.querySelectorAll(`.Paths__canvas`)
+        // Only remove canvases within this component's container
+        const elements = canvasContainerRef.current?.querySelectorAll(`.Paths__canvas`)
         elements?.forEach((node) => node?.parentNode?.removeChild(node))
 
         renderPaths(
@@ -48,15 +49,35 @@ export function Paths(): JSX.Element {
             funnelPathsFilter || ({} as FunnelPathsFilter),
             setNodeCards
         )
-    }, [paths, !insightDataLoading, canvasWidth, canvasHeight])
+
+        // Proper cleanup
+        return () => {
+            const elements = canvasContainerRef.current?.querySelectorAll(`.Paths__canvas`)
+            elements?.forEach((node) => node?.parentNode?.removeChild(node))
+        }
+    }, [paths, insightDataLoading, canvasWidth, canvasHeight, theme, pathsFilter, funnelPathsFilter])
 
     if (insightDataError) {
         return <InsightErrorState query={insightQuery} excludeDetail />
     }
 
     return (
-        <div className="h-full w-full overflow-auto" id={id}>
-            <div ref={canvasRef} className="Paths" data-attr="paths-viz">
+        <div className="h-full w-full overflow-auto" id={id} ref={canvasContainerRef}>
+            <div
+                ref={canvasRef}
+                className="Paths"
+                data-attr="paths-viz"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={
+                    {
+                        '--paths-node': theme?.['preset-1'] || '#000000',
+                        '--paths-node-start-or-end': theme?.['preset-2'] || '#000000',
+                        '--paths-link': theme?.['preset-1'] || '#000000',
+                        '--paths-link-hover': theme?.['preset-2'] || '#000000',
+                        '--paths-dropoff': 'rgba(220,53,69,0.7)',
+                    } as React.CSSProperties
+                }
+            >
                 {!insightDataLoading && paths && paths.nodes.length === 0 && !insightDataError && <InsightEmptyState />}
                 {!insightDataError &&
                     nodeCards &&

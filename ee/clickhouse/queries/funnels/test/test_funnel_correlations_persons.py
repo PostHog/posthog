@@ -251,6 +251,7 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
                 "funnel_correlation_person_entity": "{'id': 'positively_related', 'type': 'events'}",
                 "funnel_correlation_person_converted": "TrUe",
             },
+            self.team.pk,
         )
 
         insert_cohort_from_insight_filter(cohort_id, params)

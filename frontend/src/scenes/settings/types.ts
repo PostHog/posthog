@@ -1,6 +1,6 @@
 import { EitherMembershipLevel, FEATURE_FLAGS } from 'lib/constants'
 
-import { AvailableFeature, Realm } from '~/types'
+import { Realm, TeamPublicType, TeamType } from '~/types'
 
 export type SettingsLogicProps = {
     logicKey?: string
@@ -19,11 +19,15 @@ export type SettingSectionId =
     | 'environment-details'
     | 'environment-autocapture'
     | 'environment-product-analytics'
+    | 'environment-web-analytics'
     | 'environment-replay'
     | 'environment-surveys'
+    | 'environment-feature-flags'
+    | 'environment-error-tracking'
     | 'environment-toolbar'
     | 'environment-integrations'
-    | 'environment-rbac'
+    | 'environment-access-control'
+    | 'environment-role-based-access-control'
     | 'environment-danger-zone'
     | 'project-details'
     | 'project-autocapture' // TODO: This section is for backward compat – remove when Environments are rolled out
@@ -32,12 +36,13 @@ export type SettingSectionId =
     | 'project-surveys' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'project-toolbar' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'project-integrations' // TODO: This section is for backward compat – remove when Environments are rolled out
-    | 'project-rbac' // TODO: This section is for backward compat – remove when Environments are rolled out
+    | 'project-access-control' // TODO: This section is for backward compat – remove when Environments are rolled out
+    | 'project-role-based-access-control' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'project-danger-zone'
     | 'organization-details'
     | 'organization-members'
     | 'organization-authentication'
-    | 'organization-rbac'
+    | 'organization-roles'
     | 'organization-proxy'
     | 'organization-danger-zone'
     | 'user-profile'
@@ -45,6 +50,7 @@ export type SettingSectionId =
     | 'user-customization'
 
 export type SettingId =
+    | 'replay-triggers'
     | 'display-name'
     | 'snippet'
     | 'bookmarklet'
@@ -54,10 +60,12 @@ export type SettingId =
     | 'autocapture-data-attributes'
     | 'date-and-time'
     | 'internal-user-filtering'
+    | 'data-theme'
     | 'correlation-analysis'
     | 'person-display-name'
     | 'path-cleaning'
     | 'datacapture'
+    | 'human-friendly-comparison-periods'
     | 'group-analytics'
     | 'persons-on-events'
     | 'replay'
@@ -65,12 +73,17 @@ export type SettingId =
     | 'replay-authorized-domains'
     | 'replay-ingestion'
     | 'surveys-interface'
+    | 'feature-flags-interface'
+    | 'error-tracking-user-groups'
+    | 'error-tracking-symbol-sets'
+    | 'error-tracking-alerting'
     | 'authorized-toolbar-urls'
     | 'integration-webhooks'
     | 'integration-slack'
     | 'integration-other'
     | 'integration-ip-allowlist'
-    | 'environment-rbac'
+    | 'environment-access-control'
+    | 'environment-role-based-access-control'
     | 'environment-delete'
     | 'project-delete'
     | 'organization-logo'
@@ -79,7 +92,7 @@ export type SettingId =
     | 'members'
     | 'email-members'
     | 'authentication-domains'
-    | 'organization-rbac'
+    | 'organization-roles'
     | 'organization-delete'
     | 'organization-proxy'
     | 'product-description'
@@ -95,9 +108,13 @@ export type SettingId =
     | 'hedgehog-mode'
     | 'persons-join-mode'
     | 'bounce-rate-page-view-mode'
+    | 'bounce-rate-duration'
     | 'session-table-version'
     | 'web-vitals-autocapture'
     | 'dead-clicks-autocapture'
+    | 'channel-type'
+    | 'cookieless-server-hash-mode'
+    | 'user-groups'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 
@@ -109,21 +126,21 @@ export type Setting = {
     /**
      * Feature flag to gate the setting being shown.
      * If prefixed with !, the condition is inverted - the setting will only be shown if the is flag false.
+     * When an array is provided, the setting will be shown if ALL of the conditions are met.
      */
-    flag?: FeatureFlagKey | `!${FeatureFlagKey}`
-    features?: AvailableFeature[]
+    flag?: FeatureFlagKey | `!${FeatureFlagKey}` | (FeatureFlagKey | `!${FeatureFlagKey}`)[]
     hideOn?: Realm[]
+    /**
+     * defaults to true if not provided
+     * can check if a team should have access to a setting and return false if not
+     */
+    allowForTeam?: (team: TeamType | TeamPublicType | null) => boolean
 }
 
-export type SettingSection = {
+export interface SettingSection extends Pick<Setting, 'flag'> {
     id: SettingSectionId
     title: string
     level: SettingLevelId
     settings: Setting[]
-    /**
-     * Feature flag to gate the section being shown.
-     * If prefixed with !, the condition is inverted - the section will only be shown if the is flag false.
-     */
-    flag?: FeatureFlagKey | `!${FeatureFlagKey}`
     minimumAccessLevel?: EitherMembershipLevel
 }

@@ -68,7 +68,7 @@ class Threshold(CreatedMetaFields, UUIDModel):
 
 
 class AlertConfiguration(CreatedMetaFields, UUIDModel):
-    ALERTS_PER_TEAM = 5
+    ALERTS_ALLOWED_ON_FREE_TIER = 2
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
@@ -113,6 +113,8 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
     next_check_at = models.DateTimeField(null=True, blank=True)
     # UTC time until when we shouldn't check alert/notify user
     snoozed_until = models.DateTimeField(null=True, blank=True)
+
+    skip_weekend = models.BooleanField(null=True, blank=True, default=False)
 
     def __str__(self):
         return f"{self.name} (Team: {self.team})"
