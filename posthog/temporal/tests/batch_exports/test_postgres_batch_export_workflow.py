@@ -979,3 +979,79 @@ async def test_insert_into_postgres_activity_handles_person_schema_changes(
         sort_key="person_id",
         expected_fields=expected_fields,
     )
+
+
+async def test_postgres_export_workflow_with_many_files(
+    clickhouse_client,
+    postgres_connection,
+    interval,
+    postgres_batch_export,
+    ateam,
+    exclude_events,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    postgres_config,
+):
+    """Test Postgres Export Workflow end-to-end with multiple file uploads.
+
+    This test overrides the chunk size and sets it to 10 bytes to trigger multiple file uploads.
+    We want to assert that all files are properly copied into the table. Of course, 10 bytes limit
+    means we are uploading one file at a time, which is very inefficient. For this reason, this test
+    can take longer, so we keep the event count low and bump the Workflow timeout.
+    """
+
+    model = BatchExportModel(name="events", schema=None)
+
+    workflow_id = str(uuid.uuid4())
+    inputs = PostgresBatchExportInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(postgres_batch_export.id),
+        data_interval_end=data_interval_end.isoformat(),
+        interval=interval,
+        batch_export_model=model,
+        **postgres_batch_export.destination.config,
+    )
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+            workflows=[PostgresBatchExportWorkflow],
+            activities=[
+                start_batch_export_run,
+                insert_into_postgres_activity,
+                finish_batch_export_run,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with override_settings(
+                BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES=10, CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT=10
+            ):
+                await activity_environment.client.execute_workflow(
+                    PostgresBatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=dt.timedelta(minutes=2),
+                )
+
+    runs = await afetch_batch_export_runs(batch_export_id=postgres_batch_export.id)
+    assert len(runs) == 1
+
+    run = runs[0]
+    assert run.status == "Completed"
+
+    await assert_clickhouse_records_in_postgres(
+        postgres_connection=postgres_connection,
+        clickhouse_client=clickhouse_client,
+        schema_name=postgres_config["schema"],
+        table_name=postgres_batch_export.destination.config["table_name"],
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        exclude_events=exclude_events,
+        batch_export_model=model,
+        sort_key="event",
+    )

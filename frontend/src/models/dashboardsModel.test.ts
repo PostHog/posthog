@@ -54,6 +54,7 @@ const basicDashboard: DashboardBasicType = {
     restriction_level: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
     effective_restriction_level: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
     effective_privilege_level: DashboardPrivilegeLevel.CanEdit,
+    user_access_level: 'editor',
 }
 
 describe('the dashboards model', () => {

@@ -1,13 +1,11 @@
 from datetime import timedelta
 from typing import Optional
-from collections.abc import Callable
 from unittest.mock import call, patch
 
 import pytest
 from django.utils.timezone import now
 from freezegun import freeze_time
 
-from posthog.caching.calculate_results import get_cache_type
 from posthog.caching.insight_cache import (
     fetch_states_in_need_of_updating,
     schedule_cache_updates,
@@ -15,14 +13,7 @@ from posthog.caching.insight_cache import (
 )
 from posthog.caching.insight_caching_state import upsert
 from posthog.caching.test.test_insight_caching_state import create_insight, filter_dict
-from posthog.constants import (
-    INSIGHT_RETENTION,
-    INSIGHT_STICKINESS,
-    INSIGHT_TRENDS,
-)
-from posthog.decorators import CacheType
-from posthog.models import Filter, InsightCachingState, RetentionFilter, Team, User
-from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models import InsightCachingState, Team, User
 from posthog.models.signals import mute_selected_signals
 from posthog.utils import get_safe_cache
 
@@ -199,22 +190,3 @@ def test_update_cache_when_recently_refreshed(team: Team, user: User):
     updated_caching_state = InsightCachingState.objects.get(team=team)
 
     assert updated_caching_state.last_refresh == caching_state.last_refresh
-
-
-@pytest.mark.parametrize(
-    "filter_model,insight_type,expected_cache_type",
-    [
-        (Filter, INSIGHT_TRENDS, CacheType.TRENDS),
-        (StickinessFilter, INSIGHT_STICKINESS, CacheType.STICKINESS),
-        (RetentionFilter, INSIGHT_RETENTION, CacheType.RETENTION),
-    ],
-)
-@pytest.mark.django_db
-def test_get_cache_type(
-    team: Team,
-    filter_model: Callable,
-    insight_type: str,
-    expected_cache_type: CacheType,
-) -> None:
-    filter = filter_model(data={"insight": insight_type}, team=team)
-    assert get_cache_type(filter) == expected_cache_type

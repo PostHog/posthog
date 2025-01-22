@@ -605,8 +605,7 @@ def get_teams_with_survey_responses_count_in_period(
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list:
     return list(
-        ExternalDataJob.objects.filter(created_at__gte=begin, created_at__lte=end)
-        .exclude(pipeline_version=ExternalDataJob.PipelineVersion.V2)
+        ExternalDataJob.objects.filter(created_at__gte=begin, created_at__lte=end, billable=True)
         .values("team_id")
         .annotate(total=Sum("rows_synced"))
     )
@@ -1044,6 +1043,14 @@ def send_all_org_usage_reports(
     skip_capture_event: bool = False,
     only_organization_id: Optional[str] = None,
 ) -> None:
+    import posthoganalytics
+    from sentry_sdk import capture_message
+
+    are_usage_reports_disabled = posthoganalytics.feature_enabled("disable-usage-reports", "internal_billing_events")
+    if are_usage_reports_disabled:
+        capture_message(f"Usage reports are disabled for {at}")
+        return
+
     capture_event_name = capture_event_name or "organization usage report"
 
     at_date = parser.parse(at) if at else None

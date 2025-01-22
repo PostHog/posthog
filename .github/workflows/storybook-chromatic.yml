@@ -149,7 +149,7 @@ jobs:
               if: ${{ failure() }}
               uses: actions/upload-artifact@v4
               with:
-                  name: failure-screenshots-${{ matrix.browser }}
+                  name: failure-screenshots-${{ matrix.browser }}-${{ matrix.shard }}
                   path: frontend/__snapshots__/__failures__/
 
             - name: Count and optimize updated snapshots

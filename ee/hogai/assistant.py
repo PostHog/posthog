@@ -3,13 +3,14 @@ from collections.abc import Generator, Iterator
 from typing import Any, Optional, cast
 from uuid import uuid4
 
+from langchain_core.callbacks.base import BaseCallbackHandler
 from langchain_core.messages import AIMessageChunk
 from langchain_core.runnables.config import RunnableConfig
-from langfuse.callback import CallbackHandler
 from langgraph.graph.state import CompiledStateGraph
+import posthoganalytics
+from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel
 
-from ee import settings
 from ee.hogai.funnels.nodes import FunnelGeneratorNode
 from ee.hogai.graph import AssistantGraph
 from ee.hogai.memory.nodes import MemoryInitializerNode
@@ -44,14 +45,6 @@ from posthog.schema import (
 )
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 
-if settings.LANGFUSE_PUBLIC_KEY:
-    langfuse_handler = CallbackHandler(
-        public_key=settings.LANGFUSE_PUBLIC_KEY, secret_key=settings.LANGFUSE_SECRET_KEY, host=settings.LANGFUSE_HOST
-    )
-else:
-    langfuse_handler = None
-
-
 VISUALIZATION_NODES: dict[AssistantNodeName, type[SchemaGeneratorNode]] = {
     AssistantNodeName.TRENDS_GENERATOR: TrendsGeneratorNode,
     AssistantNodeName.FUNNEL_GENERATOR: FunnelGeneratorNode,
@@ -77,6 +70,7 @@ class Assistant:
     _conversation: Conversation
     _latest_message: HumanMessage
     _state: Optional[AssistantState]
+    _callback_handler: Optional[BaseCallbackHandler]
 
     def __init__(
         self,
@@ -94,6 +88,18 @@ class Assistant:
         self._graph = AssistantGraph(team).compile_full_graph()
         self._chunks = AIMessageChunk(content="")
         self._state = None
+        self._callback_handler = (
+            CallbackHandler(
+                posthoganalytics.default_client,
+                distinct_id=user.distinct_id if user else None,
+                properties={
+                    "conversation_id": str(self._conversation.id),
+                    "is_first_conversation": is_new_conversation,
+                },
+            )
+            if posthoganalytics.default_client
+            else None
+        )
 
     def stream(self):
         if SERVER_GATEWAY_INTERFACE == "ASGI":
@@ -147,7 +153,7 @@ class Assistant:
         return AssistantState(messages=[self._latest_message], start_id=self._latest_message.id)
 
     def _get_config(self) -> RunnableConfig:
-        callbacks = [langfuse_handler] if langfuse_handler else []
+        callbacks = [self._callback_handler] if self._callback_handler else None
         config: RunnableConfig = {
             "recursion_limit": 24,
             "callbacks": callbacks,

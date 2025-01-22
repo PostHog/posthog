@@ -54,6 +54,7 @@ from posthog.schema import (
     StickinessQuery,
     SuggestedQuestionsQuery,
     TeamTaxonomyQuery,
+    TracesQuery,
     TrendsQuery,
     WebGoalsQuery,
     WebOverviewQuery,
@@ -338,6 +339,14 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
+    if kind == "WebVitalsPathBreakdownQuery":
+        from .web_analytics.web_vitals_path_breakdown import WebVitalsPathBreakdownQueryRunner
+
+        return WebVitalsPathBreakdownQueryRunner(
+            query=query,
+            team=team,
+        )
+
     if kind == "SessionAttributionExplorerQuery":
         from .web_analytics.session_attribution_explorer_query_runner import SessionAttributionExplorerQueryRunner
 
@@ -416,6 +425,16 @@ def get_query_runner(
 
         return ActorsPropertyTaxonomyQueryRunner(
             query=cast(ActorsPropertyTaxonomyQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+    if kind == "TracesQuery":
+        from .ai.traces_query_runner import TracesQueryRunner
+
+        return TracesQueryRunner(
+            query=cast(TracesQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -803,6 +822,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 self.query.dateRange = DateRange()
             self.query.dateRange.date_from = dashboard_filter.date_from
             self.query.dateRange.date_to = dashboard_filter.date_to
+
+        if dashboard_filter.breakdown_filter:
+            if hasattr(self.query, "breakdownFilter"):
+                self.query.breakdownFilter = dashboard_filter.breakdown_filter
+            else:
+                capture_exception(
+                    NotImplementedError(
+                        f"{self.query.__class__.__name__} does not support breakdown filters out of the box"
+                    )
+                )
 
 
 ### START OF BACKWARDS COMPATIBILITY CODE

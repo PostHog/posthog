@@ -29,6 +29,7 @@ import { Holdout } from 'scenes/experiments/holdoutsLogic'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { Scene } from 'scenes/sceneTypes'
+import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
 import { QueryContext } from '~/queries/types'
 
@@ -568,6 +569,7 @@ export interface TeamType extends TeamBasicType {
     default_modifiers?: HogQLQueryModifiers
     product_intents?: ProductIntentType[]
     default_data_theme?: number
+    flags_persistence_default: boolean
 }
 
 export interface ProductIntentType {
@@ -1820,7 +1822,7 @@ export interface TextModel {
     last_modified_at: string
 }
 
-export interface InsightModel extends Cacheable {
+export interface InsightModel extends Cacheable, WithAccessControl {
     /** The unique key we use when communicating with the user, e.g. in URLs */
     short_id: InsightShortId
     /** The primary key in the database, used as well in API endpoints */
@@ -1859,7 +1861,7 @@ export interface QueryBasedInsightModel extends Omit<InsightModel, 'filters'> {
     query: Node | null
 }
 
-export interface DashboardBasicType {
+export interface DashboardBasicType extends WithAccessControl {
     id: number
     name: string
     description: string
@@ -2837,6 +2839,7 @@ export interface SurveyAppearance {
     widgetSelector?: string
     widgetLabel?: string
     widgetColor?: string
+    fontFamily?: (typeof WEB_SAFE_FONTS)[number]
 }
 
 export interface SurveyQuestionBase {
@@ -3305,11 +3308,6 @@ export interface Group {
     group_properties: Record<string, any>
 }
 
-export interface ExperimentMetric {
-    type: string
-    query: ExperimentTrendsQuery | ExperimentFunnelsQuery
-}
-
 export interface Experiment {
     id: ExperimentIdType
     name: string
@@ -3359,49 +3357,6 @@ export interface TrendExperimentVariant {
     absolute_exposure: number
 }
 
-interface BaseExperimentResults {
-    probability: Record<string, number>
-    fakeInsightId: string
-    significant: boolean
-    noData?: boolean
-    significance_code: SignificanceCode
-    expected_loss?: number
-    p_value?: number
-}
-
-export interface _TrendsExperimentResults extends BaseExperimentResults {
-    insight: Record<string, any>[]
-    filters: TrendsFilterType
-    exposure_filters: TrendsFilterType
-    variants: TrendExperimentVariant[]
-    last_refresh?: string | null
-    credible_intervals: { [key: string]: [number, number] }
-}
-
-export interface _FunnelExperimentResults extends BaseExperimentResults {
-    insight: Record<string, any>[]
-    filters: FunnelsFilterType
-    variants: FunnelExperimentVariant[]
-    last_refresh?: string | null
-    credible_intervals: { [key: string]: [number, number] }
-}
-
-export interface TrendsExperimentResults {
-    result: _TrendsExperimentResults
-    is_cached?: boolean
-    last_refresh?: string | null
-}
-export interface FunnelExperimentResults {
-    result: _FunnelExperimentResults
-    is_cached?: boolean
-    last_refresh?: string | null
-}
-
-export type ExperimentResults = TrendsExperimentResults | FunnelExperimentResults
-
-export type SecondaryMetricResults = ExperimentResults['result'] & {
-    result?: Record<string, number>
-}
 export interface SecondaryExperimentMetric {
     name: string
     filters: Partial<FilterType>
@@ -3517,7 +3472,7 @@ export interface DateMappingOption {
 
 interface BreadcrumbBase {
     /** E.g. scene, tab, or scene with item ID. Particularly important for `onRename`. */
-    key: string | number | [scene: Scene, key: string | number]
+    key: string | number | [scene: Scene | string, key: string | number]
     /** Whether to show a custom popover */
     popover?: Pick<PopoverProps, 'overlay' | 'matchWidth'>
 }
@@ -4625,7 +4580,8 @@ export type HogFunctionInputSchemaType = {
     description?: string
     integration?: string
     integration_key?: string
-    integration_field?: 'slack_channel'
+    integration_field?: string
+    requires_field?: string
     requiredScopes?: string
 }
 
@@ -4677,6 +4633,8 @@ export interface HogFunctionFiltersType {
 }
 
 export interface HogFunctionMappingType {
+    name: string
+    disabled?: boolean
     inputs_schema?: HogFunctionInputSchemaType[]
     inputs?: Record<string, HogFunctionInputType> | null
     filters?: HogFunctionFiltersType | null
@@ -4849,6 +4807,12 @@ export type ReplayTemplateVariableType = {
     description?: string
     filterGroup?: UniversalFiltersGroupValue
     noTouch?: boolean
+}
+
+export type GoogleAdsConversionActionType = {
+    id: string
+    name: string
+    resourceName: string
 }
 
 export type DataColorThemeModel = {

@@ -681,6 +681,13 @@ class CSVBatchExportWriter(BatchExportWriter):
 
         return self._csv_writer
 
+    async def close_temporary_file(self):
+        """Ensure underlying `DictWriter` is closed before flushing and closing temporary file."""
+        if self._csv_writer is not None:
+            self._csv_writer = None
+
+        await super().close_temporary_file()
+
     def _write_record_batch(self, record_batch: pa.RecordBatch) -> None:
         """Write records to a temporary file as CSV."""
         self.csv_writer.writerows(record_batch.to_pylist())

@@ -15,6 +15,7 @@ import { isCoreFilter, PROPERTY_KEYS } from 'lib/taxonomy'
 import { objectClean } from 'lib/utils'
 import posthog from 'posthog-js'
 import { Holdout } from 'scenes/experiments/holdoutsLogic'
+import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
 import { isFilterWithDisplay, isFunnelsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { EventIndex } from 'scenes/session-recordings/player/eventIndex'
@@ -24,7 +25,7 @@ import { filtersFromUniversalFilterGroups } from 'scenes/session-recordings/util
 import { NewSurvey, SurveyTemplateType } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
 
-import { Node } from '~/queries/schema'
+import { ExperimentFunnelsQuery, ExperimentTrendsQuery, Node } from '~/queries/schema'
 import {
     getBreakdown,
     getCompareFilter,
@@ -156,7 +157,7 @@ function usedCohortFilterIds(properties: AnyPropertyFilter[] | PropertyGroupFilt
     const cohortIds = flattenedProperties
         .filter((p) => p.type === 'cohort')
         .map((p) => p.value)
-        .filter((a) => !!a) as number[]
+        .filter((a): a is number => !!a)
 
     return cohortIds || []
 }
@@ -495,7 +496,22 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             experimentId: ExperimentIdType
             holdoutId: Holdout['id']
         }) => ({ experimentId, holdoutId }),
-
+        reportExperimentSharedMetricCreated: (sharedMetric: SharedMetric) => ({ sharedMetric }),
+        reportExperimentSharedMetricAssigned: (experimentId: ExperimentIdType, sharedMetric: SharedMetric) => ({
+            experimentId,
+            sharedMetric,
+        }),
+        reportExperimentDashboardCreated: (experiment: Experiment, dashboardId: number) => ({
+            experiment,
+            dashboardId,
+        }),
+        reportExperimentMetricTimeout: (
+            experimentId: ExperimentIdType,
+            metric: ExperimentTrendsQuery | ExperimentFunnelsQuery
+        ) => ({
+            experimentId,
+            metric,
+        }),
         // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
@@ -1101,6 +1117,31 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 experiment_id: experimentId,
                 holdout_id: holdoutId,
             })
+        },
+        reportExperimentSharedMetricCreated: ({ sharedMetric }) => {
+            posthog.capture('experiment shared metric created', {
+                name: sharedMetric.name,
+                id: sharedMetric.id,
+                kind: sharedMetric.query.kind,
+            })
+        },
+        reportExperimentSharedMetricAssigned: ({ experimentId, sharedMetric }) => {
+            posthog.capture('experiment shared metric assigned', {
+                experiment_id: experimentId,
+                shared_metric_name: sharedMetric.name,
+                shared_metric_id: sharedMetric.id,
+                shared_metric_kind: sharedMetric.query.kind,
+            })
+        },
+        reportExperimentDashboardCreated: ({ experiment, dashboardId }) => {
+            posthog.capture('experiment dashboard created', {
+                experiment_name: experiment.name,
+                experiment_id: experiment.id,
+                dashboard_id: dashboardId,
+            })
+        },
+        reportExperimentMetricTimeout: ({ experimentId, metric }) => {
+            posthog.capture('experiment metric timeout', { experiment_id: experimentId, metric })
         },
         reportPropertyGroupFilterAdded: () => {
             posthog.capture('property group filter added')

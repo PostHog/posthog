@@ -88,8 +88,8 @@ const teamActionsMapping: Record<
         }
     },
     recording_domains(change: ActivityChange | undefined): ChangeMapping | null {
-        const before: string[] | null = Array.isArray(change?.before) ? change!.before : null
-        const after: string[] | null = Array.isArray(change?.after) ? change!.after : null
+        const before: string[] | null = Array.isArray(change?.before) ? change?.before.map(String) ?? null : null
+        const after: string[] | null = Array.isArray(change?.after) ? change?.after.map(String) ?? null : null
         if (after === null && before === null) {
             return null
         }
@@ -389,6 +389,7 @@ const teamActionsMapping: Record<
     slack_incoming_webhook: () => null,
     timezone: () => null,
     surveys_opt_in: () => null,
+    flags_persistence_default: () => null,
     week_start_day: () => null,
     default_modifiers: () => null,
     has_completed_onboarding_for: () => null,

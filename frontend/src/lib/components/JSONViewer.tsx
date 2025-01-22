@@ -11,6 +11,7 @@ export function JSONViewer(props: ReactJsonViewProps): JSX.Element {
             style={{ background: 'transparent' }}
             theme={isDarkModeOn ? 'railscasts' : 'rjv-default'}
             {...props}
+            name={props.name || null} // Don't label the root node as "root" by default
         />
     )
 }

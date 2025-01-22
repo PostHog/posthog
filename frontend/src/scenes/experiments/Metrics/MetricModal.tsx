@@ -18,14 +18,19 @@ export function MetricModal({
     const {
         experiment,
         experimentLoading,
-        _getMetricType,
+        getMetricType,
         isPrimaryMetricModalOpen,
         isSecondaryMetricModalOpen,
         editingPrimaryMetricIndex,
         editingSecondaryMetricIndex,
     } = useValues(experimentLogic({ experimentId }))
-    const { updateExperimentGoal, setExperiment, closePrimaryMetricModal, closeSecondaryMetricModal, loadExperiment } =
-        useActions(experimentLogic({ experimentId }))
+    const {
+        updateExperimentGoal,
+        setExperiment,
+        closePrimaryMetricModal,
+        closeSecondaryMetricModal,
+        restoreUnmodifiedExperiment,
+    } = useActions(experimentLogic({ experimentId }))
 
     const metricIdx = isSecondary ? editingSecondaryMetricIndex : editingPrimaryMetricIndex
     const metricsField = isSecondary ? 'metrics_secondary' : 'metrics'
@@ -36,12 +41,11 @@ export function MetricModal({
 
     const metrics = experiment[metricsField]
     const metric = metrics[metricIdx]
-    const metricType = _getMetricType(metric)
+    const metricType = getMetricType(metric)
     const funnelStepsLength = (metric as ExperimentFunnelsQuery)?.funnels_query?.series?.length || 0
 
     const onClose = (): void => {
-        // :KLUDGE: Removes any local changes and resets the experiment to the server state
-        loadExperiment()
+        restoreUnmodifiedExperiment()
         isSecondary ? closeSecondaryMetricModal() : closePrimaryMetricModal()
     }
 
@@ -69,6 +73,7 @@ export function MetricModal({
                                             [metricsField]: newMetrics,
                                         })
                                         updateExperimentGoal()
+                                        isSecondary ? closeSecondaryMetricModal() : closePrimaryMetricModal()
                                     },
                                     size: 'small',
                                 },
@@ -95,6 +100,7 @@ export function MetricModal({
                             form="edit-experiment-goal-form"
                             onClick={() => {
                                 updateExperimentGoal()
+                                isSecondary ? closeSecondaryMetricModal() : closePrimaryMetricModal()
                             }}
                             type="primary"
                             loading={experimentLoading}

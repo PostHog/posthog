@@ -474,7 +474,7 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
         elif hasattr(self.context.get("view", None), "user_access_control"):
             # Otherwise from the view (the default case)
             return self.context["view"].user_access_control
-        else:
+        elif "request" in self.context:
             user = cast(User | AnonymousUser, self.context["request"].user)
             # The user could be anonymous - if so there is no access control to be used
 
@@ -484,6 +484,8 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
             user = cast(User, user)
 
             return UserAccessControl(user, organization_id=str(user.current_organization_id))
+
+        return None
 
     def get_user_access_level(self, obj: Model) -> Optional[str]:
         if not self.user_access_control:

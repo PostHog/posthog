@@ -3,6 +3,7 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { UserBasicType } from '~/types'
 
@@ -35,7 +36,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
     path((key) => ['scenes', 'experiments', 'sharedMetricLogic', key]),
     key((props) => props.sharedMetricId || 'new'),
     connect(() => ({
-        actions: [sharedMetricsLogic, ['loadSharedMetrics']],
+        actions: [sharedMetricsLogic, ['loadSharedMetrics'], eventUsageLogic, ['reportExperimentSharedMetricCreated']],
     })),
     actions({
         setSharedMetric: (metric: Partial<SharedMetric>) => ({ metric }),
@@ -63,6 +64,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
             const response = await api.create(`api/projects/@current/experiment_saved_metrics/`, values.sharedMetric)
             if (response.id) {
                 lemonToast.success('Shared metric created successfully')
+                actions.reportExperimentSharedMetricCreated(response)
                 actions.loadSharedMetrics()
                 router.actions.push('/experiments/shared-metrics')
             }

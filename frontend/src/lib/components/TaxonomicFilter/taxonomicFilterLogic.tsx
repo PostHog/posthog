@@ -355,7 +355,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Cohorts',
                         searchPlaceholder: 'cohorts',
                         type: TaxonomicFilterGroupType.Cohorts,
-                        logic: cohortsModel,
+                        endpoint: combineUrl(`api/projects/${projectId}/cohorts/`).url,
                         value: 'cohorts',
                         getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,
                         getValue: (cohort: CohortType) => cohort.id,
@@ -539,7 +539,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     endpoint: combineUrl(`api/environments/${teamId}/groups/`, {
                         group_type_index: type.group_type_index,
                     }).url,
-                    searchAlias: 'group_key',
                     getPopoverHeader: () => `Group Names`,
                     getName: (group: Group) => groupDisplayId(group.group_key, group.group_properties),
                     getValue: (group: Group) => group.group_key,

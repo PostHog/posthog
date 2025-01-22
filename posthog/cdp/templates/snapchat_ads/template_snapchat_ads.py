@@ -72,7 +72,7 @@ common_inputs = [
 ]
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="alpha",
+    status="beta",
     type="destination",
     id="template-snapchat-ads",
     name="Snapchat Ads Conversions",

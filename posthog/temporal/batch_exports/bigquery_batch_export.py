@@ -47,11 +47,7 @@ from posthog.temporal.batch_exports.temporary_file import (
     BatchExportTemporaryFile,
     WriterFormat,
 )
-from posthog.temporal.batch_exports.utils import (
-    JsonType,
-    set_status_to_running_task,
-)
-from posthog.temporal.common.clickhouse import get_client
+from posthog.temporal.batch_exports.utils import JsonType, set_status_to_running_task
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import configure_temporal_worker_logger
 
@@ -325,8 +321,31 @@ class BigQueryClient(bigquery.Client):
             fields_to_cast = set(stage_fields_cast_to_json)
         else:
             fields_to_cast = set()
+
+        # The following `REGEXP_REPLACE` functions are used to clean-up un-paired
+        # surrogates, as they are rejected by `PARSE_JSON`. Since BigQuery's regex
+        # engine has no lookahead / lookback, we instead use an OR to match both
+        # valid pairs and invalid single high or low surrogates, and replacing only
+        # with the valid pair in both cases.
         stage_table_fields = ",".join(
-            f"PARSE_JSON(`{field.name}`, wide_number_mode=>'round')"
+            f"""
+            PARSE_JSON(
+              REGEXP_REPLACE(
+                REGEXP_REPLACE(
+                  REGEXP_REPLACE(
+                    `{field.name}`,
+                    r'(\\\\u[dD][89A-Fa-f][0-9A-Fa-f]{{2}}\\\\u[dD][c-fC-F][0-9A-Fa-f]{{2}})|(\\\\u[dD][89A-Fa-f][0-9A-Fa-f]{{2}})',
+                    '\\\\1'
+                  ),
+                  r'(\\\\u[dD][89A-Fa-f][0-9A-Fa-f]{{2}}\\\\u[dD][c-fC-F][0-9A-Fa-f]{{2}})|(\\\\u[dD][c-fC-F][0-9A-Fa-f]{{2}})',
+                  '\\\\1'
+                ),
+                r'[\\n\\r]',
+                r'\\\\n'
+              ),
+              wide_number_mode=>'round'
+            )
+            """
             if field.name in fields_to_cast
             else f"`{field.name}`"
             for field in into_table.schema
@@ -377,11 +396,34 @@ class BigQueryClient(bigquery.Client):
                 values += ", "
                 field_names += ", "
 
+            # The following `REGEXP_REPLACE` functions are used to clean-up un-paired
+            # surrogates, as they are rejected by `PARSE_JSON`. Since BigQuery's regex
+            # engine has no lookahead / lookback, we instead use an OR to match both
+            # valid pairs and invalid single high or low surrogates, and replacing only
+            # with the valid pair in both cases.
             stage_field = (
-                f"PARSE_JSON(stage.`{field.name}`, wide_number_mode=>'round')"
+                f"""
+                PARSE_JSON(
+                  REGEXP_REPLACE(
+                    REGEXP_REPLACE(
+                      REGEXP_REPLACE(
+                        stage.`{field.name}`,
+                        r'(\\\\u[dD][89A-Ba-b][0-9A-Fa-f]{{2}}\\\\u[dD][c-fC-F][0-9A-Fa-f]{{2}})|(\\\\u[dD][89A-Fa-f][0-9A-Fa-f]{{2}})',
+                        '\\\\1'
+                      ),
+                      r'(\\\\u[dD][89A-Ba-b][0-9A-Fa-f]{{2}}\\\\u[dD][c-fC-F][0-9A-Fa-f]{{2}})|(\\\\u[dD][c-fC-F][0-9A-Fa-f]{{2}})',
+                      '\\\\1'
+                    ),
+                    r'[\\n\\r]',
+                    r'\\\\n'
+                  ),
+                  wide_number_mode=>'round'
+                )
+                """
                 if field.name in fields_to_cast
                 else f"stage.`{field.name}`"
             )
+
             update_clause += f"final.`{field.name}` = {stage_field}"
             field_names += f"`{field.name}`"
             values += stage_field
@@ -585,11 +627,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
     async with (
         Heartbeater() as heartbeater,
         set_status_to_running_task(run_id=inputs.run_id, logger=logger),
-        get_client(team_id=inputs.team_id) as client,
     ):
-        if not await client.is_alive():
-            raise ConnectionError("Cannot establish connection to ClickHouse")
-
         _, details = await should_resume_from_activity_heartbeat(activity, BigQueryHeartbeatDetails)
         if details is None:
             details = BigQueryHeartbeatDetails()
@@ -622,7 +660,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         full_range = (data_interval_start, data_interval_end)
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_BIGQUERY_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
-        producer = Producer(clickhouse_client=client)
+        producer = Producer()
         producer_task = producer.start(
             queue=queue,
             model_name=model_name,

@@ -554,6 +554,9 @@ export default function SurveyEdit(): JSX.Element {
                                                           onAppearanceChange={(appearance) => {
                                                               onChange(appearance)
                                                           }}
+                                                          isCustomFontsEnabled={
+                                                              !!featureFlags[FEATURE_FLAGS.SURVEYS_CUSTOM_FONTS]
+                                                          }
                                                       />
                                                   </>
                                               )}
@@ -1078,6 +1081,8 @@ export default function SurveyEdit(): JSX.Element {
                                                                 data-attr="survey-iteration-count"
                                                                 size="small"
                                                                 min={1}
+                                                                // NB this is enforced in the API too
+                                                                max={500}
                                                                 value={value || 1}
                                                                 onChange={(newValue) => {
                                                                     if (newValue && newValue > 0) {
