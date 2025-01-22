@@ -2372,7 +2372,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         experiment = self.create_experiment(feature_flag=feature_flag)
 
         # Test allowed count math types
-        allowed_count_math_types = [BaseMathType.TOTAL, BaseMathType.DAU, BaseMathType.UNIQUE_SESSION]
+        allowed_count_math_types = [BaseMathType.TOTAL, BaseMathType.DAU, BaseMathType.UNIQUE_SESSION, None]
         for math_type in allowed_count_math_types:
             count_query = TrendsQuery(series=[EventsNode(event="$pageview", math=math_type)])
             experiment_query = ExperimentTrendsQuery(
@@ -2383,17 +2383,19 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             query_runner = ExperimentTrendsQueryRunner(query=experiment_query, team=self.team)
             self.assertEqual(query_runner._get_metric_type(), ExperimentMetricType.COUNT)
 
-        # Test that SUM math returns CONTINUOUS
-        count_query = TrendsQuery(
-            series=[EventsNode(event="checkout completed", math=PropertyMathType.SUM, math_property="revenue")]
-        )
-        experiment_query = ExperimentTrendsQuery(
-            experiment_id=experiment.id,
-            kind="ExperimentTrendsQuery",
-            count_query=count_query,
-        )
-        query_runner = ExperimentTrendsQueryRunner(query=experiment_query, team=self.team)
-        self.assertEqual(query_runner._get_metric_type(), ExperimentMetricType.CONTINUOUS)
+        # Test allowed sum math types
+        allowed_sum_math_types = [PropertyMathType.SUM, "hogql"]
+        for math_type in allowed_sum_math_types:
+            count_query = TrendsQuery(
+                series=[EventsNode(event="checkout completed", math=math_type, math_property="revenue")]
+            )
+            experiment_query = ExperimentTrendsQuery(
+                experiment_id=experiment.id,
+                kind="ExperimentTrendsQuery",
+                count_query=count_query,
+            )
+            query_runner = ExperimentTrendsQueryRunner(query=experiment_query, team=self.team)
+            self.assertEqual(query_runner._get_metric_type(), ExperimentMetricType.CONTINUOUS)
 
         # Test that AVG math gets converted to SUM and returns CONTINUOUS
         count_query = TrendsQuery(
