@@ -20,6 +20,7 @@ import { NewSurvey, SurveyTemplateType } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
 
 import { ExperimentFunnelsQuery, ExperimentTrendsQuery, Node } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 import {
     getBreakdown,
     getCompareFilter,
@@ -118,6 +119,42 @@ interface RecordingViewedProps {
     loadedFromBlobStorage: boolean
     snapshot_source: 'web' | 'mobile' | 'unknown'
     load_time: number // DEPRECATE: How much time it took to load the session (backend) (milliseconds)
+}
+
+export function getEventPropertiesForMetric(metric: ExperimentTrendsQuery | ExperimentFunnelsQuery): object {
+    if (metric.kind === NodeKind.ExperimentFunnelsQuery) {
+        return {
+            kind: 'funnel',
+            steps_count: metric.funnels_query.series.length,
+        }
+    }
+    return {
+        kind: 'trend',
+        series_type: metric.count_query.series[0].kind.replace('Node', '').toLowerCase(),
+    }
+}
+
+export function getEventPropertiesForExperiment(experiment: Experiment): object {
+    const allMetrics = [
+        ...experiment.metrics,
+        ...experiment.saved_metrics.filter((m) => m.metadata.type === 'primary').map((m) => m.query),
+    ]
+    const allSecondaryMetrics = [
+        ...experiment.metrics_secondary,
+        ...experiment.saved_metrics.filter((m) => m.metadata.type === 'secondary').map((m) => m.query),
+    ]
+
+    return {
+        id: experiment.id,
+        name: experiment.name,
+        type: experiment.type,
+        parameters: experiment.parameters,
+        metrics: allMetrics.map((m) => getEventPropertiesForMetric(m)),
+        secondary_metrics: allSecondaryMetrics.map((m) => getEventPropertiesForMetric(m)),
+        metrics_count: allMetrics.length,
+        secondary_metrics_count: allSecondaryMetrics.length,
+        saved_metrics_count: experiment.saved_metrics.length,
+    }
 }
 
 /** Takes a query and returns an object with "useful" properties that don't contain sensitive data. */
@@ -875,62 +912,43 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportExperimentArchived: ({ experiment }) => {
             posthog.capture('experiment archived', {
-                name: experiment.name,
-                id: experiment.id,
-                parameters: experiment.parameters,
+                ...getEventPropertiesForExperiment(experiment),
             })
         },
         reportExperimentReset: ({ experiment }) => {
             posthog.capture('experiment reset', {
-                name: experiment.name,
-                id: experiment.id,
-                parameters: experiment.parameters,
+                ...getEventPropertiesForExperiment(experiment),
             })
         },
         reportExperimentCreated: ({ experiment }) => {
             posthog.capture('experiment created', {
-                name: experiment.name,
                 id: experiment.id,
+                name: experiment.name,
                 type: experiment.type,
-                // TODO fix these
                 parameters: experiment.parameters,
-                secondary_metrics_count: experiment.secondary_metrics.length,
             })
         },
         reportExperimentViewed: ({ experiment }) => {
             posthog.capture('experiment viewed', {
-                name: experiment.name,
-                id: experiment.id,
-                // TODO fix these
-                parameters: experiment.parameters,
-                secondary_metrics_count: experiment.secondary_metrics.length,
+                ...getEventPropertiesForExperiment(experiment),
             })
         },
         reportExperimentLaunched: ({ experiment, launchDate }) => {
             posthog.capture('experiment launched', {
-                name: experiment.name,
-                id: experiment.id,
-                // TODO fix these
-                parameters: experiment.parameters,
-                secondary_metrics_count: experiment.secondary_metrics.length,
+                ...getEventPropertiesForExperiment(experiment),
                 launch_date: launchDate.toISOString(),
             })
         },
         reportExperimentStartDateChange: ({ experiment, newStartDate }) => {
             posthog.capture('experiment start date changed', {
-                name: experiment.name,
-                id: experiment.id,
+                ...getEventPropertiesForExperiment(experiment),
                 old_start_date: experiment.start_date,
                 new_start_date: newStartDate,
             })
         },
         reportExperimentCompleted: ({ experiment, endDate, duration, significant }) => {
             posthog.capture('experiment completed', {
-                name: experiment.name,
-                id: experiment.id,
-                // TODO fix these
-                parameters: experiment.parameters,
-                secondary_metrics_count: experiment.secondary_metrics.length,
+                ...getEventPropertiesForExperiment(experiment),
                 end_date: endDate.toISOString(),
                 duration,
                 significant,
