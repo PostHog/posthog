@@ -8,7 +8,6 @@ interface MetricTagProps {
 
 export function MetricTag({ properties }: MetricTagProps): JSX.Element {
     const { $ai_score_name: metricName, $ai_score_value: metricValue } = properties
-
     const strValue = String(metricValue)
     const isValueLong = strValue.length > 10
 
@@ -19,13 +18,15 @@ export function MetricTag({ properties }: MetricTagProps): JSX.Element {
     const description = (
         <>
             {metricName && (
-                <>
+                <span>
                     Metric: {metricName}
                     <br />
                     <br />
-                </>
+                </span>
             )}
             {metricValue}
+            <br />
+            <span>Click to copy the value</span>
         </>
     )
 
@@ -34,7 +35,7 @@ export function MetricTag({ properties }: MetricTagProps): JSX.Element {
             <CopyToClipboardInline
                 iconSize="xsmall"
                 description={strValue}
-                tooltipMessage={isValueLong ? description : null}
+                tooltipMessage={isValueLong ? description : 'Click to copy the value'}
             >
                 {title}
             </CopyToClipboardInline>
