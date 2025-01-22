@@ -130,9 +130,11 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
     def _get_metric_type(self) -> ExperimentMetricType:
         # Currently, we rely on the math type to determine the metric type
-        if self.query.count_query.series[0].math == PropertyMathType.SUM:
-            return ExperimentMetricType.CONTINUOUS
-        return ExperimentMetricType.COUNT
+        match self.query.count_query.series[0].math:
+            case PropertyMathType.SUM | "hogql":
+                return ExperimentMetricType.CONTINUOUS
+            case _:
+                return ExperimentMetricType.COUNT
 
     def _prepare_count_query(self) -> TrendsQuery:
         """
