@@ -324,13 +324,14 @@ export function PropertiesTable({
                             {
                                 key: 'value',
                                 title: (
-                                    <div className="flex items-center justify-between w-full">
+                                    <div className="flex justify-between w-full">
                                         <div>Value</div>
                                         <LemonTag type="muted" className="font-mono uppercase">
                                             array
                                         </LemonTag>
                                     </div>
                                 ),
+                                fullWidth: true,
                                 render: function Value(_, item: any): JSX.Element {
                                     return (
                                         <PropertiesTable
