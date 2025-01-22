@@ -31,7 +31,7 @@ describe('capabilities', () => {
             const capabilities = getCapabilities(`
                 function processEvent (event, meta) { return null }
             `)
-            expect(capabilities).toEqual({ jobs: [], scheduled_tasks: [], methods: ['processEvent'] })
+            expect(capabilities).toEqual({ methods: ['processEvent'] })
         })
 
         it('handles setupPlugin', () => {
@@ -39,7 +39,7 @@ describe('capabilities', () => {
                 function setupPlugin (meta) { meta.global.key = 'value' }
                 function processEvent (event, meta) { event.properties={"x": 1}; return event }
             `)
-            expect(capabilities).toEqual({ jobs: [], scheduled_tasks: [], methods: ['setupPlugin', 'processEvent'] })
+            expect(capabilities).toEqual({ methods: ['setupPlugin', 'processEvent'] })
         })
 
         it('handles all capabilities', () => {
@@ -55,8 +55,6 @@ describe('capabilities', () => {
                 }
             `)
             expect(capabilities).toEqual({
-                jobs: ['x'],
-                scheduled_tasks: ['runEveryHour'],
                 methods: ['onEvent', 'processEvent', 'getSettings'],
             })
         })
