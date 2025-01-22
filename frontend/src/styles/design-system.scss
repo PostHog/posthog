@@ -361,7 +361,7 @@ $primitive-teal: (
     --fill-info-overlay: var(--primitive-neutral-cool-900);
     --fill-warning-overlay: var(--primitive-amber-800);
     --fill-error-overlay: var(--primitive-red-900);
-    --fill-success-overlay: var(--primitive-green-900);
+    --fill-success-overlay: var(--primitive-green-800);
 
     // Content
     // //////////////////////////////////////////////////////////
@@ -371,7 +371,7 @@ $primitive-teal: (
     // //////////////////////////////////////////////////////////
     --content-on-fill-warning: var(--primitive-orange-200);
     --content-on-fill-error: var(--primitive-red-200);
-    --content-on-fill-success: var(--primitive-green-200);
+    --content-on-fill-success: var(--primitive-green-50);
 
     // Borders
     // //////////////////////////////////////////////////////////
