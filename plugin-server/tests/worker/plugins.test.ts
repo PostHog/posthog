@@ -305,7 +305,6 @@ describe('plugins', () => {
         getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
 
         await setupPlugins(hub)
-        const { pluginConfigs } = hub
 
         const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
         const returnedEvent = await runProcessEvent(hub, { ...event })
@@ -336,7 +335,6 @@ describe('plugins', () => {
         getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
 
         await setupPlugins(hub)
-        const { pluginConfigs } = hub
 
         const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
         const returnedEvent = await runProcessEvent(hub, { ...event })
