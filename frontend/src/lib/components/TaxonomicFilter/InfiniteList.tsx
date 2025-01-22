@@ -86,7 +86,7 @@ const renderItemContents = ({
 }): JSX.Element | string => {
     const parsedLastSeen = (item as EventDefinition).last_seen_at ? dayjs((item as EventDefinition).last_seen_at) : null
     const isStale =
-        listGroupType === TaxonomicFilterGroupType.Events && 'id' in item && !isDefinitionStale(item as EventDefinition)
+        listGroupType === TaxonomicFilterGroupType.Events && 'id' in item && isDefinitionStale(item as EventDefinition)
 
     const isUnusedEventProperty =
         (listGroupType === TaxonomicFilterGroupType.NumericalEventProperties ||

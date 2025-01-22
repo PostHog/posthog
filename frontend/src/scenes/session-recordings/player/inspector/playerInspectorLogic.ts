@@ -735,9 +735,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 items.sort((a, b) => (a.timestamp.valueOf() > b.timestamp.valueOf() ? 1 : -1))
 
                 // ensure that item with type 'inspector-summary' is always at the top
-                const summary = items.find((item) => item.type === 'inspector-summary')
+                const summary: InspectorListItemSummary | undefined = items.find(
+                    (item) => item.type === 'inspector-summary'
+                ) as InspectorListItemSummary | undefined
                 if (summary) {
-                    ;(summary as InspectorListItemSummary).errorCount = errorCount
+                    summary.errorCount = errorCount
                     items.splice(items.indexOf(summary), 1)
                     items.unshift(summary)
                 }

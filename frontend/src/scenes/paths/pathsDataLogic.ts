@@ -44,6 +44,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                 'pathsFilter',
                 'funnelPathsFilter',
                 'dateRange',
+                'theme',
             ],
             featureFlagLogic,
             ['featureFlags'],

@@ -75,6 +75,7 @@
         "graphile-worker": "0.13.0",
         "ioredis": "^4.27.6",
         "ipaddr.js": "^2.1.0",
+        "js-big-decimal": "^2.2.0",
         "kafkajs": "^2.2.0",
         "kafkajs-snappy": "^1.1.0",
         "lru-cache": "^6.0.0",

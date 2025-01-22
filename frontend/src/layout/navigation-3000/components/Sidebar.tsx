@@ -29,7 +29,6 @@ export function Sidebar({ navbarItem, sidebarOverlay, sidebarOverlayProps }: Sid
 
     const {
         sidebarWidth: width,
-        isSidebarShown: isShown,
         isResizeInProgress,
         sidebarOverslideDirection: overslideDirection,
         isSearchShown,
@@ -44,7 +43,6 @@ export function Sidebar({ navbarItem, sidebarOverlay, sidebarOverlayProps }: Sid
                 isResizeInProgress && 'Sidebar3000--resizing',
                 overslideDirection && `Sidebar3000--overslide-${overslideDirection}`
             )}
-            aria-hidden={!isShown}
             // eslint-disable-next-line react/forbid-dom-props
             style={
                 {
@@ -74,7 +72,7 @@ export function Sidebar({ navbarItem, sidebarOverlay, sidebarOverlayProps }: Sid
                 }}
             />
             {sidebarOverlay && (
-                <SidebarOverlay {...sidebarOverlayProps} isOpen={isShown && sidebarOverlayProps?.isOpen} width={width}>
+                <SidebarOverlay {...sidebarOverlayProps} isOpen={sidebarOverlayProps?.isOpen} width={width}>
                     {sidebarOverlay}
                 </SidebarOverlay>
             )}

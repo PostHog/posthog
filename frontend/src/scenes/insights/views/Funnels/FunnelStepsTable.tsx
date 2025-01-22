@@ -1,5 +1,5 @@
 import { IconFlag } from '@posthog/icons'
-import clsx from 'clsx'
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
@@ -7,7 +7,6 @@ import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonTable, LemonTableColumn, LemonTableColumnGroup } from 'lib/lemon-ui/LemonTable'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
-import { useState } from 'react'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
 import { getVisibilityKey } from 'scenes/funnels/funnelUtils'
@@ -21,7 +20,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { FlattenedFunnelStepByBreakdown } from '~/types'
 
 import { resultCustomizationsModalLogic } from '../../../../queries/nodes/InsightViz/resultCustomizationsModalLogic'
-import { CustomizationIcon } from '../InsightsTable/columns/SeriesColumn'
+import { CustomizationIcon } from '../InsightsTable/columns/ColorCustomizationColumn'
 import { getActionFilterFromFunnelStep, getSignificanceFromBreakdownStep } from './funnelStepTableUtils'
 
 export function FunnelStepsTable(): JSX.Element | null {
@@ -81,29 +80,28 @@ export function FunnelStepsTable(): JSX.Element | null {
                         _: void,
                         breakdown: FlattenedFunnelStepByBreakdown
                     ): JSX.Element {
-                        const [isHovering, setIsHovering] = useState(false)
                         // :KLUDGE: `BreakdownStepValues` is always wrapped into an array, which doesn't work for the
                         // formatBreakdownLabel logic. Instead, we unwrap speculatively
                         const value =
                             breakdown.breakdown_value?.length == 1
                                 ? breakdown.breakdown_value[0]
                                 : breakdown.breakdown_value
+
+                        const color = getFunnelsColor(breakdown)
+
                         const label = (
-                            <div
-                                className={clsx('flex justify-between items-center', {
-                                    'cursor-pointer': showCustomizationIcon,
-                                })}
-                                onClick={showCustomizationIcon ? () => openModal(breakdown) : undefined}
-                                onMouseEnter={() => setIsHovering(true)}
-                                onMouseLeave={() => setIsHovering(false)}
-                            >
+                            <div className="flex justify-between items-center">
                                 {formatBreakdownLabel(
                                     value,
                                     breakdownFilter,
                                     cohorts.results,
                                     formatPropertyValueForDisplay
                                 )}
-                                {showCustomizationIcon && <CustomizationIcon isVisible={isHovering} />}
+                                {showCustomizationIcon && (
+                                    <LemonButton onClick={() => openModal(breakdown)}>
+                                        <CustomizationIcon color={color} />
+                                    </LemonButton>
+                                )}
                             </div>
                         )
                         return isOnlySeries ? (

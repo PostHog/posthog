@@ -1447,3 +1447,61 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         self.assertCountEqual([r[0] for r in results_team1], [person2_team1.uuid])
         self.assertCountEqual([r[0] for r in results_team2], [person1_team2.uuid])
+
+    def test_cohortpeople_action_all_events(self):
+        # Create an action that matches all events (no specific event defined)
+        action = Action.objects.create(team=self.team, name="all events", steps_json=[{"event": None}])
+
+        # Create two people
+        Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["1"],
+            properties={"$some_prop": "something", "$another_prop": "something"},
+        )
+
+        Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["2"],
+            properties={"$some_prop": "something", "$another_prop": "something"},
+        )
+
+        # Create different types of events for both people
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="1",
+            properties={"attr": "some_val"},
+            timestamp=datetime.now() - timedelta(hours=12),
+        )
+
+        _create_event(
+            event="$autocapture",
+            team=self.team,
+            distinct_id="2",
+            properties={"attr": "some_val"},
+            timestamp=datetime.now() - timedelta(hours=12),
+        )
+
+        # Create a cohort based on the "all events" action
+        cohort = Cohort.objects.create(
+            team=self.team, groups=[{"action_id": action.pk, "days": 1}], name="cohort_all_events"
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        # Both people should be in the cohort since they both performed some event
+        results = self._get_cohortpeople(cohort)
+        self.assertEqual(len(results), 2)
+
+        # Create a person with no events
+        Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["3"],
+            properties={"$some_prop": "something", "$another_prop": "something"},
+        )
+
+        # Recalculate cohort
+        cohort.calculate_people_ch(pending_version=1)
+
+        # Should still only have 2 people since person 3 has no events
+        results = self._get_cohortpeople(cohort)
+        self.assertEqual(len(results), 2)
