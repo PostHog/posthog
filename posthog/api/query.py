@@ -177,8 +177,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             except Exception as e:
                 self.handle_column_ch_error(e)
                 capture_exception(e)
-                error_data = {"error": str(e)}
-                yield f"data: {json.dumps(error_data)}\n\n"
+                raise
 
         response = StreamingHttpResponse(
             generate_response(),
