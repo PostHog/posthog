@@ -11,7 +11,6 @@ import { AppMetric2Type, Hub, PluginServerService, TeamId, TimestampFormat } fro
 import { safeClickhouseString } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { castTimestampOrNow, UUIDT } from '../../utils/utils'
-import { RustyHook } from '../../worker/rusty-hook'
 import { CdpRedis, createCdpRedisPool } from '../redis'
 import { FetchExecutorService } from '../services/fetch-executor.service'
 import { GroupsManagerService } from '../services/groups-manager.service'
@@ -96,8 +95,7 @@ export abstract class CdpConsumerBase {
         this.hogWatcher = new HogWatcherService(hub, this.redis)
         this.hogMasker = new HogMaskerService(this.redis)
         this.hogExecutor = new HogExecutorService(this.hub, this.hogFunctionManager)
-        const rustyHook = this.hub?.rustyHook ?? new RustyHook(this.hub)
-        this.fetchExecutor = new FetchExecutorService(this.hub, rustyHook)
+        this.fetchExecutor = new FetchExecutorService(this.hub)
         this.groupsManager = new GroupsManagerService(this.hub)
     }
 

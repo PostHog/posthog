@@ -24,16 +24,9 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         const invocationResults = await runInstrumentedFunction({
             statsKey: `cdpConsumer.handleEachBatch.executeInvocations`,
             func: async () => {
-                // NOTE: In the future this service will never do fetching (unless we decide we want to do it in node at some point)
-                // This is just "for now" to support the transition to cyclotron
-                const fetchQueue = invocations.filter((item) => item.queue === 'fetch')
-                const fetchResults = await this.runManyWithHeartbeat(fetchQueue, (item) =>
-                    this.fetchExecutor.execute(item)
-                )
-
                 const hogQueue = invocations.filter((item) => item.queue === 'hog')
                 const hogResults = await this.runManyWithHeartbeat(hogQueue, (item) => this.hogExecutor.execute(item))
-                return [...hogResults, ...(fetchResults.filter(Boolean) as HogFunctionInvocationResult[])]
+                return [...hogResults]
             },
         })
 
