@@ -260,6 +260,8 @@ $primitive-teal: (
     // Fills
     // Small colourful areas: banners, pills, buttons, etc.
     // //////////////////////////////////////////////////////////
+    --bg-fill-primary: var(--primitive-white);
+    --bg-fill-secondary: var(--primitive-neutral-50);
     --bg-fill-info-overlay: var(--primitive-3000-25); /* bg for info blocks */
     --bg-fill-warning-overlay: var(--primitive-orange-50); /* bg for warning blocks */
     --bg-fill-error-overlay: var(--primitive-red-50); /* bg for error blocks */
@@ -268,9 +270,9 @@ $primitive-teal: (
     // Content on fills
     // Texts which are on colourful fills, ensures contrast
     // //////////////////////////////////////////////////////////
-    --text-on-bg-fill-warning: var(--primitive-orange-800); /* On-fill text for warning */
-    --text-on-bg-fill-error: var(--primitive-red-800); /* On-fill text for error */
-    --text-on-bg-fill-success: var(--primitive-green-800); /* On-fill text for success */
+    --text-warning-on-bg-fill: var(--primitive-orange-800); /* On-fill text for warning */
+    --text-error-on-bg-fill: var(--primitive-red-800); /* On-fill text for error */
+    --text-success-on-bg-fill: var(--primitive-green-800); /* On-fill text for success */
 
     // Borders
     // Borders for surfaces/fills (TODO: perhaps we need to do border-fill-primary, border-fill-warning, etc.)
@@ -333,8 +335,7 @@ $primitive-teal: (
     }
 }
 
-[theme='dark'],
-.theme-dark {
+[theme='dark'] {
     --brand-primary-hue: var(--primitive-posthog-brand-yellow-hue);
     --brand-primary-saturation: var(--primitive-posthog-brand-yellow-saturation);
     --brand-primary-lightness: var(--primitive-posthog-brand-yellow-lightness);
@@ -367,9 +368,9 @@ $primitive-teal: (
 
     // Content on fills
     // //////////////////////////////////////////////////////////
-    --text-on-bg-fill-warning: var(--primitive-orange-100);
-    --text-on-bg-fill-error: var(--primitive-red-100);
-    --text-on-bg-fill-success: var(--primitive-green-50);
+    --text-warning-on-bg-fill: var(--primitive-orange-100);
+    --text-error-on-bg-fill: var(--primitive-red-100);
+    --text-success-on-bg-fill: var(--primitive-green-50);
 
     // Borders
     // //////////////////////////////////////////////////////////

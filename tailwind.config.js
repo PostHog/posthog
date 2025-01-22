@@ -35,9 +35,9 @@ const config = {
             'accent-secondary': 'var(--accent-secondary)',
             'accent-secondary-hover': 'var(--accent-secondary-hover)',
             
-            'on-fill-warning': 'var(--text-on-bg-fill-warning)',
-            'on-fill-error': 'var(--text-on-bg-fill-error)',
-            'on-fill-success': 'var(--text-on-bg-fill-success)',
+            'on-fill-warning': 'var(--text-warning-on-bg-fill)',
+            'on-fill-error': 'var(--text-error-on-bg-fill)',
+            'on-fill-success': 'var(--text-success-on-bg-fill)',
         },
         borderColor: {
             'accent-primary': 'var(--accent-primary)',
