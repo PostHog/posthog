@@ -411,7 +411,11 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 tags={tags ?? []}
                                 saving={insightSaving}
                                 onChange={(tags) => setTags(tags)}
-                                onBlur={() => setInsightMetadata({ tags: tags ?? [] })}
+                                onBlur={() => {
+                                    if (tags !== insight.tags) {
+                                        setInsightMetadata({ tags: tags ?? [] })
+                                    }
+                                }}
                                 tagsAvailable={allExistingTags}
                                 className="mt-2"
                                 data-attr="insight-tags"
