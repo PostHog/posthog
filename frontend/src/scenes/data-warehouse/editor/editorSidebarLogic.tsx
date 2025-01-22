@@ -278,10 +278,27 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                                           },
                                           menuItems: [
                                               {
+                                                  label: 'Edit view definition',
+                                                  onClick: () => {
+                                                      multitabEditorLogic({
+                                                          key: `hogQLQueryEditor/${router.values.location.pathname}`,
+                                                      }).actions.editView(savedQuery.query.query, savedQuery)
+                                                  },
+                                              },
+                                              {
                                                   label: 'Add join',
                                                   onClick: () => {
                                                       viewLinkLogic.actions.selectSourceTable(savedQuery.name)
                                                       viewLinkLogic.actions.toggleJoinTableModal()
+                                                  },
+                                              },
+                                              {
+                                                  label: 'Delete',
+                                                  status: 'danger',
+                                                  onClick: () => {
+                                                      dataWarehouseViewsLogic.actions.deleteDataWarehouseSavedQuery(
+                                                          savedQuery.id
+                                                      )
                                                   },
                                               },
                                           ],
@@ -312,10 +329,27 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                                               },
                                               menuItems: [
                                                   {
+                                                      label: 'Edit view definition',
+                                                      onClick: () => {
+                                                          multitabEditorLogic({
+                                                              key: `hogQLQueryEditor/${router.values.location.pathname}`,
+                                                          }).actions.editView(savedQuery.query.query, savedQuery)
+                                                      },
+                                                  },
+                                                  {
                                                       label: 'Add join',
                                                       onClick: () => {
                                                           viewLinkLogic.actions.selectSourceTable(savedQuery.name)
                                                           viewLinkLogic.actions.toggleJoinTableModal()
+                                                      },
+                                                  },
+                                                  {
+                                                      label: 'Delete',
+                                                      status: 'danger',
+                                                      onClick: () => {
+                                                          dataWarehouseViewsLogic.actions.deleteDataWarehouseSavedQuery(
+                                                              savedQuery.id
+                                                          )
                                                       },
                                                   },
                                               ],
