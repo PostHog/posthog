@@ -1,11 +1,10 @@
 from dataclasses import dataclass
-from functools import cache
 from typing import Optional, Union
 
 
 from posthog.hogql import ast
 from posthog.hogql.database.models import ExpressionField
-from posthog.hogql.parser import parse_expr, parse_expr_static
+from posthog.hogql.parser import parse_expr_static
 from posthog.hogql.timings import HogQLTimings
 from posthog.schema import (
     CustomChannelRule,
@@ -321,13 +320,6 @@ def create_channel_type_expr(
         )
     else:
         return builtin_rules
-
-
-@cache
-def _initial_default_channel_rules_expr():
-    # This logic is referenced in our docs https://posthog.com/docs/data/channel-type, be sure to update both if you
-    # update either.
-    return parse_expr()
 
 
 def wrap_with_null_if_empty(expr: ast.Expr) -> ast.Expr:
