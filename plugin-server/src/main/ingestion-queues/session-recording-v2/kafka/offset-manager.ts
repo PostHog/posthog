@@ -23,6 +23,11 @@ class OffsetTrackingSessionBatchRecorder implements SessionBatchRecorder {
         await this.recorder.flush()
     }
 
+    public discardPartition(partition: number): void {
+        this.recorder.discardPartition(partition)
+        this.offsetManager.discardPartition(partition)
+    }
+
     public get size(): number {
         return this.recorder.size
     }
@@ -40,6 +45,10 @@ export class KafkaOffsetManager {
     public trackOffset({ partition, offset }: PartitionOffset): void {
         // We track the next offset to process
         this.partitionOffsets.set(partition, offset + 1)
+    }
+
+    public discardPartition(partition: number): void {
+        this.partitionOffsets.delete(partition)
     }
 
     public async commit(): Promise<void> {

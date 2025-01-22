@@ -22,6 +22,14 @@ interface RRWebEvent {
     data: Record<string, any>
 }
 
+interface MessageMetadata {
+    partition?: number
+    topic?: string
+    offset?: number
+    timestamp?: number
+    rawSize?: number
+}
+
 describe('BaseSessionBatchRecorder', () => {
     let recorder: BaseSessionBatchRecorder
     let mockFlusher: jest.Mocked<SessionBatchFlusher>
@@ -42,7 +50,11 @@ describe('BaseSessionBatchRecorder', () => {
         recorder = new BaseSessionBatchRecorder(mockFlusher)
     })
 
-    const createMessage = (sessionId: string, events: RRWebEvent[]): MessageWithTeam => ({
+    const createMessage = (
+        sessionId: string,
+        events: RRWebEvent[],
+        metadata: MessageMetadata = {}
+    ): MessageWithTeam => ({
         team: {
             teamId: 1,
             consoleLogIngestionEnabled: false,
@@ -63,6 +75,7 @@ describe('BaseSessionBatchRecorder', () => {
                 offset: 0,
                 timestamp: 0,
                 rawSize: 0,
+                ...metadata,
             },
         },
     })
@@ -335,6 +348,142 @@ describe('BaseSessionBatchRecorder', () => {
             expect(mockFlusher.open).toHaveBeenCalledTimes(2)
             expect(finish1).toHaveBeenCalledTimes(1)
             expect(finish2).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('partition handling', () => {
+        it('should flush all partitions', async () => {
+            const messages = [
+                createMessage(
+                    'session1',
+                    [
+                        {
+                            type: EventType.FullSnapshot,
+                            timestamp: 1000,
+                            data: { source: 1 },
+                        },
+                    ],
+                    { partition: 1 }
+                ),
+                createMessage(
+                    'session2',
+                    [
+                        {
+                            type: EventType.IncrementalSnapshot,
+                            timestamp: 2000,
+                            data: { source: 2 },
+                        },
+                    ],
+                    { partition: 2 }
+                ),
+            ]
+
+            messages.forEach((message) => recorder.record(message))
+            const outputPromise = captureOutput(mockStream)
+            await recorder.flush()
+
+            const output = await outputPromise
+            const lines = parseLines(output)
+
+            expect(lines).toEqual([
+                ['window1', messages[0].message.eventsByWindowId.window1[0]],
+                ['window1', messages[1].message.eventsByWindowId.window1[0]],
+            ])
+            expect(mockFlusher.open).toHaveBeenCalledTimes(1)
+            expect(mockFinish).toHaveBeenCalledTimes(1)
+        })
+
+        it('should not flush discarded partitions', async () => {
+            const messages = [
+                createMessage(
+                    'session1',
+                    [
+                        {
+                            type: EventType.FullSnapshot,
+                            timestamp: 1000,
+                            data: { source: 1 },
+                        },
+                    ],
+                    { partition: 1 }
+                ),
+                createMessage(
+                    'session2',
+                    [
+                        {
+                            type: EventType.IncrementalSnapshot,
+                            timestamp: 2000,
+                            data: { source: 2 },
+                        },
+                    ],
+                    { partition: 2 }
+                ),
+            ]
+
+            messages.forEach((message) => recorder.record(message))
+            recorder.discardPartition(1) // Discard partition 1
+
+            const outputPromise = captureOutput(mockStream)
+            await recorder.flush()
+
+            const output = await outputPromise
+            const lines = parseLines(output)
+
+            // Should only contain message from partition 2
+            expect(lines).toEqual([['window1', messages[1].message.eventsByWindowId.window1[0]]])
+        })
+
+        it('should correctly update size when discarding partitions', () => {
+            const message1 = createMessage(
+                'session1',
+                [
+                    {
+                        type: EventType.FullSnapshot,
+                        timestamp: 1000,
+                        data: { source: 1 },
+                    },
+                ],
+                { partition: 1 }
+            )
+            const message2 = createMessage(
+                'session2',
+                [
+                    {
+                        type: EventType.IncrementalSnapshot,
+                        timestamp: 2000,
+                        data: { source: 2 },
+                    },
+                ],
+                { partition: 2 }
+            )
+
+            const size1 = recorder.record(message1)
+            const size2 = recorder.record(message2)
+            const totalSize = size1 + size2
+
+            expect(recorder.size).toBe(totalSize)
+
+            recorder.discardPartition(1)
+            expect(recorder.size).toBe(size2)
+
+            recorder.discardPartition(2)
+            expect(recorder.size).toBe(0)
+        })
+
+        it('should handle discarding non-existent partitions', () => {
+            const message = createMessage('session1', [
+                {
+                    type: EventType.FullSnapshot,
+                    timestamp: 1000,
+                    data: { source: 1 },
+                },
+            ])
+
+            const bytesWritten = recorder.record(message)
+            expect(recorder.size).toBe(bytesWritten)
+
+            // Should not throw or change size
+            recorder.discardPartition(999)
+            expect(recorder.size).toBe(bytesWritten)
         })
     })
 })

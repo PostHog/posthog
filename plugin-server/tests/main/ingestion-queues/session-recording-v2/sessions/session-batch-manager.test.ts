@@ -11,6 +11,7 @@ const createMockBatch = (): jest.Mocked<SessionBatchRecorder> => {
         get size() {
             return 0
         },
+        discardPartition: jest.fn(),
     } as unknown as jest.Mocked<SessionBatchRecorder>
 }
 
@@ -269,5 +270,61 @@ describe('SessionBatchManager', () => {
         expect(executionOrder).toEqual([1, 2])
         expect(firstBatch.flush).toHaveBeenCalled()
         expect(mockOffsetManager.commit).toHaveBeenCalled()
+    })
+
+    describe('partition handling', () => {
+        it('should discard partitions on new batch after flush', async () => {
+            const firstBatch = currentBatch
+
+            // Flush to create a new batch
+            await manager.flush()
+            const secondBatch = currentBatch
+
+            // Verify we have a new batch
+            expect(secondBatch).not.toBe(firstBatch)
+
+            // Discard partitions
+            await manager.discardPartitions([1, 2])
+
+            // Verify discards happened on the new batch only
+            expect(firstBatch.discardPartition).not.toHaveBeenCalled()
+            expect(secondBatch.discardPartition).toHaveBeenCalledWith(1)
+            expect(secondBatch.discardPartition).toHaveBeenCalledWith(2)
+        })
+
+        it('should discard multiple partitions on current batch', async () => {
+            await manager.discardPartitions([1, 2])
+            expect(currentBatch.discardPartition).toHaveBeenCalledWith(1)
+            expect(currentBatch.discardPartition).toHaveBeenCalledWith(2)
+            expect(currentBatch.discardPartition).toHaveBeenCalledTimes(2)
+        })
+
+        it('should maintain operation order when discarding partitions', async () => {
+            const executionOrder: number[] = []
+
+            // Start a long-running batch operation
+            const batchPromise = manager.withBatch(async () => {
+                await new Promise((resolve) => setTimeout(resolve, 100))
+                executionOrder.push(1)
+                return Promise.resolve()
+            })
+
+            // Queue up a partition discard
+            const discardPromise = manager.discardPartitions([1]).then(() => {
+                executionOrder.push(2)
+            })
+
+            // Wait for both operations to complete
+            await Promise.all([batchPromise, discardPromise])
+
+            // Verify operations happened in the correct order
+            expect(executionOrder).toEqual([1, 2])
+            expect(currentBatch.discardPartition).toHaveBeenCalledWith(1)
+        })
+
+        it('should handle empty partition array', async () => {
+            await manager.discardPartitions([])
+            expect(currentBatch.discardPartition).not.toHaveBeenCalled()
+        })
     })
 })

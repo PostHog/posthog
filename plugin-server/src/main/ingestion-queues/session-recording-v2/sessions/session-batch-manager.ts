@@ -47,6 +47,15 @@ export class SessionBatchManager {
         })
     }
 
+    public async discardPartitions(partitions: number[]): Promise<void> {
+        return this.queue.add(async () => {
+            for (const partition of partitions) {
+                this.currentBatch.discardPartition(partition)
+            }
+            return Promise.resolve()
+        })
+    }
+
     private async rotateBatch(): Promise<void> {
         await this.currentBatch.flush()
         await this.offsetManager.commit()
