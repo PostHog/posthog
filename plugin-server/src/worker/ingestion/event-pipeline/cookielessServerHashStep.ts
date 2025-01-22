@@ -196,15 +196,30 @@ export async function cookielessServerHashStep(hub: Hub, event: PluginEvent): Pr
         return [undefined]
     }
 
-    return runInstrumentedFunction({
-        func: async () => {
-            return await cookielessServerHashStepInner(hub, event)
-        },
-        statsKey: 'cookieless.process_event',
-    })
+    try {
+        return runInstrumentedFunction({
+            func: () => cookielessServerHashStepInner(hub, event as PluginEvent & { properties: Properties }),
+            statsKey: 'cookieless.process_event',
+        })
+    } catch (e) {
+        // Drop the event if there are any errors.
+        // We fail close here as Cookieless is a new feature, not available for general use yet, and we don't want any
+        // errors to interfere with the processing of other events.
+        // Fail close rather than open, as events in this mode relying on this processing step to remove Personal Data.
+        eventDroppedCounter
+            .labels({
+                event_type: 'analytics',
+                drop_cause: 'cookieless_error_fail_close',
+            })
+            .inc()
+        return [undefined]
+    }
 }
 
-async function cookielessServerHashStepInner(hub: Hub, event: PluginEvent): Promise<[PluginEvent | undefined]> {
+async function cookielessServerHashStepInner(
+    hub: Hub,
+    event: PluginEvent & { properties: Properties }
+): Promise<[PluginEvent | undefined]> {
     // if the team isn't allowed to use this mode, drop the event
     const team = await hub.teamManager.getTeamForEvent(event)
     if (!team?.cookieless_server_hash_mode) {
