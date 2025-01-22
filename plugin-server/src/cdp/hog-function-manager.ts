@@ -63,6 +63,7 @@ export class HogFunctionManager {
     public async start(hogTypes: HogFunctionTypeType[]): Promise<void> {
         this.hogTypes = hogTypes
         // TRICKY - when running with individual capabilities, this won't run twice but locally or as a complete service it will...
+
         if (this.started) {
             return
         }

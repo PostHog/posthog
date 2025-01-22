@@ -1,4 +1,5 @@
 import { IconExpand45, IconInfo, IconOpenSidebar, IconX } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
@@ -75,7 +76,14 @@ const Filters = (): JSX.Element => {
                         onChange={setCoreWebVitalsPercentile}
                         options={[
                             { value: PropertyMathType.P75, label: 'P75' },
-                            { value: PropertyMathType.P90, label: 'P90' },
+                            {
+                                value: PropertyMathType.P90,
+                                label: (
+                                    <Tooltip title="P90 is recommended by the standard as a good baseline" delayMs={0}>
+                                        P90
+                                    </Tooltip>
+                                ),
+                            },
                             { value: PropertyMathType.P99, label: 'P99' },
                         ]}
                     />
@@ -367,7 +375,9 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                 <VersionCheckerBanner />
                 <div className="WebAnalyticsDashboard w-full flex flex-col">
                     <div className="flex flex-col sm:flex-row gap-2 justify-between items-center sm:items-start w-full border-b pb-2 mb-2 sm:mb-0">
-                        <WebAnalyticsLiveUserCount />
+                        <div>
+                            <WebAnalyticsLiveUserCount />
+                        </div>
 
                         {featureFlags[FEATURE_FLAGS.CORE_WEB_VITALS] && (
                             <LemonSegmentedSelect

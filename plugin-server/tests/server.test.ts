@@ -22,7 +22,6 @@ describe('server', () => {
     function createPluginServer(config: Partial<PluginsServerConfig>, capabilities: PluginServerCapabilities) {
         return startPluginsServer(
             {
-                WORKER_CONCURRENCY: 2,
                 LOG_LEVEL: LogLevel.Debug,
                 ...config,
             },

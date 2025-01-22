@@ -1,11 +1,9 @@
-import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { STALE_EVENT_SECONDS } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
-import { LLMObservabilityTab, urls } from 'scenes/urls'
+import { isDefinitionStale } from 'lib/utils/definitions'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { DataTableNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
@@ -13,7 +11,6 @@ import {
     AnyPropertyFilter,
     BaseMathType,
     ChartDisplayType,
-    EventDefinition,
     EventDefinitionType,
     HogQLMathType,
     PropertyMathType,
@@ -35,28 +32,18 @@ export interface QueryTile {
     }
 }
 
-const isDefinitionStale = (definition: EventDefinition): boolean => {
-    const parsedLastSeen = definition.last_seen_at ? dayjs(definition.last_seen_at) : null
-    return !!parsedLastSeen && dayjs().diff(parsedLastSeen, 'seconds') > STALE_EVENT_SECONDS
-}
-
 export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
     path(['scenes', 'llm-observability', 'llmObservabilityLogic']),
 
+    connect({ values: [sceneLogic, ['sceneKey']] }),
+
     actions({
-        setActiveTab: (activeTab: LLMObservabilityTab) => ({ activeTab }),
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
         setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => ({ propertyFilters }),
     }),
 
     reducers({
-        activeTab: [
-            'dashboard' as LLMObservabilityTab,
-            {
-                setActiveTab: (_, { activeTab }) => activeTab,
-            },
-        ],
         dateFilter: [
             {
                 dateFrom: INITIAL_DATE_FROM,
@@ -101,6 +88,17 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
     }),
 
     selectors({
+        activeTab: [
+            (s) => [s.sceneKey],
+            (sceneKey) => {
+                if (sceneKey === 'llmObservabilityGenerations') {
+                    return 'generations'
+                } else if (sceneKey === 'llmObservabilityTraces') {
+                    return 'traces'
+                }
+                return 'dashboard'
+            },
+        ],
         tiles: [
             (s) => [s.dateFilter, s.shouldFilterTestAccounts, s.propertyFilters],
             (dateFilter, shouldFilterTestAccounts, propertyFilters): QueryTile[] => [
@@ -340,7 +338,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         "f'{properties.$ai_trace_id}' -- Trace ID",
                         "f'{properties.$ai_model}' -- Model",
                         "f'${round(toFloat(properties.$ai_total_cost_usd), 6)}' -- Total cost",
-                        "f'{properties.$ai_input_tokens} → {properties.$ai_output_tokens} (∑ {properties.$ai_input_tokens + properties.$ai_output_tokens})' -- Token usage",
+                        "f'{properties.$ai_input_tokens} → {properties.$ai_output_tokens} (∑ {properties.$ai_input_tokens + properties.$ai_output_tokens})' -- Token usage",
                         "f'{properties.$ai_latency} s' -- Latency",
                         'timestamp',
                     ],
@@ -367,24 +365,6 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
             }),
         ],
     }),
-
-    urlToAction(({ actions, values }) => ({
-        [urls.llmObservability('dashboard')]: () => {
-            if (values.activeTab !== 'dashboard') {
-                actions.setActiveTab('dashboard')
-            }
-        },
-        [urls.llmObservability('traces')]: () => {
-            if (values.activeTab !== 'traces') {
-                actions.setActiveTab('traces')
-            }
-        },
-        [urls.llmObservability('generations')]: () => {
-            if (values.activeTab !== 'generations') {
-                actions.setActiveTab('generations')
-            }
-        },
-    })),
 
     afterMount(({ actions }) => {
         actions.loadAIEventDefinition()

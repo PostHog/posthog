@@ -725,7 +725,7 @@ export class SessionRecordingIngester {
         const sessions = Object.entries(this.sessions)
 
         // NOTE: We want to avoid flushing too many sessions at once as it can cause a lot of disk backpressure stalling the consumer
-        await allSettledWithConcurrency(
+        const results = await allSettledWithConcurrency(
             this.config.SESSION_RECORDING_MAX_PARALLEL_FLUSHES,
             sessions,
             async ([key, sessionManager], ctx) => {
@@ -763,8 +763,9 @@ export class SessionRecordingIngester {
                             }
                         )
                         captureException(err, {
-                            tags: { session_id: sessionManager.sessionId },
+                            tags: { session_id: sessionManager.sessionId, error_context: 'failed-on-flush' },
                         })
+                        throw err
                     })
                     .then(async () => {
                         // If the SessionManager is done (flushed and with no more queued events) then we remove it to free up memory
@@ -774,6 +775,13 @@ export class SessionRecordingIngester {
                     })
             }
         )
+        const errors = results.filter((r) => !!r.error).map((r) => r.error)
+        if (errors.length) {
+            status.error('🌶️', 'blob_ingester_consumer - failed to flush sessions', { errors })
+            throw new Error(
+                'Failed to flush sessions. With ' + errors.length + ' errors out of ' + results.length + ' sessions.'
+            )
+        }
 
         gaugeSessionsHandled.set(Object.keys(this.sessions).length)
         gaugeRealtimeSessions.set(

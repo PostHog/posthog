@@ -88,4 +88,5 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.MessagingProviders]: () => import('./messaging/Providers'),
     [Scene.MessagingBroadcasts]: () => import('./messaging/Broadcasts'),
     [Scene.LLMObservability]: () => import('./llm-observability/LLMObservabilityScene'),
+    [Scene.LLMObservabilityTrace]: () => import('./llm-observability/LLMObservabilityTraceScene'),
 }

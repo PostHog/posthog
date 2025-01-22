@@ -41,6 +41,22 @@ const mockConsumer = {
     getMetadata: jest.fn(),
 }
 
+// Mock the Upload class
+jest.mock('@aws-sdk/lib-storage', () => {
+    return {
+        Upload: jest.fn().mockImplementation(({ params }) => {
+            const { Key } = params
+            if (Key.includes('throw')) {
+                throw new Error('Mocked error for key: ' + Key)
+            }
+            return {
+                done: jest.fn().mockResolvedValue(undefined),
+                abort: jest.fn().mockResolvedValue(undefined),
+            }
+        }),
+    }
+})
+
 jest.mock('../../../../src/kafka/batch-consumer', () => {
     return {
         startBatchConsumer: jest.fn(() =>
@@ -98,7 +114,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
         await redisConn.del(CAPTURE_OVERFLOW_REDIS_KEY)
         await deleteKeys(hub)
 
-        ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage, consumeOverflow, redisConn)
+        ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage!, consumeOverflow, redisConn)
         await ingester.start()
 
         mockConsumer.assignments.mockImplementation(() => [createTP(0, consumedTopic), createTP(1, consumedTopic)])
@@ -139,6 +155,20 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
         )
     }
 
+    it('when there is an S3 error', async () => {
+        await ingester.consume(createIncomingRecordingMessage({ team_id: 2, session_id: 'sid1-throw' }))
+        await ingester.consume(createIncomingRecordingMessage({ team_id: 2, session_id: 'sid2' }))
+        ingester.partitionMetrics[1] = { lastMessageTimestamp: 1000000, offsetLag: 0 }
+
+        expect(Object.keys(ingester.sessions).length).toBe(2)
+        expect(ingester.sessions['2-sid1-throw']).toBeDefined()
+        expect(ingester.sessions['2-sid2']).toBeDefined()
+
+        await expect(() => ingester.flushAllReadySessions(noop)).rejects.toThrow(
+            'Failed to flush sessions. With 1 errors out of 2 sessions.'
+        )
+    })
+
     // disconnecting a producer is not safe to call multiple times
     // in order to let us test stopping the ingester elsewhere
     // in most tests we automatically stop the ingester during teardown
@@ -163,7 +193,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
             const ingester = new SessionRecordingIngester(
                 config,
                 hub.postgres,
-                hub.objectStorage,
+                hub.objectStorage!,
                 consumeOverflow,
                 undefined
             )
@@ -178,7 +208,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
             const ingester = new SessionRecordingIngester(
                 config,
                 hub.postgres,
-                hub.objectStorage,
+                hub.objectStorage!,
                 consumeOverflow,
                 undefined
             )
@@ -468,7 +498,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                 otherIngester = new SessionRecordingIngester(
                     config,
                     hub.postgres,
-                    hub.objectStorage,
+                    hub.objectStorage!,
                     consumeOverflow,
                     undefined
                 )

@@ -1,21 +1,13 @@
-import { IconPerson } from '@posthog/icons'
-import { LemonButton, LemonButtonProps, LemonDropdown, LemonInput, Lettermark, ProfilePicture } from '@posthog/lemon-ui'
+import { IconPlusSmall, IconX } from '@posthog/icons'
+import { LemonButton, LemonButtonProps, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { fullName } from 'lib/utils'
-import { useEffect, useMemo, useState } from 'react'
-import { membersLogic } from 'scenes/organization/membersLogic'
-import { userGroupsLogic } from 'scenes/settings/environment/userGroupsLogic'
-
-import { OrganizationMemberType, UserGroup } from '~/types'
+import { useEffect, useState } from 'react'
+import { urls } from 'scenes/urls'
 
 import { ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '../../queries/schema'
+import { assigneeSelectLogic } from './assigneeSelectLogic'
 
 type AssigneeDisplayType = { id: string | number; icon: JSX.Element; displayName?: string }
-
-const unassignedUser = {
-    id: 'unassigned',
-    icon: <IconPerson className="rounded-full border border-dashed border-muted text-muted p-0.5" />,
-}
 
 export const AssigneeSelect = ({
     assignee,
@@ -31,44 +23,28 @@ export const AssigneeSelect = ({
     showIcon?: boolean
     unassignedLabel?: string
 } & Partial<Pick<LemonButtonProps, 'type' | 'size'>>): JSX.Element => {
-    const { meFirstMembers, filteredMembers, search, membersLoading } = useValues(membersLogic)
-    const { userGroups, userGroupsLoading } = useValues(userGroupsLogic)
-    const { ensureAllMembersLoaded, setSearch } = useActions(membersLogic)
-    const { ensureAllGroupsLoaded } = useActions(userGroupsLogic)
+    const logic = assigneeSelectLogic({ assignee })
+    const { displayAssignee, search, groupOptions, memberOptions, userGroupsLoading, membersLoading } = useValues(logic)
+    const { setSearch, ensureAssigneeTypesLoaded } = useActions(logic)
     const [showPopover, setShowPopover] = useState(false)
 
     const _onChange = (value: ErrorTrackingIssue['assignee']): void => {
+        setSearch('')
         setShowPopover(false)
         onChange(value)
     }
 
     useEffect(() => {
         if (showPopover) {
-            ensureAllMembersLoaded()
-            ensureAllGroupsLoaded()
+            ensureAssigneeTypesLoaded()
         }
-    }, [showPopover, ensureAllMembersLoaded, ensureAllGroupsLoaded])
-
-    const displayAssignee: AssigneeDisplayType = useMemo(() => {
-        if (assignee) {
-            if (assignee.type === 'user_group') {
-                const assignedGroup = userGroups.find((group) => group.id === assignee.id)
-                return assignedGroup ? groupDisplay(assignedGroup, 0) : unassignedUser
-            }
-
-            const assignedMember = meFirstMembers.find((member) => member.user.id === assignee.id)
-            return assignedMember ? userDisplay(assignedMember) : unassignedUser
-        }
-
-        return unassignedUser
-    }, [assignee, meFirstMembers, userGroupsLoading])
+    }, [showPopover, ensureAssigneeTypesLoaded])
 
     return (
         <LemonDropdown
             closeOnClickInside={false}
             visible={showPopover}
             matchWidth={false}
-            actionable
             onVisibilityChange={(visible) => setShowPopover(visible)}
             overlay={
                 <div className="max-w-100 space-y-2 overflow-hidden">
@@ -80,21 +56,47 @@ export const AssigneeSelect = ({
                         onChange={setSearch}
                         fullWidth
                     />
-                    <ul className="space-y-px">
-                        <Section
-                            loading={membersLoading}
-                            search={!!search}
-                            type="user"
-                            items={filteredMembers.map(userDisplay)}
-                            onSelect={_onChange}
-                            activeId={assignee?.id}
-                        />
+                    <ul className="space-y-2">
+                        {assignee && (
+                            <li>
+                                <LemonButton
+                                    fullWidth
+                                    role="menuitem"
+                                    size="small"
+                                    icon={<IconX />}
+                                    onClick={() => _onChange(null)}
+                                >
+                                    Remove assignee
+                                </LemonButton>
+                            </li>
+                        )}
 
                         <Section
+                            title="Groups"
                             loading={userGroupsLoading}
                             search={!!search}
                             type="user_group"
-                            items={userGroups.map(groupDisplay)}
+                            items={groupOptions}
+                            onSelect={_onChange}
+                            activeId={assignee?.id}
+                            emptyState={
+                                <LemonButton
+                                    fullWidth
+                                    size="small"
+                                    icon={<IconPlusSmall />}
+                                    to={urls.settings('environment-error-tracking', 'user-groups')}
+                                >
+                                    <div className="text-muted-alt">Create user group</div>
+                                </LemonButton>
+                            }
+                        />
+
+                        <Section
+                            title="Users"
+                            loading={membersLoading}
+                            search={!!search}
+                            type="user"
+                            items={memberOptions}
                             onSelect={_onChange}
                             activeId={assignee?.id}
                         />
@@ -120,18 +122,22 @@ const Section = ({
     items,
     onSelect,
     activeId,
+    emptyState,
+    title,
 }: {
+    title: string
     loading: boolean
     search: boolean
     type: ErrorTrackingIssueAssignee['type']
     items: AssigneeDisplayType[]
     onSelect: (value: ErrorTrackingIssue['assignee']) => void
     activeId?: string | number
+    emptyState?: JSX.Element
 }): JSX.Element => {
     return (
         <li>
             <section className="space-y-px">
-                <h5 className="mx-2 my-1">{type}s</h5>
+                <h5 className="mx-2 my-0.5">{title}</h5>
                 {items.map((item) => (
                     <li key={item.id}>
                         <LemonButton
@@ -152,23 +158,15 @@ const Section = ({
                 {loading ? (
                     <div className="p-2 text-muted-alt italic truncate border-t">Loading...</div>
                 ) : items.length === 0 ? (
-                    <div className="p-2 text-muted-alt italic truncate border-t">
-                        {search ? <span>No matches</span> : <span>No {type}s</span>}
-                    </div>
+                    search ? (
+                        <div className="p-2 text-muted-alt italic truncate border-t">
+                            <span>No matches</span>
+                        </div>
+                    ) : (
+                        <div className="border-t pt-1">{emptyState}</div>
+                    )
                 ) : null}
             </section>
         </li>
     )
 }
-
-const groupDisplay = (group: UserGroup, index: number): AssigneeDisplayType => ({
-    id: group.id,
-    displayName: group.name,
-    icon: <Lettermark name={group.name} index={index} rounded />,
-})
-
-const userDisplay = (member: OrganizationMemberType): AssigneeDisplayType => ({
-    id: member.user.id,
-    displayName: fullName(member.user),
-    icon: <ProfilePicture size="md" user={member.user} />,
-})

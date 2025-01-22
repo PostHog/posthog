@@ -20,7 +20,7 @@ import {
     PluginType,
 } from '~/types'
 
-import { CDP_TEST_HIDDEN_FLAG } from '../hogfunctions/list/hogFunctionListLogic'
+import { shouldShowHogFunction } from '../hogfunctions/list/hogFunctionListLogic'
 import { hogFunctionTypeToPipelineStage } from '../hogfunctions/urls'
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import {
@@ -256,7 +256,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 )
 
                 const filteredHogFunctions = hogFunctions.filter((hogFunction) => {
-                    if (hogFunction.name.includes(CDP_TEST_HIDDEN_FLAG) && !user?.is_impersonated && !user?.is_staff) {
+                    if (!shouldShowHogFunction(hogFunction, user)) {
                         return false
                     }
                     return true
