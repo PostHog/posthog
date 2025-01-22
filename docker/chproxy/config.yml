@@ -1,5 +1,5 @@
 hack_me_please: true
-log_debug: false
+log_debug: true
 allow_ping: true
 
 server:

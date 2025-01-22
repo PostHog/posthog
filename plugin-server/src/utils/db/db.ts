@@ -183,7 +183,7 @@ export class DB {
             const timeout = timeoutGuard('ClickHouse slow query warning after 30 sec', { query })
             try {
                 const queryResult = await this.clickhouse.querying(query, options)
-                // This is annoying to type, because the result depends on contructor and query options provided
+                // This is annoying to type, because the result depends on constructor and query options provided
                 // at runtime. However, with our options we can safely assume ObjectQueryResult<R>
                 return queryResult as unknown as ClickHouse.ObjectQueryResult<R>
             } finally {
