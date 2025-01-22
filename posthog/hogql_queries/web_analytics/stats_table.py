@@ -463,12 +463,16 @@ GROUP BY session_id, breakdown_value
             # We pass the value, date_from, date_to and breakdownBy to the frontend
             # so we can use it to generate the URL to session replay
             results_mapped = [
-                [*row, {
-                    'value': row[0],
-                    'dateFrom': self.query.dateRange.date_from,
-                    'dateTo': self.query.dateRange.date_to,
-                    'breakdownBy': self.query.breakdownBy if hasattr(self.query, 'breakdownBy') else None
-                }] for row in results_mapped
+                [
+                    *row,
+                    {
+                        "value": row[0],
+                        "dateFrom": self.query.dateRange.date_from,
+                        "dateTo": self.query.dateRange.date_to,
+                        "breakdownBy": self.query.breakdownBy if hasattr(self.query, "breakdownBy") else None,
+                    },
+                ]
+                for row in results_mapped
             ]
 
         return WebStatsTableQueryResponse(
