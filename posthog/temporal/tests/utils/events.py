@@ -7,6 +7,7 @@ import random
 import typing
 import uuid
 
+from posthog.models.raw_sessions.sql import RAW_SESSION_TABLE_BACKFILL_SELECT_SQL
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.datetimes import date_range
 
@@ -141,6 +142,10 @@ async def insert_event_values_in_clickhouse(
             for event in events
         ],
     )
+    await client.execute_query(f"""
+    INSERT INTO raw_sessions
+    {RAW_SESSION_TABLE_BACKFILL_SELECT_SQL()}
+    """)
 
 
 async def generate_test_events_in_clickhouse(

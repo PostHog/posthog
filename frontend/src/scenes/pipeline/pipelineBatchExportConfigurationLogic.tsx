@@ -202,6 +202,314 @@ const personsTable: DatabaseSchemaBatchExportTable = {
     },
 }
 
+const sessionsTable: DatabaseSchemaBatchExportTable = {
+    type: 'batch_export',
+    id: 'Sesssions',
+    name: 'sessions',
+    fields: {
+        team_id: {
+            name: 'team_id',
+            type: 'string',
+            hogql_value: 'team_id',
+            schema_valid: true,
+        },
+        session_id_v7: {
+            name: 'session_id_v7',
+            type: 'string',
+            hogql_value: 'session_id_v7',
+            schema_valid: true,
+        },
+        distinct_id: {
+            name: 'distinct_id',
+            type: 'string',
+            hogql_value: 'distinct_id',
+            schema_valid: true,
+        },
+        min_timestamp: {
+            name: 'min_timestamp',
+            type: 'datetime',
+            hogql_value: 'min_timestamp',
+            schema_valid: true,
+        },
+        max_timestamp: {
+            name: 'max_timestamp',
+            type: 'datetime',
+            hogql_value: 'max_timestamp',
+            schema_valid: true,
+        },
+        inserted_at: {
+            name: 'inserted_at',
+            type: 'datetime',
+            hogql_value: 'inserted_at',
+            schema_valid: true,
+        },
+        urls: {
+            name: 'urls',
+            type: 'string',
+            hogql_value: 'urls',
+            schema_valid: true,
+        },
+        entry_url: {
+            name: 'entry_url',
+            type: 'string',
+            hogql_value: 'entry_url',
+            schema_valid: true,
+        },
+        end_url: {
+            name: 'end_url',
+            type: 'string',
+            hogql_value: 'end_url',
+            schema_valid: true,
+        },
+        last_external_click_url: {
+            name: 'last_external_click_url',
+            type: 'string',
+            hogql_value: 'last_external_click_url',
+            schema_valid: true,
+        },
+        initial_browser: {
+            name: 'initial_browser',
+            type: 'string',
+            hogql_value: 'initial_browser',
+            schema_valid: true,
+        },
+        initial_browser_version: {
+            name: 'initial_browser_version',
+            type: 'string',
+            hogql_value: 'initial_browser_version',
+            schema_valid: true,
+        },
+        initial_os: {
+            name: 'initial_os',
+            type: 'string',
+            hogql_value: 'initial_os',
+            schema_valid: true,
+        },
+        initial_os_version: {
+            name: 'initial_os_version',
+            type: 'string',
+            hogql_value: 'initial_os_version',
+            schema_valid: true,
+        },
+        initial_device_type: {
+            name: 'initial_device_type',
+            type: 'string',
+            hogql_value: 'initial_device_type',
+            schema_valid: true,
+        },
+        initial_viewport_width: {
+            name: 'initial_viewport_width',
+            type: 'string',
+            hogql_value: 'initial_viewport_width',
+            schema_valid: true,
+        },
+        initial_viewport_height: {
+            name: 'initial_viewport_height',
+            type: 'string',
+            hogql_value: 'initial_viewport_height',
+            schema_valid: true,
+        },
+        initial_geoip_country_code: {
+            name: 'initial_geoip_country_code',
+            type: 'string',
+            hogql_value: 'initial_geoip_country_code',
+            schema_valid: true,
+        },
+        initial_geoip_subdivision_1_code: {
+            name: 'initial_geoip_subdivision_1_code',
+            type: 'string',
+            hogql_value: 'initial_geoip_subdivision_1_code',
+            schema_valid: true,
+        },
+        initial_geoip_subdivision_1_name: {
+            name: 'initial_geoip_subdivision_1_name',
+            type: 'string',
+            hogql_value: 'initial_geoip_subdivision_1_name',
+            schema_valid: true,
+        },
+        initial_geoip_subdivision_city_name: {
+            name: 'initial_geoip_subdivision_city_name',
+            type: 'string',
+            hogql_value: 'initial_geoip_subdivision_city_name',
+            schema_valid: true,
+        },
+        initial_geoip_time_zone: {
+            name: 'initial_geoip_time_zone',
+            type: 'string',
+            hogql_value: 'initial_geoip_time_zone',
+            schema_valid: true,
+        },
+        initial_referring_domain: {
+            name: 'initial_referring_domain',
+            type: 'string',
+            hogql_value: 'initial_referring_domain',
+            schema_valid: true,
+        },
+        initial_utm_source: {
+            name: 'initial_utm_source',
+            type: 'string',
+            hogql_value: 'initial_utm_source',
+            schema_valid: true,
+        },
+        initial_utm_campaign: {
+            name: 'initial_utm_campaign',
+            type: 'string',
+            hogql_value: 'initial_utm_campaign',
+            schema_valid: true,
+        },
+        initial_utm_medium: {
+            name: 'initial_utm_medium',
+            type: 'string',
+            hogql_value: 'initial_utm_medium',
+            schema_valid: true,
+        },
+        initial_utm_term: {
+            name: 'initial_utm_term',
+            type: 'string',
+            hogql_value: 'initial_utm_term',
+            schema_valid: true,
+        },
+        initial_utm_content: {
+            name: 'initial_utm_content',
+            type: 'string',
+            hogql_value: 'initial_utm_content',
+            schema_valid: true,
+        },
+        initial_gclid: {
+            name: 'initial_gclid',
+            type: 'string',
+            hogql_value: 'initial_gclid',
+            schema_valid: true,
+        },
+        initial_gad_source: {
+            name: 'initial_gad_source',
+            type: 'string',
+            hogql_value: 'initial_gad_source',
+            schema_valid: true,
+        },
+        initial_gclsrc: {
+            name: 'initial_gclsrc',
+            type: 'string',
+            hogql_value: 'initial_gclsrc',
+            schema_valid: true,
+        },
+        initial_dclid: {
+            name: 'initial_dclid',
+            type: 'string',
+            hogql_value: 'initial_dclid',
+            schema_valid: true,
+        },
+        initial_gbraid: {
+            name: 'initial_gbraid',
+            type: 'string',
+            hogql_value: 'initial_gbraid',
+            schema_valid: true,
+        },
+        initial_wbraid: {
+            name: 'initial_wbraid',
+            type: 'string',
+            hogql_value: 'initial_wbraid',
+            schema_valid: true,
+        },
+        initial_fbclid: {
+            name: 'initial_fbclid',
+            type: 'string',
+            hogql_value: 'initial_fbclid',
+            schema_valid: true,
+        },
+        initial_msclkid: {
+            name: 'initial_msclkid',
+            type: 'string',
+            hogql_value: 'initial_msclkid',
+            schema_valid: true,
+        },
+        initial_twclid: {
+            name: 'initial_twclid',
+            type: 'string',
+            hogql_value: 'initial_twclid',
+            schema_valid: true,
+        },
+        initial_li_fat_id: {
+            name: 'initial_li_fat_id',
+            type: 'string',
+            hogql_value: 'initial_li_fat_id',
+            schema_valid: true,
+        },
+        initial_mc_cid: {
+            name: 'initial_mc_cid',
+            type: 'string',
+            hogql_value: 'initial_mc_cid',
+            schema_valid: true,
+        },
+        initial_igshid: {
+            name: 'initial_igshid',
+            type: 'string',
+            hogql_value: 'initial_igshid',
+            schema_valid: true,
+        },
+        initial_ttclid: {
+            name: 'initial_ttclid',
+            type: 'string',
+            hogql_value: 'initial_ttclid',
+            schema_valid: true,
+        },
+        pageview_count: {
+            name: 'pageview_count',
+            type: 'string',
+            hogql_value: 'pageview_count',
+            schema_valid: true,
+        },
+        pageview_uniq: {
+            name: 'pageview_uniq',
+            type: 'string',
+            hogql_value: 'pageview_uniq',
+            schema_valid: true,
+        },
+        autocapture_count: {
+            name: 'autocapture_count',
+            type: 'string',
+            hogql_value: 'autocapture_count',
+            schema_valid: true,
+        },
+        autocapture_uniq: {
+            name: 'autocapture_uniq',
+            type: 'string',
+            hogql_value: 'autocapture_uniq',
+            schema_valid: true,
+        },
+        screen_count: {
+            name: 'screen_count',
+            type: 'string',
+            hogql_value: 'screen_count',
+            schema_valid: true,
+        },
+        screen_uniq: {
+            name: 'screen_uniq',
+            type: 'string',
+            hogql_value: 'screen_uniq',
+            schema_valid: true,
+        },
+        maybe_has_session_replay: {
+            name: 'maybe_has_session_replay',
+            type: 'string',
+            hogql_value: 'maybe_has_session_replay',
+            schema_valid: true,
+        },
+        page_screen_autocapture_uniq_up_to: {
+            name: 'page_screen_autocapture_uniq_up_to',
+            type: 'string',
+            hogql_value: 'page_screen_autocapture_uniq_up_to',
+            schema_valid: true,
+        },
+        vitals_lcp: {
+            name: 'vitals_lcp',
+            type: 'string',
+            hogql_value: 'vitals_lcp',
+            schema_valid: true,
+        },
+    },
+}
+
 // Should likely be somewhat similar to pipelinePluginConfigurationLogic
 export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConfigurationLogicType>([
     props({} as PipelineBatchExportConfigurationLogicProps),
@@ -276,21 +584,23 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
     })),
     reducers(({ props }) => ({
         tables: [
-            props.service ? [getEventTable(props.service), personsTable] : ([] as DatabaseSchemaBatchExportTable[]),
+            props.service
+                ? [getEventTable(props.service), personsTable, sessionsTable]
+                : ([] as DatabaseSchemaBatchExportTable[]),
             {
                 loadBatchExportConfigSuccess: (state, { batchExportConfig }) => {
                     if (!batchExportConfig) {
                         return state
                     }
 
-                    return [getEventTable(batchExportConfig.destination.type), personsTable]
+                    return [getEventTable(batchExportConfig.destination.type), personsTable, sessionsTable]
                 },
                 updateBatchExportConfigSuccess: (state, { batchExportConfig }) => {
                     if (!batchExportConfig) {
                         return state
                     }
 
-                    return [getEventTable(batchExportConfig.destination.type), personsTable]
+                    return [getEventTable(batchExportConfig.destination.type), personsTable, sessionsTable]
                 },
             },
         ],

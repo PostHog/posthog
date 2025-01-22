@@ -9,6 +9,7 @@ import temporalio.worker
 from psycopg import sql
 
 from posthog import constants
+from posthog.models.utils import uuid7
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,
@@ -176,6 +177,8 @@ async def create_clickhouse_tables_and_views(clickhouse_client, django_db_setup)
         CREATE_EVENTS_BATCH_EXPORT_VIEW_UNBOUNDED,
         CREATE_PERSONS_BATCH_EXPORT_VIEW,
         CREATE_PERSONS_BATCH_EXPORT_VIEW_BACKFILL,
+        CREATE_SESSIONS_BATCH_EXPORT_VIEW,
+        CREATE_SESSIONS_BATCH_EXPORT_VIEW_BACKFILL,
     )
     from posthog.clickhouse.schema import CREATE_KAFKA_TABLE_QUERIES, build_query
 
@@ -186,6 +189,8 @@ async def create_clickhouse_tables_and_views(clickhouse_client, django_db_setup)
         CREATE_EVENTS_BATCH_EXPORT_VIEW_RECENT,
         CREATE_PERSONS_BATCH_EXPORT_VIEW,
         CREATE_PERSONS_BATCH_EXPORT_VIEW_BACKFILL,
+        CREATE_SESSIONS_BATCH_EXPORT_VIEW,
+        CREATE_SESSIONS_BATCH_EXPORT_VIEW_BACKFILL,
     )
 
     clickhouse_tasks = set()

@@ -336,6 +336,7 @@ TEST_S3_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
         ],
     ),
     BatchExportModel(name="persons", schema=None),
+    BatchExportModel(name="sessions", schema=None),
     {
         "fields": [
             {"expression": "event", "alias": "my_event_name"},
@@ -380,7 +381,11 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
     Once we have these events, we pass them to the assert_clickhouse_records_in_s3 function to check
     that they appear in the expected S3 bucket and key.
     """
-    if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
+    if (
+        isinstance(model, BatchExportModel)
+        and (model.name == "persons" or model.name == "sessions")
+        and exclude_events is not None
+    ):
         pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
     prefix = str(uuid.uuid4())

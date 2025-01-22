@@ -36,6 +36,8 @@ from posthog.temporal.batch_exports.sql import (
     SELECT_FROM_PERSONS_VIEW_BACKFILL,
     SELECT_FROM_PERSONS_VIEW_BACKFILL_NEW,
     SELECT_FROM_PERSONS_VIEW_NEW,
+    SELECT_FROM_SESSIONS_VIEW,
+    SELECT_FROM_SESSIONS_VIEW_BACKFILL,
 )
 from posthog.temporal.batch_exports.temporary_file import (
     BatchExportTemporaryFile,
@@ -610,6 +612,11 @@ class Producer:
                     query = SELECT_FROM_PERSONS_VIEW_NEW
                 else:
                     query = SELECT_FROM_PERSONS_VIEW
+        elif model_name == "sessions":
+            if is_backfill and full_range[0] is None:
+                query = SELECT_FROM_SESSIONS_VIEW_BACKFILL
+            else:
+                query = SELECT_FROM_SESSIONS_VIEW
         else:
             if parameters.get("exclude_events", None):
                 parameters["exclude_events"] = list(parameters["exclude_events"])
