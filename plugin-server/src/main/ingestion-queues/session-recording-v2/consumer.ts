@@ -228,17 +228,11 @@ export class SessionRecordingIngester {
              */
 
             if (err.code === CODES.ERRORS.ERR__ASSIGN_PARTITIONS) {
-                this.batchConsumer!.consumer.incrementalAssign(topicPartitions)
                 return
             }
 
             if (err.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
-                return this.promiseScheduler.schedule(
-                    (async () => {
-                        await this.onRevokePartitions(topicPartitions)
-                        this.batchConsumer!.consumer.incrementalUnassign(topicPartitions)
-                    })()
-                )
+                return this.promiseScheduler.schedule(this.onRevokePartitions(topicPartitions))
             }
 
             // We had a "real" error
