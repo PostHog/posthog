@@ -67,9 +67,7 @@ export function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
                 </div>
             }
             onClick={() => {
-                openSessionPlayer({
-                    id: recording.id,
-                })
+                openSessionPlayer(recording.id)
                 reportRecordingOpenedFromRecentRecordingList()
             }}
         />
