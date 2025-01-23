@@ -129,6 +129,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         offset,
                         excluded_properties: JSON.stringify(excludedProperties),
                         properties: propertyAllowList ? propertyAllowList.join(',') : undefined,
+                        // TODO: remove this filter once we can support behavioral cohorts for feature flags, it's only
+                        // used in the feature flag property filter UI
                         ...(props.hideBehavioralCohorts ? { hide_behavioral_cohorts: 'true' } : {}),
                     }
 

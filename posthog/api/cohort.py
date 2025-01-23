@@ -1,5 +1,6 @@
 import csv
 
+from collections import defaultdict
 from django.db import DatabaseError
 from loginas.utils import is_impersonated_session
 from sentry_sdk import start_span
@@ -309,6 +310,8 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             if search_query:
                 queryset = queryset.filter(name__icontains=search_query)
 
+            # TODO: remove this filter once we can support behavioral cohorts for feature flags, it's only
+            # used in the feature flag property filter UI
             if self.request.query_params.get("hide_behavioral_cohorts", "false").lower() == "true":
                 all_cohorts = {cohort.id: cohort for cohort in queryset.all()}
                 behavioral_cohort_ids = self._find_behavioral_cohorts(all_cohorts)
@@ -317,86 +320,67 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         return queryset.prefetch_related("experiment_set", "created_by", "team").order_by("-created_at")
 
     def _find_behavioral_cohorts(self, all_cohorts: dict[int, Cohort]) -> set[int]:
-        """Find all cohorts that have behavioral filters or reference cohorts with behavioral filters."""
-        behavioral_cohort_ids = set()
+        """
+        Find all cohorts that have behavioral filters or reference cohorts with behavioral filters
+        using a graph-based approach.
+        """
+        graph, behavioral_cohorts = self._build_cohort_dependency_graph(all_cohorts)
+        affected_cohorts = set(behavioral_cohorts)
 
-        for cohort_id in all_cohorts:
-            if self._has_behavioral_filter(cohort_id, all_cohorts):
-                behavioral_cohort_ids.add(cohort_id)
-                behavioral_cohort_ids.update(
-                    self._find_cohorts_referencing_cohort(cohort_id, all_cohorts, behavioral_cohort_ids)
-                )
+        # Find all cohorts that can reach a behavioral cohort through the graph
+        def find_affected_cohorts() -> None:
+            changed = True
+            while changed:
+                changed = False
+                for source_id in list(graph.keys()):
+                    if source_id not in affected_cohorts:
+                        # If this cohort points to any affected cohort, it's also affected
+                        if any(target_id in affected_cohorts for target_id in graph[source_id]):
+                            affected_cohorts.add(source_id)
+                            changed = True
 
-        return behavioral_cohort_ids
+        find_affected_cohorts()
+        return affected_cohorts
 
-    def _has_behavioral_filter(
-        self, cohort_id: int, all_cohorts: dict[int, Cohort], seen_cohorts: Optional[set[int]] = None
-    ) -> bool:
-        """Check if a cohort has behavioral filters."""
-        if seen_cohorts is None:
-            seen_cohorts = set()
+    def _build_cohort_dependency_graph(self, all_cohorts: dict[int, Cohort]) -> tuple[dict[int, set[int]], set[int]]:
+        """
+        Builds a directed graph of cohort dependencies and identifies behavioral cohorts.
+        Returns (adjacency_list, behavioral_cohort_ids).
+        """
+        # Adjacency list representation of cohort references
+        graph = defaultdict(set)
+        # Set of cohorts that directly use behavioral filters
+        behavioral_cohorts = set()
 
-        if cohort_id in seen_cohorts:
-            return False
-        seen_cohorts.add(cohort_id)
+        def check_property_values(values: Any, source_id: int) -> None:
+            """Process property values to build graph edges and identify behavioral cohorts."""
+            if not isinstance(values, list):
+                return
 
-        cohort = all_cohorts.get(cohort_id)
-        if not cohort or not cohort.filters:
-            return False
+            for value in values:
+                if not isinstance(value, dict):
+                    continue
 
-        properties = cohort.filters.get("properties", {})
-        if not isinstance(properties, dict):
-            return False
-
-        return self._check_property_values(properties.get("values", []), all_cohorts, seen_cohorts)
-
-    def _check_property_values(self, values: Any, all_cohorts: dict[int, Cohort], seen_cohorts: set[int]) -> bool:
-        """Check if any property values contain behavioral filters or reference cohorts with behavioral filters."""
-        if not isinstance(values, list):
-            return False
-
-        for value in values:
-            if not isinstance(value, dict):
-                continue
-
-            if value.get("type") == "behavioral":
-                return True
-
-            if value.get("type") == "cohort":
-                nested_id = value.get("value")
-                if nested_id:
+                if value.get("type") == "behavioral":
+                    behavioral_cohorts.add(source_id)
+                elif value.get("type") == "cohort":
                     try:
-                        if self._has_behavioral_filter(int(nested_id), all_cohorts, seen_cohorts):
-                            return True
+                        target_id = int(value.get("value", "0"))
+                        if target_id in all_cohorts:
+                            graph[source_id].add(target_id)
                     except ValueError:
-                        pass
+                        continue
+                elif value.get("type") in ("AND", "OR") and value.get("values"):
+                    check_property_values(value["values"], source_id)
 
-            # Handle nested AND/OR property groups
-            if value.get("type") in ("AND", "OR") and value.get("values"):
-                if self._check_property_values(value["values"], all_cohorts, seen_cohorts):
-                    return True
-
-        return False
-
-    def _find_cohorts_referencing_cohort(
-        self, target_id: int, all_cohorts: dict[int, Cohort], existing_ids: set[int]
-    ) -> set[int]:
-        """Find all cohorts that directly reference the given cohort ID."""
-        referencing_ids = set()
-
-        for other_id, other_cohort in all_cohorts.items():
-            if other_id not in existing_ids and other_cohort.filters:
-                properties = other_cohort.filters.get("properties", {})
+        # Build the graph
+        for cohort_id, cohort in all_cohorts.items():
+            if cohort.filters:
+                properties = cohort.filters.get("properties", {})
                 if isinstance(properties, dict):
-                    for value in properties.get("values", []):
-                        if isinstance(value, dict) and value.get("type") == "cohort":
-                            try:
-                                if int(value.get("value", "0")) == target_id:
-                                    referencing_ids.add(other_id)
-                            except ValueError:
-                                pass
+                    check_property_values(properties.get("values", []), cohort_id)
 
-        return referencing_ids
+        return graph, behavioral_cohorts
 
     @action(
         methods=["GET"],
