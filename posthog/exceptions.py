@@ -90,6 +90,6 @@ def generate_exception_response(
     return JsonResponse({"type": type, "code": code, "detail": detail, "attr": attr}, status=status_code)
 
 
-def capture_exception(e, **kwargs):
-    sentry_capture_exception(e, **kwargs)
-    posthog_capture_exception(e)
+def capture_exception(error=None, sentry_scope=None, **sentry_scope_kwargs):
+    sentry_capture_exception(error, scope=sentry_scope, **sentry_scope)
+    posthog_capture_exception(error)
