@@ -383,6 +383,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             {
                 setGraphsTab: (_, { tab }) => tab,
                 togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.graphsTab || oldTab,
+                setConversionGoal: (oldTab, { conversionGoal }) => {
+                    if (conversionGoal) {
+                        return GraphsTab.UNIQUE_CONVERSIONS
+                    }
+                    return oldTab
+                },
             },
         ],
         _sourceTab: [
@@ -731,7 +737,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     source?: Partial<WebStatsTableQuery>,
                     tab?: Partial<TabsTileTab>
                 ): TabsTileTab => {
-                    const columns = ['breakdown_value', 'visitors', 'views']
+                    const columns = ['breakdown_value', 'visitors', 'views', 'replay_url']
                     if (source?.includeBounceRate) {
                         columns.push('bounce_rate')
                     }
@@ -1102,7 +1108,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                   stripQueryParams: shouldStripQueryParams,
                                               },
                                               embedded: false,
-                                              columns: ['url', 'visitors', 'clicks'],
+                                              columns: ['url', 'visitors', 'clicks', 'replay_url'],
                                           },
                                           insightProps: createInsightProps(TileId.PATHS, PathTab.END_PATH),
                                           canOpenModal: true,
@@ -1519,7 +1525,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       filterTestAccounts,
                                   },
                                   embedded: true,
-                                  columns: ['breakdown_value', 'visitors', 'views'],
+                                  columns: ['breakdown_value', 'visitors', 'views', 'replay_url'],
                               },
                               insightProps: createInsightProps(TileId.GOALS),
                               canOpenInsight: false,

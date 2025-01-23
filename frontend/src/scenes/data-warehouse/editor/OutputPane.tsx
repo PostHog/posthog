@@ -55,12 +55,30 @@ export function OutputPane(): JSX.Element {
     const vizKey = useMemo(() => `SQLEditorScene`, [])
 
     const columns = useMemo(() => {
+        const types = response?.types
+
         return (
-            response?.columns?.map((column: string) => ({
-                key: column,
-                name: column,
-                resizable: true,
-            })) ?? []
+            response?.columns?.map((column: string, index: number) => {
+                const type = types?.[index]?.[1]
+
+                // Hack to get bools to render in the data grid
+                if (type && type.indexOf('Bool') !== -1) {
+                    return {
+                        key: column,
+                        name: column,
+                        resizable: true,
+                        renderCell: (props: any) => {
+                            return props.row[column].toString()
+                        },
+                    }
+                }
+
+                return {
+                    key: column,
+                    name: column,
+                    resizable: true,
+                }
+            }) ?? []
         )
     }, [response])
 

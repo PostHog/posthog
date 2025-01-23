@@ -99,6 +99,13 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
                     }
                 }
 
+                if (url_pattern?.startsWith('https://storage.cloud.google.com')) {
+                    return {
+                        url_pattern:
+                            'Google Cloud links must start with "https://storage.googleapis.com". Please update your URL pattern.',
+                    }
+                }
+
                 return {
                     name: !name && 'Please enter a name.',
                     url_pattern: !url_pattern && 'Please enter a url pattern.',

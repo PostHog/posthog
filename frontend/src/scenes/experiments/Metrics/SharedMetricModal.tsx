@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 import { Experiment } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
-import { MetricDisplayFunnels, MetricDisplayTrends } from '../ExperimentView/Goal'
+import { MetricDisplayFunnels, MetricDisplayTrends } from '../ExperimentView/components'
 import { MAX_PRIMARY_METRICS, MAX_SECONDARY_METRICS } from '../MetricsView/const'
 import { SharedMetric } from '../SharedMetrics/sharedMetricLogic'
 
