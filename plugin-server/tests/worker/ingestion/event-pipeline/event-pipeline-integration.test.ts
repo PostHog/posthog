@@ -15,7 +15,6 @@ import {
 } from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 import { HookCommander } from '../../../../src/worker/ingestion/hooks'
-import { EventsProcessor } from '../../../../src/worker/ingestion/process-event'
 import { setupPlugins } from '../../../../src/worker/plugins/setup'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../../helpers/clickhouse'
 import { commonUserId } from '../../../helpers/plugins'
@@ -30,7 +29,7 @@ describe('Event Pipeline integration test', () => {
     let hookCannon: HookCommander
 
     const ingestEvent = async (event: PluginEvent) => {
-        const runner = new EventPipelineRunner(hub, event, new EventsProcessor(hub))
+        const runner = new EventPipelineRunner(hub, event)
         const result = await runner.runEventPipeline(event)
         const postIngestionEvent = convertToPostIngestionEvent(result.args[0])
         return Promise.all([
@@ -255,13 +254,13 @@ describe('Event Pipeline integration test', () => {
             uuid: new UUIDT().toString(),
         }
 
-        await new EventPipelineRunner(hub, event, new EventsProcessor(hub)).runEventPipeline(event)
+        await new EventPipelineRunner(hub, event).runEventPipeline(event)
 
         expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1) // we query before creating
         expect(hub.db.createPerson).toHaveBeenCalledTimes(1)
 
         // second time single fetch
-        await new EventPipelineRunner(hub, event, new EventsProcessor(hub)).runEventPipeline(event)
+        await new EventPipelineRunner(hub, event).runEventPipeline(event)
         expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
     })
 })

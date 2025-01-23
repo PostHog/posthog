@@ -1,5 +1,5 @@
 import { IconChevronDown, IconClock, IconEllipsis } from '@posthog/icons'
-import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonMenuItem, Spinner, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -14,11 +14,14 @@ export interface TreeRowProps {
     depth: number
     onClick?: (row: DatabaseSchemaTable) => void
     selected?: boolean
+    menuItems?: LemonMenuItem[]
 }
 
-export function TreeRow({ item }: TreeRowProps): JSX.Element {
+export function TreeRow({ item, menuItems }: TreeRowProps): JSX.Element {
+    const [isMenuOpen, setIsMenuOpen] = useState(false)
+
     return (
-        <li>
+        <li className={clsx('relative flex items-center', isMenuOpen && 'bg-bg-light')}>
             <LemonButton
                 onClick={() => {
                     void copyToClipboard(item.name, item.name)
@@ -28,11 +31,18 @@ export function TreeRow({ item }: TreeRowProps): JSX.Element {
                 icon={item.icon ? <>{item.icon}</> : null}
                 className="font-mono"
             >
-                <span className="flex-1 flex justify-between">
+                <span className="flex-1 flex gap-2">
                     <span className="truncate">{item.name}</span>
-                    <span className="whitespace-nowrap">{item.type}</span>
+                    <span className="italic text-muted">{item.type}</span>
                 </span>
             </LemonButton>
+            {menuItems && menuItems.length > 0 && (
+                <LemonMenu items={menuItems} onVisibilityChange={setIsMenuOpen}>
+                    <div className="absolute right-1 flex">
+                        <LemonButton size="small" noPadding icon={<IconEllipsis />} />
+                    </div>
+                </LemonMenu>
+            )}
         </li>
     )
 }
