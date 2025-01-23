@@ -33,14 +33,20 @@ export const WebAnalyticsHealthCheck = (): JSX.Element | null => {
         return null
     }
 
-    // TODO: Add docs for Core Web Vitals once available
-    if (productTab === ProductTab.CORE_WEB_VITALS) {
+    if (productTab === ProductTab.WEB_VITALS) {
         if (!statusCheck.isSendingWebVitals) {
             return (
                 <LemonBanner type="warning" className="mt-2">
                     <p>
-                        No <code>$web_vitals</code> events have been received. Core Web Vitals won't work correctly
-                        (it'll be a little empty!)
+                        No <code>$web_vitals</code> events have been received. Web Vitals won't work correctly (it'll be
+                        a little empty!)
+                    </p>
+                    <p>
+                        Please see{' '}
+                        <Link to="https://posthog.com/docs/web-analytics/web-vitals">
+                            documentation for how to set up web vitals
+                        </Link>
+                        .
                     </p>
                 </LemonBanner>
             )

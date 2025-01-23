@@ -1,7 +1,7 @@
-import { api } from '@posthog/apps-common'
 import Fuse from 'fuse.js'
 import { connect, kea, path, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils'
 import { sceneLogic } from 'scenes/sceneLogic'

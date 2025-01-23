@@ -1388,6 +1388,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
                 rows_synced=10,
                 pipeline=source,
                 pipeline_version=ExternalDataJob.PipelineVersion.V2,
+                billable=False,
             )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
@@ -1482,6 +1483,13 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             team=self.team,
             distinct_id=1,
             timestamp="2021-10-09T13:01:01Z",
+        )
+        _create_event(
+            event="$exception",
+            team=self.team,
+            distinct_id=1,
+            timestamp="2021-10-09T13:01:01Z",
+            properties={"$exception_issue_id": "should_not_be_counted"},
         )
         _create_event(
             event="$pageview",
