@@ -338,7 +338,7 @@ describe('Event Pipeline integration test', () => {
             uuid: new UUIDT().toString(),
         }
 
-        const result = await new EventPipelineRunner(hub, event, new EventsProcessor(hub)).runEventPipeline(event)
+        const result = await new EventPipelineRunner(hub, event).runEventPipeline(event)
         expect(result.lastStep).toEqual('cookielessServerHashStep') // rather than emitting the event
     })
 })
