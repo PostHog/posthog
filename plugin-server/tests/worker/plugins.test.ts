@@ -171,7 +171,6 @@ describe('plugins', () => {
             '$plugins_failed',
             '$plugins_succeeded',
             'attachments',
-            'cache',
             'config',
             'geoip',
             'global',

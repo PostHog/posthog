@@ -175,45 +175,13 @@ export function createPluginConfigVM(
             // export various functions
             const __methods = {
                 setupPlugin: __asyncFunctionGuard(__bindMeta('setupPlugin'), 'setupPlugin'),
-                teardownPlugin: __asyncFunctionGuard(__bindMeta('teardownPlugin'), 'teardownPlugin'),
                 onEvent: __asyncFunctionGuard(__bindMeta('onEvent'), 'onEvent'),
                 processEvent: __asyncFunctionGuard(__bindMeta('processEvent'), 'processEvent'),
                 composeWebhook: __bindMeta('composeWebhook'),
                 getSettings: __bindMeta('getSettings'),
             };
 
-            const __tasks = {
-                schedule: {},
-                job: {},
-            };
-
-            for (const exportDestination of exportDestinations.reverse()) {
-                // gather the runEveryX commands and export in __tasks
-                for (const [name, value] of Object.entries(exportDestination)) {
-                    if (name.startsWith("runEvery") && typeof value === 'function') {
-                        __tasks.schedule[name] = {
-                            name: name,
-                            type: 'schedule',
-                            exec: __bindMeta(value)
-                        }
-                    }
-                }
-
-                // gather all jobs
-                if (typeof exportDestination['jobs'] === 'object') {
-                    for (const [key, value] of Object.entries(exportDestination['jobs'])) {
-                        __tasks.job[key] = {
-                            name: key,
-                            type: 'job',
-                            exec: __bindMeta(value)
-                        }
-                    }
-                }
-
-
-            }
-
-            ${responseVar} = { methods: __methods, tasks: __tasks, meta: __pluginMeta, }
+            ${responseVar} = { methods: __methods, meta: __pluginMeta, }
         })
     `)(asyncGuard)
 
