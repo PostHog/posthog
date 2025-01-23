@@ -54,7 +54,7 @@ export function Sidebar({ navbarItem, sidebarOverlay, sidebarOverlayProps }: Sid
                 {navbarItem?.logic && isSearchShown && (
                     <SidebarSearchBar activeSidebarLogic={navbarItem.logic} inputElementRef={inputElementRef} />
                 )}
-                <div className="Sidebar3000__lists">
+                <div className="Sidebar3000__lists overflow-hidden">
                     {navbarItem?.logic && <SidebarContent activeSidebarLogic={navbarItem.logic} />}
                 </div>
                 {contents
