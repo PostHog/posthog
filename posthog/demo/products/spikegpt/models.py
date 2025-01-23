@@ -161,7 +161,6 @@ class SpikeGPTPerson(SimPerson):
                         latency=generation_time,
                         trace_id=trace_id,
                     )
-                    set_trace_output([*conversation_so_far, message])
                     # Memorizer, which determines what memories to save using tool calling
                     generation_time = len(message["content"]) / 37
                     self.advance_timer(1 + generation_time)
@@ -186,6 +185,7 @@ Output only the concise information to memorize, prefixed with "REMEMBER: "'''.s
                         model="gpt-4o-mini",
                         trace_id=trace_id,
                     )
+                    set_trace_output({"messages": [*conversation_so_far, message], "memories": ["Blah blah blah."]})
             conversation_so_far = [*conversation_so_far, message]  # Copying here so that every event's list is distinct
 
 

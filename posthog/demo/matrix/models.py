@@ -216,6 +216,8 @@ class SimServerClient(SimClient):
 
         def set_trace_output(output: Any):
             nonlocal output_state
+            if output_state is not None:
+                raise ValueError("Output already set for this trace")
             output_state = output
 
         try:
