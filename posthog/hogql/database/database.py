@@ -410,10 +410,15 @@ def create_hogql_database(
             )
 
         if "person_id" not in warehouse[warehouse_modifier.table_name].fields.keys():
-            warehouse[warehouse_modifier.table_name].fields["person_id"] = ExpressionField(
-                name="person_id",
-                expr=parse_expr(warehouse_modifier.distinct_id_field),
-            )
+            if True:  # TODO: only if we have "events"
+                warehouse[warehouse_modifier.table_name].fields["person_id"] = FieldTraverser(
+                    chain=["events", "person_id"]
+                )
+            else:
+                warehouse[warehouse_modifier.table_name].fields["person_id"] = ExpressionField(
+                    name="person_id",
+                    expr=parse_expr(warehouse_modifier.distinct_id_field),
+                )
 
         return warehouse
 
