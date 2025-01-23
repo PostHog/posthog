@@ -297,6 +297,7 @@ class Team(UUIDClassicModel):
     cookieless_server_hash_mode = models.SmallIntegerField(
         default=CookielessServerHashMode.DISABLED, choices=CookielessServerHashMode.choices, null=True
     )
+    revenue_tracking_config = models.JSONField(null=True, blank=True)
 
     primary_dashboard = models.ForeignKey(
         "posthog.Dashboard",

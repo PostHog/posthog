@@ -209,9 +209,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                                 cohortsById,
                                 mathDefinitions,
                             }),
-                        onRename: async (name: string) => {
-                            await insightLogicRef?.logic.asyncActions.setInsightMetadata({ name })
-                        },
+                        onRename: insightLogicRef?.logic.values.canEditInsight
+                            ? async (name: string) => {
+                                  await insightLogicRef?.logic.asyncActions.setInsightMetadata({ name })
+                              }
+                            : undefined,
                     },
                 ]
             },

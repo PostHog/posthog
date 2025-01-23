@@ -119,6 +119,13 @@ class ClickHouseError(Exception):
         super().__init__(error_message)
 
 
+class ClickHouseAllReplicasAreStaleError(ClickHouseError):
+    """Exception raised when all replicas are stale."""
+
+    def __init__(self, query, error_message):
+        super().__init__(query, error_message)
+
+
 class ClickHouseClient:
     """An asynchronous client to access ClickHouse via HTTP.
 
@@ -219,20 +226,30 @@ class ClickHouseClient:
         """Asynchronously check the HTTP response received from ClickHouse.
 
         Raises:
+            ClickHouseAllReplicasAreStaleError: If status code is not 200 and error message contains
+                "ALL_REPLICAS_ARE_STALE". This can happen when using max_replica_delay_for_distributed_queries
+                and fallback_to_stale_replicas_for_distributed_queries=0
             ClickHouseError: If the status code is not 200.
         """
         if response.status != 200:
             error_message = await response.text()
+            if "ALL_REPLICAS_ARE_STALE" in error_message:
+                raise ClickHouseAllReplicasAreStaleError(query, error_message)
             raise ClickHouseError(query, error_message)
 
     def check_response(self, response, query) -> None:
         """Check the HTTP response received from ClickHouse.
 
         Raises:
+            ClickHouseAllReplicasAreStaleError: If status code is not 200 and error message contains
+                "ALL_REPLICAS_ARE_STALE". This can happen when using max_replica_delay_for_distributed_queries
+                and fallback_to_stale_replicas_for_distributed_queries=0
             ClickHouseError: If the status code is not 200.
         """
         if response.status_code != 200:
             error_message = response.text
+            if "ALL_REPLICAS_ARE_STALE" in error_message:
+                raise ClickHouseAllReplicasAreStaleError(query, error_message)
             raise ClickHouseError(query, error_message)
 
     @contextlib.asynccontextmanager

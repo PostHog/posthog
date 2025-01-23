@@ -21,6 +21,7 @@ import {
 import { NodeKind, RefreshType, SuggestedQuestionsQuery } from '~/queries/schema/schema-general'
 import { Conversation } from '~/types'
 
+import { maxGlobalLogic } from './maxGlobalLogic'
 import type { maxLogicType } from './maxLogicType'
 
 export interface MaxLogicProps {
@@ -44,7 +45,7 @@ export const maxLogic = kea<maxLogicType>([
     props({} as MaxLogicProps),
     key(({ conversationId }) => conversationId || 'new-conversation'),
     connect({
-        values: [projectLogic, ['currentProject']],
+        values: [projectLogic, ['currentProject'], maxGlobalLogic, ['dataProcessingAccepted']],
     }),
     actions({
         askMax: (prompt: string) => ({ prompt }),
@@ -326,9 +327,19 @@ export const maxLogic = kea<maxLogicType>([
                 return false
             },
         ],
-        inputDisabled: [
-            (s) => [s.threadLoading, s.formPending],
-            (threadLoading, formPending) => threadLoading || formPending,
+        inputDisabled: [(s) => [s.formPending], (formPending) => formPending],
+        submissionDisabledReason: [
+            (s) => [s.formPending, s.dataProcessingAccepted, s.question, s.threadLoading],
+            (formPending, dataProcessingAccepted, question, threadLoading): string | undefined =>
+                !dataProcessingAccepted
+                    ? 'Please accept OpenAI processing data'
+                    : formPending
+                    ? 'Please choose one of the options above'
+                    : !question
+                    ? 'I need some input first'
+                    : threadLoading
+                    ? 'Thinking…'
+                    : undefined,
         ],
     }),
     afterMount(({ actions, values }) => {

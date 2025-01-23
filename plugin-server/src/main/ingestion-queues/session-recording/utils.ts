@@ -4,8 +4,8 @@ import { KafkaConsumer, Message, MessageHeader, PartitionMetadata } from 'node-r
 import path from 'path'
 import { Counter } from 'prom-client'
 
+import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { PipelineEvent, RawEventMessage, RRWebEvent } from '../../../types'
-import { KafkaProducerWrapper } from '../../../utils/db/kafka-producer-wrapper'
 import { status } from '../../../utils/status'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { eventDroppedCounter } from '../metrics'

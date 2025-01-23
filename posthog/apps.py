@@ -48,9 +48,12 @@ class PostHogConfig(AppConfig):
                     {"git_rev": get_git_commit_short(), "git_branch": get_git_branch()},
                 )
 
-            local_api_key = get_self_capture_api_token(
-                User.objects.filter(last_login__isnull=False).order_by("-last_login").first()
-            )
+            try:
+                user = User.objects.filter(last_login__isnull=False).order_by("-last_login").first()
+                local_api_key = get_self_capture_api_token(user)
+            except:
+                local_api_key = None
+
             if SELF_CAPTURE and local_api_key:
                 posthoganalytics.api_key = local_api_key
                 posthoganalytics.host = settings.SITE_URL

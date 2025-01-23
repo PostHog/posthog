@@ -19,7 +19,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import Experiment, FeatureFlag, GroupTypeMapping, User
 from posthog.models.cohort import Cohort
 from posthog.models.dashboard import Dashboard
-from posthog.models.early_access_feature import EarlyAccessFeature
+from products.early_access_features.backend.models import EarlyAccessFeature
 from posthog.models.feature_flag import (
     FeatureFlagDashboards,
     get_all_feature_flags,
