@@ -108,7 +108,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
 
     describe('setupPlugin', () => {
         it('should setup a plugin on first call', async () => {
-            jest.spyOn(PLUGINS_BY_ID['intercom'], 'setupPlugin')
+            jest.spyOn(PLUGINS_BY_ID['intercom'] as any, 'setupPlugin')
 
             const results = []
 
@@ -147,7 +147,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
 
     describe('onEvent', () => {
         it('should call the plugin onEvent method', async () => {
-            jest.spyOn(PLUGINS_BY_ID['intercom'], 'onEvent')
+            jest.spyOn(PLUGINS_BY_ID['intercom'] as any, 'onEvent')
 
             const invocation = createInvocation(fn, globals)
             invocation.globals.event.event = 'mycustomevent'
@@ -218,7 +218,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
         })
 
         it('should handle and collect errors', async () => {
-            jest.spyOn(PLUGINS_BY_ID['intercom'], 'onEvent')
+            jest.spyOn(PLUGINS_BY_ID['intercom'] as any, 'onEvent')
 
             const invocation = createInvocation(fn, globals)
             invocation.globals.event.event = 'mycustomevent'

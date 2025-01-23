@@ -75,7 +75,7 @@ export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
                 storage: {} as any, // NOTE: Figuree out what to do about storage as that is used...
                 geoip: {} as any,
                 utils: {} as any,
-                fetch: this.fetch,
+                fetch: this.fetch as any,
             }
 
             state = this.pluginState[pluginId] = {
