@@ -60,6 +60,7 @@ def execute(filter: Filter, team: Team):
     q, params = cohort_query.get_query()
     res = sync_execute(q, {**params, **filter.hogql_context.values})
     unittest.TestCase().assertCountEqual(res, cohort_query.hogql_result.results)
+    assert ["id"] == cohort_query.hogql_result.columns
     return res, q, params
 
 
