@@ -59,6 +59,7 @@ export const maxLogic = kea<maxLogicType>([
         retryLastMessage: true,
         scrollThreadToBottom: true,
         setConversation: (conversation: Conversation) => ({ conversation }),
+        setTraceId: (traceId: string) => ({ traceId }),
     }),
     reducers({
         question: [
@@ -107,6 +108,7 @@ export const maxLogic = kea<maxLogicType>([
                 setVisibleSuggestions: (_, { suggestions }) => suggestions,
             },
         ],
+        traceId: [null as string | null, { setTraceId: (_, { traceId }) => traceId }],
     }),
     loaders({
         // TODO: Move question suggestions to `maxGlobalLogic`, which will make this logic `maxThreadLogic`
@@ -165,9 +167,14 @@ export const maxLogic = kea<maxLogicType>([
         askMax: async ({ prompt }) => {
             actions.addMessage({ type: AssistantMessageType.Human, content: prompt, status: 'completed' })
             try {
+                // Generate a trace ID for the conversation run
+                const traceId = uuid()
+                actions.setTraceId(traceId)
+
                 const response = await api.conversations.create({
                     content: prompt,
                     conversation: values.conversation?.id,
+                    trace_id: traceId,
                 })
                 const reader = response.body?.getReader()
 
