@@ -5,7 +5,7 @@ import structlog
 from boto3 import client
 from botocore.client import Config
 from django.conf import settings
-from exceptions import capture_exception
+from posthog.exceptions import capture_exception
 
 logger = structlog.get_logger(__name__)
 

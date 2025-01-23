@@ -4,7 +4,7 @@ from contextlib import contextmanager
 import structlog
 from django.conf import settings
 from prometheus_client import CollectorRegistry, Counter, push_to_gateway
-from exceptions import capture_exception
+from posthog.exceptions import capture_exception
 
 logger = structlog.get_logger(__name__)
 

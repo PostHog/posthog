@@ -10,7 +10,7 @@ from psycopg2 import OperationalError
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
-from exceptions import capture_exception
+from posthog.exceptions import capture_exception
 from snowflake.connector.errors import DatabaseError, ForbiddenError, ProgrammingError
 from sshtunnel import BaseSSHTunnelForwarderError
 

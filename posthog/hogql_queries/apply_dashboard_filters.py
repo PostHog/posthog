@@ -1,4 +1,4 @@
-from exceptions import capture_exception
+from posthog.exceptions import capture_exception
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 from posthog.schema import DashboardFilter, NodeKind
