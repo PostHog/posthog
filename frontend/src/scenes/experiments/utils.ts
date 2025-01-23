@@ -1,7 +1,7 @@
 import { getSeriesColor } from 'lib/colors'
 
 import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema'
-import { EventsNode, NodeKind } from '~/queries/schema/schema-general'
+import { AnyEntityNode, NodeKind } from '~/queries/schema/schema-general'
 import {
     FeatureFlagFilters,
     FunnelTimeConversionMetrics,
@@ -101,28 +101,47 @@ export function transformFiltersForWinningVariant(
     }
 }
 
+function seriesToFilter(
+    series: AnyEntityNode,
+    featureFlagKey: string,
+    variantKey: string
+): UniversalFiltersGroupValue | null {
+    if (series.kind === NodeKind.EventsNode) {
+        return {
+            id: series.event as string,
+            name: series.event as string,
+            type: 'events',
+            properties: [
+                {
+                    key: `$feature/${featureFlagKey}`,
+                    type: PropertyFilterType.Event,
+                    value: [variantKey],
+                    operator: PropertyOperator.Exact,
+                },
+            ],
+        }
+    } else if (series.kind === NodeKind.ActionsNode) {
+        return {
+            id: series.id,
+            name: series.name,
+            type: 'actions',
+        }
+    }
+    return null
+}
+
 export function getViewRecordingFilters(
     metric: ExperimentTrendsQuery | ExperimentFunnelsQuery,
     featureFlagKey: string,
     variantKey: string
 ): UniversalFiltersGroupValue[] {
     const filters: UniversalFiltersGroupValue[] = []
-    // TODO support actions
     if (metric.kind === NodeKind.ExperimentTrendsQuery) {
         if (metric.exposure_query) {
-            filters.push({
-                id: (metric.exposure_query.series[0] as EventsNode).event as string,
-                name: (metric.exposure_query.series[0] as EventsNode).event as string,
-                type: 'events',
-                properties: [
-                    {
-                        key: `$feature/${featureFlagKey}`,
-                        type: PropertyFilterType.Event,
-                        value: [variantKey],
-                        operator: PropertyOperator.Exact,
-                    },
-                ],
-            })
+            const exposure_filter = seriesToFilter(metric.exposure_query.series[0], featureFlagKey, variantKey)
+            if (exposure_filter) {
+                filters.push(exposure_filter)
+            }
         } else {
             filters.push({
                 id: '$feature_flag_called',
@@ -144,36 +163,17 @@ export function getViewRecordingFilters(
                 ],
             })
         }
-        filters.push({
-            id: (metric.count_query.series[0] as EventsNode).event as string,
-            name: (metric.count_query.series[0] as EventsNode).event as string,
-            type: 'events',
-            properties: [
-                {
-                    key: `$feature/${featureFlagKey}`,
-                    type: PropertyFilterType.Event,
-                    value: [variantKey],
-                    operator: PropertyOperator.Exact,
-                },
-            ],
-        })
+        const count_filter = seriesToFilter(metric.count_query.series[0], featureFlagKey, variantKey)
+        if (count_filter) {
+            filters.push(count_filter)
+        }
         return filters
     }
     metric.funnels_query.series.forEach((series) => {
-        filters.push({
-            id: (series as EventsNode).event as string,
-            name: (series as EventsNode).name as string,
-            type: 'events',
-            properties: [
-                {
-                    key: `$feature/${featureFlagKey}`,
-                    type: PropertyFilterType.Event,
-                    value: [variantKey],
-                    operator: PropertyOperator.Exact,
-                },
-            ],
-        })
+        const filter = seriesToFilter(series, featureFlagKey, variantKey)
+        if (filter) {
+            filters.push(filter)
+        }
     })
-
     return filters
 }
