@@ -1,21 +1,21 @@
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
-import { runInstrumentedFunction } from '../../../main/utils'
-import { HogExecutor } from '../../../cdp/hog-executor'
-import { HogFunctionManager } from '../../../cdp/hog-function-manager'
-import { HogFunctionInvocation, HogFunctionType, HogFunctionInvocationGlobalsWithInputs } from '../../../cdp/types'
-import { Hub } from '../../../types'
-import { status } from '../../../utils/status'
-import { createInvocation } from '../../../cdp/utils'
+import { runInstrumentedFunction } from '../../../../main/utils'
+import { HogFunctionInvocation, HogFunctionType, HogFunctionInvocationGlobalsWithInputs } from '../../../../cdp/types'
+import { Hub } from '../../../../types'
+import { status } from '../../../../utils/status'
+import { createInvocation } from '../../../../cdp/utils'
+import {HogExecutorService} from "~/src/cdp/services/hog-executor.service";
+import {HogFunctionManagerService} from "~/src/cdp/services/hog-function-manager.service";
 
-export class HogTransformer {
-    private hogExecutor: HogExecutor
-    private hogFunctionManager: HogFunctionManager
+export class HogTransformerService {
+    private hogExecutor: HogExecutorService
+    private hogFunctionManager: HogFunctionManagerService
     private hub: Hub
 
     constructor(hub: Hub) {
         this.hub = hub
-        this.hogFunctionManager = new HogFunctionManager(hub)
-        this.hogExecutor = new HogExecutor(hub, this.hogFunctionManager)
+        this.hogFunctionManager = new HogFunctionManagerService(hub)
+        this.hogExecutor = new HogExecutorService(hub, this.hogFunctionManager)
     }
 
     // Built-in transformation functions that will be available to all transformations
@@ -88,11 +88,11 @@ export class HogTransformer {
         return true
     }
 
-    public async transformEvent(event: PluginEvent): Promise<PluginEvent> {
+    public transformEvent(event: PluginEvent): Promise<PluginEvent> {
         return runInstrumentedFunction({
             statsKey: `hogTransformer`,
             func: async () => {
-                const teamHogFunctions = await this.hogFunctionManager.getTeamHogFunctions(event.team_id)
+                const teamHogFunctions = this.hogFunctionManager.getTeamHogFunctions(event.team_id)
                 const transformationFunctions = this.getTransformationFunctions()
 
                 // For now, execute each transformation function in sequence
@@ -102,10 +102,10 @@ export class HogTransformer {
                     const result = this.hogExecutor.execute(invocation, { functions: transformationFunctions })
 
                     if (result.error) {
-                        status.warn('⚠️', 'Error in transformation', { 
+                        status.warn('⚠️', 'Error in transformation', {
                             error: result.error,
                             function_id: hogFunction.id,
-                            team_id: event.team_id 
+                            team_id: event.team_id
                         })
                         continue
                     }
@@ -117,20 +117,20 @@ export class HogTransformer {
                     }
 
                     const transformedEvent: unknown = result.execResult
-                    
+
                     // Validate the transformed event has a properties object
                     if (!transformedEvent || typeof transformedEvent !== 'object' || !('properties' in transformedEvent)) {
-                        status.warn('⚠️', 'Invalid transformation result - missing properties', { 
-                            function_id: hogFunction.id 
+                        status.warn('⚠️', 'Invalid transformation result - missing properties', {
+                            function_id: hogFunction.id
                         })
                         continue
                     }
 
                     // Validate properties are of correct type
                     if (!this.validateProperties(transformedEvent.properties)) {
-                        status.warn('⚠️', 'Invalid transformation result - invalid properties', { 
+                        status.warn('⚠️', 'Invalid transformation result - invalid properties', {
                             function_id: hogFunction.id,
-                            properties: transformedEvent.properties 
+                            properties: transformedEvent.properties
                         })
                         continue
                     }
@@ -149,4 +149,4 @@ export class HogTransformer {
             }
         })
     }
-} 
+}

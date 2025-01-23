@@ -28,6 +28,7 @@ import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
 import { produceExceptionSymbolificationEventStep } from './produceExceptionSymbolificationEventStep'
 import { transformEventStep } from './transformEventStep'
+import { HogTransformerService } from './hog-transformations/hog-transformer.service'
 
 export type EventPipelineResult = {
     // Promises that the batch handler should await on before committing offsets,
@@ -54,11 +55,13 @@ export class EventPipelineRunner {
     hub: Hub
     originalEvent: PipelineEvent
     eventsProcessor: EventsProcessor
+    hogTransformer: HogTransformerService
 
     constructor(hub: Hub, event: PipelineEvent) {
         this.hub = hub
         this.originalEvent = event
         this.eventsProcessor = new EventsProcessor(hub)
+        this.hogTransformer = new HogTransformerService(hub)
     }
 
     isEventDisallowed(event: PipelineEvent): boolean {
@@ -223,8 +226,12 @@ export class EventPipelineRunner {
             return this.registerLastStep('pluginsProcessEventStep', [event], kafkaAcks)
         }
 
-        // Transform step (Alpha feature - controlled by HOG_TRANSFORMATIONS_ALPHA env var)
-        const transformedEvent = await this.runStep(transformEventStep, [this.hub, processedEvent], event.team_id)
+        // Pass the hogTransformer to transformEventStep
+        const transformedEvent = await this.runStep(
+            transformEventStep, 
+            [this.hub.HOG_TRANSFORMATIONS_ALPHA, processedEvent, this.hogTransformer], 
+            event.team_id
+        )
 
         const [normalizedEvent, timestamp] = await this.runStep(
             normalizeEventStep,
