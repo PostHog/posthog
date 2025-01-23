@@ -333,51 +333,36 @@ export class IngestionConsumer {
     }
 
     private async handleProcessingError(error: any, message: Message, event: PipelineEvent) {
-        // TODO: Carefully re-evaluate this logic. Are we sure we don't want to just throw properly?
-        // In theory anything that could go wrong we should have handled. Isn't it better if we crash out
-        // and are forced to fix than just writing to the DLQ 🧐
-
-        // If the error is a non-retriable error, push to the dlq and commit the offset. Else raise the
-        // error.
-        // TODO: property abstract out this `isRetriable` error logic. This is currently relying on the
-        // fact that node-rdkafka adheres to the `isRetriable` interface.
-
         if (error instanceof EventDroppedError) {
             // In the case of an EventDroppedError we know that the error was expected and as such we should
             // send it to the DLQ unless the doNotSendToDLQ flag is set
             // We then return as there is nothing else to do
 
-            // Handled errors mean we know that it was invalid and are purposefully moving on - everything else is unhandled
-            if (!error.doNotSendToDLQ) {
-                try {
-                    const sentryEventId = captureException(error)
-                    const headers: MessageHeader[] = message.headers ?? []
-                    headers.push({ ['sentry-event-id']: sentryEventId })
-                    headers.push({ ['event-id']: event.uuid })
-
-                    await this.kafkaProducer!.produce({
-                        topic: this.dlqTopic,
-                        value: message.value,
-                        key: message.key ?? null, // avoid undefined, just to be safe
-                        headers: headers,
-                    })
-                } catch (error) {
-                    // If we can't send to the DLQ and it's not retriable, just continue. We'll commit the
-                    // offset and move on.
-                    if (error?.isRetriable === false) {
-                        status.error('🔥', `Error pushing to DLQ`, {
-                            stack: error.stack,
-                            error: error,
-                        })
-                        return
-                    }
-
-                    // If we can't send to the DLQ and it is retriable, raise the error.
-                    throw error
-                }
+            if (error.doNotSendToDLQ) {
+                return
             }
 
-            return
+            try {
+                const sentryEventId = captureException(error)
+                const headers: MessageHeader[] = message.headers ?? []
+                headers.push({ ['sentry-event-id']: sentryEventId })
+                headers.push({ ['event-id']: event.uuid })
+
+                await this.kafkaProducer!.produce({
+                    topic: this.dlqTopic,
+                    value: message.value,
+                    key: message.key ?? null, // avoid undefined, just to be safe
+                    headers: headers,
+                })
+            } catch (error) {
+                status.error('🔥', `Error pushing to DLQ`, {
+                    stack: error.stack,
+                    error: error,
+                })
+                throw error
+            }
+
+            return // EventDroppedError is handled
         }
 
         // All other errors indicate that something went wrong and we crash out
@@ -385,6 +370,8 @@ export class IngestionConsumer {
             tags: { team_id: event.team_id },
             extra: { originalEvent: event },
         })
+
+        throw error
     }
 
     private logDroppedEvent(token?: string, distinctId?: string) {

@@ -13,6 +13,7 @@ import { createTeam, getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql
 import { Hub, PipelineEvent, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { status } from '../utils/status'
+import { EventDroppedError } from './event-pipeline-runner/event-pipeline-runner'
 import { IngestionConsumer } from './ingestion-consumer'
 
 const mockConsumer = {
@@ -342,7 +343,6 @@ describe('IngestionConsumer', () => {
             jest.spyOn(status, 'error').mockImplementation(() => {})
             jest.spyOn(ingester as any, 'getEventPipelineRunner').mockImplementation(() => ({
                 run: () => {
-                    console.log('running,', error.isRetriable)
                     throw error
                 },
                 getPromises: () => [],
@@ -353,20 +353,29 @@ describe('IngestionConsumer', () => {
             jest.restoreAllMocks()
         })
 
-        it('should handle explicitly non retriable errors by sending to DLQ', async () => {
-            // NOTE: I don't think this makes a lot of sense but currently is just mimicing existing behavior for the migration
-            // We should figure this out better and have more explictly named errors
-            error.isRetriable = false
-            await ingester.handleKafkaBatch(messages)
-
-            expect(jest.mocked(status.error)).toHaveBeenCalledWith('🔥', 'Error processing message', expect.any(Object))
-
+        it('should handled expected error failures such as eventDroppedError and write to the DLQ', async () => {
+            error = new EventDroppedError('purposeful_drop')
+            await expect(ingester.handleKafkaBatch(messages)).resolves.not.toThrow()
             expect(forSnapshot(getProducedKafkaMessages())).toMatchSnapshot()
         })
 
-        it.each([undefined, true])('should throw if isRetriable is set to %s', async (isRetriable) => {
-            error.isRetriable = isRetriable
-            await expect(ingester.handleKafkaBatch(messages)).rejects.toThrow()
+        it('should not write to the DLQ if doNotSendToDLQ is true', async () => {
+            error = new EventDroppedError('purposeful_drop', { doNotSendToDLQ: true })
+            await expect(ingester.handleKafkaBatch(messages)).resolves.not.toThrow()
+            expect(getProducedKafkaMessages()).toMatchObject([])
+        })
+
+        it('raises if something goes wrong when writing to the DLQ', async () => {
+            error = new EventDroppedError('purposeful_drop')
+            jest.spyOn(ingester['kafkaProducer'] as any, 'produce').mockImplementation(() => {
+                throw new Error('test')
+            })
+            await expect(ingester.handleKafkaBatch(messages)).rejects.toThrow('test')
+        })
+
+        it('raises for other errors', async () => {
+            error = new Error('test')
+            await expect(ingester.handleKafkaBatch(messages)).rejects.toThrow('test')
         })
     })
 
@@ -464,15 +473,8 @@ describe('IngestionConsumer', () => {
                 'person processing off',
                 () => [createEvent({ event: '$pageview', properties: { $process_person_profile: false } })],
             ],
-            [
-                'client ingestion warning',
-                () => [
-                    createEvent({
-                        event: '$$client_ingestion_warning',
-                        properties: { $$client_ingestion_warning_message: 'test' },
-                    }),
-                ],
-            ],
+            ['bad uuid', () => [createEvent({ uuid: 'WAT' })]],
+            // Handled errors mean we know that it was invalid and are purposefully moving on - everything else is unhandled
         ]
 
         it.each(eventTests)('%s', async (_, createEvents) => {

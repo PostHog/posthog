@@ -175,7 +175,9 @@ export class EventPipelineRunnerV2 {
     private validateUuid(): void {
         // Check for an invalid UUID, which should be blocked by capture, when team_id is present
         if (!UUID.validateString(this.event.uuid, false)) {
-            throw new EventPipelineHandledError(`Not a valid UUID: "${this.event.uuid}"`, 'skipping_event_invalid_uuid')
+            throw new EventDroppedError('dropping_event_invalid_uuid', {
+                message: `Not a valid UUID: "${this.event.uuid}"`,
+            })
         }
     }
 
@@ -200,11 +202,11 @@ export class EventPipelineRunnerV2 {
 
         if (processPersonProfile === false) {
             if (['$identify', '$create_alias', '$merge_dangerously', '$groupidentify'].includes(this.event.event)) {
-                // TODO: Add back in "alwaysSend: true" once we have a way to send events to DLQ
-                throw new EventPipelineHandledError(
-                    `Invalid event when process_person_profile is false: "${this.event.event}"`,
-                    'invalid_event_when_process_person_profile_is_false'
-                )
+                throw new EventDroppedError('invalid_event_when_process_person_profile_is_false', {
+                    message: `Invalid event when process_person_profile is false: "${this.event.event}"`,
+                    // In this case we don't need to store it in the DLQ as this is expected behavior
+                    doNotSendToDLQ: true,
+                })
             }
             // If person processing is disabled, go ahead and remove person related keys before
             // any plugins have a chance to see them.

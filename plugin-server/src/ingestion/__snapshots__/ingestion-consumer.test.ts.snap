@@ -1,6 +1,6 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`IngestionConsumer error handling should handle explicitly non retriable errors by sending to DLQ 1`] = `
+exports[`IngestionConsumer error handling should handled expected error failures such as eventDroppedError and write to the DLQ 1`] = `
 [
   {
     "key": null,
@@ -207,17 +207,29 @@ exports[`IngestionConsumer typical event processing ai event 1`] = `
 ]
 `;
 
-exports[`IngestionConsumer typical event processing client ingestion warning 1`] = `
+exports[`IngestionConsumer typical event processing bad uuid 1`] = `
 [
+  {
+    "key": null,
+    "topic": "events_plugin_ingestion_dlq_test",
+    "value": {
+      "data": "{"distinct_id":"user-1","uuid":"WAT","token":"THIS IS NOT A TOKEN FOR TEAM 2","ip":"127.0.0.1","site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000"}}",
+      "distinct_id": "user-1",
+      "ip": "127.0.0.1",
+      "now": "2025-01-01T00:00:00.000Z",
+      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
+      "uuid": "WAT",
+    },
+  },
   {
     "key": null,
     "topic": "clickhouse_ingestion_warnings_test",
     "value": {
-      "details": "{"eventUuid":"<REPLACED-UUID-0>","event":"$$client_ingestion_warning","distinctId":"user-1","message":"test"}",
+      "details": "{"eventUuid":"WAT","event":"$pageview","distinctId":"user-1"}",
       "source": "plugin-server",
       "team_id": 2,
       "timestamp": "2025-01-01 00:00:00.000",
-      "type": "client_ingestion_warning",
+      "type": "dropping_event_invalid_uuid",
     },
   },
 ]
