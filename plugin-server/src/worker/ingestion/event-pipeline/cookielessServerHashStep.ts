@@ -362,7 +362,7 @@ async function cookielessServerHashStepInner(
         })
 
         const newEvent = { ...event }
-        const newProperties: Properties = { ...event.properties }
+        const newProperties: Properties = { ...event.properties, $distinct_id: undefined }
 
         newProperties['$device_id'] = hashToDistinctId(baseHashValue)
         const identifiesRedisKey = getRedisIdentifiesKey(baseHashValue, teamId)
@@ -403,9 +403,7 @@ async function cookielessServerHashStepInner(
                 hashExtra,
             })
             // event before identify has been called, distinct id is the sentinel and needs to be replaced
-            const distinctId = hashToDistinctId(hashValue)
-            newEvent.distinct_id = distinctId
-            newProperties['$distinct_id'] = distinctId
+            newEvent.distinct_id = hashToDistinctId(hashValue)
         } else {
             const numIdentifies = await hub.db.redisSCard(identifiesRedisKey)
 
