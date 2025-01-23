@@ -248,6 +248,21 @@ class BatchExportSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "team_id", "created_at", "last_updated_at", "latest_runs", "schema"]
 
+    def _validate_destination(self, destination_attrs: dict):
+        destination_type = destination_attrs["type"]
+        if destination_type == BatchExportDestination.Destination.SNOWFLAKE:
+            config = destination_attrs["config"]
+            # for updates, get the existing config
+            if self.instance:
+                existing_config = self.instance.destination.config
+            else:
+                existing_config = {}
+            merged_config = {**existing_config, **config}
+            if config.get("authentication_type") == "password" and merged_config.get("password") is None:
+                raise serializers.ValidationError("Password is required if authentication type is password")
+            if config.get("authentication_type") == "keypair" and merged_config.get("private_key") is None:
+                raise serializers.ValidationError("Private key is required if authentication type is key pair")
+
     def validate(self, attrs: dict) -> dict:
         team = self.context["get_team"]()
         attrs["team"] = team
@@ -259,6 +274,8 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
             if not is_impersonated_session(self.context["request"]):
                 raise serializers.ValidationError("The Data Pipelines addon is required for batch exports.")
+
+        self._validate_destination(attrs["destination"])
 
         return attrs
 
