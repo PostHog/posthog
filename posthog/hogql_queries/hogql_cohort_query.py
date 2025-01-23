@@ -376,7 +376,7 @@ class HogQLCohortQuery:
         return cast(
             ast.SelectQuery,
             parse_select(
-                f"SELECT person_id FROM static_cohort_people WHERE cohort_id = {cohort.pk} AND team_id = {self.team.pk}",
+                f"SELECT person_id as id FROM static_cohort_people WHERE cohort_id = {cohort.pk} AND team_id = {self.team.pk}",
             ),
         )
 
