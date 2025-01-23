@@ -209,7 +209,7 @@ class SimServerClient(SimClient):
         distinct_id: str,
         input_state: Any,
         trace_id: Optional[str] = None,
-    ) -> Generator[str, tuple[str, Callable], None]:
+    ) -> Generator[tuple[str, Callable], None, None]:
         """Capture an AI generation event."""
         trace_id = trace_id or str(uuid4())
         output_state = None

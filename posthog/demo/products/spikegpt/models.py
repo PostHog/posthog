@@ -159,7 +159,7 @@ class SpikeGPTPerson(SimPerson):
                         input=conversation_so_far,
                         output_content=message["content"],
                         latency=generation_time,
-                        trace_id=trace_id,  # type: ignore
+                        trace_id=trace_id,
                     )
                     set_trace_output([*conversation_so_far, message])
                     # Memorizer, which determines what memories to save using tool calling
