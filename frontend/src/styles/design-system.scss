@@ -334,7 +334,12 @@ $primitive-rose: (
         var(--brand-primary-saturation),
         calc(var(--brand-primary-lightness) + 15%)
     );
-    --accent-primary-highlight: hsl(var(--brand-primary-hue), var(--brand-primary-saturation), 96%);
+    --accent-primary-highlight: hsla(
+        var(--brand-primary-hue),
+        var(--brand-primary-saturation),
+        var(--brand-primary-lightness),
+        10%
+    );
     --accent-secondary: hsl(
         var(--brand-secondary-hue),
         var(--brand-secondary-saturation),
@@ -350,7 +355,12 @@ $primitive-rose: (
         var(--brand-secondary-saturation),
         calc(var(--brand-secondary-lightness) + 15%)
     );
-    --accent-secondary-highlight: hsl(var(--brand-secondary-hue), var(--brand-secondary-saturation), 96%);
+    --accent-secondary-highlight: hsla(
+        var(--brand-secondary-hue),
+        var(--brand-secondary-saturation),
+        var(--brand-secondary-lightness),
+        10%
+    );
 
     // Backgrounds
     // Behind surfaces, large areas: app scenes, etc.
@@ -495,7 +505,12 @@ $primitive-rose: (
         var(--brand-primary-saturation),
         calc(var(--brand-primary-lightness) + 15%)
     );
-    --accent-primary-highlight: hsl(var(--brand-primary-hue), var(--brand-primary-saturation), 96%);
+    --accent-primary-highlight: hsla(
+        var(--brand-primary-hue),
+        var(--brand-primary-saturation),
+        var(--brand-primary-lightness),
+        10%
+    );
     --accent-secondary: hsl(
         var(--brand-secondary-hue),
         var(--brand-secondary-saturation),
@@ -511,7 +526,12 @@ $primitive-rose: (
         var(--brand-secondary-saturation),
         calc(var(--brand-secondary-lightness) + 15%)
     );
-    --accent-secondary-highlight: hsl(var(--brand-secondary-hue), var(--brand-secondary-saturation), 96%);
+    --accent-secondary-highlight: hsla(
+        var(--brand-secondary-hue),
+        var(--brand-secondary-saturation),
+        var(--brand-secondary-lightness),
+        10%
+    );
 
     // Backgrounds
     // //////////////////////////////////////////////////////////
