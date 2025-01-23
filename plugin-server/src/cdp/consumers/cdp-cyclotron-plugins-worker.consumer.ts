@@ -1,4 +1,4 @@
-import { Meta, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { Meta, ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
 import { trackedFetch } from '~/src/utils/fetch'
@@ -120,13 +120,24 @@ export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
                 : undefined,
         }
 
-        await plugin.onEvent?.(event, state.meta)
-
-        result.logs.push({
-            level: 'debug',
-            timestamp: DateTime.now(),
-            message: `Plugin ${pluginId} execution successful`,
-        })
+        try {
+            await plugin.onEvent?.(event, state.meta)
+            result.logs.push({
+                level: 'debug',
+                timestamp: DateTime.now(),
+                message: `Plugin ${pluginId} execution successful`,
+            })
+        } catch (e) {
+            if (e instanceof RetryError) {
+                // NOTE: Schedule as a retry to cyclotron?
+            }
+            result.error = e
+            result.logs.push({
+                level: 'error',
+                timestamp: DateTime.now(),
+                message: `Plugin ${pluginId} execution failed`,
+            })
+        }
 
         return result
     }

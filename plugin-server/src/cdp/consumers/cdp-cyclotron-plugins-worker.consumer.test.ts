@@ -127,15 +127,15 @@ describe('CdpCyclotronWorkerPlugins', () => {
                 {
                   "attachments": {},
                   "cache": {},
-                  "config": {},
-                  "fetch": [Function],
-                  "geoip": {},
-                  "global": {
-                    "ignoredEmailDomains": "posthog.com,dev.posthog.com",
+                  "config": {
+                    "ignoredEmailDomains": "dev.posthog.com",
                     "intercomApiKey": "1234567890",
                     "triggeringEvents": "$identify,mycustomevent",
                     "useEuropeanDataStorage": "No",
                   },
+                  "fetch": [Function],
+                  "geoip": {},
+                  "globalwu": {},
                   "jobs": {},
                   "metrics": {},
                   "storage": {},
@@ -212,6 +212,38 @@ describe('CdpCyclotronWorkerPlugins', () => {
                       "Content-Type": "application/json",
                     },
                     "method": "POST",
+                  },
+                ]
+            `)
+        })
+
+        it('should handle and collect errors', async () => {
+            jest.spyOn(PLUGINS_BY_ID['intercom'], 'onEvent')
+
+            const invocation = createInvocation(fn, globals)
+            invocation.globals.event.event = 'mycustomevent'
+            invocation.globals.event.properties = {
+                email: 'test@posthog.com',
+            }
+
+            mockFetch.mockRejectedValue(new Error('Test error'))
+
+            const res = await processor.executePluginInvocation(invocation)
+
+            expect(PLUGINS_BY_ID['intercom'].onEvent).toHaveBeenCalledTimes(1)
+
+            expect(res.error).toBeInstanceOf(Error)
+            expect(forSnapshot(res.logs)).toMatchInlineSnapshot(`
+                [
+                  {
+                    "level": "debug",
+                    "message": "Executing plugin intercom",
+                    "timestamp": "2025-01-01T01:00:00.000+01:00",
+                  },
+                  {
+                    "level": "error",
+                    "message": "Plugin intercom execution failed",
+                    "timestamp": "2025-01-01T01:00:00.000+01:00",
                   },
                 ]
             `)
