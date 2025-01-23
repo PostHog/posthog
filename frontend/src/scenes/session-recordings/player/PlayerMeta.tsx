@@ -65,19 +65,43 @@ function URLOrScreen({ lastUrl }: { lastUrl: string | undefined }): JSX.Element 
     )
 }
 
+function ResolutionView({ isCompact }: { isCompact: boolean }): JSX.Element {
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+
+    const { resolution, scale, loading } = useValues(playerMetaLogic(logicProps))
+
+    return loading ? (
+        <LemonSkeleton className="w-1/3 h-4" />
+    ) : (
+        <Tooltip
+            placement="bottom"
+            title={
+                <>
+                    The resolution of the page as it was captured was{' '}
+                    <b>
+                        {resolution?.width || '??'} x {resolution?.height || '??'}
+                    </b>
+                    <br />
+                    You are viewing the replay at <b>{percentage(scale, 1, true)}</b> of the original size
+                </>
+            }
+        >
+            <span className="text-muted-alt text-xs">
+                <>
+                    {resolution?.width || '??'} x {resolution?.height || '??'}{' '}
+                    {!isCompact && `(${percentage(scale, 1, true)})`}
+                </>
+            </span>
+        </Tooltip>
+    )
+}
+
 export function PlayerMeta({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
     const { logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
 
-    const {
-        windowIds,
-        trackedWindow,
-        resolution,
-        lastPageviewEvent,
-        lastUrl,
-        scale,
-        currentWindowIndex,
-        sessionPlayerMetaDataLoading,
-    } = useValues(playerMetaLogic(logicProps))
+    const { windowIds, trackedWindow, lastPageviewEvent, lastUrl, currentWindowIndex, loading } = useValues(
+        playerMetaLogic(logicProps)
+    )
 
     const { setTrackedWindow } = useActions(playerMetaLogic(logicProps))
 
@@ -90,32 +114,6 @@ export function PlayerMeta({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
     const whitelabel = getCurrentExporterData()?.whitelabel ?? false
-
-    const resolutionView = sessionPlayerMetaDataLoading ? (
-        <LemonSkeleton className="w-1/3 h-4" />
-    ) : resolution ? (
-        <Tooltip
-            placement="bottom"
-            title={
-                <>
-                    The resolution of the page as it was captured was{' '}
-                    <b>
-                        {resolution.width} x {resolution.height}
-                    </b>
-                    <br />
-                    You are viewing the replay at <b>{percentage(scale, 1, true)}</b> of the original size
-                </>
-            }
-        >
-            <span className="text-muted-alt text-xs">
-                {resolution && (
-                    <>
-                        {resolution.width} x {resolution.height} {!isSmallPlayer && `(${percentage(scale, 1, true)})`}
-                    </>
-                )}
-            </span>
-        </Tooltip>
-    ) : null
 
     if (mode === SessionRecordingPlayerMode.Sharing) {
         if (whitelabel) {
@@ -131,7 +129,7 @@ export function PlayerMeta({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
                             </Link>
                         </Tooltip>
                     ) : null}
-                    {resolutionView}
+                    <ResolutionView isCompact={isSmallPlayer} />
                 </div>
             </div>
         )
@@ -165,7 +163,7 @@ export function PlayerMeta({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
                 })}
             >
                 <div className="flex items-center justify-between gap-1 whitespace-nowrap overflow-hidden px-1 py-0.5 text-xs">
-                    {sessionPlayerMetaDataLoading ? (
+                    {loading ? (
                         <LemonSkeleton className="w-1/3 h-4 my-1" />
                     ) : (
                         <>
@@ -190,7 +188,7 @@ export function PlayerMeta({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
                     )}
                     <div className={clsx('flex-1', isSmallPlayer ? 'min-w-[1rem]' : 'min-w-[5rem]')} />
                     <PlayerMetaLinks iconsOnly={iconsOnly} />
-                    {resolutionView}
+                    <ResolutionView isCompact={isSmallPlayer} />
                 </div>
             </div>
         </DraggableToNotebook>

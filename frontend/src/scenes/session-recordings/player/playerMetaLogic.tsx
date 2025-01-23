@@ -61,7 +61,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 'sessionPlayerData',
                 'sessionEventsData',
                 'sessionPlayerMetaData',
-                'sessionPlayerMetaDataLoading',
+                'fullyLoaded',
                 'windowIds',
                 'trackedWindow',
             ],
@@ -105,9 +105,8 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
     })),
     selectors(() => ({
         loading: [
-            (s) => [s.sessionPlayerMetaDataLoading, s.recordingPropertiesLoading],
-            (sessionPlayerMetaDataLoading, recordingPropertiesLoading) =>
-                sessionPlayerMetaDataLoading || recordingPropertiesLoading,
+            (s) => [s.fullyLoaded, s.recordingPropertiesLoading],
+            (fullyLoaded, recordingPropertiesLoading) => fullyLoaded || recordingPropertiesLoading,
         ],
         sessionPerson: [
             (s) => [s.sessionPlayerData],
