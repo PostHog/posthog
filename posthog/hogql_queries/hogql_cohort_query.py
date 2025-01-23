@@ -12,6 +12,7 @@ from posthog.hogql.printer import print_ast
 from posthog.hogql.property import get_property_type
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Filter, Cohort, Team, Property
 from posthog.models.property import PropertyGroup
 from posthog.queries.foss_cohort_query import (
@@ -22,6 +23,7 @@ from posthog.queries.foss_cohort_query import (
 )
 from posthog.schema import (
     ActorsQuery,
+    EventsQuery,
     InsightActorsQuery,
     TrendsQuery,
     DateRange,
@@ -154,7 +156,7 @@ class HogQLCohortQuery:
 
         return self._actors_query_from_source(InsightActorsQuery(source=trends_query))
 
-    def get_performed_event_multiple(self, prop: Property) -> ast.SelectQuery:
+    def get_performed_event_multiple_old(self, prop: Property) -> ast.SelectQuery:
         count = parse_and_validate_positive_integer(prop.operator_value, "operator_value")
         # either an action or an event
         series: list[Union[EventsNode, ActionsNode]]
@@ -209,6 +211,51 @@ class HogQLCohortQuery:
         )
         return self._actors_query_from_source(
             FunnelsActorsQuery(source=funnel_query, funnelStep=funnelStep, funnelCustomSteps=funnelCustomSteps)
+        )
+
+    def get_performed_event_multiple(self, prop: Property) -> ast.SelectQuery:
+        count = parse_and_validate_positive_integer(prop.operator_value, "operator_value")
+
+        if prop.explicit_datetime:
+            date_from = prop.explicit_datetime
+        else:
+            date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
+            date_interval = validate_interval(prop.time_interval)
+            date_from = f"-{date_value}{date_interval[:1]}"
+
+        events_query = EventsQuery(after=date_from, select=["person_id", "count()"])
+        if prop.event_type == "events":
+            events_query.event = prop.key
+        elif prop.event_type == "actions":
+            events_query.actionId = int(prop.key)
+        else:
+            raise ValueError(f"Event type must be 'events' or 'actions'")
+
+        if prop.operator == "gte":
+            events_query.where = [f"count() >= {count}"]
+        elif prop.operator == "lte":
+            events_query.where = [f"count() <= {count}"]
+        elif prop.operator == "gt":
+            events_query.where = [f"count() > {count}"]
+        elif prop.operator == "lt":
+            events_query.where = [f"count() < {count}"]
+        elif prop.operator == "eq" or prop.operator == "exact" or prop.operator is None:  # type: ignore[comparison-overlap]
+            events_query.where = [f"count() = {count}"]
+        else:
+            raise ValidationError("count_operator must be gt(e), lt(e), exact, or None")
+
+        if prop.event_filters:
+            property_groups = Filter(data={"properties": prop.event_filters}).property_groups
+            typed_properties: list[AnyPropertyFilter] = []
+            for property in property_groups.values:
+                if isinstance(property, PropertyGroup):
+                    raise ValidationError("Property groups are not supported in this behavioral cohort type")
+                typed_properties.append(property_to_typed_property(property))
+            events_query.properties = typed_properties
+
+        events_query_runner = EventsQueryRunner(team=self.team, query=events_query)
+        return parse_select(
+            "select person_id as id from {event_query}", {"event_query": events_query_runner.to_query()}
         )
 
     def get_performed_event_sequence(self, prop: Property) -> ast.SelectQuery:
@@ -459,9 +506,9 @@ class HogQLCohortQuery:
                         subsequent_select_queries=[
                             SelectSetNode(
                                 select_query=query,
-                                set_operator="UNION DISTINCT"
-                                if all_negated
-                                else ("EXCEPT" if negation else "INTERSECT"),
+                                set_operator=(
+                                    "UNION DISTINCT" if all_negated else ("EXCEPT" if negation else "INTERSECT")
+                                ),
                             )
                             for (query, negation) in queries[1:]
                         ],
