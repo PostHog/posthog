@@ -13,7 +13,8 @@ import {
     sharedListeners,
 } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { DashboardPrivilegeLevel, FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
@@ -261,6 +262,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         }),
         resetVariables: () => ({ variables: values.insightVariables }),
         setAccessDeniedToDashboard: true,
+        setURLVariables: (variables: Record<string, Partial<HogQLVariable>>) => ({ variables }),
     })),
 
     loaders(({ actions, props, values }) => ({
@@ -493,6 +495,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                               ...(payload?.action === 'preview' ? {} : dashboard.variables ?? {}),
                           }
                         : state,
+            },
+        ],
+        maybeUrlVariables: [
+            {} as Record<string, Partial<HogQLVariable>>,
+            {
+                setURLVariables: (state, { variables }) => ({
+                    ...state,
+                    ...variables,
+                }),
             },
         ],
         insightVariables: [
@@ -1479,6 +1490,51 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
 
+    subscriptions(({ values, actions }) => ({
+        variables: (variables) => {
+            // try to convert url variables to variables
+            const urlVariables = values.maybeUrlVariables
+            const overrideVariables = []
+
+            for (const [key, value] of Object.entries(urlVariables)) {
+                const variable = variables.find((variable: HogQLVariable) => variable.code_name === key)
+                if (variable) {
+                    overrideVariables.push({ ...variable, value })
+                }
+            }
+
+            overrideVariables.forEach((variable) => {
+                actions.overrideVariableValue(variable.id, variable.value)
+            })
+        },
+    })),
+
+    actionToUrl(({ values }) => ({
+        overrideVariableValue: ({ variableId, value, allVariables }) => {
+            const { currentLocation } = router.values
+
+            const currentVariable = allVariables.find((variable: HogQLVariable) => variable.id === variableId)
+
+            if (!currentVariable) {
+                return [currentLocation.pathname, currentLocation.searchParams, currentLocation.hashParams]
+            }
+
+            const newUrlVariables = {
+                ...values.maybeUrlVariables,
+                [currentVariable.code_name]: value,
+            }
+
+            return [
+                currentLocation.pathname,
+                {
+                    ...currentLocation.searchParams,
+                    ...newUrlVariables,
+                },
+                currentLocation.hashParams,
+            ]
+        },
+    })),
+
     urlToAction(({ values, actions }) => ({
         '/dashboard/:id/subscriptions(/:subscriptionId)': ({ subscriptionId }) => {
             const id = subscriptionId
@@ -1491,7 +1547,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.setDashboardMode(null, null)
         },
 
-        '/dashboard/:id': () => {
+        '/dashboard/:id': (_, searchParams) => {
+            if (values.featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES]) {
+                actions.setURLVariables(searchParams)
+            }
             actions.setSubscriptionMode(false, undefined)
             actions.setTextTileId(null)
             if (values.dashboardMode === DashboardMode.Sharing) {
