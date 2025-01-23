@@ -1046,6 +1046,7 @@ def handle_feature_flag_exception(err: Exception, log_message: str = "", set_hea
     # DataErrors are generally not because the db is down, but because of bad data.
     # We don't want to set the healthcheck down for bad data.
     if not isinstance(err, DataError) and isinstance(err, DatabaseError) and set_healthcheck:
+        logger.info(f"Setting postgres healthcheck down due to database error: {err}")
         postgres_healthcheck.set_connection(False)
 
 
