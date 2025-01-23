@@ -170,8 +170,8 @@ def clean_varying_query_parts(query, replace_all_numbers):
     if "equals(argMax(person_distinct_id_overrides.is_deleted" in query or "INSERT INTO cohortpeople" in query:
         # those tests have multiple varying dates like toDateTime64('2025-01-08 00:00:00.000000', 6, 'UTC')
         query = re.sub(
-            r"toDateTime64\('20\d\d-\d\d-\d\d \d\d:\d\d:\d\d.\d+', 6, 'UTC'\)",
-            "toDateTime64('explicit_redacted_timestamp', 6, 'UTC')",
+            r"toDateTime64\('20\d\d-\d\d-\d\d \d\d:\d\d:\d\d(.\d+)', 6, 'UTC'\)",
+            r"toDateTime64('explicit_redacted_timestamp\1', 6, 'UTC')",
             query,
         )
     # replace cohort generated conditions
