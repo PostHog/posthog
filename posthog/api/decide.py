@@ -39,6 +39,8 @@ from posthog.utils import (
 )
 from posthog.utils_cors import cors_response
 
+logger = structlog.get_logger(__name__)
+
 FLAG_EVALUATION_COUNTER = Counter(
     "flag_evaluation_total",
     "Successful decide requests per team.",
@@ -248,7 +250,15 @@ def get_decide(request: HttpRequest):
             )
         team = user.teams.get(id=project_id)
 
+    is_request_sampled_for_logging = random() < settings.DECIDE_REQUEST_LOGGING_SAMPLING_RATE
     if team:
+        if is_request_sampled_for_logging:
+            logger.info(
+                "DECIDE_REQUEST_STARTED",
+                team_id=team.id,
+                distinct_id=data.get("distinct_id", None),
+            )
+
         if team.id in settings.DECIDE_SHORT_CIRCUITED_TEAM_IDS:
             return cors_response(
                 request,
@@ -325,6 +335,15 @@ def get_decide(request: HttpRequest):
                 errors_computing=errors,
                 has_hash_key_override=bool(data.get("$anon_distinct_id")),
             ).inc()
+
+            if is_request_sampled_for_logging:
+                logger.info(
+                    "DECIDE_REQUEST_SUCCEEDED",
+                    team_id=team.id,
+                    distinct_id=distinct_id,
+                    errors_while_computing=errors or False,
+                    has_hash_key_override=bool(data.get("$anon_distinct_id")),
+                )
         else:
             flags_response["featureFlags"] = {}
 

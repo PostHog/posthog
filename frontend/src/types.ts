@@ -167,6 +167,7 @@ export enum AvailableFeature {
     AUTOMATIC_PROVISIONING = 'automatic_provisioning',
     MANAGED_REVERSE_PROXY = 'managed_reverse_proxy',
     ALERTS = 'alerts',
+    DATA_COLOR_THEMES = 'data_color_themes',
 }
 
 type AvailableFeatureUnion = `${AvailableFeature}`
@@ -237,6 +238,15 @@ export interface ColumnConfig {
 
 export type WithAccessControl = {
     user_access_level: 'none' | 'member' | 'admin' | 'viewer' | 'editor'
+}
+
+export enum AccessControlResourceType {
+    Project = 'project',
+    Organization = 'organization',
+    FeatureFlag = 'feature_flag',
+    Insight = 'insight',
+    Dashboard = 'dashboard',
+    Notebook = 'notebook',
 }
 
 interface UserBaseType {
@@ -4157,6 +4167,7 @@ export interface IncrementalField {
 
 export interface ExternalDataSourceSyncSchema {
     table: string
+    rows?: number | null
     should_sync: boolean
     incremental_field: string | null
     incremental_field_type: string | null
