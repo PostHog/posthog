@@ -3,7 +3,7 @@ from django.utils import timezone
 import re
 from django.core.exceptions import ValidationError
 
-from posthog.models.utils import UUIDModel, CreatedMetaFields, DeletedMetaFields
+from posthog.models.utils import UUIDModel, CreatedMetaFields
 
 
 def validate_folder_name(value):
@@ -14,7 +14,7 @@ def validate_folder_name(value):
         )
 
 
-class DataWarehouseFolder(UUIDModel, CreatedMetaFields, DeletedMetaFields):
+class DataWarehouseFolder(UUIDModel, CreatedMetaFields):
     name = models.CharField(max_length=255, validators=[validate_folder_name])
     items = models.JSONField(default=list)
     parent = models.ForeignKey("self", on_delete=models.CASCADE, null=True, blank=True, related_name="children")

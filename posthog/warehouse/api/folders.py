@@ -59,11 +59,7 @@ class DataWarehouseFolderViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return context
 
     def safely_get_queryset(self, queryset):
-        return queryset.exclude(deleted=True).order_by("name")
+        return queryset.order_by("name")
 
     def perform_create(self, serializer):
         serializer.save(team_id=self.team_id, created_by=self.request.user)
-
-    def perform_destroy(self, instance):
-        instance.deleted = True
-        instance.save()

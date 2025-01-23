@@ -90,8 +90,8 @@ class TestDataWarehouseFolderAPI(APIBaseTest):
         response = self.client.delete(f"{self.base_url}{folder.id}/")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-        folder.refresh_from_db()
-        self.assertTrue(folder.deleted)
+        with self.assertRaises(DataWarehouseFolder.DoesNotExist):
+            DataWarehouseFolder.objects.get(id=folder.id)
 
     def test_cannot_access_other_team_folders(self):
         other_team = self.create_team_with_organization(organization=self.organization)
