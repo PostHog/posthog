@@ -209,9 +209,9 @@ export class DB {
                 throw new RedisOperationError('Failed to acquire redis client from pool', error)
             }
 
-            // Don't use a single try/catch/finally for this, are there are 2 potential errors that could be thrown
+            // Don't use a single try/catch/finally for this, as there are 2 potential errors that could be thrown
             // (error and cleanup) and we want to be explicit about which one we choose, rather than relying on
-            // "what happens when you throw in a finally block"
+            // "what happens when you throw in a finally block".
             // We explicitly want to throw the error from the operation if there is one, prioritising it over any errors
             // from the cleanup
             let operationResult: { value: T } | { error: Error }
