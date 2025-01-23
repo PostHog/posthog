@@ -2,15 +2,15 @@ import { Meta, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
 import { PLUGINS_BY_ID } from '../legacy-plugins/manager'
+import { FetchType, MetaWithFetch } from '../legacy-plugins/types'
 import { HogFunctionInvocation, HogFunctionInvocationResult, HogFunctionTypeType } from '../types'
 import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 
 type PluginState = {
     setupPromise: Promise<any>
+    errored: boolean
     meta: Meta
 }
-
-const PLUGIN_STATE: Record<string, PluginState> = {}
 
 /**
  * NOTE: This is a consumer to take care of legacy plugins.
@@ -20,11 +20,18 @@ export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
     protected queue = 'plugins' as const
     protected hogTypes: HogFunctionTypeType[] = ['destination']
 
+    private pluginState: Record<string, PluginState> = {}
+
     public async processInvocations(invocations: HogFunctionInvocation[]): Promise<HogFunctionInvocationResult[]> {
         return await this.runManyWithHeartbeat(invocations, (item) => this.executePluginInvocation(item))
     }
 
-    private async executePluginInvocation(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult> {
+    public fetch(...args: Parameters<FetchType>) {
+        // TOOD: THis better
+        return this.fetchExecutor.fetch(...args)
+    }
+
+    public async executePluginInvocation(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult> {
         const result: HogFunctionInvocationResult = {
             invocation,
             finished: true,
@@ -33,17 +40,17 @@ export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
         }
 
         const pluginId = invocation.hogFunction.template_id?.startsWith('plugin-')
-            ? invocation.hogFunction.template_id
-            : `plugin-${invocation.hogFunction.template_id}`
+            ? invocation.hogFunction.template_id.replace('plugin-', '')
+            : null
 
         result.logs.push({
             level: 'debug',
             timestamp: DateTime.now(),
             message: `Executing plugin ${pluginId}`,
         })
-        const plugin = PLUGINS_BY_ID[pluginId]
+        const plugin = pluginId ? PLUGINS_BY_ID[pluginId] : null
 
-        if (!plugin) {
+        if (!plugin || !pluginId) {
             result.error = new Error(`Plugin ${pluginId} not found`)
             result.logs.push({
                 level: 'error',
@@ -53,9 +60,43 @@ export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
             return result
         }
 
-        // Convert the invocation into the right interface for the plugin
+        let state = this.pluginState[pluginId]
 
-        const inputs = invocation.globals.inputs
+        if (!state) {
+            const meta: MetaWithFetch = {
+                global: invocation.globals.inputs,
+                attachments: {},
+                config: {},
+                jobs: {},
+                metrics: {},
+                cache: {} as any,
+                storage: {} as any, // NOTE: Figuree out what to do about storage as that is used...
+                geoip: {} as any,
+                utils: {} as any,
+                fetch: this.fetch,
+            }
+
+            state = this.pluginState[pluginId] = {
+                setupPromise: plugin.setupPlugin?.(meta) ?? Promise.resolve(),
+                meta,
+                errored: false,
+            }
+        }
+
+        try {
+            await state.setupPromise
+        } catch (e) {
+            state.errored = true
+            result.error = e
+            result.logs.push({
+                level: 'error',
+                timestamp: DateTime.now(),
+                message: `Plugin ${pluginId} setup failed`,
+            })
+            return result
+        }
+
+        // Convert the invocation into the right interface for the plugin
 
         const event: ProcessedPluginEvent = {
             distinct_id: invocation.globals.event.distinct_id,
@@ -77,32 +118,12 @@ export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
                 : undefined,
         }
 
-        let state = PLUGIN_STATE[pluginId]
+        await plugin.onEvent?.(event, state.meta)
 
-        if (!state) {
-            const meta: Meta = {
-                global: inputs,
-                attachments: {},
-                config: {},
-                jobs: {},
-                metrics: {},
-                cache: {} as any,
-                storage: {} as any, // NOTE: Figuree out what to do about storage as that is used...
-                geoip: {} as any,
-                utils: {} as any,
-            }
-
-            state = PLUGIN_STATE[pluginId] = {
-                setupPromise: plugin.setupPlugin?.(meta) ?? Promise.resolve(),
-                meta,
-            }
-        }
-
-        await state.setupPromise
-
-        await plugin.onEvent?.(event, {
-            ...state.meta,
-            global: inputs,
+        result.logs.push({
+            level: 'debug',
+            timestamp: DateTime.now(),
+            message: `Plugin ${pluginId} execution successful`,
         })
 
         return result
