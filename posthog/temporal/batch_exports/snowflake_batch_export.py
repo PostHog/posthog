@@ -6,6 +6,7 @@ import datetime as dt
 import functools
 import io
 import json
+import tempfile
 import typing
 
 import pyarrow as pa
@@ -66,6 +67,8 @@ NON_RETRYABLE_ERROR_TYPES = [
     "SnowflakeConnectionError",
     # Raised when a table is not found in Snowflake.
     "SnowflakeTableNotFoundError",
+    # Raised when a using key-pair auth and the private key is not valid.
+    "SnowflakeInvalidPrivateKeyError",
 ]
 
 
@@ -106,6 +109,13 @@ class SnowflakeTableNotFoundError(Exception):
         super().__init__(f"Table '{table_name}' not found in Snowflake")
 
 
+class SnowflakeInvalidPrivateKeyError(Exception):
+    """Raised when a private key is not valid."""
+
+    def __init__(self, message: str):
+        super().__init__(f"Invalid private key: {message}")
+
+
 @dataclasses.dataclass
 class SnowflakeHeartbeatDetails(BatchExportRangeHeartbeatDetails):
     """The Snowflake batch export details included in every heartbeat."""
@@ -123,7 +133,6 @@ class SnowflakeInsertInputs:
 
     team_id: int
     user: str
-    password: str
     account: str
     database: str
     warehouse: str
@@ -131,6 +140,10 @@ class SnowflakeInsertInputs:
     table_name: str
     data_interval_start: str | None
     data_interval_end: str
+    authentication_type: str = "password"
+    password: str | None = None
+    private_key: str | None = None
+    private_key_passphrase: str | None = None
     role: str | None = None
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
@@ -147,28 +160,70 @@ class SnowflakeClient:
     """Snowflake connection client used in batch exports."""
 
     def __init__(
-        self, user: str, password: str, account: str, warehouse: str, database: str, schema: str, role: str | None
+        self,
+        user: str,
+        account: str,
+        warehouse: str,
+        database: str,
+        schema: str,
+        role: str | None = None,
+        password: str | None = None,
+        private_key_file: str | None = None,
+        private_key_file_pwd: bytes | None = None,
     ):
+        if password is None and private_key_file is None:
+            raise ValueError("Either password or private key must be provided")
+
+        self.role = role
         self.user = user
         self.password = password
+        self.private_key_file = private_key_file
+        self.private_key_file_pwd = private_key_file_pwd
         self.account = account
         self.warehouse = warehouse
         self.database = database
         self.schema = schema
-        self.role = role
         self._connection: SnowflakeConnection | None = None
 
     @classmethod
     def from_inputs(cls, inputs: SnowflakeInsertInputs) -> typing.Self:
         """Initialize `SnowflakeClient` from `SnowflakeInsertInputs`."""
+
+        # User could have specified both password and private key in their batch export config.
+        # (for example, if they've already created a batch export with password auth and are now switching to keypair auth)
+        # Therefore we decide which one to use based on the authentication_type.
+        password = None
+        private_key_file_path = None
+        private_key_file_pwd = None
+        if inputs.authentication_type == "password":
+            password = inputs.password
+            if password is None:
+                raise ValueError("Password is required for password authentication")
+        elif inputs.authentication_type == "keypair":
+            if inputs.private_key is None:
+                raise ValueError("Private key is required for keypair authentication")
+
+            with tempfile.NamedTemporaryFile(mode="w", delete=False) as private_key_file:
+                private_key_file.write(inputs.private_key)
+                private_key_file.flush()
+                private_key_file_path = private_key_file.name
+
+            private_key_file_pwd = None
+            if inputs.private_key_passphrase:
+                private_key_file_pwd = inputs.private_key_passphrase.encode()
+        else:
+            raise ValueError(f"Invalid authentication type: {inputs.authentication_type}")
+
         return cls(
             user=inputs.user,
-            password=inputs.password,
             account=inputs.account,
             warehouse=inputs.warehouse,
             database=inputs.database,
             schema=inputs.schema,
             role=inputs.role,
+            password=password,
+            private_key_file=private_key_file_path,
+            private_key_file_pwd=private_key_file_pwd,
         )
 
     @property
@@ -194,6 +249,8 @@ class SnowflakeClient:
                 database=self.database,
                 schema=self.schema,
                 role=self.role,
+                private_key_file=self.private_key_file,
+                private_key_file_pwd=self.private_key_file_pwd,
             )
 
         except OperationalError as err:
@@ -850,8 +907,11 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
         insert_inputs = SnowflakeInsertInputs(
             team_id=inputs.team_id,
             user=inputs.user,
-            password=inputs.password,
             account=inputs.account,
+            authentication_type=inputs.authentication_type,
+            password=inputs.password,
+            private_key=inputs.private_key,
+            private_key_passphrase=inputs.private_key_passphrase,
             warehouse=inputs.warehouse,
             database=inputs.database,
             schema=inputs.schema,
