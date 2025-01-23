@@ -112,8 +112,8 @@ function TraceSidebar({ trace, eventId }: { trace: LLMTrace; eventId?: string | 
                                     timestamp: removeMilliseconds(trace.createdAt),
                                 })}
                                 className={classNames(
-                                    'flex flex-col gap-1 p-2 text-xs hover:bg-primary-highlight',
-                                    eventSelected && 'bg-primary-highlight'
+                                    'flex flex-col gap-1 p-2 text-xs hover:bg-accent-primary-highlight',
+                                    eventSelected && 'bg-accent-primary-highlight'
                                 )}
                             >
                                 <div className="flex flex-row flex-wrap items-center">

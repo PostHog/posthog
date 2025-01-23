@@ -17,7 +17,8 @@ $colors: (
     'warning-highlight': rgba(#f7a501, 0.1),
     'warning': #f7a501,
     'warning-dark': #e09423,
-    'highlight': #e49f2c,
+    'highlight': var(--accent-primary),
+    // #e49f2c, //TODO: remove this
     'success-highlight': rgba(#388600, 0.1),
     'success-light': #5f9d32,
     'success': #388600,
@@ -33,7 +34,8 @@ $colors: (
     'border-light': rgb(0 0 0 / 8%),
     'border-bold': rgb(0 0 0 / 24%),
     'transparent': transparent,
-    'link': var(--primary-3000),
+    'link': var(--accent-primary),
+    // #f54e00, //TODO: remove this
     // Colors of the PostHog logo
     'brand-blue': #1d4aff,
     'brand-red': #f54e00,
@@ -45,11 +47,13 @@ $colors: (
     'text-secondary-3000-light': rgba(#111, 0.7),
     'muted-3000-light': rgba(#111, 0.6),
     'trace-3000-light': rgba(#111, 0.25),
-    'primary-3000-light': #f54e01,
+    'primary-3000-light': var(--accent-primary),
+    // #f54e01,
     'primary-highlight-light': rgba(#f54e01, 0.1),
-    'primary-3000-hover-light': #f54e01,
-    'primary-3000-active-light': #f54e01,
-
+    'primary-3000-hover-light': var(--accent-primary-hover),
+    // #f54e01, //TODO: remove this
+    'primary-3000-active-light': var(--accent-primary-active),
+    // #f54e01, //TODO: remove this
     'secondary-3000-light': rgba(#cfd1c2, 0.6),
     'secondary-3000-hover-light': #cfd1c2,
     'accent-3000-light': #eeefe9,
@@ -59,7 +63,8 @@ $colors: (
     'glass-bg-3000-light': #e4e5deb3,
     'glass-border-3000-light': #e4e5de,
 
-    'link-3000-light': #f54e00,
+    'link-3000-light': var(--accent-primary),
+    // #f54e00, //TODO: remove this
     'primary-3000-frame-bg-light': #eb9d2a,
     'primary-3000-button-bg-light': #fff,
     'primary-3000-button-border-light': #b17816,
@@ -82,8 +87,10 @@ $colors: (
     'trace-3000-dark': rgba(#fff, 0.25),
     'primary-3000-dark': #f7a503,
     'primary-highlight-dark': rgba(#f7a503, 0.1),
-    'primary-3000-hover-dark': #f7a503,
-    'primary-3000-active-dark': #f7a503,
+    'primary-3000-hover-dark': var(--accent-primary-hover),
+    // #f7a503, //TODO: remove this
+    'primary-3000-active-dark': var(--accent-primary-active),
+    // #f7a503, //TODO: remove this
     'primary-alt-highlight-light': #e5e7e0,
 
     'secondary-3000-dark': #1d1f27,
@@ -94,8 +101,8 @@ $colors: (
     'border-bold-3000-dark': #3f4046,
     'glass-bg-3000-dark': #24262a99,
     'glass-border-3000-dark': var(--border-3000-dark),
-    'link-3000-dark': #f1a82c,
-
+    'link-3000-dark': var(--accent-primary),
+    // #f1a82c,
     'primary-3000-frame-bg-dark': #926826,
     'primary-3000-button-bg-dark': #e0a045,
     'primary-3000-button-border-dark': #b17816,
@@ -117,7 +124,7 @@ $colors: (
     'text-3000': var(--text-3000),
     'text-secondary-3000': var(--text-secondary-3000),
     'muted-3000': var(--muted-3000),
-    'primary-3000': var(--primary-3000),
+    'primary-3000': var(--accent-primary),
     'secondary-3000': var(--secondary-3000),
     'secondary-3000-hover': var(--secondary-3000-hover),
     'accent-3000': var(--accent-3000),
@@ -221,7 +228,7 @@ $_lifecycle_dormant: map.get($colors, 'danger');
     // which means they aren't available in the toolbar
     --toastify-color-dark: var(--accent-3000-dark);
     --toastify-color-light: var(--bg-light);
-    --toastify-color-info: var(--primary);
+    --toastify-color-info: var(--accent-primary);
     --toastify-color-success: var(--success);
     --toastify-color-warning: var(--warning);
     --toastify-color-error: var(--danger);
@@ -280,10 +287,10 @@ $_lifecycle_dormant: map.get($colors, 'danger');
     --text-secondary-3000: var(--text-secondary-3000-light);
     --muted-3000: var(--muted-3000-light);
     --trace-3000: var(--trace-3000-light);
-    --primary-3000: var(--primary-3000-light);
-    --primary-highlight: var(--primary-highlight-light);
-    --primary-3000-hover: var(--primary-3000-hover-light);
-    --primary-3000-active: var(--primary-3000-active-light);
+    --primary-3000: var(--accent-primary); // var(--primary-3000-light); // TODO: remove this
+    --primary-highlight: var(--accent-primary-highlight); // var(--primary-highlight-light); // TODO: remove this
+    --primary-3000-hover: var(--accent-primary-hover); // var(--primary-3000-hover-light); // TODO: remove this
+    --primary-3000-active: var(--accent-primary-active); // var(--primary-3000-active-light); // TODO: remove this
     --secondary-3000: var(--secondary-3000-light);
     --secondary-3000-hover: var(--secondary-3000-hover-light);
     --accent-3000: var(--accent-3000-light);
@@ -318,10 +325,10 @@ $_lifecycle_dormant: map.get($colors, 'danger');
     --text-secondary-3000: var(--text-secondary-3000-dark);
     --muted-3000: var(--muted-3000-dark);
     --trace-3000: var(--trace-3000-dark);
-    --primary-3000: var(--primary-3000-dark);
-    --primary-highlight: var(--primary-highlight-dark);
-    --primary-3000-hover: var(--primary-3000-hover-dark);
-    --primary-3000-active: var(--primary-3000-active-dark);
+    --primary-3000: var(--accent-primary); // var(--primary-3000-dark); // TODO: remove this
+    --primary-highlight: var(--accent-primary-highlight); // var(--primary-highlight-dark); // TODO: remove this
+    --primary-3000-hover: var(--accent-primary-hover); // var(--primary-3000-hover-dark); // TODO: remove this
+    --primary-3000-active: var(--accent-primary-active); // var(--primary-3000-active-dark); // TODO: remove this
     --secondary-3000: var(--secondary-3000-dark);
     --secondary-3000-hover: var(--secondary-3000-hover-dark);
     --accent-3000: var(--accent-3000-dark);
@@ -359,7 +366,7 @@ $_lifecycle_dormant: map.get($colors, 'danger');
 
 // defined here so that they can be shared with the toolbar
 @mixin common-variables {
-    --primary: var(--primary-3000);
+    --primary: var(--primary-3000); // Changed to accent-primary
     --muted: var(--muted-3000);
     --default: var(--text-3000);
 

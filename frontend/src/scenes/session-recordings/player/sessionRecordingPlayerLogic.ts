@@ -85,6 +85,7 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataLo
     matchingEventsMatchType?: MatchingEventsMatchType
     playlistLogic?: BuiltLogic<sessionRecordingsPlaylistLogicType>
     autoPlay?: boolean
+    noInspector?: boolean
     mode?: SessionRecordingPlayerMode
     playerRef?: RefObject<HTMLDivElement>
     pinned?: boolean
