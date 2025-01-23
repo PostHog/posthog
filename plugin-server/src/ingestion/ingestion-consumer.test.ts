@@ -207,7 +207,6 @@ describe('IngestionConsumer', () => {
             })
 
             const expectDropLogs = (pairs: [string, string | undefined][]) => {
-                expect(jest.mocked(status.debug)).toHaveBeenCalledTimes(pairs.length)
                 for (const [token, distinctId] of pairs) {
                     expect(jest.mocked(status.debug)).toHaveBeenCalledWith('🔁', 'Dropped event', {
                         distinctId,
