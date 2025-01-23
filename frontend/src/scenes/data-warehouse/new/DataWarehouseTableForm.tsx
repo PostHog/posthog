@@ -82,15 +82,6 @@ export function DatawarehouseTableForm(): JSX.Element {
                     />
                 </LemonField>
                 <div className="text-muted text-xs mb-4">
-                    {provider === 'google-cloud' && (
-                        <div className="mb-1">
-                            Google Cloud links must start with <strong>https://storage.googleapis.com</strong> to be
-                            interoperable across blob storage providers. Learn more{' '}
-                            <Link target="_new" to="https://cloud.google.com/storage/docs/interoperability">
-                                here
-                            </Link>
-                        </div>
-                    )}
                     You can use <strong>*</strong> to select multiple files.
                 </div>
                 <LemonField name="format" label="File format" className="w-max mb-4">
