@@ -40,7 +40,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
     path(['scenes', 'data-warehouse', 'editor', 'editorSceneLogic']),
     actions({
         setSidebarOverlayOpen: (isOpen: boolean) => ({ isOpen }),
-        selectSchema: (schema: DatabaseSchemaTableCommon | DataWarehouseSavedQuery) => ({
+        selectSchema: (schema: DatabaseSchemaTableCommon | DataWarehouseSavedQuery | null) => ({
             schema,
         }),
     }),
@@ -71,7 +71,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             },
         ],
         selectedSchema: [
-            null as DatabaseSchemaTable | DatabaseSchemaDataWarehouseTable | DataWarehouseSavedQuery | null,
+            null as DatabaseSchemaTableCommon | DataWarehouseSavedQuery | null,
             {
                 selectSchema: (_, { schema }) => schema,
             },
