@@ -107,27 +107,43 @@ export function getViewRecordingFilters(
     variantKey: string
 ): UniversalFiltersGroupValue[] {
     const filters: UniversalFiltersGroupValue[] = []
-    // TODO support custom exposure events and actions
+    // TODO support actions
     if (metric.kind === NodeKind.ExperimentTrendsQuery) {
-        filters.push({
-            id: '$feature_flag_called',
-            name: '$feature_flag_called',
-            type: 'events',
-            properties: [
-                {
-                    key: `$feature_flag_response`,
-                    type: PropertyFilterType.Event,
-                    value: [variantKey],
-                    operator: PropertyOperator.Exact,
-                },
-                {
-                    key: '$feature_flag',
-                    type: PropertyFilterType.Event,
-                    value: featureFlagKey,
-                    operator: PropertyOperator.Exact,
-                },
-            ],
-        })
+        if (metric.exposure_query) {
+            filters.push({
+                id: (metric.exposure_query.series[0] as EventsNode).event as string,
+                name: (metric.exposure_query.series[0] as EventsNode).event as string,
+                type: 'events',
+                properties: [
+                    {
+                        key: `$feature/${featureFlagKey}`,
+                        type: PropertyFilterType.Event,
+                        value: [variantKey],
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+            })
+        } else {
+            filters.push({
+                id: '$feature_flag_called',
+                name: '$feature_flag_called',
+                type: 'events',
+                properties: [
+                    {
+                        key: `$feature_flag_response`,
+                        type: PropertyFilterType.Event,
+                        value: [variantKey],
+                        operator: PropertyOperator.Exact,
+                    },
+                    {
+                        key: '$feature_flag',
+                        type: PropertyFilterType.Event,
+                        value: featureFlagKey,
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+            })
+        }
         filters.push({
             id: (metric.count_query.series[0] as EventsNode).event as string,
             name: (metric.count_query.series[0] as EventsNode).event as string,

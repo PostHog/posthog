@@ -1,4 +1,5 @@
 import metricFunnelEventsJson from '~/mocks/fixtures/api/experiments/_metric_funnel_events.json'
+import metricTrendCustomExposureJson from '~/mocks/fixtures/api/experiments/_metric_trend_custom_exposure.json'
 import metricTrendFeatureFlagCalledJson from '~/mocks/fixtures/api/experiments/_metric_trend_feature_flag_called.json'
 import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
 import { EntityType, FeatureFlagFilters, InsightType, PropertyFilterType, PropertyOperator } from '~/types'
@@ -299,6 +300,41 @@ describe('getViewRecordingFilters', () => {
                         key: '$feature_flag',
                         type: PropertyFilterType.Event,
                         value: 'jan-16-running',
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+            },
+            {
+                id: '[jan-16-running] event one',
+                name: '[jan-16-running] event one',
+                type: 'events',
+                properties: [
+                    {
+                        key: `$feature/${featureFlagKey}`,
+                        type: PropertyFilterType.Event,
+                        value: ['test'],
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+            },
+        ])
+    })
+    it('returns the correct filters for a trend metric with custom exposure', () => {
+        const filters = getViewRecordingFilters(
+            metricTrendCustomExposureJson as ExperimentTrendsQuery,
+            featureFlagKey,
+            'test'
+        )
+        expect(filters).toEqual([
+            {
+                id: '[jan-16-running] event zero',
+                name: '[jan-16-running] event zero',
+                type: 'events',
+                properties: [
+                    {
+                        key: `$feature/${featureFlagKey}`,
+                        type: PropertyFilterType.Event,
+                        value: ['test'],
                         operator: PropertyOperator.Exact,
                     },
                 ],
