@@ -268,15 +268,17 @@ class TestOrganizationRbacMigrations(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["status"], True)
 
-        self.assertEqual(FeatureFlagRoleAccess.objects.count(), 1)
-        self.assertEqual(FeatureFlagRoleAccess.objects.first().role.id, self.admin_role.id)
-        self.assertEqual(FeatureFlagRoleAccess.objects.first().feature_flag.id, feature_flag.id)
+        feature_flag_access = FeatureFlagRoleAccess.objects.first()
+        self.assertIsNotNone(feature_flag_access)
+        self.assertEqual(feature_flag_access.role.id, self.admin_role.id)
+        self.assertEqual(feature_flag_access.feature_flag.id, feature_flag.id)
 
-        self.assertEqual(AccessControl.objects.count(), 1)
-        self.assertEqual(AccessControl.objects.first().access_level, "editor")
-        self.assertEqual(AccessControl.objects.first().role.id, self.admin_role.id)
-        self.assertEqual(AccessControl.objects.first().resource, "feature_flag")
-        self.assertEqual(AccessControl.objects.first().resource_id, str(feature_flag.id))
+        access_control = AccessControl.objects.first()
+        self.assertIsNotNone(access_control)
+        self.assertEqual(access_control.access_level, "editor")
+        self.assertEqual(access_control.role.id, self.admin_role.id)
+        self.assertEqual(access_control.resource, "feature_flag")
+        self.assertEqual(access_control.resource_id, str(feature_flag.id))
 
     def test_migrate_feature_flags_rbac_as_member_without_permissions(self):
         self.client.force_login(self.member_user)

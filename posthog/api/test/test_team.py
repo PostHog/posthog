@@ -1376,7 +1376,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(Team.objects.count(), 3)
 
 
-class TestTeamRbacMigrations(APIBaseTest):  # type: ignore
+class TestTeamRbacMigrations(APIBaseTest):
     def test_migrate_team_rbac_as_admin(self):
         # Create a new team with access control enabled
         team_with_access_control = Team.objects.create(
