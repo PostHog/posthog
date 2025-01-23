@@ -12,7 +12,7 @@ import structlog
 from sentry_sdk import set_tag
 
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
-from posthog.exceptions import capture_exception
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import (
     conversion_to_query_based,
 )

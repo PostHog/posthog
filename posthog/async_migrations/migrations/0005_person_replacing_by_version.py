@@ -4,7 +4,7 @@ from functools import cached_property
 import structlog
 from django.conf import settings
 from django.utils.timezone import now
-from posthog.exceptions import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 from posthog.async_migrations.definition import (
     AsyncMigrationDefinition,

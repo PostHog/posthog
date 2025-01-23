@@ -14,7 +14,7 @@ from sentry_sdk import set_tag
 
 from datetime import timedelta
 
-from posthog.exceptions import capture_exception
+from posthog.exceptions_capture import capture_exception
 from posthog.api.monitoring import Feature
 from posthog.models import Cohort
 from posthog.models.cohort import get_and_update_pending_version

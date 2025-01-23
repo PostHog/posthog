@@ -10,7 +10,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from sentry_sdk import set_tag
 
-from posthog.exceptions import capture_exception
+from posthog.exceptions_capture import capture_exception
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.monitoring import Feature, monitor

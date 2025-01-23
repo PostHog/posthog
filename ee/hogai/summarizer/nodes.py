@@ -10,7 +10,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from rest_framework.exceptions import APIException
-from posthog.exceptions import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 from ee.hogai.summarizer.prompts import SUMMARIZER_INSTRUCTION_PROMPT, SUMMARIZER_SYSTEM_PROMPT
 from ee.hogai.utils.nodes import AssistantNode

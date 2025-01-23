@@ -3,7 +3,7 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 from sentry_sdk import set_tag
-from posthog.exceptions import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 from .filter_to_query import filter_to_query
 

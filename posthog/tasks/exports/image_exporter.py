@@ -16,7 +16,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.os_manager import ChromeType
 
 from posthog.api.services.query import process_query_dict
-from posthog.exceptions import capture_exception
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
 from posthog.hogql_queries.query_runner import ExecutionMode

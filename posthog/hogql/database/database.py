@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.db.models import Q
 from pydantic import BaseModel, ConfigDict
-from posthog.exceptions import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext

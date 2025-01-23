@@ -3,7 +3,7 @@ import os
 from functools import partial, wraps
 from typing import Union
 
-from posthog.exceptions import capture_exception
+from posthog.exceptions_capture import capture_exception
 from django.conf import settings
 from django.contrib.admin.sites import site as admin_site
 from django.contrib.admin.views.decorators import staff_member_required

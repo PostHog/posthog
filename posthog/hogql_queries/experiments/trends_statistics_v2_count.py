@@ -1,5 +1,5 @@
 from rest_framework.exceptions import ValidationError
-from posthog.exceptions import capture_exception
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.experiments import (
     EXPECTED_LOSS_SIGNIFICANCE_LEVEL,
     FF_DISTRIBUTION_THRESHOLD,

@@ -7,7 +7,7 @@ from uuid import UUID
 
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
-from posthog.exceptions import capture_exception
+from posthog.exceptions_capture import capture_exception
 import structlog
 from django.core.paginator import Paginator
 from django.core.exceptions import ObjectDoesNotExist

@@ -15,7 +15,7 @@ from django.db.models.query import QuerySet
 from sentry_sdk.api import start_span
 from posthog.metrics import LABEL_TEAM_ID
 
-from posthog.exceptions import capture_exception
+from posthog.exceptions_capture import capture_exception
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.group import Group

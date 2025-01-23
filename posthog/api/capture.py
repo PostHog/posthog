@@ -26,7 +26,8 @@ from typing import Any, Optional, Literal
 from ee.billing.quota_limiting import QuotaLimitingCaches
 from posthog.api.utils import get_data, get_token, safe_clickhouse_string
 from posthog.cache_utils import cache_for
-from posthog.exceptions import capture_exception, generate_exception_response
+from posthog.exceptions import generate_exception_response
+from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import KafkaProducer, session_recording_kafka_producer
 from posthog.kafka_client.topics import (
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
