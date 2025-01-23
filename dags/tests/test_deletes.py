@@ -14,7 +14,6 @@ from dags.deletes import (
     create_pending_deletes_dictionary,
     delete_person_events,
     cleanup_delete_assets,
-    DeleteConfig,
 )
 
 
@@ -36,13 +35,13 @@ def mock_cluster():
 
 
 def test_pending_person_deletes_table():
-    table = PendingPersonEventDeletesTable(run_id="test_run")
-    assert table.table_name == "pending_person_deletes_test_run"
+    table = PendingPersonEventDeletesTable(timestamp=datetime.now())
+    assert table.table_name.startswith("pending_person_deletes_")
 
     create_query = table.create_table_query
     assert "CREATE TABLE IF NOT EXISTS" in create_query
 
-    drop_query = table.drop_table_query()
+    drop_query = table.drop_table_query
     assert "DROP TABLE IF EXISTS" in drop_query
 
 
@@ -59,10 +58,10 @@ def test_mutation_is_done(mock_client):
 
 
 def test_person_event_deletes_dictionary():
-    table = PendingPersonEventDeletesTable(run_id="test_run")
+    table = PendingPersonEventDeletesTable(timestamp=datetime.now())
     dictionary = PersonEventDeletesDictionary(source=table)
 
-    assert dictionary.name == "pending_person_deletes_test_run_dict"
+    assert dictionary.name.startswith("pending_person_deletes_")
     assert "CREATE DICTIONARY IF NOT EXISTS" in dictionary.create_statement(shards=1, max_execution_time=3600)
 
 
@@ -73,19 +72,19 @@ def test_load_pending_person_deletions_with_team_id(mock_async_deletion, mock_cl
     mock_client_class.return_value = mock_client
 
     context = build_op_context()
-    config = DeleteConfig(team_id=1)
-    table = PendingPersonEventDeletesTable(run_id=context.run_id)
+    table = PendingPersonEventDeletesTable(team_id=1, timestamp=datetime.now())
 
     # Mock the queryset
     mock_deletions = [{"team_id": 1, "key": UUID("12345678-1234-5678-1234-567812345678"), "created_at": datetime.now()}]
     mock_async_deletion.filter.return_value.values.return_value.iterator.return_value = mock_deletions
 
-    result = load_pending_person_deletions(context, config, table)
+    result = load_pending_person_deletions(context, table)
     assert isinstance(result, PendingPersonEventDeletesTable)
     mock_async_deletion.filter.assert_called_with(
         deletion_type=DeletionType.Person,
         team_id=1,
         delete_verified_at__isnull=True,
+        created_at__lte=table.timestamp,
     )
     mock_client.execute.assert_called()
 
@@ -97,24 +96,23 @@ def test_load_pending_person_deletions_without_team_id(mock_async_deletion, mock
     mock_client_class.return_value = mock_client
 
     context = build_op_context()
-    config = DeleteConfig(team_id=None)
-    table = PendingPersonEventDeletesTable(run_id=context.run_id)
+    table = PendingPersonEventDeletesTable(timestamp=datetime.now())
 
     mock_deletions = [{"team_id": 1, "key": UUID("12345678-1234-5678-1234-567812345678"), "created_at": datetime.now()}]
     mock_async_deletion.filter.return_value.values.return_value.iterator.return_value = mock_deletions
 
-    result = load_pending_person_deletions(context, config, table)
+    result = load_pending_person_deletions(context, table)
     assert isinstance(result, PendingPersonEventDeletesTable)
     mock_async_deletion.filter.assert_called_with(
         deletion_type=DeletionType.Person,
         delete_verified_at__isnull=True,
+        created_at__lte=pytest.approx(table.timestamp, abs=1),
     )
     mock_client.execute.assert_called()
 
 
 def test_create_pending_deletes_dictionary(mock_cluster):
-    context = build_op_context()
-    table = PendingPersonEventDeletesTable(run_id=context.run_id)
+    table = PendingPersonEventDeletesTable(timestamp=datetime.now())
 
     result = create_pending_deletes_dictionary(mock_cluster, table)
     assert isinstance(result, PersonEventDeletesDictionary)
@@ -123,7 +121,7 @@ def test_create_pending_deletes_dictionary(mock_cluster):
 
 def test_delete_person_events_no_pending_deletes(mock_cluster):
     context = build_op_context()
-    dictionary = PersonEventDeletesDictionary(source=PendingPersonEventDeletesTable(run_id="test_run"))
+    dictionary = PersonEventDeletesDictionary(source=PendingPersonEventDeletesTable(timestamp=datetime.now()))
 
     # Mock no pending deletes
     mock_cluster.any_host.return_value.result.return_value = 0
@@ -134,16 +132,14 @@ def test_delete_person_events_no_pending_deletes(mock_cluster):
 
 
 def test_cleanup_delete_assets(mock_cluster):
-    context = build_op_context()
-    config = DeleteConfig(team_id=1)
-    table = PendingPersonEventDeletesTable(run_id=context.run_id)
+    table = PendingPersonEventDeletesTable(timestamp=datetime.now())
     dictionary = PersonEventDeletesDictionary(source=table)
 
     with patch("dags.deletes.AsyncDeletion.objects") as mock_async_deletion:
-        result = cleanup_delete_assets(mock_cluster, config, table, dictionary)
+        result = cleanup_delete_assets(mock_cluster, table, dictionary)
         assert result is True
         mock_async_deletion.filter.assert_called_with(
             deletion_type=DeletionType.Person,
-            team_id=1,
             delete_verified_at__isnull=True,
+            created_at__lte=pytest.approx(table.timestamp, abs=1),
         )

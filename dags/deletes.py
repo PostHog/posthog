@@ -4,8 +4,9 @@ from clickhouse_driver.client import Client
 from datetime import datetime
 from dataclasses import dataclass
 from dagster import (
-    asset,
-    AssetExecutionContext,
+    op,
+    job,
+    OpExecutionContext,
     Config,
     MetadataValue,
     InitResourceContext,
@@ -37,8 +38,16 @@ class ClickhouseClusterResource(ConfigurableResource):
 
 class DeleteConfig(Config):
     team_id: int | None = pydantic.Field(
-        description="The team ID to delete events for. If not provided, all teams will be deleted :fire:"
+        default=None, description="The team ID to delete events for. If not provided, all teams will be deleted :fire:"
     )
+    timestamp: str = pydantic.Field(
+        default=datetime.now().isoformat(),
+        description="The timestamp to delete events up to in ISO format (YYYY-MM-DDTHH:MM:SS.mmmmmm+HH:MM). If not provided, current time will be used.",
+    )
+
+    @property
+    def parsed_timestamp(self) -> datetime:
+        return datetime.fromisoformat(self.timestamp)
 
 
 @dataclass
@@ -72,12 +81,21 @@ class PendingPersonEventDeletesTable:
     Represents a temporary table storing pending person event deletions.
     """
 
-    run_id: str
+    timestamp: datetime
+    team_id: int | None = None
     cluster: str = settings.CLICKHOUSE_CLUSTER
 
     @property
+    def timestamp_isoformat(self) -> str:
+        return self.timestamp.isoformat()
+
+    @property
+    def clickhouse_timestamp(self) -> str:
+        return self.timestamp.strftime("%Y%m%d_%H%M%S")
+
+    @property
     def table_name(self) -> str:
-        return f"pending_person_deletes_{self.run_id}"
+        return f"pending_person_deletes_{self.clickhouse_timestamp}"
 
     @property
     def qualified_name(self):
@@ -100,11 +118,9 @@ class PendingPersonEventDeletesTable:
             ORDER BY (team_id, person_id)
         """
 
+    @property
     def drop_table_query(self) -> str:
         return f"DROP TABLE IF EXISTS {self.table_name} ON CLUSTER '{self.cluster}'"
-
-    def drop_dictionary_query(self) -> str:
-        return f"DROP DICTIONARY IF EXISTS {self.dictionary_name} ON CLUSTER '{self.cluster}'"
 
     def create(self, client: Client) -> None:
         client.execute(self.create_table_query)
@@ -166,10 +182,12 @@ class PersonEventDeletesDictionary:
         [[count]] = results
         return count > 0
 
+    @property
+    def drop_query(self) -> str:
+        return f"DROP DICTIONARY IF EXISTS {self.qualified_name} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' SYNC"
+
     def drop(self, client: Client) -> None:
-        client.execute(
-            f"DROP DICTIONARY IF EXISTS {self.qualified_name} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' SYNC"
-        )
+        client.execute(self.drop_query)
 
     def __is_loaded(self, client: Client) -> bool:
         result = client.execute(
@@ -257,27 +275,35 @@ class PersonEventDeletesDictionary:
         return mutation
 
 
-@asset
+@op
 def create_pending_deletes_table(
-    context: AssetExecutionContext,
+    config: DeleteConfig,
     cluster: ResourceParam[ClickhouseCluster],
 ) -> PendingPersonEventDeletesTable:
     """Create a merge tree table in ClickHouse to store pending deletes."""
-    table = PendingPersonEventDeletesTable(run_id=context.run_id, cluster=settings.CLICKHOUSE_CLUSTER)
+    table = PendingPersonEventDeletesTable(
+        timestamp=config.parsed_timestamp,
+        team_id=config.team_id,
+        cluster=settings.CLICKHOUSE_CLUSTER,
+    )
     cluster.any_host(table.create).result()
     return table
 
 
-@asset(deps=[create_pending_deletes_table])
+@op
 def load_pending_person_deletions(
-    context: AssetExecutionContext, config: DeleteConfig, create_pending_deletes_table: PendingPersonEventDeletesTable
+    context: OpExecutionContext, create_pending_deletes_table: PendingPersonEventDeletesTable
 ) -> PendingPersonEventDeletesTable:
     """Query postgres using django ORM to get pending person deletions and insert directly into ClickHouse."""
 
-    if not config.team_id:
+    if not create_pending_deletes_table.team_id:
         # Use Django's queryset iterator for memory efficiency
         pending_deletions = (
-            AsyncDeletion.objects.filter(deletion_type=DeletionType.Person, delete_verified_at__isnull=True)
+            AsyncDeletion.objects.filter(
+                deletion_type=DeletionType.Person,
+                delete_verified_at__isnull=True,
+                created_at__lte=create_pending_deletes_table.timestamp,
+            )
             .values("team_id", "key", "created_at")
             .iterator()
         )
@@ -285,8 +311,9 @@ def load_pending_person_deletions(
         pending_deletions = (
             AsyncDeletion.objects.filter(
                 deletion_type=DeletionType.Person,
-                team_id=config.team_id,
+                team_id=create_pending_deletes_table.team_id,
                 delete_verified_at__isnull=True,
+                created_at__lte=create_pending_deletes_table.timestamp,
             )
             .values("team_id", "key", "created_at")
             .iterator()
@@ -325,7 +352,7 @@ def load_pending_person_deletions(
     if current_chunk:
         client.execute(
             f"""
-            INSERT INTO {create_pending_deletes_table.table_name} (team_id, person_id, created_at)
+            INSERT INTO {create_pending_deletes_table.qualified_name} (team_id, person_id, created_at)
             VALUES
             """,
             current_chunk,
@@ -341,7 +368,7 @@ def load_pending_person_deletions(
     return create_pending_deletes_table
 
 
-@asset(deps=[load_pending_person_deletions])
+@op
 def create_pending_deletes_dictionary(
     cluster: ResourceParam[ClickhouseCluster], load_pending_person_deletions: PendingPersonEventDeletesTable
 ) -> PersonEventDeletesDictionary:
@@ -356,15 +383,21 @@ def create_pending_deletes_dictionary(
 
     # Create the dictionary using the table object
     def create_dict(client: Client):
-        client.execute(delete_dictionary.create_statement(shards=1, max_execution_time=3600))
+        client.execute(
+            delete_dictionary.create_statement(shards=1, max_execution_time=3600),
+            {
+                "table": load_pending_person_deletions.table_name,
+                "password": settings.CLICKHOUSE_PASSWORD,
+            },
+        )
 
     cluster.any_host(create_dict).result()
     return delete_dictionary
 
 
-@asset(deps=[create_pending_deletes_dictionary])
+@op
 def delete_person_events(
-    context: AssetExecutionContext,
+    context: OpExecutionContext,
     cluster: ResourceParam[ClickhouseCluster],
     create_pending_deletes_dictionary: PersonEventDeletesDictionary,
 ) -> tuple[PersonEventDeletesDictionary, ShardMutations]:
@@ -374,7 +407,7 @@ def delete_person_events(
         result = client.execute(
             f"""
             SELECT count()
-            FROM {create_pending_deletes_dictionary.dictionary_name}
+            FROM {create_pending_deletes_dictionary.qualified_name}
             """
         )
         return result[0][0] if result else 0
@@ -402,23 +435,28 @@ def delete_person_events(
     return (create_pending_deletes_dictionary, shard_mutations)
 
 
-@asset(deps=[delete_person_events])
+@op
 def wait_for_delete_mutations(
     cluster: ResourceParam[ClickhouseCluster],
     delete_person_events: tuple[PersonEventDeletesDictionary, ShardMutations],
 ) -> PersonEventDeletesDictionary:
     dictionary, shard_mutations = delete_person_events
+
+    if not shard_mutations:
+        return dictionary  # or handle the empty case as needed
+
     reduce(
         lambda x, y: x.merge(y),
         [cluster.map_all_hosts_in_shard(shard, mutation.wait) for shard, mutation in shard_mutations.items()],
+        # Provide an initial value if needed, e.g., an empty object that supports merge
     ).result()
+
     return dictionary
 
 
-@asset(deps=[delete_person_events])
+@op
 def cleanup_delete_assets(
     cluster: ResourceParam[ClickhouseCluster],
-    config: DeleteConfig,
     create_pending_deletes_table: PendingPersonEventDeletesTable,
     wait_for_delete_mutations: PersonEventDeletesDictionary,
 ) -> bool:
@@ -429,13 +467,29 @@ def cleanup_delete_assets(
     cluster.any_host(wait_for_delete_mutations.drop).result()
 
     # Mark deletions as verified in Django
-    if not config.team_id:
-        AsyncDeletion.objects.filter(deletion_type=DeletionType.Person, delete_verified_at__isnull=True).update(
-            delete_verified_at=datetime.now()
-        )
+    if not create_pending_deletes_table.team_id:
+        AsyncDeletion.objects.filter(
+            deletion_type=DeletionType.Person,
+            delete_verified_at__isnull=True,
+            created_at__lte=create_pending_deletes_table.timestamp,
+        ).update(delete_verified_at=datetime.now())
     else:
         AsyncDeletion.objects.filter(
-            deletion_type=DeletionType.Person, team_id=config.team_id, delete_verified_at__isnull=True
+            deletion_type=DeletionType.Person,
+            team_id=create_pending_deletes_table.team_id,
+            delete_verified_at__isnull=True,
+            created_at__lte=create_pending_deletes_table.timestamp,
         ).update(delete_verified_at=datetime.now())
 
     return True
+
+
+@job
+def deletes_job():
+    """Job that handles deletion of person events."""
+    table = create_pending_deletes_table()
+    loaded_table = load_pending_person_deletions(table)
+    dictionary = create_pending_deletes_dictionary(loaded_table)
+    delete_events = delete_person_events(dictionary)
+    waited_dictionary = wait_for_delete_mutations(delete_events)
+    cleanup_delete_assets(table, waited_dictionary)

@@ -1,21 +1,10 @@
-from dagster import Definitions, load_assets_from_modules, ScheduleDefinition, define_asset_job
+from dagster import Definitions, load_assets_from_modules, ScheduleDefinition
 
-from . import ch_examples, deletes, orm_examples
+from . import ch_examples, orm_examples
+from .deletes import deletes_job
 from .person_overrides import ClickhouseClusterResource, squash_person_overrides
 
-all_assets = load_assets_from_modules([ch_examples, deletes, orm_examples])
-
-# Create a job definition for the deletes assets
-deletes_job = define_asset_job(
-    name="deletes_job",
-    selection=[
-        "create_pending_deletes_table",
-        "load_pending_person_deletions",
-        "create_pending_deletes_dictionary",
-        "delete_person_events",
-        "cleanup_delete_assets",
-    ],
-)
+all_assets = load_assets_from_modules([ch_examples, orm_examples])
 
 # Schedule to run deletes at 10 PM on Saturdays
 deletes_schedule = ScheduleDefinition(
