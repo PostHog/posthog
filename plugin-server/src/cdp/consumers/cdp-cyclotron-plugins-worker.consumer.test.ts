@@ -135,7 +135,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
                   },
                   "fetch": [Function],
                   "geoip": {},
-                  "globalwu": {},
+                  "global": {},
                   "jobs": {},
                   "metrics": {},
                   "storage": {},

@@ -68,7 +68,7 @@ export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
             const meta: MetaWithFetch = {
                 config: invocation.globals.inputs,
                 attachments: {},
-                globalwu: {},
+                global: {},
                 jobs: {},
                 metrics: {},
                 cache: {} as any,
