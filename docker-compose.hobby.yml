@@ -219,6 +219,34 @@ services:
             - objectstorage
             - temporal
 
+    cyclotron-fetch:
+        extends:
+            file: docker-compose.base.yml
+            service: cyclotron-fetch
+        environment:
+            DATABASE_URL: 'postgres://posthog:posthog@db:5432/cyclotron'
+            KAFKA_HOSTS: 'kafka:9092'
+            SENTRY_DSN: $SENTRY_DSN
+        depends_on:
+            db:
+                condition: service_healthy
+            kafka:
+                condition: service_started
+
+    cyclotron-janitor:
+        extends:
+            file: docker-compose.base.yml
+            service: cyclotron-janitor
+        environment:
+            DATABASE_URL: 'postgres://posthog:posthog@db:5432/cyclotron'
+            KAFKA_HOSTS: 'kafka:9092'
+            SENTRY_DSN: $SENTRY_DSN
+        depends_on:
+            db:
+                condition: service_healthy
+            kafka:
+                condition: service_started
+
 volumes:
     zookeeper-data:
     zookeeper-datalog:
