@@ -12,7 +12,7 @@ FROM chef AS builder
 ARG BIN
 
 # Ensure working C compile setup (not installed by default in arm64 images)
-RUN apt update && apt install build-essential cmake -y
+RUN apt update && apt install build-essential libssl-dev cmake -y
 
 COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
@@ -24,7 +24,7 @@ FROM debian:bookworm-slim AS runtime
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    "ca-certificates" \
+    libssl-dev "ca-certificates" \
     && \
     rm -rf /var/lib/apt/lists/*
 

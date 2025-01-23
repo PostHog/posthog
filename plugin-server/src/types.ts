@@ -89,7 +89,6 @@ export enum PluginServerMode {
     recordings_blob_ingestion_v2_overflow = 'recordings-blob-ingestion-v2-overflow',
     cdp_processed_events = 'cdp-processed-events',
     cdp_internal_events = 'cdp-internal-events',
-    cdp_function_callbacks = 'cdp-function-callbacks',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     functional_tests = 'functional-tests',
 }
@@ -121,7 +120,6 @@ export type CdpConfig = {
     CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: number // How many times a function can be disabled before it is disabled permanently
     CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: string
     CDP_HOG_FILTERS_TELEMETRY_TEAMS: string
-    CDP_CYCLOTRON_ENABLED_TEAMS: string
     CDP_CYCLOTRON_BATCH_SIZE: number
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
     CDP_REDIS_HOST: string
@@ -320,6 +318,9 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
 
     CYCLOTRON_DATABASE_URL: string
     CYCLOTRON_SHARD_DEPTH_LIMIT: number
+
+    SESSION_RECORDING_MAX_BATCH_SIZE_KB: number | undefined
+    SESSION_RECORDING_MAX_BATCH_AGE_MS: number | undefined
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -384,7 +385,6 @@ export interface PluginServerCapabilities {
     sessionRecordingBlobIngestionV2Overflow?: boolean
     cdpProcessedEvents?: boolean
     cdpInternalEvents?: boolean
-    cdpFunctionCallbacks?: boolean
     cdpCyclotronWorker?: boolean
     appManagementSingleton?: boolean
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
@@ -1190,8 +1190,6 @@ export interface EventPropertyType {
     team_id: number
     project_id: number | null
 }
-
-export type PluginFunction = 'onEvent' | 'processEvent' | 'pluginTask'
 
 export type GroupTypeToColumnIndex = Record<string, GroupTypeIndex>
 

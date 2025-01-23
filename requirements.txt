@@ -448,7 +448,7 @@ langsmith==0.1.132
     #   langchain
     #   langchain-community
     #   langchain-core
-lxml==4.9.4
+lxml==5.2.1
     # via
     #   -r requirements.in
     #   python3-saml
@@ -671,7 +671,7 @@ python-statsd==2.1.0
     # via django-statsd
 python3-openid==3.1.0
     # via social-auth-core
-python3-saml==1.12.0
+python3-saml==1.16.0
     # via -r requirements.in
 pytz==2023.3
     # via
@@ -964,7 +964,7 @@ wrapt==1.15.0
     # via aiobotocore
 wsproto==1.2.0
     # via trio-websocket
-xmlsec==1.3.13
+xmlsec==1.3.14
     # via
     #   -r requirements.in
     #   python3-saml
