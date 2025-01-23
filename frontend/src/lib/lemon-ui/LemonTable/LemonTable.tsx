@@ -334,7 +334,10 @@ export function LemonTable<T extends Record<string, any>>({
                                                         style={{ justifyContent: column.align }}
                                                     >
                                                         <div
-                                                            className="flex items-center"
+                                                            className={clsx(
+                                                                'flex items-center',
+                                                                column?.fullWidth && 'w-full'
+                                                            )}
                                                             /* eslint-disable-next-line react/forbid-dom-props */
                                                             style={
                                                                 maxHeaderWidth

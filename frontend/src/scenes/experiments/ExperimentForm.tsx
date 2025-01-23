@@ -18,9 +18,8 @@ const ExperimentFormFields = (): JSX.Element => {
     const { experiment, groupTypes, aggregationLabel } = useValues(experimentLogic)
     const { addVariant, removeExperimentGroup, setExperiment, createExperiment, setExperimentType } =
         useActions(experimentLogic)
-    const { webExperimentsAvailable } = useValues(experimentsLogic)
+    const { webExperimentsAvailable, unavailableFeatureFlagKeys } = useValues(experimentsLogic)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
-    const { takenKeys } = useValues(experimentsLogic)
 
     return (
         <div>
@@ -40,14 +39,14 @@ const ExperimentFormFields = (): JSX.Element => {
                                 <LemonButton
                                     type="secondary"
                                     size="xsmall"
-                                    tooltip={
-                                        experiment.name
-                                            ? 'Generate a key from the experiment name'
-                                            : 'Fill out the experiment name first.'
-                                    }
+                                    disabledReason={experiment.name ? undefined : 'Fill out the experiment name first.'}
+                                    tooltip={experiment.name ? 'Generate a key from the experiment name' : undefined}
                                     onClick={() => {
                                         setExperiment({
-                                            feature_flag_key: generateFeatureFlagKey(experiment.name, takenKeys),
+                                            feature_flag_key: generateFeatureFlagKey(
+                                                experiment.name,
+                                                unavailableFeatureFlagKeys
+                                            ),
                                         })
                                     }}
                                 >
@@ -294,7 +293,7 @@ export function ExperimentForm(): JSX.Element {
     )
 }
 
-const generateFeatureFlagKey = (name: string, takenKeys: string[]): string => {
+const generateFeatureFlagKey = (name: string, unavailableFeatureFlagKeys: Set<string>): string => {
     const baseKey = name
         .toLowerCase()
         .replace(/[^A-Za-z0-9-_]+/g, '-')
@@ -303,7 +302,8 @@ const generateFeatureFlagKey = (name: string, takenKeys: string[]): string => {
 
     let key = baseKey
     let counter = 1
-    while (takenKeys.includes(key)) {
+
+    while (unavailableFeatureFlagKeys.has(key)) {
         key = `${baseKey}-${counter}`
         counter++
     }

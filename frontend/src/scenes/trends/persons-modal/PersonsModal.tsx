@@ -374,7 +374,7 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
                             {actor.distinct_ids?.[0] && (
                                 <CopyToClipboardInline
                                     explicitValue={actor.distinct_ids[0]}
-                                    iconStyle={{ color: 'var(--primary)' }}
+                                    iconStyle={{ color: 'var(--accent-primary)' }}
                                     iconPosition="end"
                                     className="text-xs text-muted-alt"
                                 >

@@ -1,4 +1,4 @@
-import { LemonCheckbox, Link } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonSwitch, LemonTabs, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 import { Meta } from '@storybook/react'
 import { useValues } from 'kea'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
@@ -20,23 +20,31 @@ const meta: Meta = {
 export default meta
 
 const steps3000 = [25, 50, 100, 250, 350, 400, 450, 500]
-const stepsLong = [50, 100, 150, 200, 250, 300, 350, 400, 450, 500, 550, 600, 650, 700, 750, 800, 850, 900, 950]
-const stepsShort = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900]
+const steps = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950]
 
 const primtiveColorMap: Map<string, number[]> = new Map([
     ['primitive-3000', steps3000],
-    ['primitive-neutral', stepsLong],
-    ['primitive-neutral-cool', stepsLong],
-    ['primitive-blue', stepsShort],
-    ['primitive-purple', stepsShort],
-    ['primitive-violet', stepsShort],
-    ['primitive-red', stepsShort],
-    ['primitive-orange', stepsShort],
-    ['primitive-amber', stepsShort],
-    ['primitive-yellow', stepsShort],
-    ['primitive-green', stepsShort],
-    ['primitive-pink', stepsShort],
-    ['primitive-teal', stepsShort],
+    ['primitive-neutral-cool', steps],
+    // ['primitive-gray', steps],
+    // ['primitive-zinc', steps],
+    ['primitive-stone', steps],
+    ['primitive-red', steps],
+    ['primitive-orange', steps],
+    ['primitive-amber', steps],
+    ['primitive-yellow', steps],
+    ['primitive-lime', steps],
+    ['primitive-green', steps],
+    ['primitive-emerald', steps],
+    ['primitive-teal', steps],
+    ['primitive-cyan', steps],
+    ['primitive-sky', steps],
+    ['primitive-blue', steps],
+    ['primitive-indigo', steps],
+    ['primitive-violet', steps],
+    ['primitive-purple', steps],
+    ['primitive-fuchsia', steps],
+    ['primitive-pink', steps],
+    ['primitive-rose', steps],
 ])
 
 export function PrimitiveColors(): JSX.Element {
@@ -66,6 +74,8 @@ export function PrimitiveColors(): JSX.Element {
 export function BrandColors(): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
+    const [checked, setChecked] = useState(true)
+
     const [primaryHue, setPrimaryHue] = useState<number>(isDarkModeOn ? 43 : 19)
     const [primarySaturation, setPrimarySaturation] = useState<number>(isDarkModeOn ? 94 : 100)
     const [primaryLightness, setPrimaryLightness] = useState<number>(isDarkModeOn ? 57 : 48)
@@ -83,9 +93,20 @@ export function BrandColors(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            <div className="border border-border">
-                <LemonCheckbox checked={true} onChange={() => {}} />
+            <div className="border border-border flex flex-col gap-2 p-4 items-start">
+                <LemonCheckbox checked={checked} onChange={setChecked} />
                 <Link to="/design-system/colors">A link example</Link>
+                <LemonSwitch checked={checked} onChange={setChecked} />
+                <LemonTabs
+                    activeKey="1"
+                    tabs={[
+                        { key: '1', label: 'Tab 1' },
+                        { key: '2', label: 'Tab 2' },
+                    ]}
+                />
+                <LemonTag type="primary">Tag</LemonTag>
+                <Spinner />
+                <p className="text-primary [theme='dark']:text-accent-primary">Text</p>
             </div>
 
             <div className="flex flex-col gap-2 border border-border rounded-md p-2">
@@ -135,6 +156,22 @@ export function BrandColors(): JSX.Element {
                         className="w-12 h-12 rounded border border-border"
                     />
                 </div>
+            </div>
+        </div>
+    )
+}
+
+export function SemanticColors(): JSX.Element {
+    const textColors = ['text-primary']
+    return (
+        <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2 border border-border rounded-md p-2">
+                <h2>Texts</h2>
+                {textColors.map((color) => (
+                    <div key={color} className="flex items-center gap-2">
+                        <p className={`w-12 h-12 rounded border border-border ${color}`}>{color}</p>
+                    </div>
+                ))}
             </div>
         </div>
     )
