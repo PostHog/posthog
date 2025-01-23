@@ -1,7 +1,7 @@
 import { IconPlus, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import AutoTab from './AutoTab'
 import { NEW_QUERY, QueryTab } from './multitabEditorLogic'
@@ -44,6 +44,10 @@ interface QueryTabProps {
 function QueryTabComponent({ model, active, onClear, onClick, onRename }: QueryTabProps): JSX.Element {
     const [tabName, setTabName] = useState(() => model.name || NEW_QUERY)
     const [isEditing, setIsEditing] = useState(false)
+
+    useEffect(() => {
+        setTabName(model.view?.name || model.name || NEW_QUERY)
+    }, [model])
 
     const handleRename = (): void => {
         setIsEditing(false)

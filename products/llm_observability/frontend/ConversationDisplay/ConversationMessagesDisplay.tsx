@@ -69,12 +69,12 @@ function MessageDisplay({ message, isOutput }: { message: CompatMessage; isOutpu
             className={clsx(
                 'rounded border text-default',
                 isOutput
-                    ? 'bg-[var(--background-success-subtle)]'
+                    ? 'bg-[var(--bg-fill-success-tertiary)]'
                     : role === 'system'
-                    ? 'bg-[var(--background-secondary)]'
+                    ? 'bg-[var(--bg-fill-tertiary)]'
                     : role === 'user'
-                    ? 'bg-bg-light'
-                    : 'bg-[var(--blue-50)] dark:bg-[var(--blue-800)]' // We don't have a semantic color using blue
+                    ? 'bg-[var(--bg-fill-primary)]'
+                    : 'bg-[var(--bg-fill-info-tertiary)]' // We don't have a semantic color using blue
             )}
         >
             <div className="flex items-center gap-1 w-full px-2 h-6 text-xs font-medium">

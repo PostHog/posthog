@@ -5,12 +5,13 @@
     max-width: 22rem;
 }
 
+// TODO: to remove, this is unused
 .AccountPopover__side-link {
     flex-grow: 1;
     margin-left: 0.5rem;
     font-size: 0.8125rem;
     font-weight: 600;
-    color: var(--primary-3000);
+    color: var(--accent-primary);
     text-align: right;
 }
 
