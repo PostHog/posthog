@@ -342,6 +342,89 @@ export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecod
             35,
         ],
     },
+    geoip_transformation: {
+        type: 'transformation',
+        hog: `// Define the properties to be added to the event
+let geoipProperties := {
+    'city_name': null,
+    'city_confidence': null,
+    'subdivision_2_name': null,
+    'subdivision_2_code': null,
+    'subdivision_1_name': null,
+    'subdivision_1_code': null,
+    'country_name': null,
+    'country_code': null,
+    'continent_name': null,
+    'continent_code': null,
+    'postal_code': null,
+    'latitude': null,
+    'longitude': null,
+    'accuracy_radius': null,
+    'time_zone': null
+}
+// Check if the event has an IP address l
+if (event.properties?.$geoip_disable or empty(event.properties?.$ip)) {
+    print('geoip disabled or no ip', event.properties, event.properties?.$ip)
+    return event
+}
+let ip := event.properties.$ip
+if (ip == '127.0.0.1') {
+    print('spoofing ip for local development', ip)
+    ip := '89.160.20.129'
+}
+let response := geoipLookup(ip)
+if (not response) {
+    print('geoip lookup failed for ip', ip)
+    return event
+}
+let location := {}
+if (response.city) {
+    location['city_name'] := response.city.names?.en
+}
+if (response.country) {
+    location['country_name'] := response.country.names?.en
+    location['country_code'] := response.country.isoCode
+}
+if (response.continent) {
+    location['continent_name'] := response.continent.names?.en
+    location['continent_code'] := response.continent.code
+}
+if (response.postal) {
+    location['postal_code'] := response.postal.code
+}
+if (response.location) {
+    location['latitude'] := response.location?.latitude
+    location['longitude'] := response.location?.longitude
+    location['accuracy_radius'] := response.location?.accuracyRadius
+    location['time_zone'] := response.location?.timeZone
+}
+if (response.subdivisions) {
+    for (let index, subdivision in response.subdivisions) {
+        location[f'subdivision_{index + 1}_code'] := subdivision.isoCode
+        location[f'subdivision_{index + 1}_name'] := subdivision.names?.en
+    }
+}
+print('geoip location data for ip:', location) 
+let returnEvent := event
+returnEvent.properties := returnEvent.properties ?? {}
+returnEvent.properties.$set := returnEvent.properties.$set ?? {}
+returnEvent.properties.$set_once := returnEvent.properties.$set_once ?? {}
+for (let key, value in geoipProperties) {
+    if (value != null) {
+        returnEvent.properties.$set[f'$geoip_{key}'] := value
+        returnEvent.properties.$set_once[f'$initial_geoip_{key}'] := value
+    }
+    returnEvent.properties.$set[f'$geoip_{key}'] := value
+    returnEvent.properties.$set_once[f'$initial_geoip_{key}'] := value
+}
+for (let key, value in location) {
+    returnEvent.properties[f'$geoip_{key}'] := value
+    returnEvent.properties.$set[f'$geoip_{key}'] := value
+    returnEvent.properties.$set_once[f'$initial_geoip_{key}'] := value
+}
+return returnEvent`,
+        bytecode: ["_H", 1, 32, "city_name", 31, 32, "city_confidence", 31, 32, "subdivision_2_name", 31, 32, "subdivision_2_code", 31, 32, "subdivision_1_name", 31, 32, "subdivision_1_code", 31, 32, "country_name", 31, 32, "country_code", 31, 32, "continent_name", 31, 32, "continent_code", 31, 32, "postal_code", 31, 32, "latitude", 31, 32, "longitude", 31, 32, "accuracy_radius", 31, 32, "time_zone", 31, 42, 15, 32, "properties", 32, "event", 1, 2, 32, "$geoip_disable", 48, 32, "properties", 32, "event", 1, 2, 32, "$ip", 48, 2, "empty", 1, 4, 2, 40, 26, 32, "geoip disabled or no ip", 32, "properties", 32, "event", 1, 2, 32, "properties", 32, "event", 1, 2, 32, "$ip", 48, 2, "print", 3, 35, 32, "event", 1, 1, 38, 32, "$ip", 32, "properties", 32, "event", 1, 3, 32, "127.0.0.1", 36, 1, 11, 40, 12, 32, "spoofing ip for local development", 36, 1, 2, "print", 2, 35, 32, "89.160.20.129", 37, 1, 36, 1, 2, "geoipLookup", 1, 36, 2, 5, 40, 13, 32, "geoip lookup failed for ip", 36, 1, 2, "print", 2, 35, 32, "event", 1, 1, 38, 42, 0, 36, 2, 32, "city", 45, 40, 16, 36, 3, 32, "city_name", 36, 2, 32, "city", 45, 32, "names", 45, 32, "en", 48, 46, 36, 2, 32, "country", 45, 40, 29, 36, 3, 32, "country_name", 36, 2, 32, "country", 45, 32, "names", 45, 32, "en", 48, 46, 36, 3, 32, "country_code", 36, 2, 32, "country", 45, 32, "isoCode", 45, 46, 36, 2, 32, "continent", 45, 40, 29, 36, 3, 32, "continent_name", 36, 2, 32, "continent", 45, 32, "names", 45, 32, "en", 48, 46, 36, 3, 32, "continent_code", 36, 2, 32, "continent", 45, 32, "code", 45, 46, 36, 2, 32, "postal", 45, 40, 13, 36, 3, 32, "postal_code", 36, 2, 32, "postal", 45, 32, "code", 45, 46, 36, 2, 32, "location", 45, 40, 52, 36, 3, 32, "latitude", 36, 2, 32, "location", 45, 32, "latitude", 48, 46, 36, 3, 32, "longitude", 36, 2, 32, "location", 45, 32, "longitude", 48, 46, 36, 3, 32, "accuracy_radius", 36, 2, 32, "location", 45, 32, "accuracyRadius", 48, 46, 36, 3, 32, "time_zone", 36, 2, 32, "location", 45, 32, "timeZone", 48, 46, 36, 2, 32, "subdivisions", 45, 40, 104, 36, 2, 32, "subdivisions", 45, 36, 4, 2, "keys", 1, 36, 4, 2, "values", 1, 33, 1, 36, 6, 2, "length", 1, 31, 31, 36, 8, 36, 7, 16, 40, 66, 36, 5, 36, 7, 45, 37, 9, 36, 6, 36, 7, 45, 37, 10, 36, 3, 32, "subdivision_", 33, 1, 36, 9, 6, 32, "_code", 2, "concat", 3, 36, 10, 32, "isoCode", 45, 46, 36, 3, 32, "subdivision_", 33, 1, 36, 9, 6, 32, "_name", 2, "concat", 3, 36, 10, 32, "names", 45, 32, "en", 48, 46, 36, 7, 33, 1, 6, 37, 7, 39, -73, 35, 35, 35, 35, 35, 35, 35, 32, "geoip location data for ip:", 36, 3, 2, "print", 2, 35, 32, "event", 1, 1, 36, 4, 32, "properties", 36, 4, 32, "properties", 45, 47, 3, 35, 42, 0, 46, 36, 4, 32, "properties", 45, 32, "$set", 36, 4, 32, "properties", 45, 32, "$set", 45, 47, 3, 35, 42, 0, 46, 36, 4, 32, "properties", 45, 32, "$set_once", 36, 4, 32, "properties", 45, 32, "$set_once", 45, 47, 3, 35, 42, 0, 46, 36, 0, 36, 5, 2, "keys", 1, 36, 5, 2, "values", 1, 33, 1, 36, 7, 2, "length", 1, 31, 31, 36, 9, 36, 8, 16, 40, 101, 36, 6, 36, 8, 45, 37, 10, 36, 7, 36, 8, 45, 37, 11, 31, 36, 11, 12, 40, 36, 36, 4, 32, "properties", 45, 32, "$set", 45, 32, "$geoip_", 36, 10, 2, "concat", 2, 36, 11, 46, 36, 4, 32, "properties", 45, 32, "$set_once", 45, 32, "$initial_geoip_", 36, 10, 2, "concat", 2, 36, 11, 46, 36, 4, 32, "properties", 45, 32, "$set", 45, 32, "$geoip_", 36, 10, 2, "concat", 2, 36, 11, 46, 36, 4, 32, "properties", 45, 32, "$set_once", 45, 32, "$initial_geoip_", 36, 10, 2, "concat", 2, 36, 11, 46, 36, 8, 33, 1, 6, 37, 8, 39, -108, 35, 35, 35, 35, 35, 35, 35, 36, 3, 36, 5, 2, "keys", 1, 36, 5, 2, "values", 1, 33, 1, 36, 7, 2, "length", 1, 31, 31, 36, 9, 36, 8, 16, 40, 74, 36, 6, 36, 8, 45, 37, 10, 36, 7, 36, 8, 45, 37, 11, 36, 4, 32, "properties", 45, 32, "$geoip_", 36, 10, 2, "concat", 2, 36, 11, 46, 36, 4, 32, "properties", 45, 32, "$set", 45, 32, "$geoip_", 36, 10, 2, "concat", 2, 36, 11, 46, 36, 4, 32, "properties", 45, 32, "$set_once", 45, 32, "$initial_geoip_", 36, 10, 2, "concat", 2, 36, 11, 46, 36, 8, 33, 1, 6, 37, 8, 39, -81, 35, 35, 35, 35, 35, 35, 35, 36, 4, 38, 35, 35, 35, 35, 35]
+    },
 }
 
 export const HOG_INPUTS_EXAMPLES: Record<string, Pick<HogFunctionType, 'inputs' | 'inputs_schema'>> = {
