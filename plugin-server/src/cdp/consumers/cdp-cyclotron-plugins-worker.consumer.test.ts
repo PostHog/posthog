@@ -5,6 +5,7 @@ import {
     createInvocation,
     insertHogFunction as _insertHogFunction,
 } from '~/tests/cdp/fixtures'
+import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../types'
@@ -83,6 +84,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
                             email: 'test@posthog.com',
                         },
                     },
+                    timestamp: fixedTime.toISO(),
                 } as any,
             }),
             inputs: {
@@ -152,16 +154,20 @@ describe('CdpCyclotronWorkerPlugins', () => {
             invocation.globals.event.properties = {
                 email: 'test@posthog.com',
             }
+
+            mockFetch.mockResolvedValue({
+                status: 200,
+                json: () => Promise.resolve({ total_count: 1 }),
+            })
+
             await processor.executePluginInvocation(invocation)
 
             expect(PLUGINS_BY_ID['intercom'].onEvent).toHaveBeenCalledTimes(1)
-            expect(jest.mocked(PLUGINS_BY_ID['intercom'].onEvent!).mock.calls[0][0]).toMatchInlineSnapshot(`
+            expect(forSnapshot(jest.mocked(PLUGINS_BY_ID['intercom'].onEvent!).mock.calls[0][0]))
+                .toMatchInlineSnapshot(`
                 {
-                  "$set": undefined,
-                  "$set_once": undefined,
                   "distinct_id": "distinct_id",
                   "event": "mycustomevent",
-                  "ip": undefined,
                   "person": {
                     "created_at": "",
                     "properties": {
@@ -175,12 +181,40 @@ describe('CdpCyclotronWorkerPlugins', () => {
                     "email": "test@posthog.com",
                   },
                   "team_id": 2,
-                  "timestamp": "2025-01-23T15:59:22.483Z",
-                  "uuid": "b3a1fe86-b10c-43cc-acaf-d208977608d0",
+                  "timestamp": "2025-01-01T00:00:00.000Z",
+                  "uuid": "<REPLACED-UUID-0>",
                 }
             `)
 
-            expect(mockFetch).toHaveBeenCalledTimes(1)
+            expect(mockFetch).toHaveBeenCalledTimes(2)
+            expect(forSnapshot(mockFetch.mock.calls[0])).toMatchInlineSnapshot(`
+                [
+                  "https://api.intercom.io/contacts/search",
+                  {
+                    "body": "{"query":{"field":"email","operator":"=","value":"test@posthog.com"}}",
+                    "headers": {
+                      "Accept": "application/json",
+                      "Authorization": "Bearer 1234567890",
+                      "Content-Type": "application/json",
+                    },
+                    "method": "POST",
+                  },
+                ]
+            `)
+            expect(forSnapshot(mockFetch.mock.calls[1])).toMatchInlineSnapshot(`
+                [
+                  "https://api.intercom.io/events",
+                  {
+                    "body": "{"event_name":"mycustomevent","created_at":null,"email":"test@posthog.com","id":"distinct_id"}",
+                    "headers": {
+                      "Accept": "application/json",
+                      "Authorization": "Bearer 1234567890",
+                      "Content-Type": "application/json",
+                    },
+                    "method": "POST",
+                  },
+                ]
+            `)
         })
     })
 })
