@@ -366,7 +366,7 @@ $_lifecycle_dormant: map.get($colors, 'danger');
 
 // defined here so that they can be shared with the toolbar
 @mixin common-variables {
-    --primary: red; // Changed to accent-primary
+    --primary: var(--primary-3000); // Changed to accent-primary
     --muted: var(--muted-3000);
     --default: var(--text-3000);
 
