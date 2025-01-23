@@ -1009,6 +1009,28 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response_with_dashboard_filters.results, [(1,)])
 
 
+class TestAsyncQuery(ClickhouseTestMixin, APIBaseTest):
+    def test_async_query_returns_something(self):
+        query = HogQLQuery(query="select event, distinct_id, properties.key from events order by timestamp")
+        response = self.client.post(f"/api/environments/{self.team.id}/query_async/", {"query": query.dict()})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        data = response.json()
+        self.assertEqual(data["results"], [])
+
+    def test_async_query_invalid_json(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/query_async/", "invalid json", content_type="application/json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json(), {"error": "Invalid JSON in request body"})
+
+    def test_async_auth(self):
+        self.client.logout()
+        query = HogQLQuery(query="select event, distinct_id, properties.key from events order by timestamp")
+        response = self.client.post(f"/api/environments/{self.team.id}/query_async/", {"query": query.dict()})
+        self.assertEqual(response.status_code, status.HTTP_403_BAD_REQUEST, response.content)
+
+
 class TestQueryRetrieve(APIBaseTest):
     def setUp(self):
         super().setUp()

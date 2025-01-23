@@ -1,5 +1,4 @@
-import { fetchEventSource } from '@microsoft/fetch-event-source'
-import api, { ApiMethodOptions, getCookie } from 'lib/api'
+import api, { ApiMethodOptions } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { delay } from 'lib/utils'
@@ -104,59 +103,29 @@ async function executeQuery<N extends DataNode>(
 
     const useEventSource = posthog.isFeatureEnabled('query-eventsource')
 
-    if (useEventSource) {
-        return new Promise((resolve, reject) => {
-            const abortController = new AbortController()
-
-            void fetchEventSource('/' + api.queryEventSourceUrl(), {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Accept: '*/*',
-                    'X-CSRFToken': getCookie('posthog_csrftoken') || '',
-                },
-                body: JSON.stringify({
-                    query: queryNode,
-                    client_query_id: queryId,
-                    refresh: refresh,
-                    filters_override: filtersOverride,
-                    variables_override: variablesOverride,
-                }),
-                signal: abortController.signal,
-                onmessage(ev) {
-                    try {
-                        const data = JSON.parse(ev.data)
-                        if (data.error) {
-                            abortController.abort()
-                            reject(new Error(data.error))
-                        } else {
-                            abortController.abort()
-                            resolve(data)
-                        }
-                    } catch (e) {
-                        abortController.abort()
-                        reject(e)
-                    }
-                },
-                onerror(err) {
-                    abortController.abort()
-                    reject(err)
-                },
-            }).catch(reject)
-        })
-    }
-
     if (!pollOnly) {
         const refreshParam: RefreshType | undefined =
             refresh && isAsyncQuery ? 'force_async' : isAsyncQuery ? 'async' : refresh
-        const response = await api.query(
-            queryNode,
-            methodOptions,
-            queryId,
-            refreshParam,
-            filtersOverride,
-            variablesOverride
-        )
+        let response: NonNullable<N['response']>
+        if (useEventSource) {
+            response = await api.queryAsync(
+                queryNode,
+                methodOptions,
+                queryId,
+                refreshParam,
+                filtersOverride,
+                variablesOverride
+            )
+        } else {
+            response = await api.query(
+                queryNode,
+                methodOptions,
+                queryId,
+                refreshParam,
+                filtersOverride,
+                variablesOverride
+            )
+        }
 
         if (!isAsyncResponse(response)) {
             // Executed query synchronously or from cache
