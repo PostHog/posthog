@@ -2,7 +2,7 @@ from typing import Optional
 
 import structlog
 from django.contrib.gis.geoip2 import GeoIP2
-from posthoganalytics import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
 
