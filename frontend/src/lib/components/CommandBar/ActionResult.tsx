@@ -26,7 +26,7 @@ export const ActionResult = ({ result, focused }: SearchResultProps): JSX.Elemen
         <div
             className={clsx(
                 'border-l-4',
-                focused ? 'border-primary-3000' : !isExecutable ? 'border-transparent' : null
+                focused ? 'border-accent-primary' : !isExecutable ? 'border-transparent' : null
             )}
         >
             <div

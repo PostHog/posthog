@@ -4,5 +4,5 @@
 //
 // To workaround that we need an extremely specific selector
 div.WebVitals__WebVitalsTab[data-active='true']:not([data-active='false']) {
-    border-bottom: 2px solid var(--primary) !important;
+    border-bottom: 2px solid var(--accent-primary) !important;
 }
