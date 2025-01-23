@@ -27,7 +27,6 @@ from . import (
     comments,
     dead_letter_queue,
     debug_ch_queries,
-    early_access_feature,
     error_tracking,
     event_definition,
     exports,
@@ -59,7 +58,9 @@ from . import (
     team,
     uploaded_media,
     user,
+    user_group,
 )
+import products.early_access_features.backend.api as early_access_feature
 from ..taxonomy import property_definition_api
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
@@ -525,6 +526,13 @@ projects_router.register(
     error_tracking.ErrorTrackingStackFrameViewSet,
     "project_error_tracking_stack_frames",
     ["project_id"],
+)
+
+projects_router.register(
+    r"user_groups",
+    user_group.UserGroupViewSet,
+    "project_user_groups",
+    ["team_id"],
 )
 
 projects_router.register(

@@ -19,7 +19,7 @@ import {
     CustomChannelOperator,
     CustomChannelRule,
     DefaultChannelTypes,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 const combinerOptions = [

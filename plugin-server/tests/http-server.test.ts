@@ -31,13 +31,7 @@ describe('http server', () => {
 
             await resetTestDatabase(testCode)
 
-            const pluginsServer = await startPluginsServer(
-                {
-                    WORKER_CONCURRENCY: 0,
-                },
-                makePiscina,
-                { http: true }
-            )
+            const pluginsServer = await startPluginsServer({}, makePiscina, { http: true })
 
             await new Promise((resolve) =>
                 http.get(`http://localhost:${DEFAULT_HTTP_SERVER_PORT}/_health`, (res) => {
@@ -59,13 +53,7 @@ describe('http server', () => {
 
             await resetTestDatabase(testCode)
 
-            const pluginsServer = await startPluginsServer(
-                {
-                    WORKER_CONCURRENCY: 0,
-                },
-                makePiscina,
-                { http: true, ingestion: true }
-            )
+            const pluginsServer = await startPluginsServer({}, makePiscina, { http: true, ingestion: true })
 
             await new Promise((resolve) =>
                 http.get(`http://localhost:${DEFAULT_HTTP_SERVER_PORT}/_ready`, (res) => {

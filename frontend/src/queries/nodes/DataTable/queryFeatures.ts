@@ -5,6 +5,7 @@ import {
     isHogQLQuery,
     isPersonsNode,
     isSessionAttributionExplorerQuery,
+    isTracesQuery,
     isWebExternalClicksQuery,
     isWebGoalsQuery,
     isWebOverviewQuery,
@@ -69,6 +70,12 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.columnsInResponse)
         features.add(QueryFeature.resultIsArrayOfArrays)
         features.add(QueryFeature.hideLoadNextButton)
+    }
+
+    if (isTracesQuery(query)) {
+        features.add(QueryFeature.dateRangePicker)
+        features.add(QueryFeature.eventPropertyFilters)
+        features.add(QueryFeature.testAccountFilters)
     }
 
     return features

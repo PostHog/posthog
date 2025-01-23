@@ -27,58 +27,70 @@ export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Eleme
     const { targetEntity, returningEntity, retentionType, totalIntervals, period } = retentionFilter || {}
 
     return (
-        <div className="space-y-2" data-attr="retention-summary">
+        <div className="space-y-3" data-attr="retention-summary">
             <div className="flex items-center">
-                Show
+                For
                 {showGroupsOptions ? (
                     <AggregationSelect className="mx-2" insightProps={insightProps} hogqlAvailable={false} />
                 ) : (
                     <b> Unique users </b>
                 )}
-                who performed
             </div>
-            <div className="flex items-center">
-                event or action
-                <span className="mx-2">
-                    <ActionFilter
-                        entitiesLimit={1}
-                        mathAvailability={MathAvailability.None}
-                        hideFilter
-                        hideRename
-                        buttonCopy="Add graph series"
-                        filters={{ events: [targetEntity] } as FilterType} // retention filters use target and returning entity instead of events
-                        setFilters={(newFilters: FilterType) => {
-                            if (newFilters.events && newFilters.events.length > 0) {
-                                updateInsightFilter({ targetEntity: newFilters.events[0] })
-                            } else if (newFilters.actions && newFilters.actions.length > 0) {
-                                updateInsightFilter({ targetEntity: newFilters.actions[0] })
-                            } else {
-                                updateInsightFilter({ targetEntity: undefined })
-                            }
-                        }}
-                        typeKey={`${keyForInsightLogicProps('new')(insightProps)}-targetEntity`}
-                    />
-                </span>
-                <LemonSelect
-                    options={Object.entries(retentionOptions).map(([key, value]) => ({
-                        label: value,
-                        value: key,
-                        element: (
-                            <>
-                                {value}
-                                <Tooltip placement="right" title={retentionOptionDescriptions[key]}>
-                                    <IconInfo className="info-indicator" />
-                                </Tooltip>
-                            </>
-                        ),
-                    }))}
-                    value={retentionType ? retentionOptions[retentionType] : undefined}
-                    onChange={(value): void => updateInsightFilter({ retentionType: value as RetentionType })}
-                    dropdownMatchSelectWidth={false}
-                />
-            </div>
-            <div className="flex items-center">
-                in the last
+            <div>who performed</div>
+            <ActionFilter
+                entitiesLimit={1}
+                mathAvailability={MathAvailability.None}
+                hideRename
+                filters={{ events: [targetEntity] } as FilterType} // retention filters use target and returning entity instead of events
+                setFilters={(newFilters: FilterType) => {
+                    if (newFilters.events && newFilters.events.length > 0) {
+                        updateInsightFilter({ targetEntity: newFilters.events[0] })
+                    } else if (newFilters.actions && newFilters.actions.length > 0) {
+                        updateInsightFilter({ targetEntity: newFilters.actions[0] })
+                    } else {
+                        updateInsightFilter({ targetEntity: undefined })
+                    }
+                }}
+                typeKey={`${keyForInsightLogicProps('new')(insightProps)}-targetEntity`}
+            />
+            <LemonSelect
+                options={Object.entries(retentionOptions).map(([key, value]) => ({
+                    label: value,
+                    value: key,
+                    element: (
+                        <>
+                            {value}
+                            <Tooltip placement="right" title={retentionOptionDescriptions[key]}>
+                                <IconInfo className="info-indicator" />
+                            </Tooltip>
+                        </>
+                    ),
+                }))}
+                value={retentionType ? retentionOptions[retentionType] : undefined}
+                onChange={(value): void => updateInsightFilter({ retentionType: value as RetentionType })}
+                dropdownMatchSelectWidth={false}
+            />
+
+            <div>and then returned to perform</div>
+            <ActionFilter
+                entitiesLimit={1}
+                mathAvailability={MathAvailability.None}
+                hideRename
+                buttonCopy="Add graph series"
+                filters={{ events: [returningEntity] } as FilterType}
+                setFilters={(newFilters: FilterType) => {
+                    if (newFilters.events && newFilters.events.length > 0) {
+                        updateInsightFilter({ returningEntity: newFilters.events[0] })
+                    } else if (newFilters.actions && newFilters.actions.length > 0) {
+                        updateInsightFilter({ returningEntity: newFilters.actions[0] })
+                    } else {
+                        updateInsightFilter({ returningEntity: undefined })
+                    }
+                }}
+                typeKey={`${keyForInsightLogicProps('new')(insightProps)}-returningEntity`}
+            />
+            <div className="flex items-center gap-2">
+                <div>on any of the next</div>
                 <LemonInput
                     type="number"
                     className="ml-2 w-20"
@@ -104,7 +116,6 @@ export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Eleme
                     }}
                 />
                 <LemonSelect
-                    className="mx-2"
                     value={period}
                     onChange={(value): void => updateInsightFilter({ period: value ? value : undefined })}
                     options={dateOptions.map((period) => ({
@@ -113,31 +124,6 @@ export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Eleme
                     }))}
                     dropdownMatchSelectWidth={false}
                 />
-                and then came back to perform
-            </div>
-            <div className="flex items-center">
-                event or action
-                <span className="mx-2">
-                    <ActionFilter
-                        entitiesLimit={1}
-                        mathAvailability={MathAvailability.None}
-                        hideFilter
-                        hideRename
-                        buttonCopy="Add graph series"
-                        filters={{ events: [returningEntity] } as FilterType}
-                        setFilters={(newFilters: FilterType) => {
-                            if (newFilters.events && newFilters.events.length > 0) {
-                                updateInsightFilter({ returningEntity: newFilters.events[0] })
-                            } else if (newFilters.actions && newFilters.actions.length > 0) {
-                                updateInsightFilter({ returningEntity: newFilters.actions[0] })
-                            } else {
-                                updateInsightFilter({ returningEntity: undefined })
-                            }
-                        }}
-                        typeKey={`${keyForInsightLogicProps('new')(insightProps)}-returningEntity`}
-                    />
-                </span>
-                on any of the next {dateOptionPlurals[period ?? 'Day']}.
             </div>
             <div>
                 <p className="text-muted mt-4">

@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 
 import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../experimentLogic'
 import { SharedFunnelsMetricForm } from './SharedFunnelsMetricForm'
@@ -38,7 +38,7 @@ export function SharedMetric(): JSX.Element {
                 <div
                     className={`flex-1 cursor-pointer p-4 rounded border ${
                         sharedMetric.query.kind === NodeKind.ExperimentTrendsQuery
-                            ? 'border-primary bg-primary-highlight'
+                            ? 'border-accent-primary bg-accent-primary-highlight'
                             : 'border-border'
                     }`}
                     onClick={() => {
@@ -50,7 +50,7 @@ export function SharedMetric(): JSX.Element {
                     <div className="font-semibold flex justify-between items-center">
                         <span>Trend</span>
                         {sharedMetric.query.kind === NodeKind.ExperimentTrendsQuery && (
-                            <IconCheckCircle fontSize={18} color="var(--primary)" />
+                            <IconCheckCircle fontSize={18} color="var(--accent-primary)" />
                         )}
                     </div>
                     <div className="text-muted text-sm leading-relaxed">
@@ -60,7 +60,7 @@ export function SharedMetric(): JSX.Element {
                 <div
                     className={`flex-1 cursor-pointer p-4 rounded border ${
                         sharedMetric.query.kind === NodeKind.ExperimentFunnelsQuery
-                            ? 'border-primary bg-primary-highlight'
+                            ? 'border-accent-primary bg-accent-primary-highlight'
                             : 'border-border'
                     }`}
                     onClick={() => {
@@ -72,7 +72,7 @@ export function SharedMetric(): JSX.Element {
                     <div className="font-semibold flex justify-between items-center">
                         <span>Funnel</span>
                         {sharedMetric.query.kind === NodeKind.ExperimentFunnelsQuery && (
-                            <IconCheckCircle fontSize={18} color="var(--primary)" />
+                            <IconCheckCircle fontSize={18} color="var(--accent-primary)" />
                         )}
                     </div>
                     <div className="text-muted text-sm leading-relaxed">

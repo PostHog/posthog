@@ -30,7 +30,7 @@ export function WebAnalyticsRecordingsTile({ tile }: { tile: ReplayTile }): JSX.
               title: 'Recordings are not enabled for this project',
               description: 'Once recordings are enabled, new recordings will display here.',
               buttonText: 'Enable recordings',
-              buttonTo: urls.settings('project-replay'),
+              buttonTo: urls.settings('project-replay', 'replay'),
           }
         : webAnalyticsFilters.length > 0
         ? {

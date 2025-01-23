@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
@@ -126,8 +126,19 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 }),
         ],
 
-        issueProperties: [(s) => [s.issue], (issue): Record<string, any> => (issue ? JSON.parse(issue.earliest) : {})],
+        issueProperties: [
+            (s) => [s.issue],
+            (issue): Record<string, any> => (issue && issue.earliest ? JSON.parse(issue.earliest) : {}),
+        ],
     }),
+
+    listeners(({ actions }) => ({
+        setIssueSuccess: ({ issue }) => {
+            if (issue && !issue.earliest) {
+                actions.loadIssue()
+            }
+        },
+    })),
 
     actionToUrl(({ values }) => ({
         setTab: () => {

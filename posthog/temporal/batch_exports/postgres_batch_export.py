@@ -52,7 +52,6 @@ from posthog.temporal.batch_exports.utils import (
     make_retryable_with_exponential_backoff,
     set_status_to_running_task,
 )
-from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 
@@ -253,6 +252,27 @@ class PostgreSQLClient:
                 await cursor.execute("SET TRANSACTION READ WRITE")
 
                 await cursor.execute(sql.SQL(base_query).format(table=table_identifier))
+
+    async def aget_table_columns(self, schema: str | None, table_name: str) -> list[str]:
+        """Get the column names for a table in PostgreSQL.
+
+        Args:
+            schema: Name of the schema where the table is located.
+            table_name: Name of the table to get columns for.
+
+        Returns:
+            A list of column names in the table.
+        """
+        if schema:
+            table_identifier = sql.Identifier(schema, table_name)
+        else:
+            table_identifier = sql.Identifier(table_name)
+
+        async with self.connection.transaction():
+            async with self.connection.cursor() as cursor:
+                await cursor.execute(sql.SQL("SELECT * FROM {} WHERE 1=0").format(table_identifier))
+                columns = [column.name for column in cursor.description or []]
+                return columns
 
     @contextlib.asynccontextmanager
     async def managed_table(
@@ -554,11 +574,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
     async with (
         Heartbeater() as heartbeater,
         set_status_to_running_task(run_id=inputs.run_id, logger=logger),
-        get_client(team_id=inputs.team_id) as client,
     ):
-        if not await client.is_alive():
-            raise ConnectionError("Cannot establish connection to ClickHouse")
-
         _, details = await should_resume_from_activity_heartbeat(activity, PostgreSQLHeartbeatDetails)
         if details is None:
             details = PostgreSQLHeartbeatDetails()
@@ -591,7 +607,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
         full_range = (data_interval_start, data_interval_end)
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_POSTGRES_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
-        producer = Producer(clickhouse_client=client)
+        producer = Producer()
         producer_task = producer.start(
             queue=queue,
             model_name=model_name,
@@ -604,6 +620,7 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             extra_query_parameters=extra_query_parameters,
+            use_latest_schema=True,
         )
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
@@ -635,8 +652,6 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
                 known_json_columns=["properties", "set", "set_once", "person_properties"],
             )
 
-        schema_columns = [field[0] for field in table_fields]
-
         requires_merge = (
             isinstance(inputs.batch_export_model, BatchExportModel) and inputs.batch_export_model.name == "persons"
         )
@@ -651,6 +666,25 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs) -> Records
             primary_key = None
 
         async with PostgreSQLClient.from_inputs(inputs).connect() as pg_client:
+            # handle the case where the final table doesn't contain all the fields present in the record batch schema
+            try:
+                columns = await pg_client.aget_table_columns(inputs.schema, inputs.table_name)
+                table_fields = [field for field in table_fields if field[0] in columns]
+            except psycopg.errors.InsufficientPrivilege:
+                await logger.awarning(
+                    "Insufficient privileges to get table columns for table '%s.%s'; "
+                    "will assume all columns are present. If this results in an error, please grant SELECT "
+                    "permissions on this table or ensure the destination table is using the latest schema "
+                    "as described in the docs: https://posthog.com/docs/cdp/batch-exports/postgres",
+                    inputs.schema,
+                    inputs.table_name,
+                )
+            except psycopg.errors.UndefinedTable:
+                # this can happen if the table doesn't exist yet
+                pass
+
+            schema_columns = [field[0] for field in table_fields]
+
             async with (
                 pg_client.managed_table(
                     inputs.schema, inputs.table_name, table_fields, delete=False, primary_key=primary_key

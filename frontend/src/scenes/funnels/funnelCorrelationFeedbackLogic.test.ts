@@ -4,7 +4,7 @@ import posthog from 'posthog-js'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useAvailableFeatures } from '~/mocks/features'
-import { InsightVizNode, NodeKind } from '~/queries/schema'
+import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AvailableFeature, InsightLogicProps } from '~/types'
 

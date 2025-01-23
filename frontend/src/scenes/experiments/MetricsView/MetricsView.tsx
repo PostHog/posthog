@@ -43,7 +43,7 @@ export function getNiceTickValues(maxAbsValue: number): number[] {
 }
 
 function AddPrimaryMetric(): JSX.Element {
-    const { experiment } = useValues(experimentLogic)
+    const { primaryMetricsLengthWithSharedMetrics } = useValues(experimentLogic)
     const { openPrimaryMetricSourceModal } = useActions(experimentLogic)
 
     return (
@@ -55,7 +55,7 @@ function AddPrimaryMetric(): JSX.Element {
                 openPrimaryMetricSourceModal()
             }}
             disabledReason={
-                experiment.metrics.length >= MAX_PRIMARY_METRICS
+                primaryMetricsLengthWithSharedMetrics >= MAX_PRIMARY_METRICS
                     ? `You can only add up to ${MAX_PRIMARY_METRICS} primary metrics.`
                     : undefined
             }
@@ -66,7 +66,7 @@ function AddPrimaryMetric(): JSX.Element {
 }
 
 export function AddSecondaryMetric(): JSX.Element {
-    const { experiment } = useValues(experimentLogic)
+    const { secondaryMetricsLengthWithSharedMetrics } = useValues(experimentLogic)
     const { openSecondaryMetricSourceModal } = useActions(experimentLogic)
     return (
         <LemonButton
@@ -77,7 +77,7 @@ export function AddSecondaryMetric(): JSX.Element {
                 openSecondaryMetricSourceModal()
             }}
             disabledReason={
-                experiment.metrics_secondary.length >= MAX_SECONDARY_METRICS
+                secondaryMetricsLengthWithSharedMetrics >= MAX_SECONDARY_METRICS
                     ? `You can only add up to ${MAX_SECONDARY_METRICS} secondary metrics.`
                     : undefined
             }
@@ -90,7 +90,7 @@ export function AddSecondaryMetric(): JSX.Element {
 export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Element {
     const {
         experiment,
-        _getMetricType,
+        getMetricType,
         metricResults,
         secondaryMetricResults,
         primaryMetricsResultErrors,
@@ -98,7 +98,10 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
         credibleIntervalForVariant,
     } = useValues(experimentLogic)
 
-    const variants = experiment.parameters.feature_flag_variants
+    const variants = experiment?.feature_flag?.filters?.multivariate?.variants
+    if (!variants) {
+        return <></>
+    }
     const results = isSecondary ? secondaryMetricResults : metricResults
     const errors = isSecondary ? secondaryMetricsResultErrors : primaryMetricsResultErrors
     const hasSomeResults = results?.some((result) => result?.insight)
@@ -125,7 +128,7 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
                 return []
             }
             return variants.flatMap((variant) => {
-                const metricType = _getMetricType(metric)
+                const metricType = getMetricType(metric)
                 const interval = credibleIntervalForVariant(result, variant.key, metricType)
                 return interval ? [Math.abs(interval[0] / 100), Math.abs(interval[1] / 100)] : []
             })
@@ -240,7 +243,7 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
                                         result={result}
                                         error={errors?.[metricIndex]}
                                         variants={variants}
-                                        metricType={_getMetricType(metric)}
+                                        metricType={getMetricType(metric)}
                                         metricIndex={metricIndex}
                                         isFirstMetric={isFirstMetric}
                                         metric={metric}

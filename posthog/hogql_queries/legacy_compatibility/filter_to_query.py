@@ -602,7 +602,9 @@ def filters_to_funnel_paths_query(filter: dict[str, Any]) -> FunnelPathsFilter |
 
 
 def _insight_type(filter: dict) -> INSIGHT_TYPE:
-    if filter.get("insight") == "SESSIONS":
+    if filter.get("shown_as") == "Stickiness":
+        return "STICKINESS"
+    elif filter.get("insight") == "SESSIONS":
         return "TRENDS"
     return filter.get("insight", "TRENDS")
 

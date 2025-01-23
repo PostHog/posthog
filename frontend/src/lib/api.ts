@@ -57,6 +57,7 @@ import {
     FeatureFlagAssociatedRoleType,
     FeatureFlagStatusResponse,
     FeatureFlagType,
+    GoogleAdsConversionActionType,
     Group,
     GroupListParams,
     HogFunctionIconResponse,
@@ -110,6 +111,7 @@ import {
     Survey,
     TeamType,
     UserBasicType,
+    UserGroup,
     UserType,
 } from '~/types'
 
@@ -329,7 +331,7 @@ class ApiRequest {
         return this.projects().addPathComponent(id)
     }
 
-    // # Projects
+    // # Environments
     public environments(): ApiRequest {
         return this.addPathComponent('environments')
     }
@@ -731,6 +733,10 @@ class ApiRequest {
         return this.errorTrackingIssue(into).addPathComponent('merge')
     }
 
+    public errorTrackingAssignIssue(into: ErrorTrackingIssue['id']): ApiRequest {
+        return this.errorTrackingIssue(into).addPathComponent('assign')
+    }
+
     public errorTrackingSymbolSets(teamId?: TeamType['id']): ApiRequest {
         return this.errorTracking(teamId).addPathComponent('symbol_sets')
     }
@@ -797,8 +803,40 @@ class ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('channels')
     }
 
+    public integrationGoogleAdsAccounts(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId).addPathComponent(id).addPathComponent('google_accessible_accounts')
+    }
+
+    public integrationGoogleAdsConversionActions(
+        id: IntegrationType['id'],
+        customerId: string,
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.integrations(teamId)
+            .addPathComponent(id)
+            .addPathComponent('google_conversion_actions')
+            .withQueryString({ customerId })
+    }
+
     public media(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('uploaded_media')
+    }
+
+    // # UserGroups
+    public userGroups(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('user_groups')
+    }
+
+    public userGroup(id: UserGroup['id']): ApiRequest {
+        return this.userGroups().addPathComponent(id)
+    }
+
+    public userGroupAddMember(id: UserGroup['id']): ApiRequest {
+        return this.userGroup(id).addPathComponent('add')
+    }
+
+    public userGroupRemoveMember(id: UserGroup['id']): ApiRequest {
+        return this.userGroup(id).addPathComponent('remove')
     }
 
     // # Alerts
@@ -1488,15 +1526,20 @@ const api = {
         async duplicate(cohortId: CohortType['id']): Promise<CohortType> {
             return await new ApiRequest().cohortsDuplicate(cohortId).get()
         },
-        async list(): Promise<PaginatedResponse<CohortType>> {
-            // TODO: Remove hard limit and paginate cohorts
-            return await new ApiRequest().cohorts().withQueryString('limit=600').get()
-        },
         determineDeleteEndpoint(): string {
             return new ApiRequest().cohorts().assembleEndpointUrl()
         },
         determineListUrl(cohortId: number | 'new', params: PersonListParams): string {
             return `/api/cohort/${cohortId}/persons?${toParams(params)}`
+        },
+        async listPaginated(
+            params: {
+                limit?: number
+                offset?: number
+                search?: string
+            } = {}
+        ): Promise<CountedPaginatedResponse<CohortType>> {
+            return await new ApiRequest().cohorts().withQueryString(toParams(params)).get()
         },
     },
 
@@ -1906,6 +1949,13 @@ const api = {
             return await new ApiRequest().errorTrackingIssue(id).update({ data })
         },
 
+        async assignIssue(
+            id: ErrorTrackingIssue['id'],
+            assignee: ErrorTrackingIssue['assignee']
+        ): Promise<{ content: string }> {
+            return await new ApiRequest().errorTrackingAssignIssue(id).update({ data: { assignee } })
+        },
+
         async mergeInto(
             primaryIssueId: ErrorTrackingIssue['id'],
             mergingIssueIds: ErrorTrackingIssue['id'][]
@@ -1937,6 +1987,28 @@ const api = {
             raw_ids: ErrorTrackingStackFrame['raw_id'][]
         ): Promise<{ results: ErrorTrackingStackFrameRecord[] }> {
             return await new ApiRequest().errorTrackingStackFrames({ raw_ids }).get()
+        },
+    },
+
+    userGroups: {
+        async list(): Promise<{ results: UserGroup[] }> {
+            return await new ApiRequest().userGroups().get()
+        },
+
+        async delete(id: UserGroup['id']): Promise<void> {
+            return await new ApiRequest().userGroup(id).delete()
+        },
+
+        async create(name: UserGroup['name']): Promise<UserGroup> {
+            return await new ApiRequest().userGroups().create({ data: { name } })
+        },
+
+        async addMember(id: UserGroup['id'], userId: UserBasicType['id']): Promise<UserGroup> {
+            return await new ApiRequest().userGroupAddMember(id).create({ data: { userId } })
+        },
+
+        async removeMember(id: UserGroup['id'], userId: UserBasicType['id']): Promise<UserGroup> {
+            return await new ApiRequest().userGroupRemoveMember(id).create({ data: { userId } })
         },
     },
 
@@ -2389,6 +2461,9 @@ const api = {
         async delete(viewId: DataWarehouseViewLink['id']): Promise<void> {
             await new ApiRequest().dataWarehouseViewLink(viewId).delete()
         },
+        determineDeleteEndpoint(): string {
+            return new ApiRequest().dataWarehouseViewLinks().assembleEndpointUrl()
+        },
         async update(
             viewId: DataWarehouseViewLink['id'],
             data: Pick<
@@ -2465,6 +2540,17 @@ const api = {
         },
         async slackChannels(id: IntegrationType['id']): Promise<{ channels: SlackChannelType[] }> {
             return await new ApiRequest().integrationSlackChannels(id).get()
+        },
+        async googleAdsAccounts(
+            id: IntegrationType['id']
+        ): Promise<{ accessibleAccounts: { id: string; name: string }[] }> {
+            return await new ApiRequest().integrationGoogleAdsAccounts(id).get()
+        },
+        async googleAdsConversionActions(
+            id: IntegrationType['id'],
+            customerId: string
+        ): Promise<{ conversionActions: GoogleAdsConversionActionType[] }> {
+            return await new ApiRequest().integrationGoogleAdsConversionActions(id, customerId).get()
         },
     },
 
@@ -2702,7 +2788,7 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
         error = e
     }
 
-    apiStatusLogic.findMounted()?.actions.onApiResponse(response, error)
+    apiStatusLogic.findMounted()?.actions.onApiResponse(response?.clone(), error)
 
     if (error || !response) {
         if (error && (error as any).name === 'AbortError') {

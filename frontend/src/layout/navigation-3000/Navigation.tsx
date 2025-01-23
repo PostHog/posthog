@@ -54,8 +54,7 @@ export function Navigation({
                         'Navigation3000__scene',
                         // Hack - once we only have 3000 the "minimal" scenes should become "app-raw"
                         sceneConfig?.layout === 'app-raw' && 'Navigation3000__scene--raw',
-                        sceneConfig?.layout === 'app-raw-no-header' && 'Navigation3000__scene--raw-no-header',
-                        sceneConfig?.layout === 'app-canvas' && 'Navigation3000__scene--canvas'
+                        sceneConfig?.layout === 'app-raw-no-header' && 'Navigation3000__scene--raw-no-header'
                     )}
                 >
                     <div className={sceneConfig?.layout === 'app-raw-no-header' ? 'px-4' : ''}>

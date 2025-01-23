@@ -13,7 +13,6 @@ from posthog.schema import (
     CachedWebOverviewQueryResponse,
     WebOverviewQueryResponse,
     WebOverviewQuery,
-    SessionTableVersion,
 )
 
 
@@ -53,10 +52,6 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
                 to_data("session duration", "duration_s", row[6], row[7]),
                 to_data("bounce rate", "percentage", row[8], row[9], is_increase_bad=True),
             ]
-            if self.query.includeLCPScore:
-                results.append(
-                    to_data("lcp score", "duration_ms", row[10], row[11], is_increase_bad=True),
-                )
 
         return WebOverviewQueryResponse(
             results=results,
@@ -154,13 +149,6 @@ HAVING {inside_start_timestamp_period}
                     alias="is_bounce", expr=ast.Call(name="any", args=[ast.Field(chain=["session", "$is_bounce"])])
                 )
             )
-            if self.query.includeLCPScore:
-                lcp = (
-                    ast.Call(name="toFloat", args=[ast.Constant(value=None)])
-                    if self.modifiers.sessionTableVersion == SessionTableVersion.V1
-                    else ast.Call(name="any", args=[ast.Field(chain=["session", "$vitals_lcp"])])
-                )
-                parsed_select.select.append(ast.Alias(alias="lcp", expr=lcp))
 
         return parsed_select
 
@@ -230,15 +218,6 @@ HAVING {inside_start_timestamp_period}
                 current_period_aggregate("avg", "is_bounce", "bounce_rate"),
                 previous_period_aggregate("avg", "is_bounce", "prev_bounce_rate"),
             ]
-            if self.query.includeLCPScore:
-                select.extend(
-                    [
-                        current_period_aggregate("quantiles", "lcp", "lcp_p75", params=[ast.Constant(value=0.75)]),
-                        previous_period_aggregate(
-                            "quantiles", "lcp", "prev_lcp_p75", params=[ast.Constant(value=0.75)]
-                        ),
-                    ]
-                )
 
         query = ast.SelectQuery(
             select=select,

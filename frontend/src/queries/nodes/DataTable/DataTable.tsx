@@ -50,6 +50,7 @@ import {
     HogQLQuery,
     PersonsNode,
     SessionAttributionExplorerQuery,
+    TracesQuery,
 } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 import {
@@ -388,8 +389,16 @@ export function DataTable({
     ].filter((column) => !query.hiddenColumns?.includes(column.dataIndex) && column.dataIndex !== '*')
 
     const setQuerySource = useCallback(
-        (source: EventsNode | EventsQuery | PersonsNode | ActorsQuery | HogQLQuery | SessionAttributionExplorerQuery) =>
-            setQuery?.({ ...query, source }),
+        (
+            source:
+                | EventsNode
+                | EventsQuery
+                | PersonsNode
+                | ActorsQuery
+                | HogQLQuery
+                | SessionAttributionExplorerQuery
+                | TracesQuery
+        ) => setQuery?.({ ...query, source }),
         [setQuery, query]
     )
 
@@ -410,7 +419,7 @@ export function DataTable({
         showDateRange && sourceFeatures.has(QueryFeature.dateRangePicker) ? (
             <DateRange
                 key="date-range"
-                query={query.source as HogQLQuery | EventsQuery | SessionAttributionExplorerQuery}
+                query={query.source as HogQLQuery | EventsQuery | SessionAttributionExplorerQuery | TracesQuery}
                 setQuery={setQuerySource}
             />
         ) : null,
@@ -423,7 +432,7 @@ export function DataTable({
         showPropertyFilter && sourceFeatures.has(QueryFeature.eventPropertyFilters) ? (
             <EventPropertyFilters
                 key="event-property"
-                query={query.source as EventsQuery | HogQLQuery | SessionAttributionExplorerQuery}
+                query={query.source as EventsQuery | HogQLQuery | SessionAttributionExplorerQuery | TracesQuery}
                 setQuery={setQuerySource}
                 taxonomicGroupTypes={Array.isArray(showPropertyFilter) ? showPropertyFilter : undefined}
             />
@@ -490,7 +499,7 @@ export function DataTable({
                         <HogQLQueryEditor query={query.source} setQuery={setQuerySource} embedded={embedded} />
                     ) : null}
                     {showFirstRow && (
-                        <div className="flex gap-4 items-center flex-wrap">
+                        <div className="flex gap-x-4 gap-y-2 items-center flex-wrap">
                             {firstRowLeft}
                             {firstRowLeft.length > 0 && firstRowRight.length > 0 ? <div className="flex-1" /> : null}
                             {firstRowRight}

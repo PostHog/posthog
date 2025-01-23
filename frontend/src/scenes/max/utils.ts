@@ -1,19 +1,19 @@
 import {
-    AssistantFunnelsQuery,
     AssistantMessage,
     AssistantMessageType,
-    AssistantRetentionQuery,
-    AssistantTrendsQuery,
     FailureMessage,
-    FunnelsQuery,
     HumanMessage,
     ReasoningMessage,
-    RetentionQuery,
     RootAssistantMessage,
     RouterMessage,
-    TrendsQuery,
     VisualizationMessage,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-assistant-messages'
+import {
+    AssistantFunnelsQuery,
+    AssistantRetentionQuery,
+    AssistantTrendsQuery,
+} from '~/queries/schema/schema-assistant-queries'
+import { FunnelsQuery, RetentionQuery, TrendsQuery } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
 
 export function isReasoningMessage(message: RootAssistantMessage | undefined | null): message is ReasoningMessage {

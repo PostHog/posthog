@@ -314,7 +314,7 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
     except Exception as err:
         logger.exception(f"UsageReport failed sending to Billing for organization: {organization.id}: {err}")
         capture_exception(err)
-        pha_client = Client("sTMFPsFhdP1Ssg")
+        pha_client = Client("sTMFPsFhdP1Ssg", sync_mode=True)
         capture_event(
             pha_client=pha_client,
             name=f"organization usage report to billing service failure",
@@ -340,11 +340,12 @@ def get_teams_with_billable_event_count_in_period(
     else:
         distinct_expression = "1"
 
+    # We are excluding $exception events during the beta
     result = sync_execute(
         f"""
         SELECT team_id, count({distinct_expression}) as count
         FROM events
-        WHERE timestamp between %(begin)s AND %(end)s AND event != '$feature_flag_called' AND event NOT IN ('survey sent', 'survey shown', 'survey dismissed')
+        WHERE timestamp between %(begin)s AND %(end)s AND event NOT IN ('$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception')
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},
@@ -374,7 +375,7 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
         f"""
         SELECT team_id, count({distinct_expression}) as count
         FROM events
-        WHERE timestamp between %(begin)s AND %(end)s AND event != '$feature_flag_called' AND event NOT IN ('survey sent', 'survey shown', 'survey dismissed') AND person_mode IN ('full', 'force_upgrade')
+        WHERE timestamp between %(begin)s AND %(end)s AND event NOT IN ('$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception') AND person_mode IN ('full', 'force_upgrade')
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},
@@ -605,8 +606,7 @@ def get_teams_with_survey_responses_count_in_period(
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list:
     return list(
-        ExternalDataJob.objects.filter(created_at__gte=begin, created_at__lte=end)
-        .exclude(pipeline_version=ExternalDataJob.PipelineVersion.V2)
+        ExternalDataJob.objects.filter(created_at__gte=begin, created_at__lte=end, billable=True)
         .values("team_id")
         .annotate(total=Sum("rows_synced"))
     )
@@ -666,7 +666,7 @@ def capture_report(
 ) -> None:
     if not org_id and not team_id:
         raise ValueError("Either org_id or team_id must be provided")
-    pha_client = Client("sTMFPsFhdP1Ssg")
+    pha_client = Client("sTMFPsFhdP1Ssg", sync_mode=True)
     try:
         capture_event(
             pha_client=pha_client,
@@ -688,7 +688,6 @@ def capture_report(
             team_id=team_id,
             properties={"error": str(err)},
         )
-    pha_client.flush()
 
 
 # extend this with future usage based products
@@ -1045,6 +1044,14 @@ def send_all_org_usage_reports(
     skip_capture_event: bool = False,
     only_organization_id: Optional[str] = None,
 ) -> None:
+    import posthoganalytics
+    from sentry_sdk import capture_message
+
+    are_usage_reports_disabled = posthoganalytics.feature_enabled("disable-usage-reports", "internal_billing_events")
+    if are_usage_reports_disabled:
+        capture_message(f"Usage reports are disabled for {at}")
+        return
+
     capture_event_name = capture_event_name or "organization usage report"
 
     at_date = parser.parse(at) if at else None

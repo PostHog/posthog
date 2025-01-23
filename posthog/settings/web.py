@@ -41,6 +41,9 @@ DECIDE_SKIP_POSTGRES_FLAGS = get_from_env("DECIDE_SKIP_POSTGRES_FLAGS", False, t
 DECIDE_BILLING_SAMPLING_RATE = get_from_env("DECIDE_BILLING_SAMPLING_RATE", 0.1, type_cast=float)
 DECIDE_BILLING_ANALYTICS_TOKEN = get_from_env("DECIDE_BILLING_ANALYTICS_TOKEN", None, type_cast=str, optional=True)
 
+# Decide request logging settings
+
+DECIDE_REQUEST_LOGGING_SAMPLING_RATE = get_from_env("DECIDE_REQUEST_LOGGING_SAMPLING_RATE", 0.05, type_cast=float)
 
 # Decide regular request analytics
 # Takes 3 possible formats, all separated by commas:
@@ -84,6 +87,7 @@ INSTALLED_APPS = [
     # 'two_factor.plugins.phonenumber',  # <- if you want phone number capability.
     # 'two_factor.plugins.email',  # <- if you want email capability.
     # 'two_factor.plugins.yubikey',  # <- for yubikey capability.
+    "products.early_access_features",  # TODO: add this automatically
 ]
 
 

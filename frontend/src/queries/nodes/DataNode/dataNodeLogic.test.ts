@@ -2,7 +2,7 @@ import { expectLogic, partial } from 'kea-test-utils'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { performQuery } from '~/queries/query'
-import { DashboardFilter, HogQLVariable, NodeKind } from '~/queries/schema'
+import { DashboardFilter, HogQLVariable, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 jest.mock('~/queries/query', () => {

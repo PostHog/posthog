@@ -2,9 +2,11 @@ import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, key, listeners, LogicWrapper, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
-import { DashboardPrivilegeLevel } from 'lib/constants'
+import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
+import { DashboardPrivilegeLevel, FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -22,7 +24,14 @@ import { groupsModel } from '~/models/groupsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { DashboardFilter, HogQLVariable, Node } from '~/queries/schema'
-import { InsightLogicProps, InsightShortId, ItemMode, QueryBasedInsightModel, SetInsightOptions } from '~/types'
+import {
+    AccessControlResourceType,
+    InsightLogicProps,
+    InsightShortId,
+    ItemMode,
+    QueryBasedInsightModel,
+    SetInsightOptions,
+} from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import { insightDataLogic } from './insightDataLogic'
@@ -58,6 +67,8 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             ['mathDefinitions'],
             userLogic,
             ['user'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [tagsModel, ['loadTags']],
         logic: [eventUsageLogic, dashboardsModel],
@@ -96,6 +107,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             metadataUpdate,
         }),
         highlightSeries: (seriesIndex: number | null) => ({ seriesIndex }),
+        setAccessDeniedToInsight: true,
     }),
     loaders(({ actions, values, props }) => ({
         insight: [
@@ -103,19 +115,26 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             {
                 loadInsight: async ({ shortId, filtersOverride, variablesOverride }, breakpoint) => {
                     await breakpoint(100)
-                    const insight = await insightsApi.getByShortId(
-                        shortId,
-                        undefined,
-                        'async',
-                        filtersOverride,
-                        variablesOverride
-                    )
+                    try {
+                        const insight = await insightsApi.getByShortId(
+                            shortId,
+                            undefined,
+                            'async',
+                            filtersOverride,
+                            variablesOverride
+                        )
 
-                    if (!insight) {
-                        throw new Error(`Insight with shortId ${shortId} not found`)
+                        if (!insight) {
+                            throw new Error(`Insight with shortId ${shortId} not found`)
+                        }
+
+                        return insight
+                    } catch (error: any) {
+                        if (error.status === 403 && error.code === 'permission_denied') {
+                            actions.setAccessDeniedToInsight()
+                        }
+                        throw error
                     }
-
-                    return insight
                 },
                 updateInsight: async ({ insightUpdate, callback }, breakpoint) => {
                     if (!Object.entries(insightUpdate).length) {
@@ -231,6 +250,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 return { ...state, dashboards: state.dashboards?.filter((d) => d !== id) }
             },
         },
+        accessDeniedToInsight: [false, { setAccessDeniedToInsight: () => true }],
         /** The insight's state as it is in the database. */
         savedInsight: [
             () => props.cachedInsight || ({} as Partial<QueryBasedInsightModel>),
@@ -292,10 +312,18 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         insightName: [(s) => [s.insight, s.derivedName], (insight, derivedName) => insight.name || derivedName],
         insightId: [(s) => [s.insight], (insight) => insight?.id || null],
         canEditInsight: [
-            (s) => [s.insight],
-            (insight) =>
-                insight.effective_privilege_level == undefined ||
-                insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit,
+            (s) => [s.insight, s.featureFlags],
+            (insight, featureFlags) => {
+                if (featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS_CONTROL]) {
+                    return insight.user_access_level
+                        ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, 'editor')
+                        : true
+                }
+                return (
+                    insight.effective_privilege_level == undefined ||
+                    insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
+                )
+            },
         ],
         insightChanged: [
             (s) => [s.insight, s.savedInsight],

@@ -8,7 +8,14 @@ import { objectsEqual, sortedKeys } from 'lib/utils'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { getQueryFeatures, QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { insightVizDataCollectionId } from '~/queries/nodes/InsightViz/InsightViz'
-import { AnyDataNode, AnyResponseType, DataTableNode, EventsQuery, HogQLExpression, NodeKind } from '~/queries/schema'
+import {
+    AnyDataNode,
+    AnyResponseType,
+    DataTableNode,
+    EventsQuery,
+    HogQLExpression,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { isDataTableNode, isEventsQuery } from '~/queries/utils'
 

@@ -2,6 +2,9 @@
 
 <!-- Who are we building for, what are their needs, why is this important? -->
 
+<!-- Does this fix an issue? Uncomment the line below with the issue ID to automatically close it when merged -->
+<!-- Closes #ISSUE_ID -->
+
 ## Changes
 
 <!-- If there are frontend changes, please include screenshots. -->

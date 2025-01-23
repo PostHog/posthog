@@ -10,7 +10,7 @@ import {
     NodeKind,
     SessionAttributionExplorerQuery,
     SessionAttributionGroupBy,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { isSessionPropertyFilters } from '~/queries/schema-guards'
 import { SessionPropertyFilter } from '~/types'
 

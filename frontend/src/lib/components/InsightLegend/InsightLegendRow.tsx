@@ -48,7 +48,7 @@ export function InsightLegendRow({ rowIndex, item }: InsightLegendRowProps): JSX
     const formattedBreakdownValue = formatBreakdownLabel(
         item.breakdown_value,
         breakdownFilter,
-        cohorts,
+        cohorts.results,
         formatPropertyValueForDisplay
     )
 

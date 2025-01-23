@@ -63,7 +63,7 @@ runs:
           id: hogql-parser-diff
           run: |
               git fetch --no-tags --prune --depth=1 origin master
-              changed=$(git diff --quiet HEAD origin/master -- hogql_parser/ && echo "false" || echo "true")
+              changed=$(git diff --quiet HEAD origin/master -- common/hogql_parser/ && echo "false" || echo "true")
               echo "changed=$changed" >> $GITHUB_OUTPUT
 
         - name: Install SAML (python3-saml) dependencies
@@ -86,10 +86,10 @@ runs:
         # absolute wild tbh https://stackoverflow.com/a/75503402
         - uses: tlambert03/setup-qt-libs@v1
 
-        - name: Install plugin-transpiler
+        - name: Install plugin_transpiler
           shell: bash
           run: |
-              cd plugin-transpiler
+              cd common/plugin_transpiler
               pnpm install
               pnpm run build
 
@@ -122,7 +122,7 @@ runs:
               sudo cp out/usr/local/lib/libantlr4-runtime.so* /usr/lib/
               sudo ldconfig
               cd ..
-              uv pip install --system ./hogql_parser
+              uv pip install --system ./common/hogql_parser
 
         - name: Set up needed files
           shell: bash
@@ -164,7 +164,7 @@ runs:
                   || 'posthog'
               }} ${{ inputs.person-on-events == 'true' && 'ee/clickhouse/' || 'ee/' }} -m "not async_migrations" \
                   --ignore=posthog/temporal \
-                  --ignore=hogvm/python/test \
+                  --ignore=common/hogvm/python/test \
                   --splits ${{ inputs.concurrency }} --group ${{ inputs.group }} \
                   --durations=100 --durations-min=1.0 --store-durations \
                   $PYTEST_ARGS

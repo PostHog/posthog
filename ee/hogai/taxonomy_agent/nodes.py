@@ -25,6 +25,7 @@ from ee.hogai.taxonomy_agent.parsers import (
     parse_react_agent_output,
 )
 from ee.hogai.taxonomy_agent.prompts import (
+    CORE_MEMORY_INSTRUCTIONS,
     REACT_DEFINITIONS_PROMPT,
     REACT_FOLLOW_UP_PROMPT,
     REACT_FORMAT_PROMPT,
@@ -88,13 +89,14 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                 agent.invoke(
                     {
                         "react_format": self._get_react_format_prompt(toolkit),
+                        "core_memory": self.core_memory.text if self.core_memory else "",
                         "react_format_reminder": REACT_FORMAT_REMINDER_PROMPT,
                         "react_property_filters": self._get_react_property_filters_prompt(),
                         "react_human_in_the_loop": REACT_HUMAN_IN_THE_LOOP_PROMPT,
-                        "product_description": self._team.project.product_description,
                         "groups": self._team_group_types,
                         "events": self._events_prompt,
                         "agent_scratchpad": self._get_agent_scratchpad(intermediate_steps),
+                        "core_memory_instructions": CORE_MEMORY_INSTRUCTIONS,
                     },
                     config,
                 ),
@@ -131,7 +133,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
 
     @property
     def _model(self) -> ChatOpenAI:
-        return ChatOpenAI(model="gpt-4o", temperature=0, streaming=True)
+        return ChatOpenAI(model="gpt-4o", temperature=0, streaming=True, stream_usage=True)
 
     def _get_react_format_prompt(self, toolkit: TaxonomyAgentToolkit) -> str:
         return cast(

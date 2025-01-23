@@ -9,9 +9,8 @@ import { status } from '../../../utils/status'
 import { ConfiguredLimiter, LoggingLimiter } from '../../../utils/token-bucket'
 import { EventPipelineRunner } from '../../../worker/ingestion/event-pipeline/runner'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
-import { ingestionPartitionKeyOverflowed } from '../analytics-events-ingestion-consumer'
 import { IngestionConsumer } from '../kafka-queue'
-import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
+import { eventDroppedCounter, ingestionPartitionKeyOverflowed, latestOffsetTimestampGauge } from '../metrics'
 import {
     ingestEventBatchingBatchCountSummary,
     ingestEventBatchingDistinctIdBatchLengthSummary,
@@ -80,7 +79,6 @@ async function handleProcessingError(
                 value: message.value,
                 key: message.key ?? null, // avoid undefined, just to be safe
                 headers: headers,
-                waitForAck: true,
             })
         } catch (error) {
             // If we can't send to the DLQ and it's not retriable, just continue. We'll commit the
@@ -170,11 +168,7 @@ export async function eachBatchParallelIngestion(
                 for (const { message, pluginEvent } of currentBatch) {
                     try {
                         const result = (await retryIfRetriable(async () => {
-                            const runner = new EventPipelineRunner(
-                                queue.pluginsServer,
-                                pluginEvent,
-                                queue.eventsProcessor
-                            )
+                            const runner = new EventPipelineRunner(queue.pluginsServer, pluginEvent)
                             return await runner.runEventPipeline(pluginEvent)
                         })) as IngestResult
 
@@ -271,6 +265,7 @@ export function computeKey(pluginEvent: PipelineEvent): string {
 async function emitToOverflow(queue: IngestionConsumer, kafkaMessages: Message[], overflowMode: IngestionOverflowMode) {
     ingestionOverflowingMessagesTotal.inc(kafkaMessages.length)
     const useRandomPartitioning = overflowMode === IngestionOverflowMode.RerouteRandomly
+
     await Promise.all(
         kafkaMessages.map((message) =>
             queue.pluginsServer.kafkaProducer.produce({
@@ -281,7 +276,6 @@ async function emitToOverflow(queue: IngestionConsumer, kafkaMessages: Message[]
                 // instead as that behavior is safer.
                 key: useRandomPartitioning ? null : message.key ?? null,
                 headers: message.headers,
-                waitForAck: true,
             })
         )
     )

@@ -5,7 +5,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 import api, { ApiError } from 'lib/api'
 import { uuid } from 'lib/utils'
-import { isHumanMessage, isReasoningMessage, isVisualizationMessage } from 'scenes/max/utils'
+import { isAssistantMessage, isHumanMessage, isReasoningMessage, isVisualizationMessage } from 'scenes/max/utils'
 import { projectLogic } from 'scenes/projectLogic'
 
 import {
@@ -15,14 +15,13 @@ import {
     AssistantMessageType,
     FailureMessage,
     HumanMessage,
-    NodeKind,
     ReasoningMessage,
-    RefreshType,
     RootAssistantMessage,
-    SuggestedQuestionsQuery,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-assistant-messages'
+import { NodeKind, RefreshType, SuggestedQuestionsQuery } from '~/queries/schema/schema-general'
 import { Conversation } from '~/types'
 
+import { maxGlobalLogic } from './maxGlobalLogic'
 import type { maxLogicType } from './maxLogicType'
 
 export interface MaxLogicProps {
@@ -46,7 +45,7 @@ export const maxLogic = kea<maxLogicType>([
     props({} as MaxLogicProps),
     key(({ conversationId }) => conversationId || 'new-conversation'),
     connect({
-        values: [projectLogic, ['currentProject']],
+        values: [projectLogic, ['currentProject'], maxGlobalLogic, ['dataProcessingAccepted']],
     }),
     actions({
         askMax: (prompt: string) => ({ prompt }),
@@ -317,6 +316,30 @@ export const maxLogic = kea<maxLogicType>([
                 }
                 return threadGrouped
             },
+        ],
+        formPending: [
+            (s) => [s.threadRaw],
+            (threadRaw) => {
+                const lastMessage = threadRaw[threadRaw.length - 1]
+                if (lastMessage && isAssistantMessage(lastMessage)) {
+                    return !!lastMessage.meta?.form
+                }
+                return false
+            },
+        ],
+        inputDisabled: [(s) => [s.formPending], (formPending) => formPending],
+        submissionDisabledReason: [
+            (s) => [s.formPending, s.dataProcessingAccepted, s.question, s.threadLoading],
+            (formPending, dataProcessingAccepted, question, threadLoading): string | undefined =>
+                !dataProcessingAccepted
+                    ? 'Please accept OpenAI processing data'
+                    : formPending
+                    ? 'Please choose one of the options above'
+                    : !question
+                    ? 'I need some input first'
+                    : threadLoading
+                    ? 'Thinking…'
+                    : undefined,
         ],
     }),
     afterMount(({ actions, values }) => {

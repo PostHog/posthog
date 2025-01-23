@@ -46,7 +46,7 @@ export function WebOverview(props: {
 
     const samplingRate = webOverviewQueryResponse?.samplingRate
 
-    const numSkeletons = props.query.conversionGoal ? 4 : 6
+    const numSkeletons = props.query.conversionGoal ? 4 : 5
 
     return (
         <>
@@ -59,11 +59,10 @@ export function WebOverview(props: {
                     : webOverviewQueryResponse?.results?.map((item) => (
                           <WebOverviewItemCell key={item.key} item={item} />
                       )) || []}
-                {}
             </EvenlyDistributedRows>
             {samplingRate && !(samplingRate.numerator === 1 && (samplingRate.denominator ?? 1) === 1) ? (
                 <LemonBanner type="info" className="my-4">
-                    These results using a sampling factor of {samplingRate.numerator}
+                    These results are using a sampling factor of {samplingRate.numerator}
                     {samplingRate.denominator ?? 1 !== 1 ? `/${samplingRate.denominator}` : ''}. Sampling is currently
                     in beta.
                 </LemonBanner>

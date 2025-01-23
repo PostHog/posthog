@@ -34,7 +34,7 @@ import {
     RetentionQuery,
     StickinessQuery,
     TrendsQuery,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import {
     isActionsNode,
     isEventsNode,
@@ -48,7 +48,7 @@ import {
     isTrendsQuery,
     isValidBreakdown,
 } from '~/queries/utils'
-import { AnyPropertyFilter, FilterLogicalOperator, PropertyGroupFilter, QueryBasedInsightModel } from '~/types'
+import { AnyPropertyFilter, FilterLogicalOperator, PropertyGroupFilter, UserBasicType } from '~/types'
 
 import { PropertyKeyInfo } from '../../PropertyKeyInfo'
 import { TZLabel } from '../../TZLabel'
@@ -387,46 +387,59 @@ export function BreakdownSummary({ query }: { query: InsightQueryNode }): JSX.El
     )
 }
 
-function InsightDetailsInternal(
-    { insight }: { insight: QueryBasedInsightModel },
-    ref: React.Ref<HTMLDivElement>
-): JSX.Element {
-    const { created_at, created_by, query } = insight
+interface InsightDetailsProps {
+    query: Node | null
+    footerInfo?: {
+        created_at: string
+        created_by: UserBasicType | null
+        last_modified_by: UserBasicType | null
+        last_modified_at: string
+        last_refresh: string | null
+    }
+}
 
-    // TODO: Implement summaries for HogQL query insights
-    return (
-        <div className="InsightDetails" ref={ref}>
-            {isInsightVizNode(query) && (
-                <>
-                    <SeriesSummary query={query.source} />
-                    <PropertiesSummary properties={query.source.properties} />
-                    <BreakdownSummary query={query.source} />
-                </>
-            )}
-            <div className="InsightDetails__footer">
-                <div>
-                    <h5>Created by</h5>
-                    <section>
-                        <ProfilePicture user={created_by} showName size="md" /> <TZLabel time={created_at} />
-                    </section>
-                </div>
-                <div>
-                    <h5>Last modified by</h5>
-                    <section>
-                        <ProfilePicture user={insight.last_modified_by} showName size="md" />{' '}
-                        <TZLabel time={insight.last_modified_at} />
-                    </section>
-                </div>
-                {insight.last_refresh && (
-                    <div>
-                        <h5>Last computed</h5>
-                        <section>
-                            <TZLabel time={insight.last_refresh} />
-                        </section>
+export const InsightDetails = React.memo(
+    React.forwardRef<HTMLDivElement, InsightDetailsProps>(function InsightDetailsInternal(
+        { query, footerInfo },
+        ref
+    ): JSX.Element {
+        // TODO: Implement summaries for HogQL query insights
+        return (
+            <div className="InsightDetails" ref={ref}>
+                {isInsightVizNode(query) && (
+                    <>
+                        <SeriesSummary query={query.source} />
+                        <PropertiesSummary properties={query.source.properties} />
+                        <BreakdownSummary query={query.source} />
+                    </>
+                )}
+                {footerInfo && (
+                    <div className="InsightDetails__footer">
+                        <div>
+                            <h5>Created by</h5>
+                            <section>
+                                <ProfilePicture user={footerInfo.created_by} showName size="md" />{' '}
+                                <TZLabel time={footerInfo.created_at} />
+                            </section>
+                        </div>
+                        <div>
+                            <h5>Last modified by</h5>
+                            <section>
+                                <ProfilePicture user={footerInfo.last_modified_by} showName size="md" />{' '}
+                                <TZLabel time={footerInfo.last_modified_at} />
+                            </section>
+                        </div>
+                        {footerInfo.last_refresh && (
+                            <div>
+                                <h5>Last computed</h5>
+                                <section>
+                                    <TZLabel time={footerInfo.last_refresh} />
+                                </section>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
-        </div>
-    )
-}
-export const InsightDetails = React.memo(React.forwardRef(InsightDetailsInternal))
+        )
+    })
+)

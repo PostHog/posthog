@@ -21,7 +21,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     connect({
         values: [
             errorTrackingLogic,
-            ['dateRange', 'assignee', 'filterTestAccounts', 'filterGroup', 'sparklineSelectedPeriod', 'searchQuery'],
+            ['dateRange', 'assignee', 'filterTestAccounts', 'filterGroup', 'customSparklineConfig', 'searchQuery'],
         ],
         actions: [
             errorTrackingLogic,
@@ -50,38 +50,24 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
         ],
     }),
 
-    selectors({
+    selectors(({ values }) => ({
         query: [
-            (s) => [
-                s.orderBy,
-                s.dateRange,
-                s.assignee,
-                s.filterTestAccounts,
-                s.filterGroup,
-                s.sparklineSelectedPeriod,
-                s.searchQuery,
-            ],
-            (
-                orderBy,
-                dateRange,
-                assignee,
-                filterTestAccounts,
-                filterGroup,
-                sparklineSelectedPeriod,
-                searchQuery
-            ): DataTableNode =>
+            (s) => [s.orderBy, s.dateRange, s.assignee, s.filterTestAccounts, s.filterGroup, s.searchQuery],
+            (orderBy, dateRange, assignee, filterTestAccounts, filterGroup, searchQuery): DataTableNode =>
                 errorTrackingQuery({
                     orderBy,
                     dateRange,
                     assignee,
                     filterTestAccounts,
                     filterGroup,
-                    sparklineSelectedPeriod,
+                    // we do not want to recompute the query when then sparkline selection changes
+                    // because we have already fetched the alternative option (1d, 1m, custom)
+                    customVolume: values.customSparklineConfig,
                     searchQuery,
-                    columns: ['error', 'occurrences', 'sessions', 'users', 'assignee'],
+                    columns: ['error', 'volume', 'occurrences', 'sessions', 'users', 'assignee'],
                 }),
         ],
-    }),
+    })),
 
     subscriptions(({ actions }) => ({
         query: () => actions.setSelectedIssueIds([]),
@@ -101,9 +87,6 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 filterTestAccounts: values.filterTestAccounts,
             }
 
-            if (values.assignee) {
-                searchParams.assignee = values.assignee
-            }
             if (values.searchQuery) {
                 searchParams.searchQuery = values.searchQuery
             }
@@ -128,7 +111,6 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
 
         return {
             setOrderBy: () => buildURL(),
-            setAssignee: () => buildURL(),
             setDateRange: () => buildURL(),
             setFilterGroup: () => buildURL(),
             setSearchQuery: () => buildURL(),
@@ -149,9 +131,6 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             }
             if (params.filterTestAccounts && !equal(params.filterTestAccounts, values.filterTestAccounts)) {
                 actions.setFilterTestAccounts(params.filterTestAccounts)
-            }
-            if (params.assignee && !equal(params.assignee, values.assignee)) {
-                actions.setAssignee(params.assignee)
             }
             if (params.searchQuery && !equal(params.searchQuery, values.searchQuery)) {
                 actions.setSearchQuery(params.searchQuery)

@@ -5,7 +5,7 @@ import { dayjs } from 'lib/dayjs'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema'
+import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { SessionRecordingPropertiesType, SessionRecordingType } from '~/types'
 

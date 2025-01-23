@@ -25,7 +25,7 @@ import {
     HogQLQueryResponse,
     HogQLVariable,
     NodeKind,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, ExportContext, ExporterFormat, InsightLogicProps } from '~/types'
 

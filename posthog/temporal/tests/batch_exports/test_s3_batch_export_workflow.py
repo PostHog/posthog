@@ -160,6 +160,10 @@ async def minio_client(bucket_name):
 
 async def assert_files_in_s3(s3_compatible_client, bucket_name, key_prefix, file_format, compression, json_columns):
     """Assert that there are files in S3 under key_prefix and return the combined contents, and the keys of files found."""
+    expected_file_extension = FILE_FORMAT_EXTENSIONS[file_format]
+    if compression is not None:
+        expected_file_extension = f"{expected_file_extension}.{COMPRESSION_EXTENSIONS[compression]}"
+
     objects = await s3_compatible_client.list_objects_v2(Bucket=bucket_name, Prefix=key_prefix)
 
     s3_data = []
@@ -168,7 +172,9 @@ async def assert_files_in_s3(s3_compatible_client, bucket_name, key_prefix, file
     assert "Contents" in objects
     for obj in objects["Contents"]:
         key = obj.get("Key")
-        assert key
+        if not key.endswith(expected_file_extension):
+            continue
+
         keys.append(key)
 
         if file_format == "Parquet":
@@ -191,6 +197,13 @@ async def assert_file_in_s3(s3_compatible_client, bucket_name, key_prefix, file_
     )
     assert len(keys) == 1
     return s3_data
+
+
+async def read_json_file_from_s3(s3_compatible_client, bucket_name, key) -> list | dict:
+    s3_object: dict = await s3_compatible_client.get_object(Bucket=bucket_name, Key=key)
+    data = await s3_object["Body"].read()
+    data = read_s3_data_as_json(data, None)
+    return data[0]
 
 
 async def assert_clickhouse_records_in_s3(
@@ -544,18 +557,28 @@ async def test_insert_into_s3_activity_puts_splitted_files_into_s3(
     else:
         assert num_files > 1
 
-    for i in range(num_files):
-        assert (
-            expected_s3_key(
-                file_number=i,
-                data_interval_start=data_interval_start,
-                data_interval_end=data_interval_end,
-                file_format=file_format,
-                compression=compression,
-                max_file_size_mb=max_file_size_mb,
-            )
-            in s3_keys
+    expected_keys = [
+        expected_s3_key(
+            file_number=i,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            file_format=file_format,
+            compression=compression,
+            max_file_size_mb=max_file_size_mb,
         )
+        for i in range(num_files)
+    ]
+    assert set(expected_keys) == set(s3_keys)
+
+    manifest_key = f"{prefix}/{data_interval_start.isoformat()}-{data_interval_end.isoformat()}_manifest.json"
+    # we only expect a manifest file if we have set a max file size
+    if max_file_size_mb is None:
+        with pytest.raises(minio_client.exceptions.NoSuchKey):
+            await read_json_file_from_s3(minio_client, bucket_name, manifest_key)
+    else:
+        manifest_data: dict | list = await read_json_file_from_s3(minio_client, bucket_name, manifest_key)
+        assert isinstance(manifest_data, dict)
+        assert manifest_data["files"] == expected_keys
 
     # check heartbeat details
     assert len(heartbeat_details) > 0
@@ -2108,3 +2131,81 @@ async def test_s3_export_workflow_with_request_timeouts(
         data_interval_end=data_interval_end,
         batch_export_model=model,
     )
+
+
+# TODO - this can be removed once we've fully migrated to using distributed events_recent
+# for all teams
+@pytest.mark.parametrize("use_distributed_events_recent_table", [True, False])
+# need to use a recent data_interval_end as events older than 7 days are deleted
+@pytest.mark.parametrize(
+    "data_interval_end", [dt.datetime.now(tz=dt.UTC).replace(minute=0, second=0, microsecond=0, tzinfo=dt.UTC)]
+)
+@pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
+async def test_insert_into_s3_activity_when_using_distributed_events_recent_table(
+    clickhouse_client,
+    bucket_name,
+    minio_client,
+    activity_environment,
+    compression,
+    exclude_events,
+    file_format,
+    data_interval_start,
+    data_interval_end,
+    generate_test_data,
+    ateam,
+    use_distributed_events_recent_table,
+):
+    """We're migrating to using distributed events_recent for all realtime batch exports (except for 5 minute exports).
+
+    This test ensures that the insert_into_s3_activity function works as expected when using the
+    distributed events_recent table.
+
+    It can be removed once we've fully migrated to using distributed events_recent for all teams and the tests always
+    use this new table.
+    """
+
+    model = BatchExportModel(name="events", schema=None)
+
+    prefix = str(uuid.uuid4())
+
+    insert_inputs = S3InsertInputs(
+        bucket_name=bucket_name,
+        region="us-east-1",
+        prefix=prefix,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        aws_access_key_id="object_storage_root_user",
+        aws_secret_access_key="object_storage_root_password",
+        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+        compression=compression,
+        exclude_events=exclude_events,
+        file_format=file_format,
+        batch_export_schema=None,
+        batch_export_model=model,
+    )
+
+    with override_settings(
+        BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2,
+        BATCH_EXPORT_DISTRIBUTED_EVENTS_RECENT_ROLLOUT=1 if use_distributed_events_recent_table else 0,
+    ):  # 5MB, the minimum for Multipart uploads
+        records_exported = await activity_environment.run(insert_into_s3_activity, insert_inputs)
+
+        events_to_export_created, persons_to_export_created = generate_test_data
+        assert records_exported == len(events_to_export_created) or records_exported == len(persons_to_export_created)
+
+        await assert_clickhouse_records_in_s3(
+            s3_compatible_client=minio_client,
+            clickhouse_client=clickhouse_client,
+            bucket_name=bucket_name,
+            key_prefix=prefix,
+            team_id=ateam.pk,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            batch_export_model=model,
+            exclude_events=exclude_events,
+            include_events=None,
+            compression=compression,
+            file_format=file_format,
+            is_backfill=False,
+        )

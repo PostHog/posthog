@@ -1,10 +1,13 @@
 import { IconOpenSidebar, IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { useActions } from 'kea'
+import { router } from 'kea-router'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { ProductCrossSellLocation, trackProductCrossSell } from 'lib/utils/cross-sell'
 import type React from 'react'
 import { urls } from 'scenes/urls'
 
-import { PipelineStage } from '~/types'
+import { PipelineStage, ProductKey } from '~/types'
 
 import { BuilderHog3 } from '../hedgehogs'
 
@@ -21,6 +24,8 @@ type EmptyStateProps = {
 }
 
 const EmptyState = ({ title, description, action, docsUrl, hog: Hog, groupType }: EmptyStateProps): JSX.Element => {
+    const { push } = useActions(router)
+
     return (
         <div className="w-full p-8 rounded mt-4 flex items-center gap-4">
             <div className="w-32 h-32">
@@ -33,7 +38,16 @@ const EmptyState = ({ title, description, action, docsUrl, hog: Hog, groupType }
                     <LemonButton
                         type="primary"
                         icon={<IconPlus />}
-                        to={action.to}
+                        onClick={() => {
+                            trackProductCrossSell({
+                                from: ProductKey.PRODUCT_ANALYTICS,
+                                to: ProductKey.DATA_WAREHOUSE,
+                                location: ProductCrossSellLocation.TAXONOMIC_FILTER_EMPTY_STATE,
+                                context: {},
+                            })
+
+                            push(action.to)
+                        }}
                         data-attr={`taxonomic-filter-empty-state-${groupType}-new-button`}
                     >
                         {action.text}

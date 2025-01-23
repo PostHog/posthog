@@ -3,7 +3,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import timekeeper from 'timekeeper'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { DataNode, FunnelsQuery, NodeKind } from '~/queries/schema'
+import { DataNode, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { FunnelConversionWindowTimeUnit, FunnelVizType, InsightLogicProps, InsightModel, InsightType } from '~/types'
 

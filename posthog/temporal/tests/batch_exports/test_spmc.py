@@ -1,11 +1,18 @@
 import asyncio
 import datetime as dt
 import random
+import typing as t
 
 import pyarrow as pa
 import pytest
+from django.test import override_settings
 
-from posthog.temporal.batch_exports.spmc import Producer, RecordBatchQueue, slice_record_batch
+from posthog.temporal.batch_exports.spmc import (
+    Producer,
+    RecordBatchQueue,
+    slice_record_batch,
+    use_distributed_events_recent_table,
+)
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
@@ -108,7 +115,7 @@ async def test_record_batch_producer_uses_extra_query_parameters(clickhouse_clie
     )
 
     queue = RecordBatchQueue()
-    producer = Producer(clickhouse_client=clickhouse_client)
+    producer = Producer()
     producer_task = producer.start(
         queue=queue,
         team_id=team_id,
@@ -162,3 +169,51 @@ def test_slice_record_batch_in_half():
     slices = list(slice_record_batch(batch, max_record_batch_size_bytes=batch.nbytes // 2, min_records_per_batch=1))
     assert len(slices) == 2
     assert all(slice.num_rows == 3 for slice in slices)
+
+
+@pytest.mark.parametrize(
+    "test_data",
+    [
+        # is backfill so shouldn't use events recent
+        {
+            "is_backfill": True,
+            "team_id": 1,
+            "rollout": 1.0,
+            "use_events_recent": False,
+        },
+        # rollout is 0 so shouldn't use events recent
+        {
+            "is_backfill": False,
+            "team_id": 1,
+            "rollout": 0.0,
+            "use_events_recent": False,
+        },
+        # rollout is 1 so should use events recent
+        {
+            "is_backfill": False,
+            "team_id": 1,
+            "rollout": 1.0,
+            "use_events_recent": True,
+        },
+        # rollout is 0.4 but team_id mod 10 is 7 so should use events recent
+        {
+            "is_backfill": False,
+            "team_id": 17,
+            "rollout": 0.4,
+            "use_events_recent": False,
+        },
+        # rollout is 0.4 but team_id mod 10 is 3 so should use events recent
+        {
+            "is_backfill": False,
+            "team_id": 13,
+            "rollout": 0.4,
+            "use_events_recent": True,
+        },
+    ],
+)
+def test_use_events_recent(test_data: dict[str, t.Any]):
+    with override_settings(BATCH_EXPORT_DISTRIBUTED_EVENTS_RECENT_ROLLOUT=test_data["rollout"]):
+        assert (
+            use_distributed_events_recent_table(is_backfill=test_data["is_backfill"], team_id=test_data["team_id"])
+            == test_data["use_events_recent"]
+        )

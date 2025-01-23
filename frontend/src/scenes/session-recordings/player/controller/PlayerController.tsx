@@ -1,4 +1,15 @@
-import { IconClock, IconCollapse45, IconExpand45, IconPause, IconPlay, IconSearch } from '@posthog/icons'
+import {
+    IconClock,
+    IconCollapse45,
+    IconExpand45,
+    IconHourglass,
+    IconMouse,
+    IconPause,
+    IconPlay,
+    IconRabbit,
+    IconSearch,
+    IconTortoise,
+} from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
@@ -30,6 +41,13 @@ function SetPlaybackSpeed(): JSX.Element {
     const { setSpeed } = useActions(sessionRecordingPlayerLogic)
     return (
         <SettingsMenu
+            icon={
+                speed === 0.5 ? (
+                    <IconTortoise className="text-2xl" style={{ stroke: 'currentColor', strokeWidth: '0.5' }} />
+                ) : (
+                    <IconRabbit className="text-2xl" style={{ stroke: 'currentColor', strokeWidth: '0.5' }} />
+                )
+            }
             data-attr="session-recording-speed-select"
             items={PLAYBACK_SPEEDS.map((speedToggle) => ({
                 label: (
@@ -87,6 +105,7 @@ function ShowMouseTail(): JSX.Element {
             active={showMouseTail}
             data-attr="show-mouse-tail"
             onClick={() => setShowMouseTail(!showMouseTail)}
+            icon={<IconMouse className="text-lg" />}
         />
     )
 }
@@ -102,6 +121,7 @@ function SkipInactivity(): JSX.Element {
             active={skipInactivitySetting}
             data-attr="skip-inactivity"
             onClick={() => setSkipInactivitySetting(!skipInactivitySetting)}
+            icon={<IconHourglass />}
         />
     )
 }
@@ -155,6 +175,10 @@ function InspectDOM(): JSX.Element {
 }
 
 function PlayerBottomSettings(): JSX.Element {
+    const {
+        logicProps: { noInspector },
+    } = useValues(sessionRecordingPlayerLogic)
+
     return (
         <SettingsBar border="top" className="justify-between">
             <div className="flex flex-row gap-0.5">
@@ -163,7 +187,7 @@ function PlayerBottomSettings(): JSX.Element {
                 <SetPlaybackSpeed />
                 <SetTimeFormat />
             </div>
-            <InspectDOM />
+            {noInspector ? null : <InspectDOM />}
         </SettingsBar>
     )
 }

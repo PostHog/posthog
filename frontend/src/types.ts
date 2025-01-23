@@ -1,5 +1,6 @@
 import { LemonInputProps, LemonTableColumns } from '@posthog/lemon-ui'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
+import { LogLevel } from '@rrweb/rrweb-plugin-console-record'
 import { eventWithTime } from '@rrweb/types'
 import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
 import { LogicWrapper } from 'kea'
@@ -23,12 +24,12 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
 import type { PostHog, SupportedWebVitalsMetrics } from 'posthog-js'
 import { Layout } from 'react-grid-layout'
-import { LogLevel } from 'rrweb'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { Holdout } from 'scenes/experiments/holdoutsLogic'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { Scene } from 'scenes/sceneTypes'
+import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
 import { QueryContext } from '~/queries/types'
 
@@ -46,7 +47,7 @@ import type {
     RecordingOrder,
     RecordingsQuery,
 } from './queries/schema'
-import { NodeKind } from './queries/schema'
+import { NodeKind } from './queries/schema/schema-general'
 
 // Type alias for number to be reflected as integer in json-schema.
 /** @asType integer */
@@ -166,6 +167,7 @@ export enum AvailableFeature {
     AUTOMATIC_PROVISIONING = 'automatic_provisioning',
     MANAGED_REVERSE_PROXY = 'managed_reverse_proxy',
     ALERTS = 'alerts',
+    DATA_COLOR_THEMES = 'data_color_themes',
 }
 
 type AvailableFeatureUnion = `${AvailableFeature}`
@@ -238,6 +240,15 @@ export type WithAccessControl = {
     user_access_level: 'none' | 'member' | 'admin' | 'viewer' | 'editor'
 }
 
+export enum AccessControlResourceType {
+    Project = 'project',
+    Organization = 'organization',
+    FeatureFlag = 'feature_flag',
+    Insight = 'insight',
+    Dashboard = 'dashboard',
+    Notebook = 'notebook',
+}
+
 interface UserBaseType {
     uuid: string
     distinct_id: string
@@ -292,6 +303,7 @@ export interface UserType extends UserBaseType {
     scene_personalisation?: SceneDashboardChoice[]
     theme_mode?: UserTheme | null
     hedgehog_config?: Partial<HedgehogConfig>
+    role_at_organization?: string
 }
 
 export type HedgehogColorOptions =
@@ -567,6 +579,7 @@ export interface TeamType extends TeamBasicType {
     default_modifiers?: HogQLQueryModifiers
     product_intents?: ProductIntentType[]
     default_data_theme?: number
+    flags_persistence_default: boolean
 }
 
 export interface ProductIntentType {
@@ -1819,7 +1832,7 @@ export interface TextModel {
     last_modified_at: string
 }
 
-export interface InsightModel extends Cacheable {
+export interface InsightModel extends Cacheable, WithAccessControl {
     /** The unique key we use when communicating with the user, e.g. in URLs */
     short_id: InsightShortId
     /** The primary key in the database, used as well in API endpoints */
@@ -1858,7 +1871,7 @@ export interface QueryBasedInsightModel extends Omit<InsightModel, 'filters'> {
     query: Node | null
 }
 
-export interface DashboardBasicType {
+export interface DashboardBasicType extends WithAccessControl {
     id: number
     name: string
     description: string
@@ -2398,6 +2411,8 @@ export interface RetentionEntity {
     order?: number
     uuid?: string
     custom_name?: string
+    /** filters on the event */
+    properties?: AnyPropertyFilter[]
 }
 
 export interface RetentionFilterType extends FilterType {
@@ -2836,6 +2851,7 @@ export interface SurveyAppearance {
     widgetSelector?: string
     widgetLabel?: string
     widgetColor?: string
+    fontFamily?: (typeof WEB_SAFE_FONTS)[number]
 }
 
 export interface SurveyQuestionBase {
@@ -3306,11 +3322,6 @@ export interface Group {
     group_properties: Record<string, any>
 }
 
-export interface ExperimentMetric {
-    type: string
-    query: ExperimentTrendsQuery | ExperimentFunnelsQuery
-}
-
 export interface Experiment {
     id: ExperimentIdType
     name: string
@@ -3360,49 +3371,6 @@ export interface TrendExperimentVariant {
     absolute_exposure: number
 }
 
-interface BaseExperimentResults {
-    probability: Record<string, number>
-    fakeInsightId: string
-    significant: boolean
-    noData?: boolean
-    significance_code: SignificanceCode
-    expected_loss?: number
-    p_value?: number
-}
-
-export interface _TrendsExperimentResults extends BaseExperimentResults {
-    insight: Record<string, any>[]
-    filters: TrendsFilterType
-    exposure_filters: TrendsFilterType
-    variants: TrendExperimentVariant[]
-    last_refresh?: string | null
-    credible_intervals: { [key: string]: [number, number] }
-}
-
-export interface _FunnelExperimentResults extends BaseExperimentResults {
-    insight: Record<string, any>[]
-    filters: FunnelsFilterType
-    variants: FunnelExperimentVariant[]
-    last_refresh?: string | null
-    credible_intervals: { [key: string]: [number, number] }
-}
-
-export interface TrendsExperimentResults {
-    result: _TrendsExperimentResults
-    is_cached?: boolean
-    last_refresh?: string | null
-}
-export interface FunnelExperimentResults {
-    result: _FunnelExperimentResults
-    is_cached?: boolean
-    last_refresh?: string | null
-}
-
-export type ExperimentResults = TrendsExperimentResults | FunnelExperimentResults
-
-export type SecondaryMetricResults = ExperimentResults['result'] & {
-    result?: Record<string, number>
-}
 export interface SecondaryExperimentMetric {
     name: string
     filters: Partial<FilterType>
@@ -3518,7 +3486,7 @@ export interface DateMappingOption {
 
 interface BreadcrumbBase {
     /** E.g. scene, tab, or scene with item ID. Particularly important for `onRename`. */
-    key: string | number | [scene: Scene, key: string | number]
+    key: string | number | [scene: Scene | string, key: string | number]
     /** Whether to show a custom popover */
     popover?: Pick<PopoverProps, 'overlay' | 'matchWidth'>
 }
@@ -4201,6 +4169,7 @@ export interface IncrementalField {
 
 export interface ExternalDataSourceSyncSchema {
     table: string
+    rows?: number | null
     should_sync: boolean
     incremental_field: string | null
     incremental_field_type: string | null
@@ -4626,7 +4595,8 @@ export type HogFunctionInputSchemaType = {
     description?: string
     integration?: string
     integration_key?: string
-    integration_field?: 'slack_channel'
+    integration_field?: string
+    requires_field?: string
     requiredScopes?: string
 }
 
@@ -4678,6 +4648,8 @@ export interface HogFunctionFiltersType {
 }
 
 export interface HogFunctionMappingType {
+    name: string
+    disabled?: boolean
     inputs_schema?: HogFunctionInputSchemaType[]
     inputs?: Record<string, HogFunctionInputType> | null
     filters?: HogFunctionFiltersType | null
@@ -4852,6 +4824,12 @@ export type ReplayTemplateVariableType = {
     noTouch?: boolean
 }
 
+export type GoogleAdsConversionActionType = {
+    id: string
+    name: string
+    resourceName: string
+}
+
 export type DataColorThemeModel = {
     id: number
     name: string
@@ -4875,4 +4853,21 @@ export enum CookielessServerHashMode {
  */
 export interface Conversation {
     id: string
+}
+
+export enum UserRole {
+    Engineering = 'engineering',
+    Data = 'data',
+    Product = 'product',
+    Founder = 'founder',
+    Leadership = 'leadership',
+    Marketing = 'marketing',
+    Sales = 'sales',
+    Other = 'other',
+}
+
+export type UserGroup = {
+    id: string
+    name: string
+    members: UserBasicType[]
 }

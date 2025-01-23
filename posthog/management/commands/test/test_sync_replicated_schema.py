@@ -17,7 +17,7 @@ class TestSyncReplicatedSchema(BaseTest, ClickhouseTestMixin):
         sync_execute(f"DROP DATABASE {settings.CLICKHOUSE_DATABASE} SYNC")
         sync_execute(f"CREATE DATABASE {settings.CLICKHOUSE_DATABASE}")
         if create_tables:
-            create_clickhouse_tables(0)
+            create_clickhouse_tables()
 
     def test_analyze_test_cluster(self):
         self.recreate_database(create_tables=True)
