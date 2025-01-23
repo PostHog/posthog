@@ -1,4 +1,5 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
+
 import { HogTransformerService } from './hog-transformations/hog-transformer.service'
 
 // TODO: THIS IS THE REST OF THE PLAN
@@ -8,12 +9,12 @@ import { HogTransformerService } from './hog-transformations/hog-transformer.ser
 // 4. we need to support ordering of transformations e.g. if someone has 3 transformations and the first one fails we want to run the other 2 (are they dependend on each other?)
 
 export async function transformEventStep(
-    isInHogTransformationsAlpha: boolean, 
-    event: PluginEvent, 
+    isInHogTransformationsAlpha: boolean,
+    event: PluginEvent,
     hogTransformer: HogTransformerService
 ): Promise<PluginEvent> {
     if (false) {
         return event
     }
-    return await hogTransformer.transformEvent(event)
+    return hogTransformer.transformEvent(event)
 }

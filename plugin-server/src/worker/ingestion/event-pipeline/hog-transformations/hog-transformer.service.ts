@@ -1,11 +1,13 @@
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
+
+import { HogExecutorService } from '~/src/cdp/services/hog-executor.service'
+import { HogFunctionManagerService } from '~/src/cdp/services/hog-function-manager.service'
+
+import { HogFunctionInvocation, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../../../../cdp/types'
+import { createInvocation } from '../../../../cdp/utils'
 import { runInstrumentedFunction } from '../../../../main/utils'
-import { HogFunctionInvocation, HogFunctionType, HogFunctionInvocationGlobalsWithInputs } from '../../../../cdp/types'
 import { Hub } from '../../../../types'
 import { status } from '../../../../utils/status'
-import { createInvocation } from '../../../../cdp/utils'
-import {HogExecutorService} from "~/src/cdp/services/hog-executor.service";
-import {HogFunctionManagerService} from "~/src/cdp/services/hog-function-manager.service";
 
 export class HogTransformerService {
     private hogExecutor: HogExecutorService
@@ -59,10 +61,7 @@ export class HogTransformerService {
 
     private createHogFunctionInvocation(event: PluginEvent, hogFunction: HogFunctionType): HogFunctionInvocation {
         const globals = this.createInvocationGlobals(event)
-        return createInvocation(
-            globals,
-            hogFunction
-        )
+        return createInvocation(globals, hogFunction)
     }
 
     private validateProperties(properties: unknown): properties is Properties {
@@ -70,8 +69,7 @@ export class HogTransformerService {
             return false
         }
 
-        // Check if all values are valid property values
-        for (const [key, value] of Object.entries(properties)) {
+        for (const [_key, value] of Object.entries(properties)) {
             if (
                 value !== null &&
                 value !== undefined &&
@@ -91,6 +89,8 @@ export class HogTransformerService {
     public transformEvent(event: PluginEvent): Promise<PluginEvent> {
         return runInstrumentedFunction({
             statsKey: `hogTransformer`,
+            // there is no await as all operations are sync
+            // eslint-disable-next-line @typescript-eslint/require-await
             func: async () => {
                 const teamHogFunctions = this.hogFunctionManager.getTeamHogFunctions(event.team_id)
                 const transformationFunctions = this.getTransformationFunctions()
@@ -105,7 +105,7 @@ export class HogTransformerService {
                         status.warn('⚠️', 'Error in transformation', {
                             error: result.error,
                             function_id: hogFunction.id,
-                            team_id: event.team_id
+                            team_id: event.team_id,
                         })
                         continue
                     }
@@ -119,9 +119,13 @@ export class HogTransformerService {
                     const transformedEvent: unknown = result.execResult
 
                     // Validate the transformed event has a properties object
-                    if (!transformedEvent || typeof transformedEvent !== 'object' || !('properties' in transformedEvent)) {
+                    if (
+                        !transformedEvent ||
+                        typeof transformedEvent !== 'object' ||
+                        !('properties' in transformedEvent)
+                    ) {
                         status.warn('⚠️', 'Invalid transformation result - missing properties', {
-                            function_id: hogFunction.id
+                            function_id: hogFunction.id,
                         })
                         continue
                     }
@@ -130,7 +134,16 @@ export class HogTransformerService {
                     if (!this.validateProperties(transformedEvent.properties)) {
                         status.warn('⚠️', 'Invalid transformation result - invalid properties', {
                             function_id: hogFunction.id,
-                            properties: transformedEvent.properties
+                            properties: transformedEvent.properties,
+                        })
+                        continue
+                    }
+
+                    // Validate event name is a string if present
+                    if ('event' in transformedEvent && typeof transformedEvent.event !== 'string') {
+                        status.warn('⚠️', 'Invalid transformation result - invalid event name', {
+                            function_id: hogFunction.id,
+                            event: transformedEvent.event,
                         })
                         continue
                     }
@@ -140,13 +153,13 @@ export class HogTransformerService {
                         ...event,
                         properties: {
                             ...event.properties,
-                            ...transformedEvent.properties
-                        }
+                            ...transformedEvent.properties,
+                        },
                     }
                 }
 
                 return event
-            }
+            },
         })
     }
 }
