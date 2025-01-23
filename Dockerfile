@@ -1,69 +1,240 @@
-# hadolint global ignore=DL3004
-
-# hadolint doesn't like changes to this file, but it is only used for local dev
-
-# Defines the environment you're dropped into with codespaces
-# I've take
-# https://github.com/microsoft/vscode-dev-containers/blob/main/containers/python-3/.devcontainer/Dockerfile
-# and surrounding files as inspiration. I'm extending their image rather than
-# building from e.g. the official python docker images as there appears to be
-# quite a bit done as part of the vscode images, presumably to make the
-# experience as rich as possible. Perhaps later down the line it might be worth
-# rolling our own
 #
-FROM mcr.microsoft.com/vscode/devcontainers/python:3.11-bookworm
+# This Dockerfile is used for self-hosted production builds.
+#
+# PostHog has sunset support for self-hosted K8s deployments.
+# See: https://posthog.com/blog/sunsetting-helm-support-posthog
+#
+# Note: for PostHog Cloud remember to update ‘Dockerfile.cloud’ as appropriate.
+#
+# The stages are used to:
+#
+# - frontend-build: build the frontend (static assets)
+# - plugin-server-build: build plugin-server (Node.js app) & fetch its runtime dependencies
+# - posthog-build: fetch PostHog (Django app) dependencies & build Django collectstatic
+# - fetch-geoip-db: fetch the GeoIP database
+#
+# In the last stage, we import the artifacts from the previous
+# stages, add some runtime dependencies and build the final image.
+#
 
-# Make sure all exit codes on pipes cause failures
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-# Set up docker in docker as per
-# https://github.com/microsoft/vscode-dev-containers/blob/main/script-library/docs/docker-in-docker.md
-COPY .devcontainer/library-scripts /tmp/library-scripts
+#
+# ---------------------------------------------------------
+#
+FROM node:18.19.1-bookworm-slim AS frontend-build
+WORKDIR /code
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
-ENV DOCKER_BUILDKIT=1
-RUN /tmp/library-scripts/docker-in-docker-debian.sh
-ENTRYPOINT ["/usr/local/share/docker-init.sh"]
-VOLUME [ "/var/lib/docker" ]
-CMD ["sleep", "infinity"]
+COPY package.json pnpm-lock.yaml ./
+COPY patches/ patches/
+RUN corepack enable && pnpm --version && \
+    mkdir /tmp/pnpm-store && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
+    rm -rf /tmp/pnpm-store
 
-# Add in some useful dev cli tools
-# hadolint ignore=DL3008
-RUN apt-get update \
-    && apt-get -y install --no-install-recommends \
-    # Add in useful db debugging tools
-    "postgresql-client=15+*" \
-    # needed for posthog to run
-    netcat-openbsd brotli curl \
-    && rm -rf /var/lib/apt/lists/*
+COPY frontend/ frontend/
+COPY products/ products/
+COPY ee/frontend/ ee/frontend/
+COPY ./bin/ ./bin/
+COPY babel.config.js tsconfig.json webpack.config.js tailwind.config.js ./
+RUN pnpm build
 
-RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
-    && sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
-    && sudo apt update \
-    && sudo apt install gh -y
+#
+# ---------------------------------------------------------
+#
+FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.80.1-node_18.19.1 AS plugin-server-build
+WORKDIR /code
+COPY ./rust ./rust
+COPY ./common/plugin_transpiler/ ./common/plugin_transpiler/
+WORKDIR /code/plugin-server
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
-# Install node via NVM (https://github.com/nvm-sh/nvm)
-ARG NODE_VERSION="18"
-RUN if [ "${NODE_VERSION}" != "none" ]; then su vscode -c "umask 0002 && . /usr/local/share/nvm/nvm.sh && nvm install ${NODE_VERSION} 2>&1"; fi
+# Compile and install Node.js dependencies.
+COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./
+COPY ./plugin-server/patches/ ./patches/
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    "make" \
+    "g++" \
+    "gcc" \
+    "python3" \
+    "libssl-dev" \
+    "zlib1g-dev" \
+    && \
+    rm -rf /var/lib/apt/lists/* && \
+    corepack enable && \
+    mkdir /tmp/pnpm-store && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
+    cd ../common/plugin_transpiler && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
+    pnpm build && \
+    rm -rf /tmp/pnpm-store
 
-# install pnpm globally, this container doesn't expose a supported shell to the pnpm installer
-# so `RUN curl -fsSL https://get.pnpm.io/install.sh | sh -` fails
-# see https://github.com/pnpm/pnpm/issues/4495
-RUN corepack enable && pnpm --version \
-    && SHELL=bash pnpm setup \
-    && source /root/.bashrc
+# Build the plugin server.
+#
+# Note: we run the build as a separate action to increase
+# the cache hit ratio of the layers above.
+COPY ./plugin-server/src/ ./src/
+COPY ./plugin-server/tests/ ./tests/
+RUN pnpm build
 
-WORKDIR /workspace
+# As the plugin-server is now built, let’s keep
+# only prod dependencies in the node_module folder
+# as we will copy it to the last image.
+RUN corepack enable && \
+    mkdir /tmp/pnpm-store && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
+    rm -rf /tmp/pnpm-store
+
+
+#
+# ---------------------------------------------------------
+#
+FROM python:3.11.9-slim-bookworm AS posthog-build
+WORKDIR /code
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # Compile and install Python dependencies.
+# We install those dependencies on a custom folder that we will
+# then copy to the last image.
+COPY requirements.txt ./
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    "build-essential" \
+    "git" \
+    "libpq-dev" \
+    "libxmlsec1" \
+    "libxmlsec1-dev" \
+    "libffi-dev" \
+    "zlib1g-dev" \
+    "pkg-config" \
+    && \
+    rm -rf /var/lib/apt/lists/* && \
+    PIP_NO_BINARY=lxml,xmlsec pip install -r requirements.txt --compile --no-cache-dir --target=/python-runtime
+
+ENV PATH=/python-runtime/bin:$PATH \
+    PYTHONPATH=/python-runtime
+
+# Add in Django deps and generate Django's static files.
+COPY manage.py manage.py
+COPY common/hogvm common/hogvm/
+COPY posthog posthog/
+COPY products/ products/
+COPY ee ee/
+COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
+RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
+
+
 #
-# Notes:
+# ---------------------------------------------------------
 #
-# - we explicitly COPY the files so that we don't need to rebuild
-#   the container every time a dependency changes
+FROM debian:bookworm-slim AS fetch-geoip-db
+WORKDIR /code
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+
+# Fetch the GeoLite2-City database that will be used for IP geolocation within Django.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    "ca-certificates" \
+    "curl" \
+    "brotli" \
+    && \
+    rm -rf /var/lib/apt/lists/* && \
+    mkdir share && \
+    ( curl -s -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output=./share/GeoLite2-City.mmdb ) && \
+    chmod -R 755 ./share/GeoLite2-City.mmdb
+
+
 #
-# - we need few additional OS packages for this. Let's install
-#   and then uninstall them when the compilation is completed.
-COPY requirements.txt requirements-dev.txt ./
-RUN pip install -r requirements-dev.txt --compile --no-cache-dir && \
-    pip install -r requirements.txt --compile --no-cache-dir
+# ---------------------------------------------------------
+#
+# NOTE: v1.32 is running bullseye, v1.33 is running bookworm
+FROM unit:1.33.0-python3.11 
+WORKDIR /code
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+ENV PYTHONUNBUFFERED 1
+
+# Install OS runtime dependencies.
+# Note: please add in this stage runtime dependences only!
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    "chromium" \
+    "chromium-driver" \
+    "libpq-dev" \
+    "libxmlsec1" \
+    "libxmlsec1-dev" \
+    "libxml2" \
+    "gettext-base"
+
+# Install MS SQL dependencies
+RUN curl https://packages.microsoft.com/keys/microsoft.asc | tee /etc/apt/trusted.gpg.d/microsoft.asc
+RUN curl https://packages.microsoft.com/config/debian/11/prod.list | tee /etc/apt/sources.list.d/mssql-release.list
+RUN apt-get update
+RUN ACCEPT_EULA=Y apt-get install -y msodbcsql18
+
+# Install NodeJS 18.
+RUN apt-get install -y --no-install-recommends \
+    "curl" \
+    && \
+    curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
+    apt-get install -y --no-install-recommends \
+    "nodejs" \
+    && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install and use a non-root user.
+RUN groupadd -g 1000 posthog && \
+    useradd -r -g posthog posthog && \
+    chown posthog:posthog /code
+USER posthog
+
+# Add the commit hash
+ARG COMMIT_HASH
+RUN echo $COMMIT_HASH > /code/commit.txt
+
+# Add in the compiled plugin-server & its runtime dependencies from the plugin-server-build stage.
+COPY --from=plugin-server-build --chown=posthog:posthog /code/common/plugin_transpiler/dist /code/common/plugin_transpiler/dist
+COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/dist /code/plugin-server/dist
+COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/node_modules /code/plugin-server/node_modules
+COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/package.json /code/plugin-server/package.json
+
+# Copy the Python dependencies and Django staticfiles from the posthog-build stage.
+COPY --from=posthog-build --chown=posthog:posthog /code/staticfiles /code/staticfiles
+COPY --from=posthog-build --chown=posthog:posthog /python-runtime /python-runtime
+ENV PATH=/python-runtime/bin:$PATH \
+    PYTHONPATH=/python-runtime
+
+# Copy the frontend assets from the frontend-build stage.
+# TODO: this copy should not be necessary, we should remove it once we verify everything still works.
+COPY --from=frontend-build --chown=posthog:posthog /code/frontend/dist /code/frontend/dist
+
+# Copy the GeoLite2-City database from the fetch-geoip-db stage.
+COPY --from=fetch-geoip-db --chown=posthog:posthog /code/share/GeoLite2-City.mmdb /code/share/GeoLite2-City.mmdb
+
+# Add in the Gunicorn config, custom bin files and Django deps.
+COPY --chown=posthog:posthog gunicorn.config.py ./
+COPY --chown=posthog:posthog ./bin ./bin/
+COPY --chown=posthog:posthog manage.py manage.py
+COPY --chown=posthog:posthog posthog posthog/
+COPY --chown=posthog:posthog ee ee/
+COPY --chown=posthog:posthog common/hogvm common/hogvm/
+COPY --chown=posthog:posthog dags dags/
+COPY --chown=posthog:posthog products products/
+
+# Keep server command backwards compatible
+RUN cp ./bin/docker-server-unit ./bin/docker-server
+
+# Setup ENV.
+ENV NODE_ENV=production \
+    CHROME_BIN=/usr/bin/chromium \
+    CHROME_PATH=/usr/lib/chromium/ \
+    CHROMEDRIVER_BIN=/usr/bin/chromedriver
+
+# Expose container port and run entry point script.
+EXPOSE 8000
+
+# Expose the port from which we serve OpenMetrics data.
+EXPOSE 8001
+COPY unit.json.tpl /docker-entrypoint.d/unit.json.tpl
+USER root
+CMD ["./bin/docker"]
