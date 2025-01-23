@@ -520,7 +520,8 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(response.results[0].id, "trace1")
         self.assertEqual(response.results[0].events[0].properties["$ai_model_parameters"], {"temperature": 0.5})
 
-    def test_properties_filter(self):
+    @snapshot_clickhouse_queries
+    def test_properties_filter_with_multiple_events_in_group(self):
         _create_person(distinct_ids=["person1"], team=self.team)
         _create_ai_generation_event(
             distinct_id="person1",
