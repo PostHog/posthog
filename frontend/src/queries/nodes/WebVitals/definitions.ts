@@ -125,3 +125,20 @@ export const getThresholdColor = (value: number | undefined, threshold: WebVital
 
     return 'danger'
 }
+
+// Returns a value between 0 and 1 that represents the position of the value inside that band
+//
+// Useful to display the indicator line in the progress bar
+// or the width of the segment in the path breakdown
+export const computePositionInBand = (value: number, threshold: WebVitalsThreshold): number => {
+    if (value <= threshold.good) {
+        return value / threshold.good
+    }
+
+    // Values can be much higher than what we consider the end, so max out at 1
+    if (value > threshold.poor) {
+        return Math.min((value - threshold.poor) / (threshold.end - threshold.poor), 1)
+    }
+
+    return (value - threshold.good) / (threshold.poor - threshold.good)
+}

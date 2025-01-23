@@ -1,4 +1,3 @@
-import { PersonDisplay } from '@posthog/apps-common'
 import { IconPauseFilled, IconPlayFilled } from '@posthog/icons'
 import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
@@ -8,6 +7,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
 import type { LiveEvent } from '~/types'
 

@@ -205,10 +205,11 @@ export function SessionRecordingPreview({
                                 time={recording.start_time}
                                 placement="right"
                             />
-                        ) : playlistTimestampFormat === TimestampFormat.UTC ? (
-                            <SimpleTimeLabel startTime={recording.start_time} isUTC={true} />
                         ) : (
-                            <SimpleTimeLabel startTime={recording.start_time} isUTC={false} />
+                            <SimpleTimeLabel
+                                startTime={recording.start_time}
+                                timestampFormat={playlistTimestampFormat}
+                            />
                         )}
                     </div>
 

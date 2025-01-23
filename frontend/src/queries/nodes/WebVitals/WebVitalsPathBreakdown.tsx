@@ -13,7 +13,7 @@ import {
 import { QueryContext } from '~/queries/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
-import { getValueWithUnit, ICON_PER_BAND } from './definitions'
+import { computePositionInBand, getValueWithUnit, ICON_PER_BAND } from './definitions'
 
 let uniqueNode = 0
 export function WebVitalsPathBreakdown(props: {
@@ -147,7 +147,7 @@ const Content = ({
                     <LemonSkeleton fade className={clsx('w-full', SKELETON_HEIGHT[band])} />
                 ) : values?.length ? (
                     values?.map(({ path, value }) => {
-                        const width = computeWidth(value, threshold)
+                        const width = computePositionInBand(value, threshold) * 100
 
                         return (
                             <div
@@ -159,8 +159,12 @@ const Content = ({
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{ width, backgroundColor: 'var(--neutral-250)', opacity: 0.5 }}
                                 />
-                                <span className="relative z-10">{path}</span>
-                                <span className="relative z-10">{value}</span>
+                                <span title={path} className="relative z-10 truncate mr-2 flex-1">
+                                    {path}
+                                </span>
+                                <span className="relative z-10 flex-shrink-0">
+                                    {value >= 1 ? value.toFixed(0) : value.toFixed(2)}
+                                </span>
                             </div>
                         )
                     })
@@ -173,16 +177,4 @@ const Content = ({
             </div>
         </div>
     )
-}
-
-const computeWidth = (value: number, threshold: { good: number; poor: number }): string => {
-    if (value < threshold.good) {
-        return `${(value / threshold.good) * 100}%`
-    }
-
-    if (value > threshold.poor) {
-        return `${((value - threshold.poor) / (threshold.good - threshold.poor)) * 100}%`
-    }
-
-    return `${((value - threshold.good) / (threshold.poor - threshold.good)) * 100}%`
 }

@@ -1,10 +1,11 @@
 import { captureException } from '@sentry/node'
 import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
 
+import { KafkaProducerWrapper } from '~/src/kafka/producer'
+
 import { buildIntegerMatcher } from '../../../config/config'
 import { BatchConsumer } from '../../../kafka/batch-consumer'
 import { PluginServerService, PluginsServerConfig, ValueMatcher } from '../../../types'
-import { KafkaProducerWrapper } from '../../../utils/db/kafka-producer-wrapper'
 import { status as logger } from '../../../utils/status'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { runInstrumentedFunction } from '../../utils'

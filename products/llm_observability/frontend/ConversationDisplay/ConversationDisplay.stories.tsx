@@ -139,3 +139,28 @@ Error.args = {
         $ai_http_status: 400,
     },
 }
+
+export const Anthropic = Template.bind({})
+Anthropic.args = {
+    eventProperties: {
+        $ai_input: [
+            {
+                role: 'system',
+                content: [
+                    { type: 'text', text: 'You are a good bot.' },
+                    { type: 'text', text: 'Answer with Foo.' },
+                ],
+            },
+            { role: 'user', content: 'Hello!' },
+            { role: 'assistant', content: 'Foo' },
+            { role: 'user', content: 'How are you?' },
+        ],
+        $ai_output_choices: [{ type: 'text', text: 'Foo' }],
+        $ai_input_tokens: 8,
+        $ai_output_tokens: 6,
+        $ai_latency: 0.123,
+        $ai_total_cost_usd: 0.0007,
+        $ai_model: 'gpt-9',
+        $ai_http_status: 200,
+    },
+}

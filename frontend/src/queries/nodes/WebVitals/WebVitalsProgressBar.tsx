@@ -1,7 +1,9 @@
 import clsx from 'clsx'
 import { WebVitalsThreshold } from 'scenes/web-analytics/webAnalyticsLogic'
 
-import { getMetricBand, getThresholdColor } from './definitions'
+import { WebVitalsMetricBand } from '~/queries/schema'
+
+import { computePositionInBand, getMetricBand, getThresholdColor } from './definitions'
 
 interface WebVitalsProgressBarProps {
     value?: number
@@ -9,9 +11,6 @@ interface WebVitalsProgressBarProps {
 }
 
 export function WebVitalsProgressBar({ value, threshold }: WebVitalsProgressBarProps): JSX.Element {
-    const indicatorPercentage = Math.min((value ?? 0 / threshold.end) * 100, 100)
-
-    const thresholdColor = getThresholdColor(value, threshold)
     const band = getMetricBand(value, threshold)
 
     const goodWidth = (threshold.good / threshold.end) * 100
@@ -25,7 +24,9 @@ export function WebVitalsProgressBar({ value, threshold }: WebVitalsProgressBarP
                 className={clsx('absolute h-full rounded-full', band === 'good' ? 'bg-success' : 'bg-muted')}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ width: `${goodWidth}%` }}
-            />
+            >
+                <IndicatorLine value={value} threshold={threshold} band="good" />
+            </div>
 
             {/* Yellow segment up to "poor" threshold */}
             <div
@@ -35,26 +36,46 @@ export function WebVitalsProgressBar({ value, threshold }: WebVitalsProgressBarP
                 )}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ left: `${goodWidth + 1}%`, width: `${improvementsWidth - 1}%` }}
-            />
+            >
+                <IndicatorLine value={value} threshold={threshold} band="needs_improvements" />
+            </div>
 
             {/* Red segment after "poor" threshold */}
             <div
                 className={clsx('absolute h-full rounded-full', band === 'poor' ? 'bg-danger' : 'bg-muted')}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ left: `${goodWidth + improvementsWidth + 1}%`, width: `${poorWidth - 1}%` }}
-            />
-
-            {/* Indicator line */}
-            {value != null && (
-                <div
-                    className={clsx('absolute w-0.5 h-3 -top-1', `bg-${thresholdColor}`)}
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{
-                        left: `${indicatorPercentage}%`,
-                        transform: 'translateX(-50%)',
-                    }}
-                />
-            )}
+            >
+                <IndicatorLine value={value} threshold={threshold} band="poor" />
+            </div>
         </div>
+    )
+}
+
+type IndicatorLineProps = {
+    value: number | undefined
+    threshold: WebVitalsThreshold
+    band: WebVitalsMetricBand | 'none'
+}
+
+const IndicatorLine = ({ value, threshold, band }: IndicatorLineProps): JSX.Element | null => {
+    if (!value) {
+        return null
+    }
+
+    const thisBand = getMetricBand(value, threshold)
+    if (thisBand !== band) {
+        return null
+    }
+
+    const positionInBand = computePositionInBand(value, threshold)
+    const color = getThresholdColor(value, threshold)
+
+    return (
+        <div
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{ left: `${positionInBand * 100}%` }}
+            className={clsx('absolute w-0.5 h-3 -top-1', `bg-${color}`)}
+        />
     )
 }

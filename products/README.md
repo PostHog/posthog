@@ -7,4 +7,4 @@ This file contains PostHog products.
 
 ## Dev guidelines
 
-- Please keep the product names `under_score` cased, as dashes make it hard to import files in Python.
+- Please keep the folder names `under_score` cased, as dashes make it hard to import files in some languages (e.g. Python, Ruby, ...)
