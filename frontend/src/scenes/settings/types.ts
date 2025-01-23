@@ -115,7 +115,7 @@ export type SettingId =
     | 'channel-type'
     | 'cookieless-server-hash-mode'
     | 'user-groups'
-    | 'accent'
+
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 
 export type Setting = {
