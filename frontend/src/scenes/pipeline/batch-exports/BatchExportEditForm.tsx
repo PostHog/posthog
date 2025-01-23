@@ -1,6 +1,5 @@
 import { IconInfo } from '@posthog/icons'
 import {
-    LemonBanner,
     LemonCalendarSelectInput,
     LemonCheckbox,
     LemonFileInput,
@@ -10,10 +9,7 @@ import {
     LemonTextArea,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { BatchExportConfigurationForm } from './types'
 
@@ -26,9 +22,6 @@ export function BatchExportGeneralEditFields({
     isPipeline?: boolean
     batchExportConfigForm: BatchExportConfigurationForm
 }): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const highFrequencyBatchExports = featureFlags[FEATURE_FLAGS.HIGH_FREQUENCY_BATCH_EXPORTS]
-
     return (
         <>
             <div className="space-y-4 max-w-200">
@@ -38,29 +31,6 @@ export function BatchExportGeneralEditFields({
                     </LemonField>
                 )}
                 <div className="flex gap-2 items-start flex-wrap">
-                    <LemonField
-                        name="interval"
-                        label="Batch interval"
-                        className="flex-1"
-                        info={
-                            <>
-                                The intervals of data exports. For example, if you select hourly, every hour a run will
-                                be created to export that hours data.
-                            </>
-                        }
-                    >
-                        <LemonSelect
-                            options={[
-                                { value: 'hour', label: 'Hourly' },
-                                { value: 'day', label: 'Daily' },
-                                {
-                                    value: 'every 5 minutes',
-                                    label: 'Every 5 minutes',
-                                    hidden: !highFrequencyBatchExports,
-                                },
-                            ]}
-                        />
-                    </LemonField>
                     {(!isPipeline || batchExportConfigForm.end_at) && ( // Not present in the new UI unless grandfathered in
                         <LemonField
                             name="end_at"
@@ -84,18 +54,6 @@ export function BatchExportGeneralEditFields({
                         </LemonField>
                     )}
                 </div>
-
-                {isPipeline ? (
-                    <LemonBanner type="info">
-                        The export will be created in a paused state, once configured your exporter, you can trigger a
-                        manual export for historic data or start the continous export.
-                    </LemonBanner>
-                ) : (
-                    <LemonBanner type="info">
-                        This batch exporter will schedule regular batch exports at your indicated interval until the end
-                        date. Once you have configured your exporter, you can trigger a manual export for historic data.
-                    </LemonBanner>
-                )}
 
                 {isNew && !isPipeline ? (
                     <LemonField name="paused">
