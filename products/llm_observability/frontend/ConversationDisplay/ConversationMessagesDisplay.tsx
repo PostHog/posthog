@@ -7,19 +7,20 @@ import { IconArrowDown, IconArrowUp, IconExclamation } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { useState } from 'react'
 
-import { EventType } from '~/types'
-
 import { CompatMessage } from '../types'
 import { normalizeMessages } from '../utils'
 
 export function ConversationMessagesDisplay({
-    eventProperties,
+    input,
+    output,
+    httpStatus,
 }: {
-    eventProperties: EventType['properties']
+    input: any
+    output: any
+    httpStatus?: number
 }): JSX.Element {
-    const input = normalizeMessages(eventProperties.$ai_input, 'user')
-    const output = normalizeMessages(eventProperties.$ai_output_choices || eventProperties.$ai_output, 'assistant')
-    const { $ai_http_status: httpStatus } = eventProperties
+    const inputNormalized = normalizeMessages(input, 'user')
+    const outputNormalized = normalizeMessages(output, 'assistant')
 
     return (
         <div className="bg-bg-light rounded-lg border p-2">
@@ -27,24 +28,28 @@ export function ConversationMessagesDisplay({
                 <IconArrowUp className="text-base" />
                 Input
             </h4>
-            {input?.map((message, i) => (
+            {inputNormalized?.map((message, i) => (
                 <>
                     <MessageDisplay key={i} message={message} />
-                    {i < input.length - 1 && <div className="border-l ml-2 h-2" /> /* Spacer connecting messages */}
+                    {
+                        i < inputNormalized.length - 1 && (
+                            <div className="border-l ml-2 h-2" />
+                        ) /* Spacer connecting messages */
+                    }
                 </>
             )) || (
                 <div className="rounded border text-default p-2 italic bg-[var(--background-danger-subtle)]">
-                    Missing input
+                    No input
                 </div>
             )}
             <h4 className="flex items-center gap-x-1.5 text-xs font-semibold my-2">
                 <IconArrowDown className="text-base" />
-                Output{output && output.length > 1 ? ' (multiple choices)' : ''}
+                Output{outputNormalized && outputNormalized.length > 1 ? ' (multiple choices)' : ''}
             </h4>
-            {output?.map((message, i) => (
+            {outputNormalized?.map((message, i) => (
                 <>
                     <MessageDisplay key={i} message={message} isOutput />
-                    {i < output.length - 1 && (
+                    {i < outputNormalized.length - 1 && (
                         <div className="border-l ml-4 h-2" /> /* Spacer connecting messages visually */
                     )}
                 </>
@@ -74,7 +79,7 @@ function MessageDisplay({ message, isOutput }: { message: CompatMessage; isOutpu
                     ? 'bg-[var(--bg-fill-tertiary)]'
                     : role === 'user'
                     ? 'bg-[var(--bg-fill-primary)]'
-                    : 'bg-[var(--bg-fill-info-tertiary)]' // We don't have a semantic color using blue
+                    : 'bg-[var(--bg-fill-info-tertiary)]'
             )}
         >
             <div className="flex items-center gap-1 w-full px-2 h-6 text-xs font-medium">

@@ -4,23 +4,21 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { lowercaseFirstLetter } from 'lib/utils'
 import React from 'react'
 
-import { EventType } from '~/types'
-
 export function MetadataHeader({
-    eventProperties,
+    inputTokens,
+    outputTokens,
+    totalCostUsd,
+    model,
+    latency,
     className,
 }: {
-    eventProperties: EventType['properties']
+    inputTokens?: number
+    outputTokens?: number
+    totalCostUsd?: number
+    model?: string
+    latency?: number
     className?: string
 }): JSX.Element {
-    const {
-        $ai_input_tokens: inputTokens,
-        $ai_output_tokens: outputTokens,
-        $ai_total_cost_usd: totalCostUsd,
-        $ai_model: model,
-        $ai_latency: latency,
-    } = eventProperties
-
     return (
         <div className={classNames('flex flex-wrap gap-2', className)}>
             {typeof latency === 'number' && (
