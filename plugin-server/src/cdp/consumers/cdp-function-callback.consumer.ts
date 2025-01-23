@@ -1,4 +1,6 @@
 import { captureException } from '@sentry/node'
+import { Message } from 'node-rdkafka'
+
 import {
     HogFunctionInvocation,
     HogFunctionInvocationResult,
@@ -6,8 +8,7 @@ import {
     HogFunctionInvocationSerializedCompressed,
     HogFunctionTypeType,
     HogHooksFetchResponse,
-} from 'cdp/types'
-import { Message } from 'node-rdkafka'
+} from '~/src/cdp/types'
 
 import { KAFKA_CDP_FUNCTION_CALLBACKS } from '../../config/kafka-topics'
 import { runInstrumentedFunction } from '../../main/utils'

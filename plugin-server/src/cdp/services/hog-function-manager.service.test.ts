@@ -1,10 +1,11 @@
-import { HogFunctionManagerService } from '../../../src/cdp/services/hog-function-manager.service'
-import { HogFunctionType, IntegrationType } from '../../../src/cdp/types'
-import { Hub } from '../../../src/types'
-import { closeHub, createHub } from '../../../src/utils/db/hub'
-import { PostgresUse } from '../../../src/utils/db/postgres'
-import { createTeam, resetTestDatabase } from '../../helpers/sql'
-import { insertHogFunction, insertIntegration } from '../fixtures'
+import { HogFunctionType, IntegrationType } from '~/src/cdp/types'
+import { Hub } from '~/src/types'
+import { closeHub, createHub } from '~/src/utils/db/hub'
+import { PostgresUse } from '~/src/utils/db/postgres'
+import { insertHogFunction, insertIntegration } from '~/tests/cdp/fixtures'
+import { createTeam, resetTestDatabase } from '~/tests/helpers/sql'
+
+import { HogFunctionManagerService } from './hog-function-manager.service'
 
 describe('HogFunctionManager', () => {
     let hub: Hub

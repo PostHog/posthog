@@ -13,6 +13,7 @@ from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel, UpdatedMetaFields, sane_repr
 import uuid
 import psycopg2
+from psycopg2 import sql
 import pymysql
 from .external_data_source import ExternalDataSource
 from posthog.warehouse.data_load.service import (
@@ -307,6 +308,49 @@ def filter_postgres_incremental_fields(columns: list[tuple[str, str]]) -> list[t
             results.append((column_name, IncrementalFieldType.Integer))
 
     return results
+
+
+def get_postgres_row_count(
+    host: str, port: str, database: str, user: str, password: str, schema: str
+) -> dict[str, int]:
+    connection = psycopg2.connect(
+        host=host,
+        port=port,
+        dbname=database,
+        user=user,
+        password=password,
+        sslmode="prefer",
+        connect_timeout=5,
+        sslrootcert="/tmp/no.txt",
+        sslcert="/tmp/no.txt",
+        sslkey="/tmp/no.txt",
+    )
+
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT tablename as table_name FROM pg_tables WHERE schemaname = %(schema)s",
+                {"schema": schema},
+            )
+            tables = cursor.fetchall()
+
+            if not tables:
+                return {}
+
+            counts = [
+                sql.SQL("SELECT {table_name} AS table_name, COUNT(*) AS row_count FROM {schema}.{table}").format(
+                    table_name=sql.Literal(table[0]), schema=sql.Identifier(schema), table=sql.Identifier(table[0])
+                )
+                for table in tables
+            ]
+
+            union_counts = sql.SQL(" UNION ALL ").join(counts)
+            cursor.execute(union_counts)
+            row_count_result = cursor.fetchall()
+            row_counts = {row[0]: row[1] for row in row_count_result}
+        return row_counts
+    finally:
+        connection.close()
 
 
 def get_postgres_schemas(

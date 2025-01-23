@@ -65,6 +65,9 @@ dependencies:
   '@react-hook/size':
     specifier: ^2.1.2
     version: 2.1.2(react@18.2.0)
+  '@rrweb/rrweb-plugin-console-record':
+    specifier: 2.0.0-alpha.18
+    version: 2.0.0-alpha.18(rrweb@2.0.0-alpha.18)
   '@rrweb/types':
     specifier: 2.0.0-alpha.18
     version: 2.0.0-alpha.18
@@ -309,8 +312,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.207.2
-    version: 1.207.2
+    specifier: 1.207.8
+    version: 1.207.8
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -6115,6 +6118,14 @@ packages:
     resolution: {integrity: sha512-7HQbW7k8VxrAtfzs9FxwO6XSDabn8tSFDi1wwzShOnU+cvaYpfxu0ygyTk3TpXsag1hgFKY3ZIlAfB4WVz2LkQ==}
     dependencies:
       type-fest: 2.19.0
+    dev: false
+
+  /@rrweb/rrweb-plugin-console-record@2.0.0-alpha.18(rrweb@2.0.0-alpha.18):
+    resolution: {integrity: sha512-R/ys7jrOXjCwcVOf3EkXtT3/XZQ+OMqy+3VhUmgrwngpvppThZlbK4a13OCECwkB8OCJ81S9oYleNbszja2IYA==}
+    peerDependencies:
+      rrweb: ^2.0.0-alpha.18
+    dependencies:
+      rrweb: 2.0.0-alpha.18(patch_hash=2snpcxixinuqe7s42rdqhpaii4)
     dev: false
 
   /@rrweb/types@2.0.0-alpha.18:
@@ -18188,8 +18199,8 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.207.2:
-    resolution: {integrity: sha512-MaraHxYsuLjTFecD9LxT36ooiqpp6v/NOCjwpbhYaA5BTHJ1GE9m1xK0+Dwa4ZMA3p/QkN66PuHvFr558re7wA==}
+  /posthog-js@1.207.8:
+    resolution: {integrity: sha512-fFbOs0YwjlU9qn/9dQEXufbT/JeiOl7sEmKFy7AEB8Qsb7lbPLM6847svDCj1XzILj/xTs84yKYJmcYPjPdDzQ==}
     dependencies:
       core-js: 3.40.0
       fflate: 0.4.8
@@ -18822,7 +18833,7 @@ packages:
       react: '>=15'
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.194.0
+      unlayer-types: 1.197.0
     dev: false
 
   /react-error-boundary@3.1.4(react@18.2.0):
@@ -21440,8 +21451,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  /unlayer-types@1.194.0:
-    resolution: {integrity: sha512-ozkm27qJ+yvKdeWGcW5yak52GXQ3FESY4dlMXC7xuZVZAvbxEatmKU5vIyMzfCWaWqg2exko0FNSyMa0KCFN+Q==}
+  /unlayer-types@1.197.0:
+    resolution: {integrity: sha512-gz0RuaJikPVsGs/LWyCBWMo5uG7r66kn8hfRA9cKcI/f1vXKgiruI/IKCH+z5b8ONevYxSARz/s8mIlDxng4Hg==}
     dev: false
 
   /unpipe@1.0.0:
