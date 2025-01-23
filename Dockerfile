@@ -75,6 +75,7 @@ RUN apt-get update && \
 # Note: we run the build as a separate action to increase
 # the cache hit ratio of the layers above.
 COPY ./plugin-server/src/ ./src/
+COPY ./plugin-server/tests/ ./tests/
 RUN pnpm build
 
 # As the plugin-server is now built, let’s keep

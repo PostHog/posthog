@@ -467,7 +467,8 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
 
     @property
     def user_access_control(self) -> Optional[UserAccessControl]:
-        # NOTE: The user_access_control is typically on the view but in specific cases such as the posthog_app_context it is set at the context level
+        # NOTE: The user_access_control is typically on the view but in specific cases,
+        # such as rendering HTML (`render_template()`), it is set at the context level
         if "user_access_control" in self.context:
             # Get it directly from the context
             return self.context["user_access_control"]

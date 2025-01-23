@@ -4,25 +4,25 @@ import { DateTime } from 'luxon'
 import { Hub } from '../types'
 import { status } from '../utils/status'
 import { delay } from '../utils/utils'
-import { FetchExecutor } from './fetch-executor'
-import { HogExecutor, MAX_ASYNC_STEPS } from './hog-executor'
-import { HogFunctionManager } from './hog-function-manager'
-import { HogWatcher, HogWatcherState } from './hog-watcher'
+import { FetchExecutorService } from './services/fetch-executor.service'
+import { HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
+import { HogFunctionManagerService } from './services/hog-function-manager.service'
+import { HogWatcherService, HogWatcherState } from './services/hog-watcher.service'
 import { HogFunctionInvocationResult, HogFunctionQueueParametersFetchRequest, HogFunctionType, LogEntry } from './types'
 
 export class CdpApi {
-    private hogExecutor: HogExecutor
-    private hogFunctionManager: HogFunctionManager
-    private fetchExecutor: FetchExecutor
-    private hogWatcher: HogWatcher
+    private hogExecutor: HogExecutorService
+    private hogFunctionManager: HogFunctionManagerService
+    private fetchExecutor: FetchExecutorService
+    private hogWatcher: HogWatcherService
 
     constructor(
         private hub: Hub,
         dependencies: {
-            hogExecutor: HogExecutor
-            hogFunctionManager: HogFunctionManager
-            fetchExecutor: FetchExecutor
-            hogWatcher: HogWatcher
+            hogExecutor: HogExecutorService
+            hogFunctionManager: HogFunctionManagerService
+            fetchExecutor: FetchExecutorService
+            hogWatcher: HogWatcherService
         }
     ) {
         this.hogExecutor = dependencies.hogExecutor
