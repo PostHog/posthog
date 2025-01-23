@@ -125,12 +125,14 @@ def pending_person_deletions(
 
 
 @asset(deps=[pending_person_deletions])
-def create_pending_deletes_dictionary(config: DeleteConfig) -> dict[str, str]:
+def create_pending_deletes_dictionary(
+    config: DeleteConfig, create_pending_deletes_table: dict[str, str]
+) -> dict[str, str]:
     """Create a dictionary table that wraps pending_person_deletes for efficient lookups."""
-    names = get_versioned_names(config.run_id)
+    delete_table_name = create_pending_deletes_table["table_name"]
     sync_execute(
         f"""
-        CREATE DICTIONARY IF NOT EXISTS {names["dictionary"]} ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+        CREATE DICTIONARY IF NOT EXISTS {delete_table_name}_dict ON CLUSTER '{CLICKHOUSE_CLUSTER}'
         (
             team_id Int64,
             person_id UUID,
@@ -138,7 +140,7 @@ def create_pending_deletes_dictionary(config: DeleteConfig) -> dict[str, str]:
         )
         PRIMARY KEY team_id, person_id
         SOURCE(CLICKHOUSE(
-            TABLE {names["table"]}
+            TABLE {delete_table_name}
             USER '{CLICKHOUSE_USER}'
             PASSWORD '{CLICKHOUSE_PASSWORD}'
         ))
@@ -146,7 +148,7 @@ def create_pending_deletes_dictionary(config: DeleteConfig) -> dict[str, str]:
         LAYOUT(COMPLEX_KEY_HASHED())
         """
     )
-    return {"dictionary_name": names["dictionary"]}
+    return {"dictionary_name": f"{delete_table_name}_dict"}
 
 
 @asset(deps=[create_pending_deletes_dictionary])
