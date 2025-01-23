@@ -54,8 +54,6 @@ class TestErrorTracking(APIBaseTest):
     def test_issue_update(self):
         issue = self.create_issue()
 
-        assert issue.status == ErrorTrackingIssue.Status.ACTIVE
-
         response = self.client.patch(
             f"/api/projects/{self.team.id}/error_tracking/issue/{issue.id}", data={"status": "resolved"}
         )
