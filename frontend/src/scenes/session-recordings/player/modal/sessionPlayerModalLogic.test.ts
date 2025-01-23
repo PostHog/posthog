@@ -25,21 +25,21 @@ describe('sessionPlayerModalLogic', () => {
         logic = sessionPlayerModalLogic()
         logic.mount()
     })
-    describe('activeSessionRecording', () => {
+    describe('activeSessionRecordingId', () => {
         it('starts as null', () => {
-            expectLogic(logic).toMatchValues({ activeSessionRecording: null })
+            expectLogic(logic).toMatchValues({ activeSessionRecordingId: null })
         })
         it('is set by openSessionPlayer and cleared by closeSessionPlayer', () => {
-            expectLogic(logic, () => logic.actions.openSessionPlayer({ id: 'abc' }))
+            expectLogic(logic, () => logic.actions.openSessionPlayer('abc'))
                 .toDispatchActions(['loadSessionRecordingsSuccess'])
                 .toMatchValues({
                     selectedSessionRecording: { id: 'abc' },
-                    activeSessionRecording: listOfSessionRecordings[0],
+                    activeSessionRecordingId: listOfSessionRecordings[0],
                 })
             expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'abc')
 
             expectLogic(logic, () => logic.actions.closeSessionPlayer()).toMatchValues({
-                activeSessionRecording: null,
+                activeSessionRecordingId: null,
             })
             expect(router.values.hashParams).not.toHaveProperty('sessionRecordingId')
         })
@@ -49,9 +49,7 @@ describe('sessionPlayerModalLogic', () => {
             expect(router.values.hashParams).toHaveProperty('sessionRecordingId', 'abc')
             expect(router.values.searchParams).toHaveProperty('timestamp', 12345678)
 
-            await expectLogic(logic).toDispatchActions([
-                logic.actionCreators.openSessionPlayer({ id: 'abc' }, 12345678),
-            ])
+            await expectLogic(logic).toDispatchActions([logic.actionCreators.openSessionPlayer('abc', 12345678)])
         })
     })
 })
