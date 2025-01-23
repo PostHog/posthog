@@ -308,11 +308,13 @@ export function SummaryTable({
         render: function Key(_, item): JSX.Element {
             const variantKey = item.key
 
+            const filters = getViewRecordingFilters(metric, experiment.feature_flag_key, variantKey)
             return (
                 <LemonButton
                     size="xsmall"
                     icon={<IconRewindPlay />}
                     tooltip="Watch recordings of people who were exposed to this variant."
+                    disabledReason={filters.length === 0 ? 'Unable to identify recordings for this metric' : undefined}
                     type="secondary"
                     onClick={() => {
                         const filterGroup: Partial<RecordingUniversalFilters> = {
@@ -321,11 +323,7 @@ export function SummaryTable({
                                 values: [
                                     {
                                         type: FilterLogicalOperator.And,
-                                        values: getViewRecordingFilters(
-                                            metric,
-                                            experiment.feature_flag_key,
-                                            variantKey
-                                        ),
+                                        values: filters,
                                     },
                                 ],
                             },
