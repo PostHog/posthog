@@ -274,7 +274,7 @@ export class DB {
     public redisGetBuffer(key: string, tag: string): Promise<Buffer | null> {
         return this.instrumentRedisQuery('query.redisGetBuffer', tag, { key }, async (client) => {
             return await tryTwice(
-                async () => await client!.getBuffer(key),
+                async () => await client.getBuffer(key),
                 `Waited 5 sec to get redis key: ${key}, retrying once!`
             )
         })
