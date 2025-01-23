@@ -1,7 +1,9 @@
 import decimal
 import json
 import math
+import pyarrow.compute as pc
 from typing import Any, Optional
+from dateutil import parser
 from collections.abc import Sequence
 
 from dlt.common.schema.typing import TTableSchemaColumns
@@ -11,6 +13,13 @@ from dlt.common.destination import DestinationCapabilitiesContext
 from dlt.common.json import custom_encode, map_nested_in_place
 
 from .schema_types import RowAny
+
+
+def safe_parse_datetime(date_str):
+    try:
+        return parser.parse(date_str)
+    except (ValueError, OverflowError):
+        return None
 
 
 @with_config
@@ -90,6 +99,16 @@ def row_tuples_to_arrow(rows: Sequence[RowAny], columns: TTableSchemaColumns, tz
             )
             float_array = pa.array(columnar_known_types[field.name], type=pa.float64())
             columnar_known_types[field.name] = float_array.cast(field.type, safe=False)
+        # cast string timestamps to datetime objects
+        if pa.types.is_timestamp(field.type) and issubclass(py_type, str):
+            timestamp_array = pa.array(
+                [safe_parse_datetime(s) for s in columnar_known_types[field.name]], type=field.type
+            )
+            columnar_known_types[field.name] = timestamp_array
+            has_nulls = pc.any(pc.is_null(timestamp_array)).as_py()
+
+            adjusted_field = arrow_schema.field(idx).with_nullable(has_nulls)
+            arrow_schema = arrow_schema.set(idx, adjusted_field)
         if issubclass(py_type, dict | list):
             logger.warning(
                 f"Field {field.name} was reflected as JSON type and needs to be serialized back to string to be placed in arrow table. This will slow data extraction down. You should cast JSON field to STRING in your database system ie. by creating and extracting an SQL VIEW that selects with cast."

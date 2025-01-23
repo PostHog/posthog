@@ -166,10 +166,13 @@ function createAndInsertRoot(): { root: Root; onDestroy: () => void } {
     const div = document.createElement('div')
     const root = createRoot(div)
     function destroy(): void {
-        root.unmount()
-        if (div.parentNode) {
-            div.parentNode.removeChild(div)
-        }
+        // defer the unmounting to avoid collisions with the rendering cycle
+        setTimeout(() => {
+            root.unmount()
+            if (div.parentNode) {
+                div.parentNode.removeChild(div)
+            }
+        }, 0)
     }
 
     document.body.appendChild(div)
