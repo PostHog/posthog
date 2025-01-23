@@ -45,7 +45,7 @@ def calculate_probabilities_v2_continuous(
     --------
     list[float]
         A list of probabilities where each element represents:
-        - index 0: probability control variant beats all test variants
+        - index 0: probability control variant beats the best test variant
         - index i>0: probability test variant i-1 beats control
 
     Notes:
@@ -116,8 +116,9 @@ def calculate_probabilities_v2_continuous(
     # Calculate probabilities
     probabilities = []
 
-    # Probability control wins (beats all test variants)
-    control_wins = np.all([samples_control > test_sample for test_sample in test_samples], axis=0)
+    # Probability control wins (beats the best test variant)
+    best_test_samples = np.max(test_samples, axis=0)  # Get best test variant at each sample point
+    control_wins = samples_control > best_test_samples
     probabilities.append(float(np.mean(control_wins)))
 
     # Probability each test variant wins (beats control only)
