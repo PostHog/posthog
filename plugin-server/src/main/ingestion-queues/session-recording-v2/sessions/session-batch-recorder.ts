@@ -66,12 +66,14 @@ export class SessionBatchRecorder implements SessionBatchRecorderInterface {
 
         let totalEvents = 0
         let totalSessions = 0
+        let totalBytes = 0
 
         // Flush sessions grouped by partition
         for (const sessions of this.partitionSessions.values()) {
             for (const recorder of sessions.values()) {
-                const eventCount = await recorder.dump(stream)
+                const { eventCount, bytesWritten } = await recorder.write(stream)
                 totalEvents += eventCount
+                totalBytes += bytesWritten
             }
             totalSessions += sessions.size
         }
@@ -83,6 +85,7 @@ export class SessionBatchRecorder implements SessionBatchRecorderInterface {
         SessionBatchMetrics.incrementBatchesFlushed()
         SessionBatchMetrics.incrementSessionsFlushed(totalSessions)
         SessionBatchMetrics.incrementEventsFlushed(totalEvents)
+        SessionBatchMetrics.incrementBytesWritten(totalBytes)
 
         // Clear sessions, partition sizes, and total size after successful flush
         this.partitionSessions.clear()

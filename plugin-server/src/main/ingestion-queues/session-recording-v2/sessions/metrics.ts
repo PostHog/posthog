@@ -16,6 +16,11 @@ export class SessionBatchMetrics {
         help: 'Number of individual events that have been flushed',
     })
 
+    private static readonly bytesWritten = new Counter({
+        name: 'recording_blob_ingestion_v2_bytes_written_total',
+        help: 'Number of bytes written to storage',
+    })
+
     public static incrementBatchesFlushed(): void {
         this.batchesFlushed.inc()
     }
@@ -26,5 +31,9 @@ export class SessionBatchMetrics {
 
     public static incrementEventsFlushed(count: number = 1): void {
         this.eventsFlushed.inc(count)
+    }
+
+    public static incrementBytesWritten(bytes: number): void {
+        this.bytesWritten.inc(bytes)
     }
 }

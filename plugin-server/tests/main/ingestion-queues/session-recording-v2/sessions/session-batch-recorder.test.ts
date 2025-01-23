@@ -38,6 +38,7 @@ jest.mock('../../../../../src/main/ingestion-queues/session-recording-v2/session
         incrementBatchesFlushed: jest.fn(),
         incrementSessionsFlushed: jest.fn(),
         incrementEventsFlushed: jest.fn(),
+        incrementBytesWritten: jest.fn(),
     },
 }))
 
@@ -64,6 +65,7 @@ describe('SessionBatchRecorder', () => {
         jest.mocked(SessionBatchMetrics.incrementBatchesFlushed).mockClear()
         jest.mocked(SessionBatchMetrics.incrementSessionsFlushed).mockClear()
         jest.mocked(SessionBatchMetrics.incrementEventsFlushed).mockClear()
+        jest.mocked(SessionBatchMetrics.incrementBytesWritten).mockClear()
     })
 
     const createMessage = (
@@ -118,7 +120,7 @@ describe('SessionBatchRecorder', () => {
         })
     }
 
-    describe('recording and flushing', () => {
+    describe('recording and writing', () => {
         it('should process and flush a single session', async () => {
             const message = createMessage('session1', [
                 {
