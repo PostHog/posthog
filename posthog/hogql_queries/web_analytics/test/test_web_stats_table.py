@@ -261,7 +261,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         results = self._run_web_stats_table_query("2023-12-01", "2023-12-03", filter_test_accounts=False).results
 
-        assert [["/", (1, None), (1, None)], ["/login", (1, None), (1, None), ""]] == results
+        assert [["/", (1.0, None), (1.0, None), ""], ["/login", (1.0, None), (1.0, None), ""]] == results
 
     def test_breakdown_channel_type_doesnt_throw(self):
         s1a = str(uuid7("2023-12-02"))
