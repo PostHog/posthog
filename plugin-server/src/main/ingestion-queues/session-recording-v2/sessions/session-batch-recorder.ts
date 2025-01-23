@@ -1,6 +1,7 @@
 import { Writable } from 'stream'
 
 import { MessageWithTeam } from '../teams/types'
+import { SessionBatchMetrics } from './metrics'
 import { SessionRecorder } from './recorder'
 
 export interface StreamWithFinish {
@@ -63,15 +64,28 @@ export class SessionBatchRecorder implements SessionBatchRecorderInterface {
     public async flush(): Promise<void> {
         const { stream, finish } = await this.writer.open()
 
+        let totalEvents = 0
+        let totalSessions = 0
+        let totalBytes = 0
+
         // Flush sessions grouped by partition
         for (const sessions of this.partitionSessions.values()) {
             for (const recorder of sessions.values()) {
-                await recorder.dump(stream)
+                const { eventCount, bytesWritten } = await recorder.write(stream)
+                totalEvents += eventCount
+                totalBytes += bytesWritten
             }
+            totalSessions += sessions.size
         }
 
         stream.end()
         await finish()
+
+        // Update metrics
+        SessionBatchMetrics.incrementBatchesFlushed()
+        SessionBatchMetrics.incrementSessionsFlushed(totalSessions)
+        SessionBatchMetrics.incrementEventsFlushed(totalEvents)
+        SessionBatchMetrics.incrementBytesWritten(totalBytes)
 
         // Clear sessions, partition sizes, and total size after successful flush
         this.partitionSessions.clear()

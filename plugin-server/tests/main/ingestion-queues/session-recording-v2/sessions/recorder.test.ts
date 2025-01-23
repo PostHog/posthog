@@ -47,7 +47,7 @@ describe('SessionRecorder', () => {
     }
 
     describe('recordMessage', () => {
-        it('should record events in JSONL format', () => {
+        it('should record events in JSONL format', async () => {
             const events = [
                 {
                     type: EventType.FullSnapshot,
@@ -73,7 +73,7 @@ describe('SessionRecorder', () => {
                 streamData += chunk
             })
 
-            recorder.dump(stream)
+            const result = await recorder.write(stream)
             const lines = parseLines(streamData)
 
             expect(lines).toEqual([
@@ -81,9 +81,11 @@ describe('SessionRecorder', () => {
                 ['window1', events[1]],
             ])
             expect(bytesWritten).toBeGreaterThan(0)
+            expect(result.eventCount).toBe(2)
+            expect(result.bytesWritten).toBe(bytesWritten)
         })
 
-        it('should handle multiple windows with multiple events', () => {
+        it('should handle multiple windows with multiple events', async () => {
             const events = {
                 window1: [
                     {
@@ -126,7 +128,7 @@ describe('SessionRecorder', () => {
                 streamData += chunk
             })
 
-            recorder.dump(stream)
+            const result = await recorder.write(stream)
             const lines = parseLines(streamData)
 
             expect(lines).toEqual([
@@ -135,9 +137,11 @@ describe('SessionRecorder', () => {
                 ['window2', events.window2[0]],
                 ['window2', events.window2[1]],
             ])
+            expect(result.eventCount).toBe(4)
+            expect(result.bytesWritten).toBeGreaterThan(0)
         })
 
-        it('should handle empty events array', () => {
+        it('should handle empty events array', async () => {
             const message = createMessage('window1', [])
             const bytesWritten = recorder.recordMessage(message)
 
@@ -147,12 +151,14 @@ describe('SessionRecorder', () => {
                 streamData += chunk
             })
 
-            recorder.dump(stream)
+            const result = await recorder.write(stream)
             expect(streamData).toBe('')
             expect(bytesWritten).toBe(0)
+            expect(result.eventCount).toBe(0)
+            expect(result.bytesWritten).toBe(0)
         })
 
-        it('should correctly count bytes for multi-byte characters', () => {
+        it('should correctly count bytes for multi-byte characters', async () => {
             let bytesWritten = 0
 
             const events1 = {
@@ -200,13 +206,14 @@ describe('SessionRecorder', () => {
                 bytesReceived += Buffer.byteLength(chunk)
             })
 
-            recorder.dump(stream)
-
+            const result = await recorder.write(stream)
             expect(bytesReceived).toBe(bytesWritten)
+            expect(result.bytesWritten).toBe(bytesWritten)
+            expect(result.eventCount).toBe(3)
         })
     })
 
-    describe('dump', () => {
+    describe('write', () => {
         it('should ensure last line ends with newline', async () => {
             const events = [
                 { type: EventType.FullSnapshot, timestamp: 1000, data: {} },
@@ -221,8 +228,48 @@ describe('SessionRecorder', () => {
                 streamData += chunk
             })
 
-            await recorder.dump(stream)
+            const result = await recorder.write(stream)
             expect(streamData.endsWith('\n')).toBe(true)
+            expect(result.eventCount).toBe(2)
+            expect(result.bytesWritten).toBeGreaterThan(0)
+        })
+
+        it('should handle backpressure', async () => {
+            const events = Array.from({ length: 100 }, (_, i) => ({
+                type: EventType.Custom,
+                timestamp: i * 1000,
+                data: { large: 'x'.repeat(1000) }, // Create large events
+            }))
+            const message = createMessage('window1', events)
+            recorder.recordMessage(message)
+
+            const stream = new PassThrough({ highWaterMark: 100 }) // Small buffer to trigger backpressure
+            let bytesWrittenBeforeDrain = 0
+            let drainOccurred = false
+
+            stream.on('data', (chunk) => {
+                if (!drainOccurred) {
+                    bytesWrittenBeforeDrain += Buffer.byteLength(chunk)
+                }
+            })
+
+            const writePromise = recorder.write(stream)
+
+            // Wait a tick to allow some data to be written
+            await new Promise((resolve) => process.nextTick(resolve))
+
+            // Verify that not all data was written before drain
+            expect(bytesWrittenBeforeDrain).toBeGreaterThan(0)
+            expect(bytesWrittenBeforeDrain).toBeLessThan(100000)
+
+            // Now let the stream drain
+            drainOccurred = true
+            stream.resume()
+
+            const result = await writePromise
+            expect(result.eventCount).toBe(100)
+            expect(result.bytesWritten).toBeGreaterThan(100000) // Should be large due to the event size
+            expect(result.bytesWritten).toBeGreaterThan(bytesWrittenBeforeDrain) // More data written after drain
         })
     })
 })
