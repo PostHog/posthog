@@ -7,26 +7,43 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         : null
     const sharedCapabilities = !isTestEnv() ? { http: true } : {}
 
+    const singleProcessCapabilities: PluginServerCapabilities = {
+        mmdb: true,
+        ingestion: true,
+        ingestionOverflow: true,
+        ingestionHistorical: true,
+        eventsIngestionPipelines: true, // with null PluginServerMode we run all of them
+        processAsyncOnEventHandlers: true,
+        processAsyncWebhooksHandlers: true,
+        sessionRecordingBlobIngestion: true,
+        sessionRecordingBlobOverflowIngestion: config.SESSION_RECORDING_OVERFLOW_ENABLED,
+        sessionRecordingBlobIngestionV2: true,
+        sessionRecordingBlobIngestionV2Overflow: config.SESSION_RECORDING_OVERFLOW_ENABLED,
+        preflightSchedules: true,
+        cdpProcessedEvents: true,
+        cdpInternalEvents: true,
+        cdpCyclotronWorker: true,
+        syncInlinePlugins: true,
+        ...sharedCapabilities,
+    }
+
     switch (mode) {
         case null:
             return {
+                ...singleProcessCapabilities,
+            }
+        case PluginServerMode.all_v2:
+            return {
+                ...singleProcessCapabilities,
+                ingestionV2Combined: true,
+            }
+
+        case PluginServerMode.ingestion_v2:
+            // NOTE: this mode will be removed in the future and replaced with
+            // `analytics-ingestion` and `recordings-ingestion` modes.
+            return {
                 mmdb: true,
-                ingestion: true,
-                ingestionOverflow: true,
-                ingestionHistorical: true,
-                eventsIngestionPipelines: true, // with null PluginServerMode we run all of them
-                processAsyncOnEventHandlers: true,
-                processAsyncWebhooksHandlers: true,
-                sessionRecordingBlobIngestion: true,
-                sessionRecordingBlobOverflowIngestion: config.SESSION_RECORDING_OVERFLOW_ENABLED,
-                sessionRecordingBlobIngestionV2: true,
-                sessionRecordingBlobIngestionV2Overflow: config.SESSION_RECORDING_OVERFLOW_ENABLED,
-                preflightSchedules: true,
-                cdpProcessedEvents: true,
-                cdpInternalEvents: true,
-                cdpFunctionCallbacks: true,
-                cdpCyclotronWorker: true,
-                syncInlinePlugins: true,
+                ingestionV2: true,
                 ...sharedCapabilities,
             }
         case PluginServerMode.ingestion:
@@ -100,11 +117,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case PluginServerMode.cdp_internal_events:
             return {
                 cdpInternalEvents: true,
-                ...sharedCapabilities,
-            }
-        case PluginServerMode.cdp_function_callbacks:
-            return {
-                cdpFunctionCallbacks: true,
                 ...sharedCapabilities,
             }
         case PluginServerMode.cdp_cyclotron_worker:
