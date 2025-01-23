@@ -519,3 +519,49 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].id, "trace1")
         self.assertEqual(response.results[0].events[0].properties["$ai_model_parameters"], {"temperature": 0.5})
+
+    def test_properties_filter(self):
+        _create_person(distinct_ids=["person1"], team=self.team)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace1",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 0),
+            properties={"foo": "bar"},
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace1",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 0),
+            properties={"foo": "baz"},
+        )
+
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(
+                properties=[EventPropertyFilter(key="foo", value="bar", operator=PropertyOperator.EXACT)],
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
+            ),
+        ).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(len(response.results[0].events), 2)
+
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(
+                properties=[EventPropertyFilter(key="foo", value="baz", operator=PropertyOperator.EXACT)],
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
+            ),
+        ).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(len(response.results[0].events), 2)
+
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(
+                properties=[EventPropertyFilter(key="foo", value="barz", operator=PropertyOperator.EXACT)],
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
+            ),
+        ).calculate()
+        self.assertEqual(len(response.results), 0)

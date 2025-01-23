@@ -65,6 +65,11 @@ class TracesQueryRunner(QueryRunner):
     def to_query(self) -> ast.SelectQuery:
         query = self._get_event_query()
         query.where = self._get_where_clause()
+        if self.query.properties:
+            query.select.append(self._get_properties_cond())
+            query.having = ast.CompareOperation(
+                left=ast.Field(chain=["filter_match"]), op=ast.CompareOperationOp.Eq, right=ast.Constant(value=1)
+            )
         return query
 
     def calculate(self):
@@ -193,6 +198,12 @@ class TracesQueryRunner(QueryRunner):
         )
         return cast(ast.SelectQuery, query)
 
+    def _get_properties_cond(self):
+        assert self.query.properties is not None
+        with self.timings.measure("property_filters"):
+            filter = ast.And(exprs=[property_to_expr(property, self.team) for property in self.query.properties])
+        return ast.Alias(alias="filter_match", expr=ast.Call(name="max", args=[filter]))
+
     def _get_where_clause(self):
         timestamp_field = ast.Field(chain=["events", "timestamp"])
 
@@ -213,10 +224,6 @@ class TracesQueryRunner(QueryRunner):
                 right=self._date_range.date_to_as_hogql(),
             ),
         ]
-
-        if self.query.properties:
-            with self.timings.measure("property_filters"):
-                where_exprs.extend(property_to_expr(property, self.team) for property in self.query.properties)
 
         if self.query.filterTestAccounts:
             with self.timings.measure("test_account_filters"):
