@@ -1,6 +1,16 @@
 import { getSeriesColor } from 'lib/colors'
 
-import { FeatureFlagFilters, FunnelTimeConversionMetrics, InsightType, TrendResult } from '~/types'
+import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema'
+import { EventsNode, NodeKind } from '~/queries/schema/schema-general'
+import {
+    FeatureFlagFilters,
+    FunnelTimeConversionMetrics,
+    InsightType,
+    PropertyFilterType,
+    PropertyOperator,
+    TrendResult,
+    UniversalFiltersGroupValue,
+} from '~/types'
 
 export function getExperimentInsightColour(variantIndex: number | null): string {
     return variantIndex !== null ? getSeriesColor(variantIndex) : 'var(--muted-3000)'
@@ -89,4 +99,65 @@ export function transformFiltersForWinningVariant(
             ...(currentFlagFilters?.groups || []),
         ],
     }
+}
+
+export function getViewRecordingFilters(
+    metric: ExperimentTrendsQuery | ExperimentFunnelsQuery,
+    featureFlagKey: string,
+    variantKey: string
+): UniversalFiltersGroupValue[] {
+    const filters: UniversalFiltersGroupValue[] = []
+    // TODO support custom exposure events and actions
+    if (metric.kind === NodeKind.ExperimentTrendsQuery) {
+        filters.push({
+            id: '$feature_flag_called',
+            name: '$feature_flag_called',
+            type: 'events',
+            properties: [
+                {
+                    key: `$feature_flag_response`,
+                    type: PropertyFilterType.Event,
+                    value: [variantKey],
+                    operator: PropertyOperator.Exact,
+                },
+                {
+                    key: '$feature_flag',
+                    type: PropertyFilterType.Event,
+                    value: featureFlagKey,
+                    operator: PropertyOperator.Exact,
+                },
+            ],
+        })
+        filters.push({
+            id: (metric.count_query.series[0] as EventsNode).event as string,
+            name: (metric.count_query.series[0] as EventsNode).event as string,
+            type: 'events',
+            properties: [
+                {
+                    key: `$feature/${featureFlagKey}`,
+                    type: PropertyFilterType.Event,
+                    value: [variantKey],
+                    operator: PropertyOperator.Exact,
+                },
+            ],
+        })
+        return filters
+    }
+    metric.funnels_query.series.forEach((series) => {
+        filters.push({
+            id: (series as EventsNode).event as string,
+            name: (series as EventsNode).name as string,
+            type: 'events',
+            properties: [
+                {
+                    key: `$feature/${featureFlagKey}`,
+                    type: PropertyFilterType.Event,
+                    value: [variantKey],
+                    operator: PropertyOperator.Exact,
+                },
+            ],
+        })
+    })
+
+    return filters
 }
