@@ -229,8 +229,18 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                     return null
                 },
                 updateBatchExportConfig: async (formdata) => {
-                    const { name, destination, interval, paused, created_at, start_at, end_at, model, ...config } =
-                        formdata
+                    const {
+                        name,
+                        destination,
+                        interval,
+                        paused,
+                        created_at,
+                        start_at,
+                        end_at,
+                        model,
+                        filters,
+                        ...config
+                    } = formdata
                     const destinationObj = {
                         type: destination,
                         config: config,
@@ -243,6 +253,7 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                         name,
                         interval,
                         model,
+                        filters,
                         destination: destinationObj,
                     }
                     if (props.id) {

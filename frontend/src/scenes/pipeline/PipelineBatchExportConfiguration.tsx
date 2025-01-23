@@ -1,17 +1,23 @@
+import { IconPlus } from '@posthog/icons'
 import { LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
 
-import { BATCH_EXPORT_SERVICE_NAMES, BatchExportService } from '~/types'
+import { NodeKind } from '~/queries/schema/schema-general'
+import { AnyPropertyFilter, BATCH_EXPORT_SERVICE_NAMES, BatchExportService } from '~/types'
 
 import { BatchExportGeneralEditFields, BatchExportsEditFields } from './batch-exports/BatchExportEditForm'
 import { BatchExportConfigurationForm } from './batch-exports/types'
@@ -34,7 +40,7 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
         batchExportConfig,
         selectedModel,
     } = useValues(logic)
-    const { resetConfiguration, submitConfiguration, setSelectedModel } = useActions(logic)
+    const { resetConfiguration, submitConfiguration, setSelectedModel, setConfigurationValue } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const highFrequencyBatchExports = featureFlags[FEATURE_FLAGS.HIGH_FREQUENCY_BATCH_EXPORTS]
 
@@ -91,7 +97,7 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
                     className="space-y-3"
                 >
                     <div className="flex items-start gap-4 flex-wrap">
-                        <div className="flex-col flex min-w-100 space-y-3">
+                        <div className="flex flex-col flex-1 min-w-100 space-y-3">
                             <div className="border bg-bg-light p-3 rounded space-y-2">
                                 <div className="flex flex-row gap-2 min-h-16 items-center">
                                     {configuration.destination ? (
@@ -118,53 +124,49 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
                                             />
                                         )}
                                     </LemonField>
+                                </div>
 
+                                <LemonField
+                                    name="name"
+                                    label="Name"
+                                    info="Customizing the name can be useful if multiple instances of the same type are used."
+                                >
+                                    <LemonInput type="text" />
+                                </LemonField>
+
+                                <div className="flex gap-2 min-h-16">
                                     <LemonField
-                                        name="name"
-                                        label="Name"
-                                        info="Customising the name can be useful if multiple instances of the same type are used."
+                                        name="interval"
+                                        label="Interval"
+                                        className="flex-1"
+                                        info={
+                                            <>
+                                                Dictates the frequency of batch export runs. For example, if you select
+                                                hourly, a new batch export run will start every hour.
+                                            </>
+                                        }
                                     >
-                                        <LemonInput type="text" />
+                                        <LemonSelect
+                                            options={[
+                                                { value: 'hour', label: 'Hourly' },
+                                                { value: 'day', label: 'Daily' },
+                                                {
+                                                    value: 'every 5 minutes',
+                                                    label: 'Every 5 minutes',
+                                                    hidden: !highFrequencyBatchExports,
+                                                },
+                                            ]}
+                                        />
                                     </LemonField>
                                 </div>
-                                <div className="border bg-bg-light p-3 rounded space-y-2">
-                                    <div className="flex flex-row gap-2 min-h-16 items-center">
-                                        <LemonField
-                                            name="interval"
-                                            label="Batch interval"
-                                            className="flex-1"
-                                            info={
-                                                <>
-                                                    The intervals of data exports. For example, if you select hourly,
-                                                    every hour a run will be created to export that hours data.
-                                                </>
-                                            }
-                                        >
-                                            <LemonSelect
-                                                options={[
-                                                    { value: 'hour', label: 'Hourly' },
-                                                    { value: 'day', label: 'Daily' },
-                                                    {
-                                                        value: 'every 5 minutes',
-                                                        label: 'Every 5 minutes',
-                                                        hidden: !highFrequencyBatchExports,
-                                                    },
-                                                ]}
-                                            />
-                                        </LemonField>
-                                    </div>
-                                </div>
                             </div>
-                            <div className="flex-2 gap-4 space-y-3">
-                                <div className="border bg-bg-light p-3 rounded flex-2 min-w-100">
-                                    <BatchExportConfigurationFields
-                                        isNew={isNew}
-                                        formValues={configuration as BatchExportConfigurationForm}
-                                    />
+                            <div className="border bg-bg-light p-3 rounded space-y-2">
+                                <div className="flex gap-2 min-h-16">
                                     <LemonField
                                         name="model"
                                         label="Model"
                                         info="A model defines the data that will be exported."
+                                        className="flex flex-1"
                                     >
                                         <LemonSelect
                                             options={tables.map((table) => ({
@@ -175,15 +177,113 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
                                             onSelect={(newValue) => {
                                                 setSelectedModel(newValue)
                                             }}
+                                            fullWidth={true}
                                         />
                                     </LemonField>
-
+                                </div>
+                                <div className="flex gap-2 min-h-16">
                                     <DatabaseTable
                                         table={selectedModel ? selectedModel : 'events'}
                                         tables={tables}
                                         inEditSchemaMode={false}
                                     />
                                 </div>
+                                {selectedModel === 'events' ? (
+                                    <>
+                                        <div className="flex flex-col gap-2 min-h-16">
+                                            <div className="flex justify-between w-full gap-2">
+                                                <LemonLabel>Include events</LemonLabel>
+                                            </div>
+                                            <p className="mb-0 text-xs text-muted-alt">
+                                                If set, the batch export will <b>only</b> export events matching any of
+                                                the below. If left unset, all events will be exported.
+                                            </p>
+                                            <EventSelect
+                                                onChange={(includedEvents) => {
+                                                    const filteredEvents = includedEvents.filter(
+                                                        (event) => event != null
+                                                    )
+                                                    setConfigurationValue('include_events', filteredEvents)
+                                                }}
+                                                selectedEvents={
+                                                    configuration.include_events ? configuration.include_events : []
+                                                }
+                                                addElement={
+                                                    <LemonButton
+                                                        size="small"
+                                                        type="secondary"
+                                                        icon={<IconPlus />}
+                                                        sideIcon={null}
+                                                    >
+                                                        Include event
+                                                    </LemonButton>
+                                                }
+                                            />
+                                        </div>
+                                        <div className="flex flex-col gap-2 min-h-16">
+                                            <div className="flex justify-between w-full gap-2">
+                                                <LemonLabel>Exclude events</LemonLabel>
+                                            </div>
+                                            <p className="mb-0 text-xs text-muted-alt">
+                                                If set, the batch export will <b>exclude</b> events matching any of the
+                                                below. If left unset, no events will be excluded from the export.
+                                            </p>
+                                            <EventSelect
+                                                onChange={(excludedEvents) => {
+                                                    const filteredEvents = excludedEvents.filter(
+                                                        (event) => event != null
+                                                    )
+                                                    setConfigurationValue('exclude_events', filteredEvents)
+                                                }}
+                                                selectedEvents={
+                                                    configuration.exclude_events ? configuration.exclude_events : []
+                                                }
+                                                addElement={
+                                                    <LemonButton
+                                                        size="small"
+                                                        type="secondary"
+                                                        icon={<IconPlus />}
+                                                        sideIcon={null}
+                                                    >
+                                                        Exclude event
+                                                    </LemonButton>
+                                                }
+                                            />
+                                        </div>
+                                    </>
+                                ) : null}
+                                <div className="flex gap-2 min-h-16">
+                                    <LemonField name="filters" label="Filters" className="flex flex-1">
+                                        <PropertyFilters
+                                            propertyFilters={
+                                                (configuration.property_filters
+                                                    ? configuration.property_filters
+                                                    : []) as AnyPropertyFilter[]
+                                            }
+                                            taxonomicGroupTypes={
+                                                selectedModel === 'events'
+                                                    ? [TaxonomicFilterGroupType.EventProperties]
+                                                    : [TaxonomicFilterGroupType.PersonProperties]
+                                            }
+                                            onChange={(filters: AnyPropertyFilter[]) => {
+                                                setConfigurationValue('filters', filters)
+                                            }}
+                                            pageKey={`BatchExportsPropertyFilters.${
+                                                batchExportConfig ? batchExportConfig.id : 'New'
+                                            }`}
+                                            metadataSource={{ kind: NodeKind.ActorsQuery }}
+                                        />
+                                    </LemonField>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex-2 gap-4 space-y-4 min-w-100">
+                            <div className="border bg-bg-light p-3 rounded">
+                                <BatchExportConfigurationFields
+                                    isNew={isNew}
+                                    formValues={configuration as BatchExportConfigurationForm}
+                                />
                             </div>
                         </div>
                     </div>

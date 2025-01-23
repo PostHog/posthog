@@ -4,7 +4,6 @@ import {
     LemonCheckbox,
     LemonFileInput,
     LemonInput,
-    LemonInputSelect,
     LemonSelect,
     LemonTextArea,
     Tooltip,
@@ -24,7 +23,7 @@ export function BatchExportGeneralEditFields({
 }): JSX.Element {
     return (
         <>
-            <div className="space-y-4 max-w-200">
+            <div className="space-y-4">
                 {!isPipeline && (
                     <LemonField name="name" label="Name">
                         <LemonInput placeholder="Name your workflow for future reference" />
@@ -217,23 +216,6 @@ export function BatchExportsEditFields({
                         >
                             <LemonInput placeholder={isNew ? 'e.g. https://your-minio-host:9000' : 'Leave unchanged'} />
                         </LemonField>
-
-                        <LemonField name="exclude_events" label="Events to exclude" className="flex-1">
-                            <LemonInputSelect
-                                mode="multiple"
-                                allowCustomValues
-                                options={[]}
-                                placeholder="Input one or more events to exclude from the export (optional)"
-                            />
-                        </LemonField>
-                        <LemonField name="include_events" label="Events to include" className="flex-1">
-                            <LemonInputSelect
-                                mode="multiple"
-                                allowCustomValues
-                                options={[]}
-                                placeholder="Input one or more events to include in the export (optional)"
-                            />
-                        </LemonField>
                     </>
                 ) : batchExportConfigForm.destination === 'Snowflake' ? (
                     <>
@@ -295,23 +277,6 @@ export function BatchExportsEditFields({
                         <LemonField name="role" label="Role" showOptional>
                             <LemonInput placeholder="my-role" />
                         </LemonField>
-
-                        <LemonField name="exclude_events" label="Events to exclude" className="flex-1">
-                            <LemonInputSelect
-                                mode="multiple"
-                                allowCustomValues
-                                options={[]}
-                                placeholder="Input one or more events to exclude from the export (optional)"
-                            />
-                        </LemonField>
-                        <LemonField name="include_events" label="Events to include" className="flex-1">
-                            <LemonInputSelect
-                                mode="multiple"
-                                allowCustomValues
-                                options={[]}
-                                placeholder="Input one or more events to include in the export (optional)"
-                            />
-                        </LemonField>
                     </>
                 ) : batchExportConfigForm.destination === 'Postgres' ? (
                     <>
@@ -360,23 +325,6 @@ export function BatchExportsEditFields({
                                 />
                             )}
                         </LemonField>
-
-                        <LemonField name="exclude_events" label="Events to exclude" className="flex-1">
-                            <LemonInputSelect
-                                mode="multiple"
-                                allowCustomValues
-                                options={[]}
-                                placeholder="Input one or more events to exclude from the export (optional)"
-                            />
-                        </LemonField>
-                        <LemonField name="include_events" label="Events to include" className="flex-1">
-                            <LemonInputSelect
-                                mode="multiple"
-                                allowCustomValues
-                                options={[]}
-                                placeholder="Input one or more events to include in the export (optional)"
-                            />
-                        </LemonField>
                     </>
                 ) : batchExportConfigForm.destination === 'Redshift' ? (
                     <>
@@ -416,23 +364,6 @@ export function BatchExportsEditFields({
                                 ]}
                             />
                         </LemonField>
-
-                        <LemonField name="exclude_events" label="Events to exclude" className="flex-1">
-                            <LemonInputSelect
-                                mode="multiple"
-                                allowCustomValues
-                                options={[]}
-                                placeholder="Input one or more events to exclude from the export (optional)"
-                            />
-                        </LemonField>
-                        <LemonField name="include_events" label="Events to include" className="flex-1">
-                            <LemonInputSelect
-                                mode="multiple"
-                                allowCustomValues
-                                options={[]}
-                                placeholder="Input one or more events to include in the export (optional)"
-                            />
-                        </LemonField>
                     </>
                 ) : batchExportConfigForm.destination === 'BigQuery' ? (
                     <>
@@ -463,23 +394,6 @@ export function BatchExportsEditFields({
                                 />
                             </LemonField>
                         ) : null}
-
-                        <LemonField name="exclude_events" label="Events to exclude" className="flex-1">
-                            <LemonInputSelect
-                                mode="multiple"
-                                allowCustomValues
-                                options={[]}
-                                placeholder="Input one or more events to exclude from the export (optional)"
-                            />
-                        </LemonField>
-                        <LemonField name="include_events" label="Events to include" className="flex-1">
-                            <LemonInputSelect
-                                mode="multiple"
-                                allowCustomValues
-                                options={[]}
-                                placeholder="Input one or more events to include in the export (optional)"
-                            />
-                        </LemonField>
                     </>
                 ) : batchExportConfigForm.destination === 'HTTP' ? (
                     <>
@@ -493,22 +407,6 @@ export function BatchExportsEditFields({
                         </LemonField>
                         <LemonField name="token" label="Destination project API Key">
                             <LemonInput placeholder="e.g. phc_12345..." />
-                        </LemonField>
-                        <LemonField name="exclude_events" label="Events to exclude" className="flex-1">
-                            <LemonInputSelect
-                                mode="multiple"
-                                allowCustomValues
-                                options={[]}
-                                placeholder="Input one or more events to exclude from the export (optional)"
-                            />
-                        </LemonField>
-                        <LemonField name="include_events" label="Events to include" className="flex-1">
-                            <LemonInputSelect
-                                mode="multiple"
-                                allowCustomValues
-                                options={[]}
-                                placeholder="Input one or more events to include in the export (optional)"
-                            />
                         </LemonField>
                     </>
                 ) : null}
