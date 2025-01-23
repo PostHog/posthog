@@ -5,6 +5,7 @@ import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { IconCalculate, IconClipboardEdit } from 'lib/lemon-ui/icons'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -214,7 +215,19 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                                         label: 'Delete folder',
                                         status: 'danger',
                                         onClick: () => {
-                                            actions.deleteFolder({ id: folder.id })
+                                            LemonDialog.open({
+                                                title: 'Delete folder',
+                                                content:
+                                                    'Are you sure you want to delete this folder? (folder contents will not be deleted)',
+                                                primaryButton: {
+                                                    children: 'Delete',
+                                                    onClick: () => actions.deleteFolder({ id: folder.id }),
+                                                    status: 'danger',
+                                                },
+                                                secondaryButton: {
+                                                    children: 'Cancel',
+                                                },
+                                            })
                                         },
                                     },
                                 ],
