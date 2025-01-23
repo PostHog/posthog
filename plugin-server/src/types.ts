@@ -1363,5 +1363,4 @@ export interface ModelRow {
 export interface CookielessConfig {
     disabled: boolean
     forceStatelessMode: boolean
-    saltTtlSeconds: number
 }
