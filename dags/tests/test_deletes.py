@@ -1,5 +1,6 @@
 import uuid
 import pytest
+from typing import cast
 from unittest.mock import patch, MagicMock
 from dagster import build_asset_context
 
@@ -29,7 +30,7 @@ def test_config_no_team():
 
 
 @pytest.fixture
-def expected_names():
+def expected_names() -> dict[str, str]:
     return get_versioned_names("test_run")
 
 
@@ -55,7 +56,7 @@ def test_pending_person_deletions_with_team_id(mock_clickhouse_client, expected_
 
         context = build_asset_context()
         config = DeleteConfig(team_id=1, run_id="test_run")
-        table_info = {"table_name": expected_names["table"]}
+        table_info: dict[str, str] = {"table_name": expected_names["table"]}
 
         result = pending_person_deletions(context, config, table_info)
 
@@ -89,7 +90,7 @@ def test_pending_person_deletions_without_team_id(mock_clickhouse_client, test_c
         mock_objects.filter.return_value = mock_filter
 
         context = build_asset_context()
-        table_info = {"table_name": expected_names["table"]}
+        table_info: dict[str, str] = {"table_name": expected_names["table"]}
 
         result = pending_person_deletions(context, test_config_no_team, table_info)
 
@@ -112,7 +113,7 @@ def test_pending_person_deletions_without_team_id(mock_clickhouse_client, test_c
 
 @patch("dags.deletes.sync_execute")
 def test_create_pending_deletes_table(mock_sync_execute, test_config, expected_names):
-    result = create_pending_deletes_table(build_asset_context(), test_config)
+    result = cast(dict[str, str], create_pending_deletes_table(build_asset_context(), test_config))
 
     assert result["table_name"] == expected_names["table"]
     mock_sync_execute.assert_called_once()
@@ -125,11 +126,12 @@ def test_create_pending_deletes_table(mock_sync_execute, test_config, expected_n
 
 @patch("dags.deletes.sync_execute")
 def test_create_pending_deletes_dictionary(mock_sync_execute, test_config, expected_names):
-    result = create_pending_deletes_dictionary(build_asset_context(), test_config, 2)  # Pass mock total rows
+    table_info: dict[str, str] = {"table_name": expected_names["table"]}
+    result = cast(dict[str, str], create_pending_deletes_dictionary(test_config, table_info))
 
-    assert result["dictionary_name"] == expected_names["dictionary"]
+    assert result["dictionary_name"] == f"{expected_names['table']}_dict"
     mock_sync_execute.assert_called_once()
     # Verify the SQL contains the expected dictionary creation
     call_args = mock_sync_execute.call_args[0][0]
-    assert f"CREATE DICTIONARY IF NOT EXISTS {expected_names['dictionary']}" in call_args
+    assert f"CREATE DICTIONARY IF NOT EXISTS {expected_names['table']}_dict" in call_args
     assert f"TABLE {expected_names['table']}" in call_args

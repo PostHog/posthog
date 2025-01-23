@@ -41,7 +41,7 @@ def create_pending_deletes_table(context: AssetExecutionContext, config: DeleteC
             person_id UUID,
             created_at DateTime DEFAULT now()
         )
-        ENGINE = ReplacingMergeTree()
+        ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/{names["table"]}', '{{shard}}-{{replica}}')
         ORDER BY (team_id, person_id)
         """
     )
@@ -130,6 +130,11 @@ def create_pending_deletes_dictionary(
 ) -> dict[str, str]:
     """Create a dictionary table that wraps pending_person_deletes for efficient lookups."""
     delete_table_name = create_pending_deletes_table["table_name"]
+
+    # Wait for the table to be fully replicated
+    sync_execute(f"SYSTEM SYNC REPLICA {delete_table_name} STRICT")
+
+    # Create the dictionary
     sync_execute(
         f"""
         CREATE DICTIONARY IF NOT EXISTS {delete_table_name}_dict ON CLUSTER '{CLICKHOUSE_CLUSTER}'
