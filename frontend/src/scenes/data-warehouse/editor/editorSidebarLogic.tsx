@@ -194,6 +194,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                                                 },
                                             },
                                         ],
+                                        draggable: true,
                                     } as BasicListItem
                                 })
                                 .filter((item): item is BasicListItem => item !== null)
@@ -349,6 +350,7 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                                                       },
                                                   },
                                               ],
+                                              draggable: true,
                                           })) as BasicListItem[]),
                                   ],
                     } as SidebarCategory,

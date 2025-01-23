@@ -8,7 +8,7 @@ import clsx from 'clsx'
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { isDayjs } from 'lib/dayjs'
-import { IconChevronRight } from 'lib/lemon-ui/icons/icons'
+import { IconChevronRight, IconDragHandle } from 'lib/lemon-ui/icons/icons'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Link } from 'lib/lemon-ui/Link'
@@ -185,7 +185,16 @@ export function SidebarList({ category }: { category: SidebarCategory | ListItem
             const normalizedItemKey = `${category.key}${ITEM_KEY_PART_SEPARATOR}${item.key}`
             const active = normalizedItemKey === normalizedActiveListItemKey
 
-            return <SidebarListItem key={index} item={item} validateName={validateName} active={active} style={style} />
+            return (
+                <SidebarListItem
+                    key={index}
+                    draggable={'draggable' in item ? item.draggable : false}
+                    item={item}
+                    validateName={validateName}
+                    active={active}
+                    style={style}
+                />
+            )
         },
         overscanRowCount: 20,
         tabIndex: null,
@@ -243,6 +252,7 @@ interface SidebarListItemProps {
     validateName?: SidebarCategory['validateName']
     active?: boolean
     style: React.CSSProperties
+    draggable?: boolean
 }
 
 function isItemTentative(item: SidebarListItemProps['item']): item is TentativeListItem {
@@ -253,7 +263,13 @@ function isItemClickable(item: SidebarListItemProps['item']): item is ButtonList
     return 'onClick' in item
 }
 
-function SidebarListItem({ item, validateName, active, style: styleFromProps }: SidebarListItemProps): JSX.Element {
+function SidebarListItem({
+    item,
+    draggable,
+    validateName,
+    active,
+    style: styleFromProps,
+}: SidebarListItemProps): JSX.Element {
     const [isMenuOpen, setIsMenuOpen] = useState(false)
     const [newName, setNewName] = useState<null | string>(null)
     const [newNameValidationError, setNewNameValidationError] = useState<null | string>(null)
@@ -267,7 +283,7 @@ function SidebarListItem({ item, validateName, active, style: styleFromProps }: 
 
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
         id: item.key.toString(),
-        disabled: isItemTentative(item) || isListItemAccordion(item) || newName !== null,
+        disabled: isItemTentative(item) || isListItemAccordion(item) || newName !== null || !draggable,
     })
 
     const combinedStyle = {
@@ -520,6 +536,11 @@ function SidebarListItem({ item, validateName, active, style: styleFromProps }: 
             {...(newNameValidationError ? { 'aria-invalid': true } : {})}
         >
             {content}
+            {draggable && (
+                <div className="SidebarListItem__draggable">
+                    <IconDragHandle />
+                </div>
+            )}
             {isItemTentative(item) || newName !== null ? (
                 <div className="SidebarListItem__actions">
                     {!isSaving && (

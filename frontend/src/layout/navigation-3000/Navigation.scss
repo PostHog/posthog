@@ -494,6 +494,10 @@
             display: flex;
         }
 
+        .SidebarListItem__draggable {
+            display: flex;
+        }
+
         // Accommodate menu button by moving stuff out of the way
         &.SidebarListItem--has-menu:not(.SidebarListItem--extended) .SidebarListItem__link,
         &.SidebarListItem--has-menu:not(.SidebarListItem--extended) .SidebarListItem__button {
@@ -691,6 +695,15 @@
         border-bottom-color: var(--danger);
         border-left-color: var(--danger);
     }
+}
+
+.SidebarListItem__draggable {
+    position: absolute;
+    top: 50%;
+    left: var(--sidebar-horizontal-padding);
+    z-index: 1;
+    display: none;
+    transform: translateY(-50%);
 }
 
 .SidebarListItem__actions {
