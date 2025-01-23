@@ -1,21 +1,21 @@
 import { LemonDivider, LemonTag, Link, SpinnerOverlay } from '@posthog/lemon-ui'
 import classNames from 'classnames'
-import { useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
-import React, { useMemo } from 'react'
+import React from 'react'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { LLMTrace, LLMTraceEvent, TracesQueryResponse } from '~/queries/schema'
+import { LLMTrace, LLMTraceEvent } from '~/queries/schema'
 
 import { MetricTag } from './components/MetricTag'
 import { ConversationMessagesDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
 import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
-import { getDataNodeLogicProps, llmObservabilityTraceLogic } from './llmObservabilityTraceLogic'
+import { llmObservabilityTraceDataLogic } from './llmObservabilityTraceDataLogic'
+import { llmObservabilityTraceLogic } from './llmObservabilityTraceLogic'
 import { formatLLMCost, formatLLMLatency, formatLLMUsage, removeMilliseconds } from './utils'
 
 export const scene: SceneExport = {
@@ -24,28 +24,22 @@ export const scene: SceneExport = {
 }
 
 export function LLMObservabilityTraceScene(): JSX.Element {
-    const { traceId, query, eventId, cachedTraceResponse } = useValues(llmObservabilityTraceLogic)
+    const { traceId, query, cachedTraceResponse } = useValues(llmObservabilityTraceLogic)
 
-    const { response, responseLoading, responseError } = useValues(
-        dataNodeLogic(getDataNodeLogicProps({ traceId, query, cachedResults: cachedTraceResponse }))
+    return (
+        <BindLogic
+            logic={llmObservabilityTraceDataLogic}
+            props={{ traceId, query, cachedResults: cachedTraceResponse }}
+        >
+            <TraceSceneWrapper />
+        </BindLogic>
     )
+}
 
-    const traceResponse = response as TracesQueryResponse | null
-    const trace = traceResponse?.results?.[0]
-
-    const showableEvents = useMemo(() => {
-        if (!trace) {
-            return undefined
-        }
-        return trace.events.filter((event) => event.event !== '$ai_metric')
-    }, [trace])
-
-    const event = useMemo(() => {
-        if (!showableEvents) {
-            return undefined
-        }
-        return eventId ? showableEvents.find((event) => event.id === eventId) : showableEvents[0]
-    }, [showableEvents, eventId])
+function TraceSceneWrapper(): JSX.Element {
+    const { eventId } = useValues(llmObservabilityTraceLogic)
+    const { trace, showableEvents, event, responseLoading, responseError, metrics } =
+        useValues(llmObservabilityTraceDataLogic)
 
     return (
         <>
@@ -53,13 +47,13 @@ export function LLMObservabilityTraceScene(): JSX.Element {
                 <SpinnerOverlay />
             ) : responseError ? (
                 <InsightErrorState />
-            ) : !trace || !showableEvents || showableEvents.length === 0 ? (
+            ) : !trace ? (
                 <NotFound object="trace" />
             ) : (
                 <div className="relative pb-4 space-y-4 flex flex-col md:h-[calc(100vh_-_var(--breadcrumbs-height-full)_-_var(--scene-padding)_-_var(--scene-padding-bottom))] ">
-                    <TraceMetadata trace={trace} />
+                    <TraceMetadata trace={trace} metrics={metrics!} />
                     <div className="flex flex-1 min-h-0 gap-4 flex-col md:flex-row">
-                        <TraceSidebar trace={trace} eventId={eventId} events={showableEvents} />
+                        <TraceSidebar trace={trace} eventId={eventId} events={showableEvents!} />
                         <EventContent event={event} />
                     </div>
                 </div>
@@ -86,9 +80,7 @@ function CostChip({ cost, title }: { cost: number; title: string }): JSX.Element
     return <Chip title={title}>{formatLLMCost(cost)}</Chip>
 }
 
-function TraceMetadata({ trace }: { trace: LLMTrace }): JSX.Element {
-    const scoreEvents = useMemo(() => trace.events.filter((event) => event.event === '$ai_metric'), [trace])
-
+function TraceMetadata({ trace, metrics }: { trace: LLMTrace; metrics: LLMTraceEvent[] }): JSX.Element {
     return (
         <header className="flex gap-x-8 gap-y-2 flex-wrap border border-border rounded p-4 bg-bg-light text-sm">
             {'person' in trace && (
@@ -100,8 +92,8 @@ function TraceMetadata({ trace }: { trace: LLMTrace }): JSX.Element {
             {typeof trace.inputCost === 'number' && <CostChip cost={trace.inputCost} title="Input cost" />}
             {typeof trace.outputCost === 'number' && <CostChip cost={trace.outputCost} title="Output cost" />}
             {typeof trace.totalCost === 'number' && <CostChip cost={trace.totalCost} title="Total cost" />}
-            {scoreEvents.map((event) => (
-                <MetricTag key={event.id} properties={event.properties} />
+            {metrics.map((metric) => (
+                <MetricTag key={metric.id} properties={metric.properties} />
             ))}
         </header>
     )
