@@ -12,10 +12,15 @@ import v8Profiler from 'v8-profiler-next'
 import { getPluginServerCapabilities } from '../capabilities'
 import { CdpApi } from '../cdp/cdp-api'
 import { CdpCyclotronWorker, CdpCyclotronWorkerFetch } from '../cdp/consumers/cdp-cyclotron-worker.consumer'
-import { CdpFunctionCallbackConsumer } from '../cdp/consumers/cdp-function-callback.consumer'
 import { CdpInternalEventsConsumer } from '../cdp/consumers/cdp-internal-event.consumer'
 import { CdpProcessedEventsConsumer } from '../cdp/consumers/cdp-processed-events.consumer'
 import { defaultConfig } from '../config/config'
+import {
+    KAFKA_EVENTS_PLUGIN_INGESTION,
+    KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
+    KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
+} from '../config/kafka-topics'
+import { IngestionConsumer } from '../ingestion/ingestion-consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { Hub, PluginServerCapabilities, PluginServerService, PluginsServerConfig } from '../types'
 import { closeHub, createHub, createKafkaClient } from '../utils/db/hub'
@@ -266,56 +271,97 @@ export async function startPluginsServer(
             }
         }
 
-        if (capabilities.ingestion) {
+        if (capabilities.ingestionV2Combined) {
+            // NOTE: This is for single process deployments like local dev and hobby - it runs all possible consumers
+            // in a single process. In production these are each separate Deployments of the standard ingestion consumer
             const hub = await setupHub()
-            piscina = piscina ?? (await makePiscina(serverConfig, hub))
-            services.push(
-                await startAnalyticsEventsIngestionConsumer({
-                    hub: hub,
-                })
-            )
-        }
 
-        if (capabilities.ingestionHistorical) {
-            const hub = await setupHub()
-            piscina = piscina ?? (await makePiscina(serverConfig, hub))
-            services.push(
-                await startAnalyticsEventsIngestionHistoricalConsumer({
-                    hub: hub,
-                })
-            )
-        }
+            const consumersOptions = [
+                {
+                    topic: KAFKA_EVENTS_PLUGIN_INGESTION,
+                    group_id: `clickhouse-ingestion`,
+                },
+                {
+                    topic: KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
+                    group_id: `clickhouse-ingestion-historical`,
+                },
+                { topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW, group_id: 'clickhouse-ingestion-overflow' },
+                { topic: 'client_iwarnings_ingestion', group_id: 'client_iwarnings_ingestion' },
+                { topic: 'heatmaps_ingestion', group_id: 'heatmaps_ingestion' },
+                { topic: 'exceptions_ingestion', group_id: 'exceptions_ingestion' },
+            ]
 
-        if (capabilities.eventsIngestionPipelines) {
-            const pipelinesToRun =
-                serverConfig.PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE === null
-                    ? Object.keys(PIPELINES)
-                    : [serverConfig.PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE]
-
-            for (const pipelineKey of pipelinesToRun) {
-                if (pipelineKey === null || !PIPELINES[pipelineKey]) {
-                    throw new Error(`Invalid events ingestion pipeline: ${pipelineKey}`)
+            for (const consumerOption of consumersOptions) {
+                const modifiedHub: Hub = {
+                    ...hub,
+                    INGESTION_CONSUMER_CONSUME_TOPIC: consumerOption.topic,
+                    INGESTION_CONSUMER_GROUP_ID: consumerOption.group_id,
                 }
+                const consumer = new IngestionConsumer(modifiedHub)
+                await consumer.start()
+                services.push(consumer.service)
+            }
+        } else {
+            if (capabilities.ingestionV2) {
+                const hub = await setupHub()
+                const consumer = new IngestionConsumer(hub)
+                await consumer.start()
+                services.push(consumer.service)
+            }
 
+            // Below are all legacy consumers that will be replaced by the new ingestion consumer that covers all cases
+
+            if (capabilities.ingestion) {
                 const hub = await setupHub()
                 piscina = piscina ?? (await makePiscina(serverConfig, hub))
                 services.push(
-                    await startEventsIngestionPipelineConsumer({
+                    await startAnalyticsEventsIngestionConsumer({
                         hub: hub,
-                        pipelineKey: pipelineKey,
                     })
                 )
             }
-        }
 
-        if (capabilities.ingestionOverflow) {
-            const hub = await setupHub()
-            piscina = piscina ?? (await makePiscina(serverConfig, hub))
-            services.push(
-                await startAnalyticsEventsIngestionOverflowConsumer({
-                    hub: hub,
-                })
-            )
+            if (capabilities.ingestionHistorical) {
+                const hub = await setupHub()
+                piscina = piscina ?? (await makePiscina(serverConfig, hub))
+                services.push(
+                    await startAnalyticsEventsIngestionHistoricalConsumer({
+                        hub: hub,
+                    })
+                )
+            }
+
+            if (capabilities.eventsIngestionPipelines) {
+                const pipelinesToRun =
+                    serverConfig.PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE === null
+                        ? Object.keys(PIPELINES)
+                        : [serverConfig.PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE]
+
+                for (const pipelineKey of pipelinesToRun) {
+                    if (pipelineKey === null || !PIPELINES[pipelineKey]) {
+                        throw new Error(`Invalid events ingestion pipeline: ${pipelineKey}`)
+                    }
+
+                    const hub = await setupHub()
+                    piscina = piscina ?? (await makePiscina(serverConfig, hub))
+                    services.push(
+                        await startEventsIngestionPipelineConsumer({
+                            hub: hub,
+                            pipelineKey: pipelineKey,
+                        })
+                    )
+                }
+            }
+
+            if (capabilities.ingestionOverflow) {
+                const hub = await setupHub()
+                piscina = piscina ?? (await makePiscina(serverConfig, hub))
+                services.push(
+                    await startAnalyticsEventsIngestionOverflowConsumer({
+                        hub: hub,
+                    })
+                )
+            }
         }
 
         if (capabilities.processAsyncOnEventHandlers) {
@@ -446,15 +492,19 @@ export async function startPluginsServer(
         }
 
         if (capabilities.sessionRecordingBlobIngestionV2) {
+            const hub = await setupHub()
+            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
             const batchConsumerFactory = new DefaultBatchConsumerFactory(serverConfig)
-            const ingester = new SessionRecordingIngesterV2(serverConfig, false, batchConsumerFactory)
+            const ingester = new SessionRecordingIngesterV2(serverConfig, false, postgres, batchConsumerFactory)
             await ingester.start()
             services.push(ingester.service)
         }
 
         if (capabilities.sessionRecordingBlobIngestionV2Overflow) {
+            const hub = await setupHub()
+            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
             const batchConsumerFactory = new DefaultBatchConsumerFactory(serverConfig)
-            const ingester = new SessionRecordingIngesterV2(serverConfig, true, batchConsumerFactory)
+            const ingester = new SessionRecordingIngesterV2(serverConfig, true, postgres, batchConsumerFactory)
             await ingester.start()
             services.push(ingester.service)
         }
@@ -471,15 +521,8 @@ export async function startPluginsServer(
             const consumer = new CdpInternalEventsConsumer(hub)
             await consumer.start()
             services.push(consumer.service)
-        }
 
-        if (capabilities.cdpFunctionCallbacks) {
-            const hub = await setupHub()
-            const consumer = new CdpFunctionCallbackConsumer(hub)
-            await consumer.start()
-            services.push(consumer.service)
-
-            // NOTE: The function callback service is more idle so can handle http requests as well
+            // NOTE: This processor is generally very idle so doubles as our api
             if (capabilities.http) {
                 const api = new CdpApi(hub, consumer)
                 expressApp.use('/', api.router())
