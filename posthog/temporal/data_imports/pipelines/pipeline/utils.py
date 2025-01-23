@@ -9,6 +9,7 @@ import deltalake as deltalake
 from django.db.models import F
 from posthog.temporal.common.logger import FilteringBoundLogger
 from dlt.common.data_types.typing import TDataType
+from dlt.common.normalizers.naming.snake_case import NamingConvention
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
 
 DLT_TO_PA_TYPE_MAP = {
@@ -22,6 +23,10 @@ DLT_TO_PA_TYPE_MAP = {
 }
 
 
+def normalize_column_name(column_name: str) -> str:
+    return NamingConvention().normalize_identifier(column_name)
+
+
 def _get_primary_keys(resource: DltResource) -> list[Any] | None:
     primary_keys = resource._hints.get("primary_key")
 
@@ -29,13 +34,10 @@ def _get_primary_keys(resource: DltResource) -> list[Any] | None:
         return None
 
     if isinstance(primary_keys, str):
-        return [primary_keys]
+        return [normalize_column_name(primary_keys)]
 
-    if isinstance(primary_keys, list):
-        return primary_keys
-
-    if isinstance(primary_keys, Sequence):
-        return list(primary_keys)
+    if isinstance(primary_keys, list | Sequence):
+        return [normalize_column_name(pk) for pk in primary_keys]
 
     raise Exception(f"primary_keys of type {primary_keys.__class__.__name__} are not supported")
 
@@ -56,10 +58,11 @@ def _handle_null_columns_with_definitions(table: pa.Table, resource: DltResource
         return table
 
     for field_name, data_type in column_hints.items():
+        normalized_field_name = normalize_column_name(field_name)
         # If the table doesn't have all fields, then add a field with all Nulls and the correct field type
-        if field_name not in table.schema.names:
+        if normalized_field_name not in table.schema.names:
             new_column = pa.array([None] * table.num_rows, type=DLT_TO_PA_TYPE_MAP[data_type])
-            table = table.append_column(field_name, new_column)
+            table = table.append_column(normalized_field_name, new_column)
 
     return table
 
@@ -67,12 +70,21 @@ def _handle_null_columns_with_definitions(table: pa.Table, resource: DltResource
 def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | None) -> pa.Table:
     py_table_field_names = table.schema.names
 
-    # Change pa.structs to JSON string
     for column_name in table.column_names:
         column = table.column(column_name)
+
+        # Change pa.structs to JSON string
         if pa.types.is_struct(column.type) or pa.types.is_list(column.type):
             json_column = pa.array([json.dumps(row.as_py()) if row.as_py() is not None else None for row in column])
             table = table.set_column(table.schema.get_field_index(column_name), column_name, json_column)
+
+        # Normalize column names
+        normalized_column_name = normalize_column_name(column_name)
+        if normalized_column_name != column_name:
+            table = table.set_column(table.schema.get_field_index(column_name), normalized_column_name, column)
+
+    # Refresh column names after potential name updates
+    py_table_field_names = table.schema.names
 
     if delta_schema:
         for field in delta_schema.to_pyarrow():
@@ -106,7 +118,9 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
             py_arrow_table_column = table.column(field.name)
             if field.type != py_arrow_table_column.type:
                 table = table.set_column(
-                    table.schema.get_field_index(field.name), field.name, table.column(field.name).cast(field.type)
+                    table.schema.get_field_index(field.name),
+                    field.name,
+                    table.column(field.name).cast(field.type),
                 )
 
     # Change types based on what deltalake tables support
