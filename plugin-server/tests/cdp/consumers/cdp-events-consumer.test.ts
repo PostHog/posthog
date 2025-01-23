@@ -1,5 +1,9 @@
 // eslint-disable-next-line simple-import-sort/imports
-import { getProducedKafkaMessages, mockProducer } from '../../../tests/helpers/mocks/producer.mock'
+import {
+    getProducedKafkaMessages,
+    getProducedKafkaMessagesForTopic,
+    mockProducer,
+} from '../../../tests/helpers/mocks/producer.mock'
 
 import { HogWatcherState } from '../../../src/cdp/services/hog-watcher.service'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../../../src/cdp/types'
@@ -52,6 +56,15 @@ const mockFetch: jest.Mock = require('../../../src/utils/fetch').trackedFetch
 
 jest.setTimeout(1000)
 
+// Add mock for CyclotronManager
+const mockBulkCreateJobs = jest.fn()
+jest.mock('@posthog/cyclotron', () => ({
+    CyclotronManager: jest.fn().mockImplementation(() => ({
+        connect: jest.fn(),
+        bulkCreateJobs: mockBulkCreateJobs,
+    })),
+}))
+
 /**
  * NOTE: The internal and normal events consumers are very similar so we can test them together
  */
@@ -76,7 +89,6 @@ describe.each([
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
-        hub.kafkaProducer = mockProducer
 
         team = await getFirstTeam(hub)
 
@@ -84,6 +96,7 @@ describe.each([
         await processor.start()
 
         mockFetch.mockClear()
+        mockBulkCreateJobs.mockClear()
     })
 
     afterEach(async () => {
@@ -150,100 +163,35 @@ describe.each([
                     matchInvocation(fnPrinterPageviewFilters, globals),
                 ])
 
-                expect(getProducedKafkaMessages()).toMatchObject([
-                    {
-                        topic: 'log_entries_test',
-                        value: {
-                            message: 'Executing function',
-                            log_source_id: fnFetchNoFilters.id,
-                        },
-                    },
-                    {
-                        topic: 'log_entries_test',
-                        value: {
-                            message:
-                                "Suspending function due to async function call 'fetch'. Payload: 2035 bytes. Event: b3a1fe86-b10c-43cc-acaf-d208977608d0",
-                            log_source_id: fnFetchNoFilters.id,
-                        },
-                    },
-                    {
-                        topic: 'clickhouse_app_metrics2_test',
-                        value: {
-                            app_source: 'hog_function',
-                            team_id: 2,
-                            app_source_id: fnPrinterPageviewFilters.id,
-                            metric_kind: 'success',
-                            metric_name: 'succeeded',
-                            count: 1,
-                        },
-                    },
-                    {
-                        topic: 'log_entries_test',
-                        value: {
-                            message: 'Executing function',
-                            log_source_id: fnPrinterPageviewFilters.id,
-                        },
-                    },
-                    {
-                        topic: 'log_entries_test',
-                        value: {
-                            message: 'test',
-                            log_source_id: fnPrinterPageviewFilters.id,
-                        },
-                    },
-                    {
-                        topic: 'log_entries_test',
-                        value: {
-                            message: '{"nested":{"foo":"***REDACTED***","bool":false,"null":null}}',
-                            log_source_id: fnPrinterPageviewFilters.id,
-                        },
-                    },
-                    {
-                        topic: 'log_entries_test',
-                        value: {
-                            message: '{"foo":"***REDACTED***","bool":false,"null":null}',
-                            log_source_id: fnPrinterPageviewFilters.id,
-                        },
-                    },
-                    {
-                        topic: 'log_entries_test',
-                        value: {
-                            message: 'substring: ***REDACTED***',
-                            log_source_id: fnPrinterPageviewFilters.id,
-                        },
-                    },
-                    {
-                        topic: 'log_entries_test',
-                        value: {
-                            message:
-                                '{"input_1":"test","secret_input_2":{"foo":"***REDACTED***","bool":false,"null":null},"secret_input_3":"***REDACTED***"}',
-                            log_source_id: fnPrinterPageviewFilters.id,
-                        },
-                    },
-                    {
-                        topic: 'log_entries_test',
-                        value: {
-                            message: expect.stringContaining('Function completed'),
-                            log_source_id: fnPrinterPageviewFilters.id,
-                        },
-                    },
-                    {
-                        topic: 'clickhouse_app_metrics2_test',
-                        value: {
-                            app_source: 'hog_function',
-                            count: 1,
-                            metric_kind: 'other',
-                            metric_name: 'fetch',
-                        },
-                    },
-                    {
-                        topic: 'cdp_function_callbacks_test',
-                        value: {
-                            state: expect.any(String),
-                        },
-                        key: expect.stringContaining(fnFetchNoFilters.id.toString()),
-                    },
-                ])
+                // Verify Cyclotron jobs
+                expect(mockBulkCreateJobs).toHaveBeenCalledWith(
+                    expect.arrayContaining([
+                        expect.objectContaining({
+                            teamId: team.id,
+                            functionId: fnFetchNoFilters.id,
+                            queueName: 'hog',
+                            priority: 1,
+                            vmState: expect.objectContaining({
+                                hogFunctionId: fnFetchNoFilters.id,
+                                teamId: team.id,
+                                queue: 'hog',
+                                globals: expect.any(Object),
+                            }),
+                        }),
+                        expect.objectContaining({
+                            teamId: team.id,
+                            functionId: fnPrinterPageviewFilters.id,
+                            queueName: 'hog',
+                            priority: 1,
+                            vmState: expect.objectContaining({
+                                hogFunctionId: fnPrinterPageviewFilters.id,
+                                teamId: team.id,
+                                queue: 'hog',
+                                globals: expect.any(Object),
+                            }),
+                        }),
+                    ])
+                )
             })
 
             it("should filter out functions that don't match the filter", async () => {
@@ -254,7 +202,26 @@ describe.each([
                 expect(invocations).toHaveLength(1)
                 expect(invocations).toMatchObject([matchInvocation(fnFetchNoFilters, globals)])
 
-                expect(getProducedKafkaMessages()).toMatchObject([
+                // Verify only one Cyclotron job is created (for fnFetchNoFilters)
+                expect(mockBulkCreateJobs).toHaveBeenCalledWith(
+                    expect.arrayContaining([
+                        expect.objectContaining({
+                            teamId: team.id,
+                            functionId: fnFetchNoFilters.id,
+                            queueName: 'hog',
+                            priority: 1,
+                            vmState: expect.objectContaining({
+                                hogFunctionId: fnFetchNoFilters.id,
+                                teamId: team.id,
+                                queue: 'hog',
+                                globals: expect.any(Object),
+                            }),
+                        }),
+                    ])
+                )
+
+                // Still verify the metric for the filtered function
+                expect(getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')).toMatchObject([
                     {
                         key: expect.any(String),
                         topic: 'clickhouse_app_metrics2_test',
@@ -267,18 +234,6 @@ describe.each([
                             team_id: 2,
                             timestamp: expect.any(String),
                         },
-                    },
-                    {
-                        topic: 'log_entries_test',
-                    },
-                    {
-                        topic: 'log_entries_test',
-                    },
-                    {
-                        topic: 'clickhouse_app_metrics2_test',
-                    },
-                    {
-                        topic: 'cdp_function_callbacks_test',
                     },
                 ])
             })

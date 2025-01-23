@@ -2,6 +2,11 @@ import { Writable } from 'stream'
 
 import { ParsedMessageData } from '../kafka/types'
 
+interface WriteResult {
+    eventCount: number
+    bytesWritten: number
+}
+
 export class SessionRecorder {
     private chunks: string[] = []
     private size: number = 0
@@ -21,12 +26,19 @@ export class SessionRecorder {
         return bytesWritten
     }
 
-    public async dump(stream: Writable): Promise<void> {
+    public async write(stream: Writable): Promise<WriteResult> {
+        let eventCount = 0
+        let bytesWritten = 0
+
         for (const chunk of this.chunks) {
             if (!stream.write(chunk)) {
                 // Handle backpressure
                 await new Promise((resolve) => stream.once('drain', resolve))
             }
+            eventCount++
+            bytesWritten += Buffer.byteLength(chunk)
         }
+
+        return { eventCount, bytesWritten }
     }
 }
