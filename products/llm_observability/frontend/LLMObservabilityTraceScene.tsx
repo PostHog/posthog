@@ -232,12 +232,23 @@ function EventContent({ event }: { event: LLMTrace | LLMTraceEvent | null }): JS
                         <LLMInputOutput
                             inputDisplay={
                                 <div className="p-2 text-xs border rounded bg-[var(--bg-fill-tertiary)]">
-                                    <JSONViewer src={event.inputState} collapsed={4} />
+                                    {event.inputState != null &&
+                                    typeof event.inputState !== 'number' &&
+                                    typeof event.inputState !== 'string' &&
+                                    typeof event.inputState !== 'boolean' ? (
+                                        <JSONViewer src={event.inputState || null} collapsed={4} />
+                                    ) : (
+                                        <span className="font-mono">{JSON.stringify(event.inputState ?? null)}</span>
+                                    )}
                                 </div>
                             }
                             outputDisplay={
                                 <div className="p-2 text-xs border rounded bg-[var(--bg-fill-success-tertiary)]">
-                                    <JSONViewer src={event.outputState} collapsed={4} />
+                                    {event.outputState ? (
+                                        <JSONViewer src={event.outputState} collapsed={4} />
+                                    ) : (
+                                        <span className="font-mono">{JSON.stringify(event.outputState ?? null)}</span>
+                                    )}
                                 </div>
                             }
                         />
