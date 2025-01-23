@@ -202,14 +202,14 @@ export class DB {
     ): Promise<T> {
         return instrumentQuery(operationName, tag, async () => {
             let client: Redis.Redis
-            const timeout = timeoutGuard(`${operationName} delayed. Waiting over 30 sec to get key.`, logContext)
+            const timeout = timeoutGuard(`${operationName} delayed. Waiting over 30 sec.`, logContext)
             try {
                 client = await this.redisPool.acquire()
             } catch (error) {
                 throw new RedisOperationError('Failed to acquire redis client from pool', error)
             }
 
-            // Don't use nested try/catch/finally for this, are there are 2 potential errors that could be thrown
+            // Don't use a single try/catch/finally for this, are there are 2 potential errors that could be thrown
             // (error and cleanup) and we want to be explicit about which one we choose, rather than relying on
             // "what happens when you throw in a finally block"
             // We explicitly want to throw the error from the operation if there is one, prioritising it over any errors
