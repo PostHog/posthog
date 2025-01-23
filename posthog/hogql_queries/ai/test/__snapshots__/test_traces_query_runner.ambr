@@ -12,7 +12,8 @@
          generations.total_cost AS total_cost,
          generations.events AS events,
          traces.input_state AS input_state,
-         traces.output_state AS output_state
+         traces.output_state AS output_state,
+         traces.trace_name AS trace_name
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
             min(toTimeZone(events.timestamp, 'UTC')) AS first_timestamp,
@@ -48,7 +49,8 @@
   LEFT JOIN
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
             argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS input_state,
-            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS output_state
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS output_state,
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS trace_name
      FROM events
      WHERE and(equals(events.team_id, 99999), equals(events.event, '$ai_trace'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-01-08 23:50:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-01-16 00:10:59', 6, 'UTC')))))
      GROUP BY id) AS traces ON equals(traces.id, generations.id)
@@ -76,7 +78,8 @@
          generations.total_cost AS total_cost,
          generations.events AS events,
          traces.input_state AS input_state,
-         traces.output_state AS output_state
+         traces.output_state AS output_state,
+         traces.trace_name AS trace_name
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
             min(toTimeZone(events.timestamp, 'UTC')) AS first_timestamp,
@@ -112,7 +115,8 @@
   LEFT JOIN
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
             argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS input_state,
-            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS output_state
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS output_state,
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS trace_name
      FROM events
      WHERE and(equals(events.team_id, 99999), equals(events.event, '$ai_trace'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-01-08 23:50:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-01-16 00:10:59', 6, 'UTC')))))
      GROUP BY id) AS traces ON equals(traces.id, generations.id)
@@ -140,7 +144,8 @@
          generations.total_cost AS total_cost,
          generations.events AS events,
          traces.input_state AS input_state,
-         traces.output_state AS output_state
+         traces.output_state AS output_state,
+         traces.trace_name AS trace_name
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
             min(toTimeZone(events.timestamp, 'UTC')) AS first_timestamp,
@@ -176,7 +181,8 @@
   LEFT JOIN
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
             argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS input_state,
-            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS output_state
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS output_state,
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS trace_name
      FROM events
      WHERE and(equals(events.team_id, 99999), equals(events.event, '$ai_trace'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-01-08 23:50:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-01-16 00:10:59', 6, 'UTC')))))
      GROUP BY id) AS traces ON equals(traces.id, generations.id)
@@ -204,7 +210,8 @@
          generations.total_cost AS total_cost,
          generations.events AS events,
          traces.input_state AS input_state,
-         traces.output_state AS output_state
+         traces.output_state AS output_state,
+         traces.trace_name AS trace_name
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
             min(toTimeZone(events.timestamp, 'UTC')) AS first_timestamp,
@@ -240,7 +247,8 @@
   LEFT JOIN
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
             argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS input_state,
-            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS output_state
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS output_state,
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS trace_name
      FROM events
      WHERE and(equals(events.team_id, 99999), equals(events.event, '$ai_trace'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-01-08 23:50:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-01-16 00:10:59', 6, 'UTC')))))
      GROUP BY id) AS traces ON equals(traces.id, generations.id)
@@ -268,7 +276,8 @@
          generations.total_cost AS total_cost,
          generations.events AS events,
          traces.input_state AS input_state,
-         traces.output_state AS output_state
+         traces.output_state AS output_state,
+         traces.trace_name AS trace_name
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
             min(toTimeZone(events.timestamp, 'UTC')) AS first_timestamp,
@@ -304,7 +313,8 @@
   LEFT JOIN
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
             argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS input_state,
-            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS output_state
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_state'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS output_state,
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS trace_name
      FROM events
      WHERE and(equals(events.team_id, 99999), equals(events.event, '$ai_trace'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-01-08 23:50:00', 6, 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2025-01-16 00:10:59', 6, 'UTC'))), ifNull(equals(id, 'trace1'), 0)))
      GROUP BY id) AS traces ON equals(traces.id, generations.id)
