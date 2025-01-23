@@ -216,7 +216,6 @@ function EventContent({ event }: { event: LLMTrace | LLMTraceEvent | null }): JS
                                 inputTokens={event.inputTokens}
                                 outputTokens={event.outputTokens}
                                 totalCostUsd={event.totalCost}
-                                model={event.traceName}
                                 latency={event.totalLatency}
                             />
                         )}
