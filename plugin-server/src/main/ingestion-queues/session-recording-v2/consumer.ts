@@ -2,6 +2,7 @@ import { captureException } from '@sentry/node'
 import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
 
 import { KafkaProducerWrapper } from '~/src/kafka/producer'
+import { PostgresRouter } from '~/src/utils/db/postgres'
 
 import { buildIntegerMatcher } from '../../../config/config'
 import { BatchConsumer } from '../../../kafka/batch-consumer'
@@ -55,6 +56,7 @@ export class SessionRecordingIngester {
     constructor(
         private config: PluginsServerConfig,
         private consumeOverflow: boolean,
+        private postgres: PostgresRouter,
         batchConsumerFactory: BatchConsumerFactory,
         ingestionWarningProducer?: KafkaProducerWrapper
     ) {
@@ -68,7 +70,7 @@ export class SessionRecordingIngester {
         this.promiseScheduler = new PromiseScheduler()
 
         this.kafkaParser = new KafkaMessageParser(KafkaMetrics.getInstance())
-        this.teamFilter = new TeamFilter(new TeamService())
+        this.teamFilter = new TeamFilter(new TeamService(postgres))
         if (ingestionWarningProducer) {
             const captureWarning: CaptureIngestionWarningFn = async (teamId, type, details, debounce) => {
                 await captureIngestionWarning(ingestionWarningProducer, teamId, type, details, debounce)

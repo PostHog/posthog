@@ -26,6 +26,7 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.product_intent.product_intent import calculate_product_activation
@@ -235,6 +236,15 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "live_events_token",
             "user_access_level",
         )
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        # fallback to the default posthog data theme id, if the color feature isn't available e.g. after a downgrade
+        if not instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
+            representation["default_data_theme"] = (
+                DataColorTheme.objects.filter(team_id__isnull=True).values_list("id", flat=True).first()
+            )
+        return representation
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
         # TODO: Map from user_access_controls
