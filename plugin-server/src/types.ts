@@ -329,6 +329,11 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     // cookieless
     COOKIELESS_DISABLED: boolean
     COOKIELESS_FORCE_STATELESS_MODE: boolean
+    COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS: number
+    COOKIELESS_SESSION_TTL_SECONDS: number
+    COOKIELESS_SALT_TTL_SECONDS: number
+    COOKIELESS_SESSION_INACTIVITY_MS: number
+    COOKIELESS_IDENTIFIES_TTL_SECONDS: number
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -1363,4 +1368,9 @@ export interface ModelRow {
 export interface CookielessConfig {
     disabled: boolean
     forceStatelessMode: boolean
+    deleteExpiredLocalSaltsIntervalMs: number
+    identifiesTtlSeconds: number
+    sessionTtlSeconds: number
+    saltTtlSeconds: number
+    sessionInactivityMs: number
 }

@@ -70,12 +70,6 @@ export const COOKIELESS_MODE_FLAG_PROPERTY = '$cookieless_mode'
 export const COOKIELESS_EXTRA_HASH_CONTENTS_PROPERTY = '$cookieless_extra'
 const MAX_NEGATIVE_TIMEZONE_HOURS = 12
 const MAX_POSITIVE_TIMEZONE_HOURS = 14
-const MAX_INGESTION_LAG_HOURS = 24
-const SALT_TTL_SECONDS =
-    (MAX_POSITIVE_TIMEZONE_HOURS + MAX_NEGATIVE_TIMEZONE_HOURS + MAX_INGESTION_LAG_HOURS + 24) * 60 * 60
-const SESSION_TTL_SECONDS = 60 * 60 * 24
-const IDENTIFIES_TTL_SECONDS = 60 * 60 * 24
-const DELETE_EXPIRED_SALTS_INTERVAL_MS = 60 * 60 * 1000
 
 export class CookielessSaltManager {
     private readonly db: DB
@@ -90,7 +84,7 @@ export class CookielessSaltManager {
         // Periodically delete expired salts from the local cache. Note that this doesn't delete them from redis, but
         // that's handled by using redis TTLs. Deleting these salts is what allows us to use the hash of PII data in a
         // non PII way. Of course, these are also deleted when the node process restarts.
-        this.cleanupInterval = setInterval(this.deleteExpiredLocalSalts, DELETE_EXPIRED_SALTS_INTERVAL_MS)
+        this.cleanupInterval = setInterval(this.deleteExpiredLocalSalts, config.deleteExpiredLocalSaltsIntervalMs)
         // Call unref on the timer object, so that it doesn't prevent node from exiting.
         this.cleanupInterval.unref()
     }
@@ -131,7 +125,7 @@ export class CookielessSaltManager {
                     `cookieless_salt:${yyyymmdd}`,
                     uint32ArrayLEToBase64String(newSaltParts),
                     'cookielessServerHashStep',
-                    SALT_TTL_SECONDS
+                    this.config.saltTtlSeconds
                 )
                 if (setResult === 'OK') {
                     this.localSaltMap[yyyymmdd] = newSaltParts
@@ -228,6 +222,8 @@ async function cookielessServerHashStepInner(
     hub: Hub,
     event: PluginEvent & { properties: Properties }
 ): Promise<[PluginEvent | undefined]> {
+    const config = hub.cookielessConfig
+
     // if the team isn't allowed to use this mode, drop the event
     const team = await hub.teamManager.getTeamForEvent(event)
     if (!team?.cookieless_server_hash_mode) {
@@ -372,7 +368,7 @@ async function cookielessServerHashStepInner(
             // identify event, so the anon_distinct_id must be the sentinel and needs to be replaced
 
             // add this identify event id to redis
-            const numIdentifies = await hub.db.redisSAddAndSCard(identifiesRedisKey, event.uuid, IDENTIFIES_TTL_SECONDS)
+            const numIdentifies = await hub.db.redisSAddAndSCard(identifiesRedisKey, event.uuid)
 
             // we want the number of identifies that happened before this one
             hashValue = await doHash(hub, {
@@ -427,14 +423,14 @@ async function cookielessServerHashStepInner(
         let sessionState = sessionInfoBuffer ? bufferToSessionState(sessionInfoBuffer) : undefined
 
         // if not, or the TTL has expired, create a new one. Don't rely on redis TTL, as ingestion lag could approach the 30-minute session inactivity timeout
-        if (!sessionState || timestampMs - sessionState.lastActivityTimestamp > 60 * 30 * 1000) {
+        if (!sessionState || timestampMs - sessionState.lastActivityTimestamp > config.sessionInactivityMs) {
             const sessionId = new UUID7(timestampMs)
             sessionState = { sessionId: sessionId, lastActivityTimestamp: timestampMs }
             await hub.db.redisSetBuffer(
                 sessionRedisKey,
                 sessionStateToBuffer(sessionState),
                 'cookielessServerHashStep',
-                SESSION_TTL_SECONDS
+                config.sessionTtlSeconds
             )
         } else {
             // otherwise, update the timestamp
@@ -442,7 +438,7 @@ async function cookielessServerHashStepInner(
                 sessionRedisKey,
                 sessionStateToBuffer({ sessionId: sessionState.sessionId, lastActivityTimestamp: timestampMs }),
                 'cookielessServerHashStep',
-                SESSION_TTL_SECONDS
+                config.sessionTtlSeconds
             )
         }
 
