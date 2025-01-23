@@ -49,3 +49,9 @@ export const scheduledTaskCounter = new Counter({
     help: 'Scheduled task status change',
     labelNames: ['status', 'task'],
 })
+
+export const ingestionPartitionKeyOverflowed = new Counter({
+    name: 'ingestion_partition_key_overflowed',
+    help: 'Indicates that a given key has overflowed capacity and been redirected to a different topic. Value incremented once a minute.',
+    labelNames: ['partition_key'],
+})

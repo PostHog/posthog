@@ -1,3 +1,6 @@
+// eslint-disable-next-line simple-import-sort/imports
+import { getProducedKafkaMessages, getProducedKafkaMessagesForTopic } from '../helpers/mocks/producer.mock'
+
 import { CdpCyclotronWorker, CdpCyclotronWorkerFetch } from '../../src/cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpProcessedEventsConsumer } from '../../src/cdp/consumers/cdp-processed-events.consumer'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
@@ -8,7 +11,6 @@ import { waitForExpect } from '../helpers/expectations'
 import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
 import { createHogExecutionGlobals, insertHogFunction as _insertHogFunction } from './fixtures'
-import { createKafkaObserver, TestKafkaObserver } from './helpers/kafka-observer'
 
 jest.mock('../../src/utils/fetch', () => {
     return {
@@ -25,15 +27,15 @@ jest.mock('../../src/utils/fetch', () => {
 
 const mockFetch: jest.Mock = require('../../src/utils/fetch').trackedFetch
 
-describe('CDP E2E', () => {
+describe('CDP Consumer loop', () => {
     jest.setTimeout(10000)
-    describe('e2e fetch call: %s', () => {
+
+    describe('e2e fetch call', () => {
         let processedEventsConsumer: CdpProcessedEventsConsumer
         let cyclotronWorker: CdpCyclotronWorker | undefined
         let cyclotronFetchWorker: CdpCyclotronWorkerFetch | undefined
         let hub: Hub
         let team: Team
-        let kafkaObserver: TestKafkaObserver
         let fnFetchNoFilters: HogFunctionType
         let globals: HogFunctionInvocationGlobals
 
@@ -54,8 +56,6 @@ describe('CDP E2E', () => {
             })
 
             hub.CYCLOTRON_DATABASE_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
-
-            kafkaObserver = await createKafkaObserver(hub, [KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES])
 
             processedEventsConsumer = new CdpProcessedEventsConsumer(hub)
             await processedEventsConsumer.start()
@@ -86,7 +86,6 @@ describe('CDP E2E', () => {
         afterEach(async () => {
             const stoppers = [
                 processedEventsConsumer?.stop().then(() => console.log('Stopped processedEventsConsumer')),
-                kafkaObserver?.stop().then(() => console.log('Stopped kafkaObserver')),
                 cyclotronWorker?.stop().then(() => console.log('Stopped cyclotronWorker')),
                 cyclotronFetchWorker?.stop().then(() => console.log('Stopped cyclotronFetchWorker')),
             ]
@@ -105,12 +104,11 @@ describe('CDP E2E', () => {
          */
 
         it('should invoke a function in the worker loop until completed', async () => {
-            // NOTE: We can skip kafka as the entry point
             const invocations = await processedEventsConsumer.processBatch([globals])
             expect(invocations).toHaveLength(1)
 
             await waitForExpect(() => {
-                expect(kafkaObserver.messages).toHaveLength(7)
+                expect(getProducedKafkaMessages()).toHaveLength(7)
             }, 5000)
 
             expect(mockFetch).toHaveBeenCalledTimes(1)
@@ -129,8 +127,8 @@ describe('CDP E2E', () => {
                 ]
             `)
 
-            const logMessages = kafkaObserver.messages.filter((m) => m.topic === KAFKA_LOG_ENTRIES)
-            const metricsMessages = kafkaObserver.messages.filter((m) => m.topic === KAFKA_APP_METRICS_2)
+            const logMessages = getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
+            const metricsMessages = getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
 
             expect(metricsMessages).toMatchObject([
                 {
