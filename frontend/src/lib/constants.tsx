@@ -190,6 +190,7 @@ export const FEATURE_FLAGS = {
     PERSONLESS_EVENTS_NOT_SUPPORTED: 'personless-events-not-supported', // owner: @raquelmsmith
     ALERTS: 'alerts', // owner: @anirudhpillai #team-product-analytics
     ERROR_TRACKING: 'error-tracking', // owner: #team-error-tracking
+    ERROR_TRACKING_ALERTING: 'error-tracking-alerting', // owner: #team-error-tracking
     SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE: 'settings-bounce-rate-page-view-mode', // owner: @robbie-c
     ONBOARDING_DASHBOARD_TEMPLATES: 'onboarding-dashboard-templates', // owner: @raquelmsmith
     MULTIPLE_BREAKDOWNS: 'multiple-breakdowns', // owner: @skoob13 #team-product-analytics
@@ -199,7 +200,6 @@ export const FEATURE_FLAGS = {
     FIRST_TIME_FOR_USER_MATH: 'first-time-for-user-math', // owner: @skoob13 #team-product-analytics
     MULTITAB_EDITOR: 'multitab-editor', // owner: @EDsCODE #team-data-warehouse
     BATCH_EXPORTS_POSTHOG_HTTP: 'posthog-http-batch-exports',
-    EXPERIMENT_MAKE_DECISION: 'experiment-make-decision', // owner: @jurajmajerik #team-feature-success
     DATA_MODELING: 'data-modeling', // owner: @EDsCODE #team-data-warehouse
     HEDGEHOG_SKIN_SPIDERHOG: 'hedgehog-skin-spiderhog', // owner: @benjackwhite
     INSIGHT_VARIABLES: 'insight_variables', // owner: @Gilbert09 #team-data-warehouse
@@ -207,7 +207,6 @@ export const FEATURE_FLAGS = {
     BIGQUERY_DWH: 'bigquery-dwh', // owner: @Gilbert09 #team-data-warehouse
     ENVIRONMENTS: 'environments', // owner: @Twixes #team-product-analytics
     BILLING_PAYMENT_ENTRY_IN_APP: 'billing-payment-entry-in-app', // owner: @zach
-    LEGACY_ACTION_WEBHOOKS: 'legacy-action-webhooks', // owner: @mariusandra #team-cdp
     REPLAY_TEMPLATES: 'replay-templates', // owner: @raquelmsmith #team-replay
     EXPERIMENTS_HOGQL: 'experiments-hogql', // owner: @jurajmajerik #team-experiments
     ROLE_BASED_ACCESS_CONTROL: 'role-based-access-control', // owner: @zach
@@ -238,6 +237,7 @@ export const FEATURE_FLAGS = {
     REPLAY_LANDING_PAGE: 'replay-landing-page', // owner :#team-replay
     WEB_VITALS: 'web-vitals', // owner: @rafaeelaudibert #team-web-analytics
     LLM_OBSERVABILITY: 'llm-observability', // owner: #team-ai-product-manager
+    ONBOARDING_SESSION_REPLAY_SEPERATE_STEP: 'onboarding-session-replay-separate-step', // owner: @joshsny #team-growth
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

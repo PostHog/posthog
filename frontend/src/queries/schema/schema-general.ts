@@ -28,6 +28,7 @@ import {
     PathsFilterType,
     PersonPropertyFilter,
     PropertyGroupFilter,
+    PropertyGroupFilterValue,
     PropertyMathType,
     PropertyOperator,
     RetentionFilterType,
@@ -1183,6 +1184,10 @@ export interface StickinessQuery
      * @default day
      */
     interval?: IntervalType
+    /**
+     * How many intervals comprise a period. Only used for cohorts, otherwise default 1.
+     */
+    intervalCount?: integer
     /** Events and actions to include */
     series: AnyEntityNode[]
     /** Properties specific to the stickiness insight */
@@ -1390,11 +1395,11 @@ export type CachedActorsQueryResponse = CachedQueryResponse<ActorsQueryResponse>
 
 export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
     kind: NodeKind.ActorsQuery
-    source?: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | HogQLQuery
+    source?: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | StickinessActorsQuery | HogQLQuery
     select?: HogQLExpression[]
     search?: string
     /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
-    properties?: AnyPersonScopeFilter[]
+    properties?: AnyPersonScopeFilter[] | PropertyGroupFilterValue
     /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
     fixedProperties?: AnyPersonScopeFilter[]
     orderBy?: string[]
@@ -1624,13 +1629,13 @@ export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
     issueId?: ErrorTrackingIssue['id']
-    select?: HogQLExpression[]
     orderBy?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
     dateRange: DateRange
     assignee?: ErrorTrackingIssueAssignee | null
     filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
     searchQuery?: string
+    customVolume?: ErrorTrackingSparklineConfig | null
     limit?: integer
     offset?: integer
 }
@@ -1640,20 +1645,26 @@ export interface ErrorTrackingIssueAssignee {
     id: integer | string
 }
 
+export type ErrorTrackingSparklineConfig = {
+    value: integer
+    interval: 'minute' | 'hour' | 'day' | 'week' | 'month'
+}
+
 export interface ErrorTrackingIssue {
     id: string
     name: string | null
     description: string | null
-    occurrences: number
-    sessions: number
-    users: number
     /**  @format date-time */
     first_seen: string
     /**  @format date-time */
     last_seen: string
     earliest?: string
-    // Sparkline data handled by the DataTable
-    volume?: any
+    occurrences: number
+    sessions: number
+    users: number
+    volumeDay: number[]
+    volumeMonth: number[]
+    customVolume?: number[]
     assignee: ErrorTrackingIssueAssignee | null
     status: 'archived' | 'active' | 'resolved' | 'pending_release'
 }
@@ -1783,6 +1794,10 @@ export interface InsightActorsQuery<S extends InsightsQueryBase<AnalyticsQueryRe
     compare?: 'current' | 'previous'
 }
 
+export interface StickinessActorsQuery extends InsightActorsQuery {
+    operator?: StickinessOperator
+}
+
 export interface FunnelsActorsQuery extends InsightActorsQueryBase {
     kind: NodeKind.FunnelsActorsQuery
     source: FunnelsQuery
@@ -1907,7 +1922,7 @@ export type CachedInsightActorsQueryOptionsResponse = CachedQueryResponse<Insigh
 
 export interface InsightActorsQueryOptions extends Node<InsightActorsQueryOptionsResponse> {
     kind: NodeKind.InsightActorsQueryOptions
-    source: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery
+    source: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | StickinessActorsQuery
 }
 
 export interface DatabaseSchemaSchema {
@@ -2049,6 +2064,7 @@ export interface DashboardFilter {
     date_from?: string | null
     date_to?: string | null
     properties?: AnyPropertyFilter[] | null
+    breakdown_filter?: BreakdownFilter | null
 }
 
 export interface InsightsThresholdBounds {

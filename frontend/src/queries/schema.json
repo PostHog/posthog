@@ -182,11 +182,18 @@
                     "type": "array"
                 },
                 "properties": {
-                    "description": "Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py.",
-                    "items": {
-                        "$ref": "#/definitions/AnyPersonScopeFilter"
-                    },
-                    "type": "array"
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/AnyPersonScopeFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyGroupFilterValue"
+                        }
+                    ],
+                    "description": "Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py."
                 },
                 "response": {
                     "$ref": "#/definitions/ActorsQueryResponse"
@@ -210,6 +217,9 @@
                         },
                         {
                             "$ref": "#/definitions/FunnelCorrelationActorsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/StickinessActorsQuery"
                         },
                         {
                             "$ref": "#/definitions/HogQLQuery"
@@ -4333,6 +4343,16 @@
         "DashboardFilter": {
             "additionalProperties": false,
             "properties": {
+                "breakdown_filter": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/BreakdownFilter"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
                 "date_from": {
                     "type": ["string", "null"]
                 },
@@ -5932,6 +5952,12 @@
                         }
                     ]
                 },
+                "customVolume": {
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
+                },
                 "description": {
                     "type": ["string", "null"]
                 },
@@ -5965,17 +5991,30 @@
                 "users": {
                     "type": "number"
                 },
-                "volume": {}
+                "volumeDay": {
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
+                },
+                "volumeMonth": {
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
+                }
             },
             "required": [
                 "id",
                 "name",
                 "description",
+                "first_seen",
+                "last_seen",
                 "occurrences",
                 "sessions",
                 "users",
-                "first_seen",
-                "last_seen",
+                "volumeDay",
+                "volumeMonth",
                 "assignee",
                 "status"
             ],
@@ -6009,6 +6048,16 @@
                     "anyOf": [
                         {
                             "$ref": "#/definitions/ErrorTrackingIssueAssignee"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "customVolume": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ErrorTrackingSparklineConfig"
                         },
                         {
                             "type": "null"
@@ -6050,12 +6099,6 @@
                 },
                 "searchQuery": {
                     "type": "string"
-                },
-                "select": {
-                    "items": {
-                        "$ref": "#/definitions/HogQLExpression"
-                    },
-                    "type": "array"
                 }
             },
             "required": ["dateRange", "kind"],
@@ -6110,6 +6153,20 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "ErrorTrackingSparklineConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "interval": {
+                    "enum": ["minute", "hour", "day", "week", "month"],
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "required": ["value", "interval"],
             "type": "object"
         },
         "EventDefinition": {
@@ -8259,6 +8316,9 @@
                         },
                         {
                             "$ref": "#/definitions/FunnelCorrelationActorsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/StickinessActorsQuery"
                         }
                     ]
                 }
@@ -12314,6 +12374,13 @@
                 "order": {
                     "type": "integer"
                 },
+                "properties": {
+                    "description": "filters on the event",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
                 "type": {
                     "$ref": "#/definitions/EntityType"
                 },
@@ -13006,6 +13073,73 @@
             "enum": ["strict", "unordered", "ordered"],
             "type": "string"
         },
+        "StickinessActorsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "breakdown": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "$ref": "#/definitions/BreakdownValueInt"
+                        },
+                        {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    ]
+                },
+                "compare": {
+                    "enum": ["current", "previous"],
+                    "type": "string"
+                },
+                "day": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "$ref": "#/definitions/Day"
+                        }
+                    ]
+                },
+                "includeRecordings": {
+                    "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/integer",
+                    "description": "An interval selected out of available intervals in source query."
+                },
+                "kind": {
+                    "const": "InsightActorsQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "operator": {
+                    "$ref": "#/definitions/StickinessOperator"
+                },
+                "response": {
+                    "$ref": "#/definitions/ActorsQueryResponse"
+                },
+                "series": {
+                    "$ref": "#/definitions/integer"
+                },
+                "source": {
+                    "$ref": "#/definitions/InsightQuerySource"
+                },
+                "status": {
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
+        },
         "StickinessFilter": {
             "additionalProperties": false,
             "properties": {
@@ -13103,6 +13237,10 @@
                     "$ref": "#/definitions/IntervalType",
                     "default": "day",
                     "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
+                },
+                "intervalCount": {
+                    "$ref": "#/definitions/integer",
+                    "description": "How many intervals comprise a period. Only used for cohorts, otherwise default 1."
                 },
                 "kind": {
                     "const": "StickinessQuery",

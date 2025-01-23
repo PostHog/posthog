@@ -383,6 +383,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             {
                 setGraphsTab: (_, { tab }) => tab,
                 togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.graphsTab || oldTab,
+                setConversionGoal: (oldTab, { conversionGoal }) => {
+                    if (conversionGoal) {
+                        return GraphsTab.UNIQUE_CONVERSIONS
+                    }
+                    return oldTab
+                },
             },
         ],
         _sourceTab: [
@@ -1571,7 +1577,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                   dateRange: dateRange,
                                   filterTestAccounts: filterTestAccounts,
                                   filterGroup: replayFilters.filter_group,
-                                  sparklineSelectedPeriod: null,
                                   columns: ['error', 'users', 'occurrences'],
                                   limit: 4,
                               }),

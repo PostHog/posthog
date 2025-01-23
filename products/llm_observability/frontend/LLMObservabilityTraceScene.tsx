@@ -1,11 +1,12 @@
-import { PersonDisplay, urls } from '@posthog/apps-common'
 import { LemonDivider, LemonTag, Link, SpinnerOverlay } from '@posthog/lemon-ui'
 import classNames from 'classnames'
 import { useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import React, { useMemo } from 'react'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { LLMTrace, LLMTraceEvent, TracesQueryResponse } from '~/queries/schema'
@@ -14,7 +15,7 @@ import { ConversationMessagesDisplay } from './ConversationDisplay/ConversationM
 import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
 import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
 import { getDataNodeLogicProps, llmObservabilityTraceLogic } from './llmObservabilityTraceLogic'
-import { formatLLMCost, formatLLMLatency, formatLLMUsage } from './utils'
+import { formatLLMCost, formatLLMLatency, formatLLMUsage, removeMilliseconds } from './utils'
 
 export const scene: SceneExport = {
     component: LLMObservabilityTraceScene,
@@ -106,7 +107,10 @@ function TraceSidebar({ trace, eventId }: { trace: LLMTrace; eventId?: string | 
                     return (
                         <li key={event.id} className="border-b border-border">
                             <Link
-                                to={urls.llmObservabilityTrace(trace.id, event.id)}
+                                to={urls.llmObservabilityTrace(trace.id, {
+                                    event: event.id,
+                                    timestamp: removeMilliseconds(trace.createdAt),
+                                })}
                                 className={classNames(
                                     'flex flex-col gap-1 p-2 text-xs hover:bg-primary-highlight',
                                     eventSelected && 'bg-primary-highlight'
