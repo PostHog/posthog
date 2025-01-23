@@ -10,7 +10,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from rest_framework.exceptions import APIException
-from sentry_sdk import capture_exception
+from posthog.exceptions import capture_exception
 
 from ee.hogai.summarizer.prompts import SUMMARIZER_INSTRUCTION_PROMPT, SUMMARIZER_SYSTEM_PROMPT
 from ee.hogai.utils.nodes import AssistantNode
@@ -39,9 +39,11 @@ class SummarizerNode(AssistantNode):
                 viz_message.answer.model_dump(mode="json"),  # We need mode="json" so that
                 # Celery doesn't run in tests, so there we use force_blocking instead
                 # This does mean that the waiting logic is not tested
-                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
-                if not settings.TEST
-                else ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                execution_mode=(
+                    ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
+                    if not settings.TEST
+                    else ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+                ),
             ).model_dump(mode="json")
             if results_response.get("query_status") and not results_response["query_status"]["complete"]:
                 query_id = results_response["query_status"]["id"]
