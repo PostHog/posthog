@@ -463,8 +463,9 @@ def cleanup_delete_assets(
     """Clean up temporary tables, dictionary, and mark deletions as verified."""
     # Drop the dictionary and table using the table object
 
-    cluster.any_host(create_pending_deletes_table.drop).result()
+    # Must delete dictionary before table due to clickhouse dependency
     cluster.any_host(wait_for_delete_mutations.drop).result()
+    cluster.any_host(create_pending_deletes_table.drop).result()
 
     # Mark deletions as verified in Django
     if not create_pending_deletes_table.team_id:
