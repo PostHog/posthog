@@ -21,12 +21,15 @@ export class SessionRecorder {
         return bytesWritten
     }
 
-    public async dump(stream: Writable): Promise<void> {
+    public async dump(stream: Writable): Promise<number> {
+        let eventCount = 0
         for (const chunk of this.chunks) {
             if (!stream.write(chunk)) {
                 // Handle backpressure
                 await new Promise((resolve) => stream.once('drain', resolve))
             }
+            eventCount++
         }
+        return eventCount
     }
 }

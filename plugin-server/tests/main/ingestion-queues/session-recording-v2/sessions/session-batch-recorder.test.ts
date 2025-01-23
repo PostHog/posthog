@@ -1,5 +1,6 @@
 import { PassThrough } from 'stream'
 
+import { SessionBatchMetrics } from '../../../../../src/main/ingestion-queues/session-recording-v2/sessions/metrics'
 import {
     SessionBatchRecorder,
     SessionBatchRecorderInterface,
@@ -31,6 +32,15 @@ interface MessageMetadata {
     rawSize?: number
 }
 
+// Add to the top of the file, after other mocks
+jest.mock('../../../../../src/main/ingestion-queues/session-recording-v2/sessions/metrics', () => ({
+    SessionBatchMetrics: {
+        incrementBatchesFlushed: jest.fn(),
+        incrementSessionsFlushed: jest.fn(),
+        incrementEventsFlushed: jest.fn(),
+    },
+}))
+
 describe('SessionBatchRecorder', () => {
     let recorder: SessionBatchRecorderInterface
     let mockWriter: jest.Mocked<SessionBatchWriter>
@@ -49,6 +59,11 @@ describe('SessionBatchRecorder', () => {
             ),
         }
         recorder = new SessionBatchRecorder(mockWriter)
+
+        // Reset metrics mocks
+        jest.mocked(SessionBatchMetrics.incrementBatchesFlushed).mockClear()
+        jest.mocked(SessionBatchMetrics.incrementSessionsFlushed).mockClear()
+        jest.mocked(SessionBatchMetrics.incrementEventsFlushed).mockClear()
     })
 
     const createMessage = (
@@ -485,6 +500,156 @@ describe('SessionBatchRecorder', () => {
             // Should not throw or change size
             recorder.discardPartition(999)
             expect(recorder.size).toBe(bytesWritten)
+        })
+    })
+
+    describe('metrics', () => {
+        it('should increment metrics on flush', async () => {
+            const messages = [
+                createMessage('session1', [
+                    {
+                        type: EventType.FullSnapshot,
+                        timestamp: 1000,
+                        data: { source: 1 },
+                    },
+                    {
+                        type: EventType.IncrementalSnapshot,
+                        timestamp: 2000,
+                        data: { source: 2 },
+                    },
+                ]),
+                createMessage('session2', [
+                    {
+                        type: EventType.Meta,
+                        timestamp: 1500,
+                        data: { href: 'https://example.com' },
+                    },
+                ]),
+            ]
+
+            messages.forEach((message) => recorder.record(message))
+            await recorder.flush()
+
+            expect(SessionBatchMetrics.incrementBatchesFlushed).toHaveBeenCalledTimes(1)
+            expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenCalledTimes(1)
+            expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenCalledTimes(1)
+            expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenLastCalledWith(2) // Two sessions
+            expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenLastCalledWith(3) // Three events total
+        })
+
+        it('should not increment metrics when no events are flushed', async () => {
+            await recorder.flush()
+
+            expect(SessionBatchMetrics.incrementBatchesFlushed).toHaveBeenCalledTimes(1)
+            expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenCalledTimes(1)
+            expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenCalledTimes(1)
+            expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenLastCalledWith(0)
+            expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenLastCalledWith(0)
+        })
+
+        it('should not count events from discarded partitions', async () => {
+            const messages = [
+                createMessage(
+                    'session1',
+                    [
+                        {
+                            type: EventType.FullSnapshot,
+                            timestamp: 1000,
+                            data: { source: 1 },
+                        },
+                    ],
+                    { partition: 1 }
+                ),
+                createMessage(
+                    'session2',
+                    [
+                        {
+                            type: EventType.IncrementalSnapshot,
+                            timestamp: 2000,
+                            data: { source: 2 },
+                        },
+                    ],
+                    { partition: 2 }
+                ),
+            ]
+
+            messages.forEach((message) => recorder.record(message))
+            recorder.discardPartition(1)
+            await recorder.flush()
+
+            expect(SessionBatchMetrics.incrementBatchesFlushed).toHaveBeenCalledTimes(1)
+            expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenCalledTimes(1)
+            expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenCalledTimes(1)
+            expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenLastCalledWith(1) // Only session from partition 2
+            expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenLastCalledWith(1) // Only event from partition 2
+        })
+
+        it('should not count sessions again on subsequent flushes', async () => {
+            const stream1 = new PassThrough()
+            const stream2 = new PassThrough()
+            const stream3 = new PassThrough()
+            const finish1 = jest.fn().mockResolvedValue(undefined)
+            const finish2 = jest.fn().mockResolvedValue(undefined)
+            const finish3 = jest.fn().mockResolvedValue(undefined)
+
+            mockWriter.open
+                .mockResolvedValueOnce({ stream: stream1, finish: finish1 })
+                .mockResolvedValueOnce({ stream: stream2, finish: finish2 })
+                .mockResolvedValueOnce({ stream: stream3, finish: finish3 })
+
+            const messages = [
+                createMessage('session1', [
+                    {
+                        type: EventType.FullSnapshot,
+                        timestamp: 1000,
+                        data: { source: 1 },
+                    },
+                ]),
+                createMessage('session2', [
+                    {
+                        type: EventType.Meta,
+                        timestamp: 1500,
+                        data: { href: 'https://example.com' },
+                    },
+                ]),
+            ]
+
+            // First flush
+            messages.forEach((message) => recorder.record(message))
+            await recorder.flush()
+
+            expect(SessionBatchMetrics.incrementBatchesFlushed).toHaveBeenCalledTimes(1)
+            expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenCalledTimes(1)
+            expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenCalledTimes(1)
+            expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenLastCalledWith(2) // Two sessions
+            expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenLastCalledWith(2) // Two events
+
+            // Second flush without new messages
+            await recorder.flush()
+
+            expect(SessionBatchMetrics.incrementBatchesFlushed).toHaveBeenCalledTimes(2)
+            expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenCalledTimes(2)
+            expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenCalledTimes(2)
+            expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenLastCalledWith(0) // No sessions
+            expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenLastCalledWith(0) // No events
+
+            // Add new message and flush again
+            recorder.record(
+                createMessage('session3', [
+                    {
+                        type: EventType.Custom,
+                        timestamp: 2000,
+                        data: { custom: 'data' },
+                    },
+                ])
+            )
+            await recorder.flush()
+
+            expect(SessionBatchMetrics.incrementBatchesFlushed).toHaveBeenCalledTimes(3)
+            expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenCalledTimes(3)
+            expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenCalledTimes(3)
+            expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenLastCalledWith(1) // Only the new session
+            expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenLastCalledWith(1) // Only the new event
         })
     })
 })
