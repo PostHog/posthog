@@ -211,7 +211,12 @@ class DashboardTileBasicSerializer(serializers.ModelSerializer):
         fields = ["id", "dashboard_id", "deleted"]
 
 
-class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer, UserAccessControlSerializerMixin):
+class InsightBasicSerializer(
+    TaggedItemSerializerMixin,
+    UserPermissionsSerializerMixin,
+    serializers.ModelSerializer,
+    UserAccessControlSerializerMixin,
+):
     """
     Simplified serializer to speed response times when loading large amounts of objects.
     """
@@ -240,6 +245,7 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
             "created_at",
             "last_modified_at",
             "favorited",
+            "user_access_level",
         ]
         read_only_fields = ("short_id", "updated_at", "last_refresh", "refreshing")
 
@@ -267,7 +273,7 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
         return [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
 
 
-class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
+class InsightSerializer(InsightBasicSerializer):
     result = serializers.SerializerMethodField()
     hasMore = serializers.SerializerMethodField()
     columns = serializers.SerializerMethodField()
@@ -1064,8 +1070,10 @@ When set, the specified dashboard's filters and date range override will be appl
 
         # we use the legacy caching mechanism (@cached_by_filters decorator), no need to cache in the query runner
         result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-        assert isinstance(result, schema.CachedTrendsQueryResponse) or isinstance(
-            result, schema.CachedStickinessQueryResponse
+        assert (
+            isinstance(result, schema.CachedTrendsQueryResponse)
+            or isinstance(result, schema.CachedStickinessQueryResponse)
+            or isinstance(result, schema.CachedLifecycleQueryResponse)
         )
 
         return {"result": result.results, "timezone": team.timezone}

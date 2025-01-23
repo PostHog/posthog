@@ -1,4 +1,4 @@
-lockfileVersion: '6.0'
+lockfileVersion: '6.1'
 
 settings:
   autoInstallPeers: true
@@ -109,6 +109,9 @@ dependencies:
   ipaddr.js:
     specifier: ^2.1.0
     version: 2.1.0
+  js-big-decimal:
+    specifier: ^2.2.0
+    version: 2.2.0
   kafkajs:
     specifier: ^2.2.0
     version: 2.2.4
@@ -8039,6 +8042,10 @@ packages:
     engines: {node: '>=10'}
     dev: true
 
+  /js-big-decimal@2.2.0:
+    resolution: {integrity: sha512-qJFDTcgBGvuPzsck0jNm1puKvJQ3AL8J3bIyrvF1KfsbljOVj8N/o9Kbr8RXlBx1J8aapcRpMCiG6h1l6QgYhQ==}
+    dev: false
+
   /js-tokens@4.0.0:
     resolution: {integrity: sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==}
 
@@ -11162,4 +11169,5 @@ packages:
   file:../rust/cyclotron-node:
     resolution: {directory: ../rust/cyclotron-node, type: directory}
     name: '@posthog/cyclotron'
+    version: 0.1.7
     dev: false

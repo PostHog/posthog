@@ -70,6 +70,10 @@ class PublicHogFunctionTemplateViewSet(viewsets.GenericViewSet):
             if sub_template_id and sub_template_id not in template.id:
                 continue
 
+            if request.path.startswith("/api/public_hog_function_templates"):
+                if template.status == "alpha":
+                    continue
+
             matching_templates.append(template)
 
         page = self.paginate_queryset(matching_templates)

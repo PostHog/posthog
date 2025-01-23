@@ -46,6 +46,8 @@ def create_external_data_job_model_activity(
             delete_external_data_schedule(str(inputs.schema_id))
             raise Exception("Source or schema no longer exists - deleted temporal schedule")
 
+        pipeline_version = get_pipeline_version()
+
         job = ExternalDataJob.objects.create(
             team_id=inputs.team_id,
             pipeline_id=inputs.source_id,
@@ -54,7 +56,8 @@ def create_external_data_job_model_activity(
             rows_synced=0,
             workflow_id=activity.info().workflow_id,
             workflow_run_id=activity.info().workflow_run_id,
-            pipeline_version=get_pipeline_version(),
+            pipeline_version=pipeline_version,
+            billable=pipeline_version != ExternalDataJob.PipelineVersion.V2,
         )
 
         schema = ExternalDataSchema.objects.get(team_id=inputs.team_id, id=inputs.schema_id)

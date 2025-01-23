@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS posthog_eventdefinition (
     CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq UNIQUE (team_id, name)
 );
 
+CREATE UNIQUE INDEX event_definition_proj_uniq ON posthog_eventdefinition (coalesce(project_id, team_id), name);
 
 CREATE TABLE IF NOT EXISTS posthog_propertydefinition (
     id UUID PRIMARY KEY,
@@ -31,6 +32,7 @@ CREATE TABLE IF NOT EXISTS posthog_propertydefinition (
 );
 
 CREATE UNIQUE INDEX posthog_propertydefinition_uniq ON posthog_propertydefinition (team_id, name, type, coalesce(group_type_index, -1));
+CREATE UNIQUE INDEX posthog_propdef_proj_uniq ON posthog_propertydefinition (coalesce(project_id, team_id), name, type, coalesce(group_type_index, -1));
 
 
 CREATE TABLE IF NOT EXISTS posthog_eventproperty (
@@ -42,3 +44,4 @@ CREATE TABLE IF NOT EXISTS posthog_eventproperty (
 );
 
 CREATE UNIQUE INDEX posthog_event_property_unique_team_event_property ON posthog_eventproperty (team_id, event, property);
+CREATE UNIQUE INDEX posthog_event_property_unique_proj_event_property ON posthog_eventproperty (coalesce(project_id, team_id), event, property);
