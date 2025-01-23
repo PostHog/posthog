@@ -57,11 +57,13 @@ export const llmObservabilityTraceDataLogic = kea<llmObservabilityTraceDataLogic
         ],
         metricEvents: [
             (s) => [s.trace],
-            (trace): LLMTraceEvent[] | undefined => trace?.events.filter((event) => event.event === '$ai_metric'),
+            (trace): LLMTraceEvent[] | undefined =>
+                trace?.events.filter((event) => event.event === '$ai_metric' && event.properties.$ai_metric_value),
         ],
         feedbackEvents: [
             (s) => [s.trace],
-            (trace): LLMTraceEvent[] | undefined => trace?.events.filter((event) => event.event === '$ai_feedback'),
+            (trace): LLMTraceEvent[] | undefined =>
+                trace?.events.filter((event) => event.event === '$ai_feedback' && event.properties.$ai_feedback_text),
         ],
         event: [
             (s) => [s.eventId, s.showableEvents],
