@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema'
 
+import { FeedbackTag } from './components/FeedbackTag'
 import { MetricTag } from './components/MetricTag'
 import { ConversationMessagesDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
@@ -38,7 +39,7 @@ export function LLMObservabilityTraceScene(): JSX.Element {
 
 function TraceSceneWrapper(): JSX.Element {
     const { eventId } = useValues(llmObservabilityTraceLogic)
-    const { trace, showableEvents, event, responseLoading, responseError, metrics } =
+    const { trace, showableEvents, event, responseLoading, responseError, feedbackEvents, metricEvents } =
         useValues(llmObservabilityTraceDataLogic)
 
     return (
@@ -51,7 +52,7 @@ function TraceSceneWrapper(): JSX.Element {
                 <NotFound object="trace" />
             ) : (
                 <div className="relative pb-4 space-y-4 flex flex-col md:h-[calc(100vh_-_var(--breadcrumbs-height-full)_-_var(--scene-padding)_-_var(--scene-padding-bottom))] ">
-                    <TraceMetadata trace={trace} metrics={metrics!} />
+                    <TraceMetadata trace={trace} metricEvents={metricEvents} feedbackEvents={feedbackEvents} />
                     <div className="flex flex-1 min-h-0 gap-4 flex-col md:flex-row">
                         <TraceSidebar trace={trace} eventId={eventId} events={showableEvents!} />
                         <EventContent event={event} />
@@ -80,7 +81,15 @@ function CostChip({ cost, title }: { cost: number; title: string }): JSX.Element
     return <Chip title={title}>{formatLLMCost(cost)}</Chip>
 }
 
-function TraceMetadata({ trace, metrics }: { trace: LLMTrace; metrics: LLMTraceEvent[] }): JSX.Element {
+function TraceMetadata({
+    trace,
+    metricEvents,
+    feedbackEvents,
+}: {
+    trace: LLMTrace
+    metricEvents: LLMTraceEvent[]
+    feedbackEvents: LLMTraceEvent[]
+}): JSX.Element {
     return (
         <header className="flex gap-x-8 gap-y-2 flex-wrap border border-border rounded p-4 bg-bg-light text-sm">
             {'person' in trace && (
@@ -92,8 +101,11 @@ function TraceMetadata({ trace, metrics }: { trace: LLMTrace; metrics: LLMTraceE
             {typeof trace.inputCost === 'number' && <CostChip cost={trace.inputCost} title="Input cost" />}
             {typeof trace.outputCost === 'number' && <CostChip cost={trace.outputCost} title="Output cost" />}
             {typeof trace.totalCost === 'number' && <CostChip cost={trace.totalCost} title="Total cost" />}
-            {metrics.map((metric) => (
+            {metricEvents.map((metric) => (
                 <MetricTag key={metric.id} properties={metric.properties} />
+            ))}
+            {feedbackEvents.map((feedback) => (
+                <FeedbackTag key={feedback.id} properties={feedback.properties} />
             ))}
         </header>
     )

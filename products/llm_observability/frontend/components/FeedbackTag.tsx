@@ -1,0 +1,20 @@
+import { LemonTag } from '@posthog/lemon-ui'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+
+interface FeedbackTagProps {
+    properties: Record<string, any>
+}
+
+export function FeedbackTag({ properties }: FeedbackTagProps): JSX.Element {
+    const { $ai_feedback_text: feedbackText } = properties
+    const feedbackPreview = typeof feedbackText === 'string' ? feedbackText.slice(0, 5) : ''
+    const text = feedbackText ? feedbackText : 'No feedback provided'
+
+    return (
+        <LemonTag className="bg-bg-light cursor-default">
+            <CopyToClipboardInline iconSize="xsmall" description={text} tooltipMessage={text}>
+                {`User feedback${feedbackPreview ? `: ${feedbackPreview}...` : ''}`}
+            </CopyToClipboardInline>
+        </LemonTag>
+    )
+}

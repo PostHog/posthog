@@ -30,6 +30,8 @@ function getDataNodeLogicProps({ traceId, query, cachedResults }: TraceDataLogic
     return dataNodeLogicProps
 }
 
+const FEEDBACK_EVENTS = new Set(['$ai_feedback', '$ai_metric'])
+
 export const llmObservabilityTraceDataLogic = kea<llmObservabilityTraceDataLogicType>([
     path(['scenes', 'llm-observability', 'llmObservabilityTraceLogic']),
     props({} as TraceDataLogicProps),
@@ -51,11 +53,15 @@ export const llmObservabilityTraceDataLogic = kea<llmObservabilityTraceDataLogic
         ],
         showableEvents: [
             (s) => [s.trace],
-            (trace): LLMTraceEvent[] | undefined => trace?.events.filter((event) => event.event !== '$ai_metric'),
+            (trace): LLMTraceEvent[] | undefined => trace?.events.filter((event) => !FEEDBACK_EVENTS.has(event.event)),
         ],
-        metrics: [
+        metricEvents: [
             (s) => [s.trace],
             (trace): LLMTraceEvent[] | undefined => trace?.events.filter((event) => event.event === '$ai_metric'),
+        ],
+        feedbackEvents: [
+            (s) => [s.trace],
+            (trace): LLMTraceEvent[] | undefined => trace?.events.filter((event) => event.event === '$ai_feedback'),
         ],
         event: [
             (s) => [s.eventId, s.showableEvents],

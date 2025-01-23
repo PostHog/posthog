@@ -197,11 +197,7 @@ class TracesQueryRunner(QueryRunner):
         timestamp_field = ast.Field(chain=["events", "timestamp"])
 
         where_exprs: list[ast.Expr] = [
-            ast.CompareOperation(
-                left=ast.Field(chain=["event"]),
-                op=ast.CompareOperationOp.In,
-                right=ast.Tuple(exprs=[ast.Constant(value="$ai_generation"), ast.Constant(value="$ai_metric")]),
-            ),
+            self._get_event_name_filter(),
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
                 left=timestamp_field,
@@ -233,6 +229,14 @@ class TracesQueryRunner(QueryRunner):
             )
 
         return ast.And(exprs=where_exprs)
+
+    def _get_event_name_filter(self):
+        AI_EVENT_NAMES = ("$ai_generation", "$ai_metric", "$ai_feedback")
+        return ast.CompareOperation(
+            left=ast.Field(chain=["event"]),
+            op=ast.CompareOperationOp.In,
+            right=ast.Tuple(exprs=[ast.Constant(value=event_name) for event_name in AI_EVENT_NAMES]),
+        )
 
     def _get_order_by_clause(self):
         return [ast.OrderExpr(expr=ast.Field(chain=["trace_timestamp"]), order="DESC")]
