@@ -72,7 +72,9 @@ export enum KafkaSaslMechanism {
 }
 
 export enum PluginServerMode {
+    all_v2 = 'all-v2',
     ingestion = 'ingestion',
+    ingestion_v2 = 'ingestion-v2',
     ingestion_overflow = 'ingestion-overflow',
     ingestion_historical = 'ingestion-historical',
     events_ingestion = 'events-ingestion',
@@ -129,7 +131,16 @@ export type CdpConfig = {
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
 }
 
-export interface PluginsServerConfig extends CdpConfig {
+export type IngestionConsumerConfig = {
+    // New config variables used by the new IngestionConsumer
+    INGESTION_CONSUMER_GROUP_ID: string
+    INGESTION_CONSUMER_CONSUME_TOPIC: string
+    INGESTION_CONSUMER_DLQ_TOPIC: string
+    /** If set then overflow routing is enabled and the topic is used for overflow events */
+    INGESTION_CONSUMER_OVERFLOW_TOPIC?: string
+}
+
+export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig {
     TASKS_PER_WORKER: number // number of parallel tasks per worker thread
     INGESTION_CONCURRENCY: number // number of parallel event ingestion queues per batch
     INGESTION_BATCH_SIZE: number // kafka consumer batch size
@@ -361,6 +372,8 @@ export interface PluginServerCapabilities {
     ingestionOverflow?: boolean
     ingestionHistorical?: boolean
     eventsIngestionPipelines?: boolean
+    ingestionV2Combined?: boolean
+    ingestionV2?: boolean
     pluginScheduledTasks?: boolean
     processPluginJobs?: boolean
     processAsyncOnEventHandlers?: boolean
