@@ -327,14 +327,13 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         graph, behavioral_cohorts = self._build_cohort_dependency_graph(all_cohorts)
         affected_cohorts = set(behavioral_cohorts)
 
-        # Find all cohorts that can reach a behavioral cohort through the graph
         def find_affected_cohorts() -> None:
             changed = True
             while changed:
                 changed = False
                 for source_id in list(graph.keys()):
                     if source_id not in affected_cohorts:
-                        # If this cohort points to any affected cohort, it's also affected
+                        # NB: If this cohort points to any affected cohort, it's also affected
                         if any(target_id in affected_cohorts for target_id in graph[source_id]):
                             affected_cohorts.add(source_id)
                             changed = True
@@ -347,9 +346,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         Builds a directed graph of cohort dependencies and identifies behavioral cohorts.
         Returns (adjacency_list, behavioral_cohort_ids).
         """
-        # Adjacency list representation of cohort references
         graph = defaultdict(set)
-        # Set of cohorts that directly use behavioral filters
         behavioral_cohorts = set()
 
         def check_property_values(values: Any, source_id: int) -> None:
@@ -373,7 +370,6 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                 elif value.get("type") in ("AND", "OR") and value.get("values"):
                     check_property_values(value["values"], source_id)
 
-        # Build the graph
         for cohort_id, cohort in all_cohorts.items():
             if cohort.filters:
                 properties = cohort.filters.get("properties", {})
