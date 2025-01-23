@@ -1309,7 +1309,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     }
 
                     if (results?.significance_code === ExperimentSignificanceCode.LowWinProbability) {
-                        return 'This is because the win probability of all test variants combined is less than 90%.'
+                        return 'This is because no variant (control or test) has a win probability higher than 90%.'
                     }
 
                     if (results?.significance_code === ExperimentSignificanceCode.NotEnoughExposure) {
