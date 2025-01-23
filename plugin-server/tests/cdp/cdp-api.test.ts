@@ -4,7 +4,7 @@ import express from 'express'
 import supertest from 'supertest'
 
 import { CdpApi } from '../../src/cdp/cdp-api'
-import { CdpFunctionCallbackConsumer } from '../../src/cdp/cdp-consumers'
+import { CdpFunctionCallbackConsumer } from '../../src/cdp/consumers/cdp-function-callback.consumer'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
 import { Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'

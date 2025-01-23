@@ -361,7 +361,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 return {
                     query: props.monaco?.editor.getModel(model.uri)?.getValue() || '',
                     path: model.uri.path.split('/').pop(),
-                    name: model.name || NEW_QUERY,
+                    name: model.view?.name || model.name || NEW_QUERY,
                     view: model.view,
                 }
             })
@@ -426,6 +426,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             const types = logic.values.response?.types ?? []
 
             await dataWarehouseViewsLogic.asyncActions.createDataWarehouseSavedQuery({ name, query, types })
+            actions.updateState()
         },
         saveAsInsight: async () => {
             LemonDialog.openForm({

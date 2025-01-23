@@ -3362,7 +3362,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_decide_analytics_samples_appropriately(self, *args):
-        random.seed(12345)
+        random.seed(67890)
         FeatureFlag.objects.create(
             team=self.team,
             rollout_percentage=50,
@@ -3373,7 +3373,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.client.logout()
         with self.settings(DECIDE_BILLING_SAMPLING_RATE=0.5), freeze_time("2022-05-07 12:23:07"):
             for _ in range(5):
-                # given the seed, 4 out of 5 are sampled
+                # given the seed, 2 out of 5 are sampled
                 response = self._post_decide(api_version=3)
                 self.assertEqual(response.status_code, 200)
 
@@ -3381,7 +3381,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             # check that no increments made it to redis
             self.assertEqual(
                 client.hgetall(f"posthog:decide_requests:{self.team.pk}"),
-                {b"165192618": b"8"},
+                {b"165192618": b"4"},
             )
 
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)

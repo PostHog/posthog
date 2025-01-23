@@ -54,10 +54,10 @@ export class EventPipelineRunner {
     originalEvent: PipelineEvent
     eventsProcessor: EventsProcessor
 
-    constructor(hub: Hub, event: PipelineEvent, eventProcessor: EventsProcessor) {
+    constructor(hub: Hub, event: PipelineEvent) {
         this.hub = hub
         this.originalEvent = event
-        this.eventsProcessor = eventProcessor
+        this.eventsProcessor = new EventsProcessor(hub)
     }
 
     isEventDisallowed(event: PipelineEvent): boolean {
@@ -260,7 +260,7 @@ export class EventPipelineRunner {
             event.team_id
         )
 
-        if (event.event === '$exception' && !event.properties?.hasOwnProperty('$sentry_event_id')) {
+        if (event.event === '$exception') {
             const [exceptionAck] = await this.runStep(
                 produceExceptionSymbolificationEventStep,
                 [this, rawEvent],
