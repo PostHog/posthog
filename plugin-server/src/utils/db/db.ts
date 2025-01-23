@@ -233,7 +233,8 @@ export class DB {
             if ('error' in operationResult) {
                 throw new RedisOperationError(
                     `${operationName} failed for ${JSON.stringify(logContext)}`,
-                    operationResult.error
+                    operationResult.error,
+                    logContext
                 )
             }
             if (cleanupError) {

@@ -26,13 +26,14 @@ export class MessageSizeTooLarge extends Error {
 }
 
 export class RedisOperationError extends Error {
-    constructor(message: string, error: Error) {
+    constructor(message: string, error: Error, logContext?: Record<string, any>) {
         super(message)
         this.name = 'RedisOperationError'
         this.error = error
+        this.logContext = logContext
     }
     readonly error: Error
-    readonly isRetriable = false
+    readonly logContext?: Record<string, any>
 }
 
 export async function processError(
