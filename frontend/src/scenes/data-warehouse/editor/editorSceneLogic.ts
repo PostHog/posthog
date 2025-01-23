@@ -19,20 +19,16 @@ import { viewLinkLogic } from '../viewLinkLogic'
 import type { editorSceneLogicType } from './editorSceneLogicType'
 
 const isDataWarehouseTable = (
-    table: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery
+    table: DatabaseSchemaTableCommon | DataWarehouseSavedQuery
 ): table is DatabaseSchemaDataWarehouseTable => {
     return 'type' in table && table.type === 'data_warehouse'
 }
 
-const isPostHogTable = (
-    table: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery
-): table is DatabaseSchemaTable => {
+const isPostHogTable = (table: DatabaseSchemaTableCommon | DataWarehouseSavedQuery): table is DatabaseSchemaTable => {
     return 'type' in table && table.type === 'posthog'
 }
 
-const isViewTable = (
-    table: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery
-): table is DataWarehouseSavedQuery => {
+const isViewTable = (table: DatabaseSchemaTableCommon | DataWarehouseSavedQuery): table is DataWarehouseSavedQuery => {
     return 'query' in table
 }
 
@@ -75,7 +71,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             },
         ],
         selectedSchema: [
-            null as DatabaseSchemaTableCommon | DataWarehouseSavedQuery | null,
+            null as DatabaseSchemaTable | DatabaseSchemaDataWarehouseTable | DataWarehouseSavedQuery | null,
             {
                 selectSchema: (_, { schema }) => schema,
             },
