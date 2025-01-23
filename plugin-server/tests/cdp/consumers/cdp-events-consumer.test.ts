@@ -1,5 +1,5 @@
 // eslint-disable-next-line simple-import-sort/imports
-import { getParsedQueuedMessages, mockProducer } from '../../helpers/mocks/producer.mock'
+import { getProducedKafkaMessages, mockProducer } from '../../../tests/helpers/mocks/producer.mock'
 
 import { HogWatcherState } from '../../../src/cdp/services/hog-watcher.service'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../../../src/cdp/types'
@@ -51,30 +51,6 @@ jest.mock('../../../src/utils/fetch', () => {
 const mockFetch: jest.Mock = require('../../../src/utils/fetch').trackedFetch
 
 jest.setTimeout(1000)
-
-type DecodedKafkaMessage = {
-    topic: string
-    key?: any
-    value: Record<string, unknown>
-}
-
-const decodeAllKafkaMessages = (): DecodedKafkaMessage[] => {
-    const queuedMessages = getParsedQueuedMessages()
-
-    const result: DecodedKafkaMessage[] = []
-
-    for (const topicMessage of queuedMessages) {
-        for (const message of topicMessage.messages) {
-            result.push({
-                topic: topicMessage.topic,
-                key: message.key,
-                value: message.value ?? {},
-            })
-        }
-    }
-
-    return result
-}
 
 /**
  * NOTE: The internal and normal events consumers are very similar so we can test them together
@@ -174,7 +150,7 @@ describe.each([
                     matchInvocation(fnPrinterPageviewFilters, globals),
                 ])
 
-                expect(decodeAllKafkaMessages()).toMatchObject([
+                expect(getProducedKafkaMessages()).toMatchObject([
                     {
                         topic: 'log_entries_test',
                         value: {
@@ -278,7 +254,7 @@ describe.each([
                 expect(invocations).toHaveLength(1)
                 expect(invocations).toMatchObject([matchInvocation(fnFetchNoFilters, globals)])
 
-                expect(decodeAllKafkaMessages()).toMatchObject([
+                expect(getProducedKafkaMessages()).toMatchObject([
                     {
                         key: expect.any(String),
                         topic: 'clickhouse_app_metrics2_test',
@@ -319,7 +295,7 @@ describe.each([
                 expect(invocations).toHaveLength(0)
                 expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
 
-                expect(decodeAllKafkaMessages()).toMatchObject([
+                expect(getProducedKafkaMessages()).toMatchObject([
                     {
                         topic: 'clickhouse_app_metrics2_test',
                         value: {
@@ -372,7 +348,7 @@ describe.each([
                     ...HOG_FILTERS_EXAMPLES.broken_filters,
                 })
                 await processor.processBatch([globals])
-                expect(decodeAllKafkaMessages()).toMatchObject([
+                expect(getProducedKafkaMessages()).toMatchObject([
                     {
                         key: expect.any(String),
                         topic: 'clickhouse_app_metrics2_test',
