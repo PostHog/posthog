@@ -4,7 +4,6 @@ frontend/src/scenes/onboarding/sdks/surveys @PostHog/team-surveys
 ee/surveys @PostHog/team-surveys
 posthog/admin/admins/survey_admin.py @PostHog/team-surveys
 posthog/api/survey.py @PostHog/team-surveys
-posthog/api/survey.py @PostHog/team-surveys
 posthog/api/test/test_survey.py @PostHog/team-surveys
 posthog/models/feedback/survey.py @PostHog/team-surveys
 posthog/tasks/stop_surveys_reached_target.py @PostHog/team-surveys
