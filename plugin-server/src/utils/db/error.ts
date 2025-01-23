@@ -25,6 +25,16 @@ export class MessageSizeTooLarge extends Error {
     readonly isRetriable = false
 }
 
+export class RedisOperationError extends Error {
+    constructor(message: string, error: Error) {
+        super(message)
+        this.name = 'RedisOperationError'
+        this.error = error
+    }
+    readonly error: Error
+    readonly isRetriable = false
+}
+
 export async function processError(
     server: Hub,
     pluginConfig: PluginConfig | null,
