@@ -94,6 +94,8 @@ export function SidebarList({ category }: { category: SidebarCategory | ListItem
                     moveViewToFolder({ viewId: activeItemKey, toFolderId: '' }) // Empty string as folderId removes it from folders
                 }
             }
+        } else if (over && active.id === over.id) {
+            return
         } else {
             const activeId = active.id.toString()
             const activeItemKey = getLastItemInChain(activeId)
@@ -552,7 +554,7 @@ function SidebarListItem({ item, validateName, active, style: styleFromProps }: 
                 !!menuItems?.length &&
                 menuItemsVisible && (
                     <LemonMenu items={menuItems} onVisibilityChange={setIsMenuOpen}>
-                        <div className="SidebarListItem__actions">
+                        <div className="SidebarListItem__actions" onMouseDown={(e) => e.stopPropagation()}>
                             <LemonButton size="small" noPadding icon={<IconEllipsis />} />
                         </div>
                     </LemonMenu>
