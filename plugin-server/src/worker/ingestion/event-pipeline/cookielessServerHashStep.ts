@@ -3,11 +3,12 @@ import * as siphashDouble from '@posthog/siphash/lib/siphash-double'
 import { DateTime } from 'luxon'
 import { getDomain } from 'tldts'
 
-import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
+import { cookielessRedisErrorCounter, eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { runInstrumentedFunction } from '../../../main/utils'
 import { CookielessConfig, CookielessServerHashMode, Hub } from '../../../types'
 import { ConcurrencyController } from '../../../utils/concurrencyController'
 import { DB } from '../../../utils/db/db'
+import { RedisOperationError } from '../../../utils/db/error'
 import { now } from '../../../utils/now'
 import {
     base64StringToUint32ArrayLE,
@@ -212,6 +213,13 @@ export async function cookielessServerHashStep(hub: Hub, event: PluginEvent): Pr
                 drop_cause: 'cookieless_error_fail_close',
             })
             .inc()
+
+        if (e instanceof RedisOperationError) {
+            cookielessRedisErrorCounter.labels({
+                operation: e.operation,
+            })
+        }
+
         return [undefined]
     }
 }
