@@ -183,11 +183,14 @@ impl RawEvent {
         }
     }
 
-    pub fn extract_is_cookieless_mode(&self) -> Result<bool, CaptureError> {
+    // Extracts the cookieless mode from the event properties. If the value is not
+    // present, it is assumed to be false, and if it is some invalid value then we
+    // return None.
+    pub fn extract_is_cookieless_mode(&self) -> Option<bool> {
         match self.properties.get("$cookieless_mode") {
-            Some(Value::Bool(b)) => Ok(*b),
-            Some(_) => Err(CaptureError::InvalidCklshMode),
-            None => Ok(false),
+            Some(Value::Bool(b)) => Some(*b),
+            Some(_) => None,
+            None => Some(false),
         }
     }
 }
