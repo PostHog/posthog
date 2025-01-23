@@ -8,7 +8,7 @@ import { processAiEvent } from '~/src/utils/ai-cost-data/process-ai-event'
 import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub, Person, PersonMode, PipelineEvent, RawKafkaEvent, Team, TimestampFormat } from '../../types'
-import { DependencyUnavailableError, MessageSizeTooLarge } from '../../utils/db/error'
+import { MessageSizeTooLarge } from '../../utils/db/error'
 import { safeClickhouseString, sanitizeEventName, sanitizeString } from '../../utils/db/utils'
 import { normalizeEvent, normalizeProcessPerson } from '../../utils/event'
 import { status } from '../../utils/status'
@@ -22,9 +22,21 @@ import { runProcessEvent } from '../../worker/plugins/run'
 import { getElementsChain } from './utils/event-utils'
 import { extractHeatmapData } from './utils/heatmaps'
 
-export class EventPipelineHandledError extends Error {
-    constructor(public message: string, public ingestion_warning: string) {
-        super(message)
+export class EventDroppedError extends Error {
+    public doNotSendToDLQ: boolean = false
+    public ingestionWarningDetails?: Record<string, any>
+
+    constructor(
+        public ingestionWarning: string,
+        options?: {
+            doNotSendToDLQ?: boolean
+            message?: string
+            ingestionWarningDetails?: Record<string, any>
+        }
+    ) {
+        super(options?.message ?? ingestionWarning)
+        this.doNotSendToDLQ = options?.doNotSendToDLQ ?? false
+        this.ingestionWarningDetails = options?.ingestionWarningDetails
     }
 }
 
@@ -79,35 +91,15 @@ export class EventPipelineRunnerV2 {
     }
 
     async run(): Promise<void> {
-        // TODO: The parent should handle checking the error and throwing properly once all promises are handled
         try {
             await this._run()
         } catch (error) {
-            console.log('error', error)
-            if (error instanceof EventPipelineHandledError) {
-                // Handled errors mean we know that it was invalid and are purposefully moving on - everything else is unhandled
-                return this.captureIngestionWarning(error.ingestion_warning)
+            // We capture ingestion warnings but allow the parent to decide on DLQ, retries etc.
+            if (error instanceof EventDroppedError) {
+                this.captureIngestionWarning(error.ingestionWarning, error.ingestionWarningDetails)
             }
 
-            captureException(error, {
-                tags: { team_id: this.team?.id },
-                extra: { originalEvent: this.originalEvent },
-            })
-
-            // pipelineStepErrorCounter.labels(currentStepName).inc()
-
-            if (error instanceof DependencyUnavailableError) {
-                // This kind of error indicates that the there was something unavailable like a DB connection
-                // so we want to retry the event
-
-                // TODO: Add this back in
-                // pipelineStepThrowCounter.labels(currentStepName).inc()
-
-                throw error
-            }
-
-            // TODO: The old pipeline runner sent a message to the DLQ but
-            // there is also a DLQ with the raw message which is just fine so we should only use that.
+            throw error
         }
     }
 

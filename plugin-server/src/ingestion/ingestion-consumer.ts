@@ -18,7 +18,7 @@ import { runInstrumentedFunction } from '../main/utils'
 import { Hub, PipelineEvent, PluginServerService } from '../types'
 import { normalizeEvent } from '../utils/event'
 import { status } from '../utils/status'
-import { EventPipelineRunnerV2 } from './event-pipeline-runner/event-pipeline-runner'
+import { EventDroppedError, EventPipelineRunnerV2 } from './event-pipeline-runner/event-pipeline-runner'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
@@ -342,40 +342,49 @@ export class IngestionConsumer {
         // TODO: property abstract out this `isRetriable` error logic. This is currently relying on the
         // fact that node-rdkafka adheres to the `isRetriable` interface.
 
-        status.error('🔥', `Error processing message`, {
-            stack: error.stack,
-            error: error,
-        })
+        if (error instanceof EventDroppedError) {
+            // In the case of an EventDroppedError we know that the error was expected and as such we should
+            // send it to the DLQ unless the doNotSendToDLQ flag is set
+            // We then return as there is nothing else to do
 
-        if (error?.isRetriable === false) {
-            const sentryEventId = captureException(error)
-            const headers: MessageHeader[] = message.headers ?? []
-            headers.push({ ['sentry-event-id']: sentryEventId })
-            headers.push({ ['event-id']: event.uuid })
-            try {
-                await this.kafkaProducer!.produce({
-                    topic: this.dlqTopic,
-                    value: message.value,
-                    key: message.key ?? null, // avoid undefined, just to be safe
-                    headers: headers,
-                })
-            } catch (error) {
-                // If we can't send to the DLQ and it's not retriable, just continue. We'll commit the
-                // offset and move on.
-                if (error?.isRetriable === false) {
-                    status.error('🔥', `Error pushing to DLQ`, {
-                        stack: error.stack,
-                        error: error,
+            // Handled errors mean we know that it was invalid and are purposefully moving on - everything else is unhandled
+            if (!error.doNotSendToDLQ) {
+                try {
+                    const sentryEventId = captureException(error)
+                    const headers: MessageHeader[] = message.headers ?? []
+                    headers.push({ ['sentry-event-id']: sentryEventId })
+                    headers.push({ ['event-id']: event.uuid })
+
+                    await this.kafkaProducer!.produce({
+                        topic: this.dlqTopic,
+                        value: message.value,
+                        key: message.key ?? null, // avoid undefined, just to be safe
+                        headers: headers,
                     })
-                    return
-                }
+                } catch (error) {
+                    // If we can't send to the DLQ and it's not retriable, just continue. We'll commit the
+                    // offset and move on.
+                    if (error?.isRetriable === false) {
+                        status.error('🔥', `Error pushing to DLQ`, {
+                            stack: error.stack,
+                            error: error,
+                        })
+                        return
+                    }
 
-                // If we can't send to the DLQ and it is retriable, raise the error.
-                throw error
+                    // If we can't send to the DLQ and it is retriable, raise the error.
+                    throw error
+                }
             }
-        } else {
-            throw error
+
+            return
         }
+
+        // All other errors indicate that something went wrong and we crash out
+        captureException(error, {
+            tags: { team_id: event.team_id },
+            extra: { originalEvent: event },
+        })
     }
 
     private logDroppedEvent(token?: string, distinctId?: string) {
