@@ -1215,30 +1215,10 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # Brasilia UTC-3, New York UTC-4, Calcutta UTC+5:30, UTC
         assert results == [
-            [
-                -3,
-                (1, None),
-                (4, None),
-                {"breakdownBy": "Timezone", "dateFrom": "2024-07-15", "dateTo": None, "value": -3.0},
-            ],
-            [
-                -4,
-                (1, None),
-                (3, None),
-                {"breakdownBy": "Timezone", "dateFrom": "2024-07-15", "dateTo": None, "value": -4.0},
-            ],
-            [
-                5.5,
-                (1, None),
-                (2, None),
-                {"breakdownBy": "Timezone", "dateFrom": "2024-07-15", "dateTo": None, "value": 5.5},
-            ],
-            [
-                0,
-                (1, None),
-                (1, None),
-                {"breakdownBy": "Timezone", "dateFrom": "2024-07-15", "dateTo": None, "value": 0.0},
-            ],
+            [-3, (1, None), (4, None)],
+            [-4, (1, None), (3, None)],
+            [5.5, (1, None), (2, None)],
+            [0, (1, None), (1, None)],
         ]
 
     def test_timezone_filter_dst_change(self):
@@ -1269,28 +1249,8 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # Change from UTC-2 to UTC-3 in the middle of the night
         assert results == [
-            [
-                -3.0,
-                (1.0, None),
-                (4.0, None),
-                {
-                    "breakdownBy": WebStatsBreakdown.TIMEZONE,
-                    "dateFrom": "all",
-                    "dateTo": None,
-                    "value": -3.0,
-                },
-            ],
-            [
-                -2.0,
-                (1.0, None),
-                (2.0, None),
-                {
-                    "breakdownBy": WebStatsBreakdown.TIMEZONE,
-                    "dateFrom": "all",
-                    "dateTo": None,
-                    "value": -2.0,
-                },
-            ],
+            [-3.0, (1.0, None), (4.0, None)],
+            [-2.0, (1.0, None), (2.0, None)],
         ]
 
     def test_timezone_filter_with_invalid_timezone(self):

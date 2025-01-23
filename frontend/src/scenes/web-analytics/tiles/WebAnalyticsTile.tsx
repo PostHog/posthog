@@ -22,6 +22,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { Query } from '~/queries/Query/Query'
 import {
     DataTableNode,
+    DataVisualizationNode,
     InsightVizNode,
     NodeKind,
     QuerySchema,
@@ -378,12 +379,12 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
         },
         replay_url: {
             title: ' ',
-            render: ({ value }: { value: any }) => (
+            render: ({ record, query }: { record: any; query: DataTableNode | DataVisualizationNode }) => (
                 <RenderReplayButton
-                    date_from={value.dateFrom}
-                    date_to={value.dateTo}
-                    breakdownBy={value.breakdownBy}
-                    value={value.value}
+                    date_from={(query.source as any)?.dateRange?.date_from}
+                    date_to={(query.source as any)?.dateRange?.date_to}
+                    breakdownBy={(query.source as any)?.breakdownBy}
+                    value={record[0] ?? ''}
                 />
             ),
             align: 'right',
