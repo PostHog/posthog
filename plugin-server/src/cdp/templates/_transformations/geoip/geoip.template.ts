@@ -1,3 +1,4 @@
+import { hog } from '../../hog-highlighter'
 import { HogFunctionTemplate } from '../../types'
 
 export const template: HogFunctionTemplate = {
@@ -8,7 +9,7 @@ export const template: HogFunctionTemplate = {
     description: 'Adds geoip data to the event',
     icon_url: '/static/hedgehog/builder-hog-01.png',
     category: ['Custom'],
-    hog: `
+    hog: hog`
 // Define the properties to be added to the event
 let geoipProperties := {
     'city_name': null,
