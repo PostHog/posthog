@@ -7,7 +7,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { isObject, percentage } from 'lib/utils'
+import { isObject } from 'lib/utils'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { PlayerMetaLinks } from 'scenes/session-recordings/player/PlayerMetaLinks'
@@ -68,7 +68,7 @@ function URLOrScreen({ lastUrl }: { lastUrl: string | undefined }): JSX.Element 
 function ResolutionView({ isCompact }: { isCompact: boolean }): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
 
-    const { resolution, scale, loading } = useValues(playerMetaLogic(logicProps))
+    const { resolutionDisplay, scaleDisplay, loading } = useValues(playerMetaLogic(logicProps))
 
     return loading ? (
         <LemonSkeleton className="w-1/3 h-4" />
@@ -77,19 +77,15 @@ function ResolutionView({ isCompact }: { isCompact: boolean }): JSX.Element {
             placement="bottom"
             title={
                 <>
-                    The resolution of the page as it was captured was{' '}
-                    <b>
-                        {resolution?.width || '??'} x {resolution?.height || '??'}
-                    </b>
+                    The resolution of the page as it was captured was <b>{resolutionDisplay}</b>
                     <br />
-                    You are viewing the replay at <b>{percentage(scale, 1, true)}</b> of the original size
+                    You are viewing the replay at <b>{scaleDisplay}</b> of the original size
                 </>
             }
         >
             <span className="text-muted-alt text-xs">
                 <>
-                    {resolution?.width || '??'} x {resolution?.height || '??'}{' '}
-                    {!isCompact && `(${percentage(scale, 1, true)})`}
+                    {resolutionDisplay} {!isCompact && `(${scaleDisplay})`}
                 </>
             </span>
         </Tooltip>
