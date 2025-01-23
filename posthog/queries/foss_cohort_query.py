@@ -242,7 +242,7 @@ class FOSSCohortQuery(EventQuery):
                                         values=[
                                             Property(
                                                 key="fake_key_01r2ho",
-                                                value=0,
+                                                value="0",
                                                 type="person",
                                             )
                                         ],
