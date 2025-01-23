@@ -7,11 +7,33 @@ import { Hub } from '../../../types'
 import { status } from '../../../utils/status'
 import { UUIDT } from '../../../utils/utils'
 
-export function transformEventStep(hub: Hub, event: PluginEvent): PluginEvent {
+
+// TODO THIS IS THE PLAN :) 
+
+// what we need to give the transformEventStep:
+// 1. the event
+// 2. hogfunctionmanager (we will have this on the hub)
+// 3. HogExecutor ()
+
+// create a class that lives on the hub that then instantiates the HogExecutor, HogfunctionManager
+// then in the end we would put that in the hub and end up being hub.HogTransformer.transformEvent(event)
+
+// wihtin the class we would create the invocations, run the transformation and return the event
+// encapuslate the 'build in' transformationsFn in the class
+// the transformEvent also takes care of 'building' the new returned event with only overrwriting or extending the properties of the event that we want
+
+// write proper tests (unit and integration)
+
+  // TODO we need logs and these things and we do not want them to block the main thread so avoid async if possible
+ // TODO logs and metrics should be published to a list of promises and then await the whole promise batch
+
+export async function transformEventStep(hub: Hub, event: PluginEvent): Promise<PluginEvent> {
     // Check if transformations are enabled via env variable
     if (!hub.HOG_TRANSFORMATIONS_ALPHA) {
         return event
     }
+
+    // return hub.HogTransformer.transformEvent(event)
 
     const transformationFunctions = {
         geoipLookup: (ipAddress: unknown) => {
@@ -29,17 +51,10 @@ export function transformEventStep(hub: Hub, event: PluginEvent): PluginEvent {
         },
     }
 
-    // TODO we need logs and these things and we do not want them to block the main thread so avoid async if possible
-    // TODO logs and metrics should be published to a list of promises and then await the whole promise batch
     // TODO e.g. like produceQueuedMessages in cdp-consumers.ts
     return runInstrumentedFunction({
         statsKey: `transformEventStep`,
         func: () => {
-            const team = await hub.teamManager.fetchTeam(event.team_id)
-            if (!team) {
-                return event
-            }
-
             // TODO get it from db (this needs to come from the HogFunctionManager,
             // TODO where the hell do i init this thing this needs to be in the hub)
             const hogFunction: HogFunctionType = {
@@ -107,7 +122,7 @@ export function transformEventStep(hub: Hub, event: PluginEvent): PluginEvent {
             })
 
             // TODO dont spread transformedEvent, be explicit about what is being set
-            const transformedEvent = result.invocation.globals.event
+            const transformedEvent = result.execResult.result // this is unknown so we need to type check it.
             return {
                 ...event,
                 ...transformedEvent,
