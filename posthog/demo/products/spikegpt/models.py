@@ -149,7 +149,7 @@ class SpikeGPTPerson(SimPerson):
                 self.active_client.capture("sent chat message", {"content": message["content"]})
             else:
                 with self.cluster.matrix.server_client.trace_ai(
-                    distinct_id=self.active_client.active_distinct_id, input_state={}
+                    distinct_id=self.active_client.active_distinct_id, input_state={"messages": conversation_so_far}
                 ) as (trace_id, set_trace_output):
                     # Chat generation
                     generation_time = len(message["content"]) / 25
@@ -159,8 +159,9 @@ class SpikeGPTPerson(SimPerson):
                         input=conversation_so_far,
                         output_content=message["content"],
                         latency=generation_time,
-                        trace_id=trace_id,
+                        trace_id=trace_id,  # type: ignore
                     )
+                    set_trace_output([*conversation_so_far, message])
                     # Memorizer, which determines what memories to save using tool calling
                     generation_time = len(message["content"]) / 37
                     self.advance_timer(1 + generation_time)
