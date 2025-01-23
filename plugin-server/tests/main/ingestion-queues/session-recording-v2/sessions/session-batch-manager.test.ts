@@ -1,10 +1,10 @@
 import { KafkaOffsetManager } from '../../../../../src/main/ingestion-queues/session-recording-v2/kafka/offset-manager'
 import { SessionBatchManager } from '../../../../../src/main/ingestion-queues/session-recording-v2/sessions/session-batch-manager'
-import { SessionBatchRecorder } from '../../../../../src/main/ingestion-queues/session-recording-v2/sessions/session-batch-recorder'
+import { SessionBatchRecorderInterface } from '../../../../../src/main/ingestion-queues/session-recording-v2/sessions/session-batch-recorder'
 
 jest.setTimeout(1000)
 
-const createMockBatch = (): jest.Mocked<SessionBatchRecorder> => {
+const createMockBatch = (): jest.Mocked<SessionBatchRecorderInterface> => {
     return {
         record: jest.fn(),
         flush: jest.fn().mockResolvedValue(undefined),
@@ -12,14 +12,14 @@ const createMockBatch = (): jest.Mocked<SessionBatchRecorder> => {
             return 0
         },
         discardPartition: jest.fn(),
-    } as unknown as jest.Mocked<SessionBatchRecorder>
+    } as unknown as jest.Mocked<SessionBatchRecorderInterface>
 }
 
 describe('SessionBatchManager', () => {
     let manager: SessionBatchManager
     let executionOrder: number[]
-    let createBatchMock: jest.Mock<SessionBatchRecorder>
-    let currentBatch: jest.Mocked<SessionBatchRecorder>
+    let createBatchMock: jest.Mock<SessionBatchRecorderInterface>
+    let currentBatch: jest.Mocked<SessionBatchRecorderInterface>
     let mockOffsetManager: jest.Mocked<KafkaOffsetManager>
 
     beforeEach(() => {
@@ -150,7 +150,7 @@ describe('SessionBatchManager', () => {
     })
 
     it('should create new batch on flush', async () => {
-        let firstBatch: SessionBatchRecorder | null = null
+        let firstBatch: SessionBatchRecorderInterface | null = null
 
         await manager.withBatch(async (batch) => {
             firstBatch = batch
@@ -176,15 +176,14 @@ describe('SessionBatchManager', () => {
     })
 
     describe('size-based flushing', () => {
-        it('should flush and commit when buffer is full', async () => {
-            const firstBatch = currentBatch
-            jest.spyOn(firstBatch, 'size', 'get').mockReturnValue(150)
+        it('should indicate flush needed when buffer is full', () => {
+            jest.spyOn(currentBatch, 'size', 'get').mockReturnValue(150)
+            expect(manager.shouldFlush()).toBe(true)
+        })
 
-            await manager.flushIfNeeded()
-
-            expect(firstBatch.flush).toHaveBeenCalled()
-            expect(mockOffsetManager.commit).toHaveBeenCalled()
-            expect(createBatchMock).toHaveBeenCalledTimes(2)
+        it('should not indicate flush needed when buffer is under limit', () => {
+            jest.spyOn(currentBatch, 'size', 'get').mockReturnValue(50)
+            expect(manager.shouldFlush()).toBe(false)
         })
     })
 
@@ -197,56 +196,36 @@ describe('SessionBatchManager', () => {
             jest.useRealTimers()
         })
 
-        it('should not flush when buffer is under limit and timeout not reached', async () => {
-            const firstBatch = currentBatch
-            jest.spyOn(firstBatch, 'size', 'get').mockReturnValue(50)
-
+        it('should not indicate flush needed when buffer is under limit and timeout not reached', () => {
+            jest.spyOn(currentBatch, 'size', 'get').mockReturnValue(50)
             jest.advanceTimersByTime(500) // Advance time by 500ms (less than timeout)
-            const flushPromise = manager.flushIfNeeded()
-            jest.runAllTimers()
-            await flushPromise
-
-            expect(firstBatch.flush).not.toHaveBeenCalled()
-            expect(mockOffsetManager.commit).not.toHaveBeenCalled()
-            expect(createBatchMock).toHaveBeenCalledTimes(1)
+            expect(manager.shouldFlush()).toBe(false)
         })
 
-        it('should flush when timeout is reached', async () => {
-            const firstBatch = currentBatch
-            jest.spyOn(firstBatch, 'size', 'get').mockReturnValue(50)
-
+        it('should indicate flush needed when timeout is reached', () => {
+            jest.spyOn(currentBatch, 'size', 'get').mockReturnValue(50)
             jest.advanceTimersByTime(1500) // Advance time by 1.5s (more than timeout)
-            const flushPromise = manager.flushIfNeeded()
-            jest.runAllTimers()
-            await flushPromise
-
-            expect(firstBatch.flush).toHaveBeenCalled()
-            expect(mockOffsetManager.commit).toHaveBeenCalled()
-            expect(createBatchMock).toHaveBeenCalledTimes(2)
+            expect(manager.shouldFlush()).toBe(true)
         })
 
-        it('should reset flush timer after flush', async () => {
+        it('should indicate flush needed when buffer is full', () => {
+            jest.spyOn(currentBatch, 'size', 'get').mockReturnValue(150)
+            expect(manager.shouldFlush()).toBe(true)
+        })
+
+        it('should not indicate flush needed immediately after flushing', async () => {
             const firstBatch = currentBatch
             jest.spyOn(firstBatch, 'size', 'get').mockReturnValue(50)
 
             // First flush due to timeout
             jest.advanceTimersByTime(1500)
-            const firstFlushPromise = manager.flushIfNeeded()
+            expect(manager.shouldFlush()).toBe(true)
+            const firstFlushPromise = manager.flush()
             jest.runAllTimers()
             await firstFlushPromise
             expect(firstBatch.flush).toHaveBeenCalled()
 
-            const secondBatch = currentBatch
-            jest.spyOn(secondBatch, 'size', 'get').mockReturnValue(50)
-
-            // Advance less than timeout from last flush
-            jest.advanceTimersByTime(500)
-            const secondFlushPromise = manager.flushIfNeeded()
-            jest.runAllTimers()
-            await secondFlushPromise
-
-            expect(secondBatch.flush).not.toHaveBeenCalled()
-            expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
+            expect(manager.shouldFlush()).toBe(false)
         })
     })
 
