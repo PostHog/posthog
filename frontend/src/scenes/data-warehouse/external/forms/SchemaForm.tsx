@@ -43,6 +43,15 @@ export default function SchemaForm(): JSX.Element {
                                 },
                             },
                             {
+                                title: 'Rows',
+                                key: 'rows',
+                                isHidden: !databaseSchema.some((schema) => schema.rows),
+                                render: (_, schema) => {
+                                    return schema.rows != null ? schema.rows : 'Unknown'
+                                },
+                            },
+
+                            {
                                 key: 'sync_type',
                                 title: 'Sync method',
                                 align: 'right',

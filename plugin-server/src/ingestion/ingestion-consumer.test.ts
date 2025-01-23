@@ -71,6 +71,7 @@ describe('IngestionConsumer', () => {
     let hub: Hub
     let team: Team
     let team2: Team
+    let fixedTime: DateTime
 
     const createEvent = (event?: Partial<PipelineEvent>): PipelineEvent => ({
         distinct_id: 'user-1',
@@ -78,7 +79,7 @@ describe('IngestionConsumer', () => {
         token: team.api_token,
         ip: '127.0.0.1',
         site_url: 'us.posthog.com',
-        now: DateTime.now().toISO(),
+        now: fixedTime.toISO()!,
         event: '$pageview',
         properties: {
             $current_url: 'http://localhost:8000',
@@ -87,8 +88,8 @@ describe('IngestionConsumer', () => {
     })
 
     beforeEach(async () => {
-        const fixedDateTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
-        jest.spyOn(Date, 'now').mockReturnValue(fixedDateTime.toMillis())
+        fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
+        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
 
         offsetIncrementer = 0
         await resetTestDatabase()
@@ -206,7 +207,6 @@ describe('IngestionConsumer', () => {
             })
 
             const expectDropLogs = (pairs: [string, string | undefined][]) => {
-                expect(jest.mocked(status.debug)).toHaveBeenCalledTimes(pairs.length)
                 for (const [token, distinctId] of pairs) {
                     expect(jest.mocked(status.debug)).toHaveBeenCalledWith('🔁', 'Dropped event', {
                         distinctId,

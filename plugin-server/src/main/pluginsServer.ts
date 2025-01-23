@@ -493,15 +493,19 @@ export async function startPluginsServer(
         }
 
         if (capabilities.sessionRecordingBlobIngestionV2) {
+            const hub = await setupHub()
+            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
             const batchConsumerFactory = new DefaultBatchConsumerFactory(serverConfig)
-            const ingester = new SessionRecordingIngesterV2(serverConfig, false, batchConsumerFactory)
+            const ingester = new SessionRecordingIngesterV2(serverConfig, false, postgres, batchConsumerFactory)
             await ingester.start()
             services.push(ingester.service)
         }
 
         if (capabilities.sessionRecordingBlobIngestionV2Overflow) {
+            const hub = await setupHub()
+            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
             const batchConsumerFactory = new DefaultBatchConsumerFactory(serverConfig)
-            const ingester = new SessionRecordingIngesterV2(serverConfig, true, batchConsumerFactory)
+            const ingester = new SessionRecordingIngesterV2(serverConfig, true, postgres, batchConsumerFactory)
             await ingester.start()
             services.push(ingester.service)
         }

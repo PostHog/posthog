@@ -143,7 +143,6 @@ export class IngestionConsumer {
     }
 
     public async processBatch(groupedIncomingEvents: GroupedIncomingEvents): Promise<void> {
-        // TODO: Investigate if we can process batches in parallel
         try {
             await this.runManyWithHeartbeat(Object.values(groupedIncomingEvents), async (eventsForDistinctId) => {
                 // Process every message sequentially, stash promises to await on later
@@ -162,6 +161,9 @@ export class IngestionConsumer {
                     // Check the rate limiter and emit to overflow if necessary
                     const isBelowRateLimit = this.overflowRateLimiter.consume(eventKey, 1, message.timestamp)
                     if (this.overflowEnabled() && !isBelowRateLimit) {
+                        status.debug('🔁', `Sending to overflow`, {
+                            event,
+                        })
                         ingestionPartitionKeyOverflowed.labels(`${event.team_id ?? event.token}`).inc()
                         if (this.ingestionWarningLimiter.consume(eventKey, 1)) {
                             status.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)

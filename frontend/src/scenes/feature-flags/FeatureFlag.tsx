@@ -5,6 +5,8 @@ import { LemonDialog, LemonSegmentedButton, LemonSkeleton, LemonSwitch } from '@
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { router } from 'kea-router'
+import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -46,6 +48,7 @@ import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
 import {
+    AccessControlResourceType,
     ActivityScope,
     AnyPropertyFilter,
     AvailableFeature,
@@ -511,18 +514,24 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             overlay={
                                                 <>
                                                     {featureFlags[FEATURE_FLAGS.FEATURE_FLAG_COHORT_CREATION] && (
-                                                        <LemonButton
-                                                            loading={newCohortLoading}
-                                                            onClick={() => {
-                                                                createStaticCohort()
-                                                            }}
-                                                            fullWidth
-                                                        >
-                                                            Create Cohort
-                                                        </LemonButton>
+                                                        <>
+                                                            <LemonButton
+                                                                loading={newCohortLoading}
+                                                                onClick={() => {
+                                                                    createStaticCohort()
+                                                                }}
+                                                                fullWidth
+                                                            >
+                                                                Create Cohort
+                                                            </LemonButton>
+                                                            <LemonDivider />
+                                                        </>
                                                     )}
-                                                    <LemonDivider />
-                                                    <LemonButton
+
+                                                    <AccessControlledLemonButton
+                                                        userAccessLevel={featureFlag.user_access_level}
+                                                        minAccessLevel="editor"
+                                                        resourceType={AccessControlResourceType.FeatureFlag}
                                                         data-attr={
                                                             featureFlag.deleted
                                                                 ? 'restore-feature-flag'
@@ -545,13 +554,14 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                                 : null
                                                         }
                                                     >
-                                                        <span>{featureFlag.deleted ? 'Restore' : 'Delete'}</span>{' '}
-                                                        <span>feature flag</span>
-                                                    </LemonButton>
+                                                        {featureFlag.deleted ? 'Restore' : 'Delete'} feature flag
+                                                    </AccessControlledLemonButton>
                                                 </>
                                             }
                                         />
+
                                         <LemonDivider vertical />
+
                                         <NotebookSelectButton
                                             resource={{
                                                 type: NotebookNodeType.FeatureFlag,
@@ -559,7 +569,11 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             }}
                                             type="secondary"
                                         />
-                                        <LemonButton
+
+                                        <AccessControlledLemonButton
+                                            userAccessLevel={featureFlag.user_access_level}
+                                            minAccessLevel="editor"
+                                            resourceType={AccessControlResourceType.FeatureFlag}
                                             data-attr="edit-feature-flag"
                                             type="secondary"
                                             disabledReason={
@@ -574,7 +588,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             }}
                                         >
                                             Edit
-                                        </LemonButton>
+                                        </AccessControlledLemonButton>
                                     </div>
                                 </>
                             }
@@ -769,39 +783,57 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                     </LemonTag>
                                 ) : (
                                     <div className="flex gap-2">
-                                        <LemonSwitch
-                                            onChange={(newValue) => {
-                                                LemonDialog.open({
-                                                    title: `${newValue === true ? 'Enable' : 'Disable'} this flag?`,
-                                                    description: `This flag will be immediately ${
-                                                        newValue === true ? 'rolled out to' : 'rolled back from'
-                                                    } the users matching the release conditions.`,
-                                                    primaryButton: {
-                                                        children: 'Confirm',
-                                                        type: 'primary',
-                                                        onClick: () => {
-                                                            const updatedFlag = { ...featureFlag, active: newValue }
-                                                            setFeatureFlag(updatedFlag)
-                                                            saveFeatureFlag(updatedFlag)
-                                                        },
-                                                        size: 'small',
-                                                    },
-                                                    secondaryButton: {
-                                                        children: 'Cancel',
-                                                        type: 'tertiary',
-                                                        size: 'small',
-                                                    },
-                                                })
-                                            }}
-                                            label="Enabled"
-                                            disabledReason={
-                                                !featureFlag.can_edit
-                                                    ? "You only have view access to this feature flag. To make changes, contact the flag's creator."
-                                                    : null
-                                            }
-                                            checked={featureFlag.active}
-                                        />
-                                        <FeatureFlagStatusIndicator flagStatus={flagStatus} />
+                                        <AccessControlAction
+                                            userAccessLevel={featureFlag.user_access_level}
+                                            minAccessLevel="editor"
+                                            resourceType={AccessControlResourceType.FeatureFlag}
+                                        >
+                                            {({ disabledReason: accessControlDisabledReason }) => (
+                                                <>
+                                                    <LemonSwitch
+                                                        onChange={(newValue) => {
+                                                            LemonDialog.open({
+                                                                title: `${
+                                                                    newValue === true ? 'Enable' : 'Disable'
+                                                                } this flag?`,
+                                                                description: `This flag will be immediately ${
+                                                                    newValue === true
+                                                                        ? 'rolled out to'
+                                                                        : 'rolled back from'
+                                                                } the users matching the release conditions.`,
+                                                                primaryButton: {
+                                                                    children: 'Confirm',
+                                                                    type: 'primary',
+                                                                    onClick: () => {
+                                                                        const updatedFlag = {
+                                                                            ...featureFlag,
+                                                                            active: newValue,
+                                                                        }
+                                                                        setFeatureFlag(updatedFlag)
+                                                                        saveFeatureFlag(updatedFlag)
+                                                                    },
+                                                                    size: 'small',
+                                                                },
+                                                                secondaryButton: {
+                                                                    children: 'Cancel',
+                                                                    type: 'tertiary',
+                                                                    size: 'small',
+                                                                },
+                                                            })
+                                                        }}
+                                                        label="Enabled"
+                                                        disabledReason={
+                                                            accessControlDisabledReason ||
+                                                            (!featureFlag.can_edit
+                                                                ? "You only have view access to this feature flag. To make changes, contact the flag's creator."
+                                                                : null)
+                                                        }
+                                                        checked={featureFlag.active}
+                                                    />
+                                                    <FeatureFlagStatusIndicator flagStatus={flagStatus} />
+                                                </>
+                                            )}
+                                        </AccessControlAction>
                                     </div>
                                 )}
                             </div>
