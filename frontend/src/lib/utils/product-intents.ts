@@ -16,7 +16,7 @@ export enum ProductIntentContext {
     // Feature Flags
     FEATURE_FLAG_CREATED = 'feature flag created',
 
-    // CROSS SELLS
+    // Cross Sells
     TAXONOMIC_FILTER_EMPTY_STATE = 'taxonomic filter empty state',
 }
 
