@@ -1,4 +1,3 @@
-import { TZLabel } from '@posthog/apps-common'
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDivider, LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
@@ -6,6 +5,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { FeedbackNotice } from 'lib/components/FeedbackNotice'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Sparkline } from 'lib/components/Sparkline'
+import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { humanFriendlyLargeNumber } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -53,13 +53,15 @@ export function ErrorTrackingScene(): JSX.Element {
         },
         showOpenEditorButton: false,
         insightProps: insightProps,
+        emptyStateHeading: 'No issues found',
+        emptyStateDetail: 'Try changing the date range, changing the filters or removing the assignee.',
     }
 
     return (
         <AlphaAccessScenePrompt>
             <BindLogic logic={errorTrackingDataNodeLogic} props={{ query, key: insightVizDataNodeKey(insightProps) }}>
                 <Header />
-                <FeedbackNotice text="Error tracking is in closed alpha. Thanks for taking part! We'd love to hear what you think." />
+                <FeedbackNotice text="Error tracking is currently in beta. Thanks for taking part! We'd love to hear what you think." />
                 <ErrorTrackingFilters.FilterGroup>
                     <ErrorTrackingFilters.UniversalSearch />
                 </ErrorTrackingFilters.FilterGroup>

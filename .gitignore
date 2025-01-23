@@ -56,8 +56,8 @@ gen/
 # Local files generated for the ANTLR VS Code extension (https://github.com/mike-lischke/vscode-antlr4)
 .antlr
 upgrade/
-hogvm/typescript/dist
-hogvm/typescript/.parcel-cache
+common/hogvm/typescript/dist
+common/hogvm/typescript/.parcel-cache
 .wokeignore
 common/plugin_transpiler/dist
 *-esbuild-meta.json

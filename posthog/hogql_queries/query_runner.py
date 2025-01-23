@@ -241,7 +241,7 @@ def get_query_runner(
             limit_context=limit_context,
             modifiers=modifiers,
         )
-    if kind == "InsightActorsQuery" or kind == "FunnelsActorsQuery" or kind == "FunnelCorrelationActorsQuery":
+    if kind in ("InsightActorsQuery", "FunnelsActorsQuery", "FunnelCorrelationActorsQuery", "StickinessActorsQuery"):
         from .insights.insight_actors_query_runner import InsightActorsQueryRunner
 
         return InsightActorsQueryRunner(
@@ -822,6 +822,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 self.query.dateRange = DateRange()
             self.query.dateRange.date_from = dashboard_filter.date_from
             self.query.dateRange.date_to = dashboard_filter.date_to
+
+        if dashboard_filter.breakdown_filter:
+            if hasattr(self.query, "breakdownFilter"):
+                self.query.breakdownFilter = dashboard_filter.breakdown_filter
+            else:
+                capture_exception(
+                    NotImplementedError(
+                        f"{self.query.__class__.__name__} does not support breakdown filters out of the box"
+                    )
+                )
 
 
 ### START OF BACKWARDS COMPATIBILITY CODE

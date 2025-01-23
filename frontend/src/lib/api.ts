@@ -2461,6 +2461,9 @@ const api = {
         async delete(viewId: DataWarehouseViewLink['id']): Promise<void> {
             await new ApiRequest().dataWarehouseViewLink(viewId).delete()
         },
+        determineDeleteEndpoint(): string {
+            return new ApiRequest().dataWarehouseViewLinks().assembleEndpointUrl()
+        },
         async update(
             viewId: DataWarehouseViewLink['id'],
             data: Pick<

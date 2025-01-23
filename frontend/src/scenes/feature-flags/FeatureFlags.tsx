@@ -2,6 +2,7 @@ import { IconLock } from '@posthog/icons'
 import { LemonDialog, LemonInput, LemonSelect, LemonTag, lemonToast } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { FeatureFlagHog } from 'lib/components/hedgehogs'
 import { MemberSelect } from 'lib/components/MemberSelect'
@@ -27,7 +28,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { groupsModel, Noun } from '~/models/groupsModel'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { ProductKey } from '~/types'
+import { AccessControlResourceType, ProductKey } from '~/types'
 import {
     ActivityScope,
     AnyPropertyFilter,
@@ -185,7 +186,11 @@ export function OverViewTab({
                                 >
                                     Copy feature flag key
                                 </LemonButton>
-                                <LemonButton
+
+                                <AccessControlledLemonButton
+                                    userAccessLevel={featureFlag.user_access_level}
+                                    minAccessLevel="editor"
+                                    resourceType={AccessControlResourceType.FeatureFlag}
                                     data-attr={`feature-flag-${featureFlag.key}-switch`}
                                     onClick={() => {
                                         const newValue = !featureFlag.active
@@ -215,13 +220,16 @@ export function OverViewTab({
                                         })
                                     }}
                                     id={`feature-flag-${featureFlag.id}-switch`}
-                                    disabled={!featureFlag.can_edit}
                                     fullWidth
                                 >
                                     {featureFlag.active ? 'Disable' : 'Enable'} feature flag
-                                </LemonButton>
+                                </AccessControlledLemonButton>
+
                                 {featureFlag.id && (
-                                    <LemonButton
+                                    <AccessControlledLemonButton
+                                        userAccessLevel={featureFlag.user_access_level}
+                                        minAccessLevel="editor"
+                                        resourceType={AccessControlResourceType.FeatureFlag}
                                         fullWidth
                                         disabled={!featureFlag.can_edit}
                                         onClick={() =>
@@ -229,14 +237,20 @@ export function OverViewTab({
                                         }
                                     >
                                         Edit
-                                    </LemonButton>
+                                    </AccessControlledLemonButton>
                                 )}
+
                                 <LemonButton to={tryInInsightsUrl(featureFlag)} data-attr="usage" fullWidth>
                                     Try out in Insights
                                 </LemonButton>
+
                                 <LemonDivider />
+
                                 {featureFlag.id && (
-                                    <LemonButton
+                                    <AccessControlledLemonButton
+                                        userAccessLevel={featureFlag.user_access_level}
+                                        minAccessLevel="editor"
+                                        resourceType={AccessControlResourceType.FeatureFlag}
                                         status="danger"
                                         onClick={() => {
                                             void deleteWithUndo({
@@ -259,7 +273,7 @@ export function OverViewTab({
                                         fullWidth
                                     >
                                         Delete feature flag
-                                    </LemonButton>
+                                    </AccessControlledLemonButton>
                                 )}
                             </>
                         }

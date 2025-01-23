@@ -1,8 +1,8 @@
-import { TZLabel } from '@posthog/apps-common'
 import { IconCheck, IconEllipsis, IconPencil, IconShare } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonTextAreaMarkdown, ProfilePicture } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { useEffect, useRef } from 'react'
 
@@ -32,7 +32,7 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
     return (
         <div
             ref={ref}
-            className={clsx('Comment border rounded-lg bg-bg-light', isHighlighted && 'border-primary-3000')}
+            className={clsx('Comment border rounded-lg bg-bg-light', isHighlighted && 'border-accent-primary')}
             data-comment-id={comment.id}
         >
             <div className="flex-1 flex justify-start p-2 gap-2">
