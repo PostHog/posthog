@@ -226,6 +226,7 @@ def _use_person_id_from_person_overrides(database: Database) -> None:
             "if(not(empty(override.distinct_id)), override.person_id, event_person_id)",
             start=None,
         ),
+        isolate_scope=True,
     )
 
 
