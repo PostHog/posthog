@@ -3,6 +3,7 @@ import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
+import { KAFKA_INGESTION_WARNINGS } from '~/src/config/kafka-topics'
 import { processAiEvent } from '~/src/utils/ai-cost-data/process-ai-event'
 
 import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
@@ -70,14 +71,39 @@ export class EventPipelineRunnerV2 {
         return this.promises
     }
 
-    private captureIngestionWarning(warning: string, details: Record<string, any> = {}): void {
+    private captureIngestionWarning(warning: string, _details: Record<string, any> = {}): void {
+        // NOTE: There is a shared util for this but it is only used by ingestion so keeping it here now
+        const details = {
+            eventUuid: typeof this.event.uuid !== 'string' ? JSON.stringify(this.event.uuid) : this.event.uuid,
+            event: this.event.event,
+            distinctId: this.event.distinct_id,
+            ..._details,
+        }
+        // TODO: Add back in ingestion warning limiter perhaps
         this.promises.push(
-            captureIngestionWarning(this.hub.kafkaProducer, this.team!.id, warning, {
-                eventUuid: typeof this.event.uuid !== 'string' ? JSON.stringify(this.event.uuid) : this.event.uuid,
-                event: this.event.event,
-                distinctId: this.event.distinct_id,
-                ...details,
-            })
+            this.hub.kafkaProducer
+                .queueMessages({
+                    topic: KAFKA_INGESTION_WARNINGS,
+                    messages: [
+                        {
+                            value: JSON.stringify({
+                                team_id: this.team?.id,
+                                type: warning,
+                                source: 'plugin-server',
+                                details: JSON.stringify(details),
+                                timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
+                            }),
+                        },
+                    ],
+                })
+                .catch((error) => {
+                    status.warn('⚠️', 'Failed to produce ingestion warning', {
+                        error,
+                        team_id: this.team?.id,
+                        type: warning,
+                        details,
+                    })
+                })
         )
     }
 
@@ -175,7 +201,7 @@ export class EventPipelineRunnerV2 {
     private validateUuid(): void {
         // Check for an invalid UUID, which should be blocked by capture, when team_id is present
         if (!UUID.validateString(this.event.uuid, false)) {
-            throw new EventDroppedError('dropping_event_invalid_uuid', {
+            throw new EventDroppedError('invalid_event_uuid', {
                 message: `Not a valid UUID: "${this.event.uuid}"`,
             })
         }
