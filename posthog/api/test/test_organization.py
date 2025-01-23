@@ -270,15 +270,17 @@ class TestOrganizationRbacMigrations(APIBaseTest):
 
         feature_flag_access = FeatureFlagRoleAccess.objects.first()
         self.assertIsNotNone(feature_flag_access)
-        self.assertEqual(feature_flag_access.role.id, self.admin_role.id)
-        self.assertEqual(feature_flag_access.feature_flag.id, feature_flag.id)
+        if feature_flag_access:  # Type narrowing for the type checker
+            self.assertEqual(feature_flag_access.role.id, self.admin_role.id)
+            self.assertEqual(feature_flag_access.feature_flag.id, feature_flag.id)
 
         access_control = AccessControl.objects.first()
         self.assertIsNotNone(access_control)
-        self.assertEqual(access_control.access_level, "editor")
-        self.assertEqual(access_control.role.id, self.admin_role.id)
-        self.assertEqual(access_control.resource, "feature_flag")
-        self.assertEqual(access_control.resource_id, str(feature_flag.id))
+        if access_control:  # Type narrowing for the type checker
+            self.assertEqual(access_control.access_level, "editor")
+            self.assertEqual(access_control.role.id, self.admin_role.id)
+            self.assertEqual(access_control.resource, "feature_flag")
+            self.assertEqual(access_control.resource_id, str(feature_flag.id))
 
     def test_migrate_feature_flags_rbac_as_member_without_permissions(self):
         self.client.force_login(self.member_user)
