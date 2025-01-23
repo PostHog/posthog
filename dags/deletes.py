@@ -30,7 +30,7 @@ def get_versioned_names(run_id: str) -> dict[str, str]:
 
 
 @asset
-def create_pending_deletes_table(context: AssetExecutionContext, config: DeleteConfig):
+def create_pending_deletes_table(context: AssetExecutionContext, config: DeleteConfig) -> dict[str, str]:
     """Create a merge tree table in ClickHouse to store pending deletes."""
     names = get_versioned_names(config.run_id)
     sync_execute(
@@ -50,7 +50,9 @@ def create_pending_deletes_table(context: AssetExecutionContext, config: DeleteC
 
 
 @asset(deps=[create_pending_deletes_table])
-def pending_person_deletions(context: AssetExecutionContext, config: DeleteConfig, create_pending_deletes_table) -> int:
+def pending_person_deletions(
+    context: AssetExecutionContext, config: DeleteConfig, create_pending_deletes_table: dict[str, str]
+) -> int:
     """Query postgres using django ORM to get pending person deletions and insert directly into ClickHouse."""
 
     if not config.team_id:
@@ -123,7 +125,7 @@ def pending_person_deletions(context: AssetExecutionContext, config: DeleteConfi
 
 
 @asset(deps=[pending_person_deletions])
-def create_pending_deletes_dictionary(context: AssetExecutionContext, config: DeleteConfig, pending_person_deletions):
+def create_pending_deletes_dictionary(config: DeleteConfig) -> dict[str, str]:
     """Create a dictionary table that wraps pending_person_deletes for efficient lookups."""
     names = get_versioned_names(config.run_id)
     sync_execute(
@@ -148,15 +150,14 @@ def create_pending_deletes_dictionary(context: AssetExecutionContext, config: De
 
 
 @asset(deps=[create_pending_deletes_dictionary])
-def delete_person_events(context: AssetExecutionContext, config: DeleteConfig, create_pending_deletes_dictionary):
+def delete_person_events(context: AssetExecutionContext, create_pending_deletes_dictionary: dict[str, str]) -> int:
     """Delete events from sharded_events table for persons pending deletion."""
 
     # First check if there are any pending deletes
-    names = get_versioned_names(config.run_id)
     count_result = sync_execute(
         f"""
         SELECT count()
-        FROM {names["dictionary"]}
+        FROM {create_pending_deletes_dictionary["dictionary_name"]}
         """
     )[0][0]
 
@@ -171,7 +172,7 @@ def delete_person_events(context: AssetExecutionContext, config: DeleteConfig, c
         ALTER TABLE sharded_events ON CLUSTER '{CLICKHOUSE_CLUSTER}'
         DELETE WHERE (team_id, person_id) IN (
             SELECT team_id, person_id
-            FROM {names["dictionary"]}
+            FROM {create_pending_deletes_dictionary["dictionary_name"]}
         )
         """,
         settings={
@@ -191,21 +192,23 @@ def delete_person_events(context: AssetExecutionContext, config: DeleteConfig, c
 
 
 @asset(deps=[delete_person_events])
-def cleanup_delete_assets(context: AssetExecutionContext, config: DeleteConfig, delete_person_events):
+def cleanup_delete_assets(
+    config: DeleteConfig,
+    create_pending_deletes_dictionary: dict[str, str],
+    create_pending_deletes_table: dict[str, str],
+) -> bool:
     """Clean up temporary tables, dictionary, and mark deletions as verified."""
-    names = get_versioned_names(config.run_id)
-
     # Drop the dictionary
     sync_execute(
         f"""
-        DROP DICTIONARY IF EXISTS {names["dictionary"]} ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+        DROP DICTIONARY IF EXISTS {create_pending_deletes_dictionary["dictionary_name"]} ON CLUSTER '{CLICKHOUSE_CLUSTER}'
         """
     )
 
     # Drop the table
     sync_execute(
         f"""
-        DROP TABLE IF EXISTS {names["table"]} ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+        DROP TABLE IF EXISTS {create_pending_deletes_table["table_name"]} ON CLUSTER '{CLICKHOUSE_CLUSTER}'
         """
     )
 
