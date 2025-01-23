@@ -3,7 +3,7 @@ import type { PluginEvent } from '@posthog/plugin-scaffold'
 import { CookielessServerHashMode, Hub } from '../../../src/types'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
-import { deepFreeze, UUID7 } from '../../../src/utils/utils'
+import { UUID7 } from '../../../src/utils/utils'
 import {
     bufferToSessionState,
     COOKIELESS_MODE_FLAG_PROPERTY,
@@ -13,6 +13,7 @@ import {
     toYYYYMMDDInTimezoneSafe,
 } from '../../../src/worker/ingestion/event-pipeline/cookielessServerHashStep'
 import { createOrganization, createTeam } from '../../helpers/sql'
+import { deepFreeze } from '../../testUtils'
 
 describe('cookielessServerHashStep', () => {
     describe('sessionStateToBuffer', () => {
