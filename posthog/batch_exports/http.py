@@ -245,6 +245,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "latest_runs",
             "hogql_query",
             "schema",
+            "filters",
         ]
         read_only_fields = ["id", "team_id", "created_at", "last_updated_at", "latest_runs", "schema"]
 
