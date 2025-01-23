@@ -228,9 +228,7 @@ RUN cp ./bin/docker-server-unit ./bin/docker-server
 ENV NODE_ENV=production \
     CHROME_BIN=/usr/bin/chromium \
     CHROME_PATH=/usr/lib/chromium/ \
-    CHROMEDRIVER_BIN=/usr/bin/chromedriver \
-    CLOUD_DEPLOYMENT=dev \
-    BILLING_SERVICE_URL=https://billing.dev.posthog.dev
+    CHROMEDRIVER_BIN=/usr/bin/chromedriver
 
 # Expose container port and run entry point script.
 EXPOSE 8000
