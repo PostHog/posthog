@@ -402,7 +402,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
         ],
     })),
-    reducers(({ props }) => ({
+    reducers(({ props, key }) => ({
         unusableEventsInFilter: [
             [] as string[],
             {
@@ -415,7 +415,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
         filters: [
             props.filters ?? getDefaultFilters(props.personUUID),
-            { persist: true, prefix: `${getCurrentTeamId()}__` },
+            { persist: true, prefix: `${getCurrentTeamId()}__${key}` },
             {
                 setFilters: (state, { filters }) => {
                     return {
