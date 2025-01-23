@@ -1,20 +1,14 @@
 import { DateTime } from 'luxon'
-import { Message } from 'node-rdkafka'
 
-import { KAFKA_INGESTION_WARNINGS } from '~/src/config/kafka-topics'
+import { KAFKA_EVENTS_JSON, KAFKA_INGESTION_WARNINGS } from '~/src/config/kafka-topics'
 import { UUIDT } from '~/src/utils/utils'
-import {
-    getProducedKafkaMessages,
-    getProducedKafkaMessagesForTopic,
-    mockProducer,
-} from '~/tests/helpers/mocks/producer.mock'
+import { getProducedKafkaMessagesForTopic, mockProducer } from '~/tests/helpers/mocks/producer.mock'
 import { forSnapshot } from '~/tests/helpers/snapshots'
-import { createTeam, getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, PipelineEvent, Team } from '../../../src/types'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
-import { status } from '../../../src/utils/status'
-import { EventDroppedError, EventPipelineRunnerV2 } from './event-pipeline-runner'
+import { EventPipelineRunnerV2 } from './event-pipeline-runner'
 
 describe('EventPipelineRunner', () => {
     let hub: Hub
@@ -36,7 +30,10 @@ describe('EventPipelineRunner', () => {
     })
 
     const createRunner = (event?: Partial<PipelineEvent>) => {
-        return new EventPipelineRunnerV2(hub, createEvent(event))
+        const runner = new EventPipelineRunnerV2(hub, createEvent(event))
+        jest.spyOn(runner as any, 'captureIngestionWarning')
+        jest.spyOn(runner as any, 'dropEvent')
+        return runner
     }
 
     beforeEach(async () => {
@@ -58,11 +55,50 @@ describe('EventPipelineRunner', () => {
         jest.useRealTimers()
     })
 
+    describe('team resolution', () => {
+        it('should drop events without a found token', async () => {
+            const runner = createRunner({
+                token: 'not-found',
+            })
+            await runner.run()
+
+            expect(jest.mocked(runner['dropEvent'])).toHaveBeenCalledWith('invalid_token')
+            expect(getProducedKafkaMessagesForTopic(KAFKA_EVENTS_JSON)).toHaveLength(0)
+        })
+
+        it('should drop events without a found token', async () => {
+            const runner = createRunner({
+                team_id: 9999,
+            })
+            await runner.run()
+            expect(jest.mocked(runner['dropEvent'])).toHaveBeenCalledWith('invalid_token')
+            expect(getProducedKafkaMessagesForTopic(KAFKA_EVENTS_JSON)).toHaveLength(0)
+        })
+
+        it('should not drop events with a valid token', async () => {
+            const runner = createRunner({
+                token: team.api_token,
+            })
+            await runner.run()
+            expect(jest.mocked(runner['captureIngestionWarning'])).toHaveBeenCalledTimes(0)
+            expect(getProducedKafkaMessagesForTopic(KAFKA_EVENTS_JSON)).toHaveLength(1)
+        })
+
+        it('should not drop events with a valid team_id', async () => {
+            const runner = createRunner({
+                token: '',
+                team_id: team.id,
+            })
+            await runner.run()
+            expect(jest.mocked(runner['captureIngestionWarning'])).toHaveBeenCalledTimes(0)
+            expect(getProducedKafkaMessagesForTopic(KAFKA_EVENTS_JSON)).toHaveLength(1)
+        })
+    })
+
     describe('error handling and ingestion warnings', () => {
         it('should rethrow unhandled errors', async () => {
             const runner = createRunner()
             jest.spyOn(runner as any, 'getTeam').mockRejectedValue(new Error('test'))
-            jest.spyOn(runner as any, 'captureIngestionWarning')
             await expect(runner.run()).rejects.toThrow()
             expect(jest.mocked(runner['captureIngestionWarning'])).toHaveBeenCalledTimes(0)
         })
@@ -74,8 +110,6 @@ describe('EventPipelineRunner', () => {
                     $$client_ingestion_warning_message: 'the message',
                 },
             })
-            jest.spyOn(runner as any, 'captureIngestionWarning')
-
             await runner.run()
             expect(jest.mocked(runner['captureIngestionWarning'])).toHaveBeenCalledTimes(1)
             expect(forSnapshot(getProducedKafkaMessagesForTopic(KAFKA_INGESTION_WARNINGS))).toMatchObject([
@@ -94,7 +128,6 @@ describe('EventPipelineRunner', () => {
             const runner = createRunner({
                 uuid: 'bad-uuid',
             })
-            jest.spyOn(runner as any, 'captureIngestionWarning')
 
             await expect(runner.run()).rejects.toThrow()
             expect(jest.mocked(runner['captureIngestionWarning'])).toHaveBeenCalledTimes(1)
@@ -117,7 +150,6 @@ describe('EventPipelineRunner', () => {
                     properties: { $process_person_profile: false },
                     event: eventName,
                 })
-                jest.spyOn(runner as any, 'captureIngestionWarning')
 
                 await expect(() => runner.run()).rejects.toThrow()
                 expect(jest.mocked(runner['captureIngestionWarning'])).toHaveBeenCalledTimes(1)
@@ -138,373 +170,5 @@ describe('EventPipelineRunner', () => {
         )
     })
 
-    // describe('general', () => {
-    //     beforeEach(async () => {
-    //         ingester = new IngestionConsumer(hub)
-    //         await ingester.start()
-    //     })
-
-    //     it('should have the correct config', () => {
-    //         expect(ingester['name']).toMatchInlineSnapshot(`"ingestion-consumer-events_plugin_ingestion_test"`)
-    //         expect(ingester['groupId']).toMatchInlineSnapshot(`"events-ingestion-consumer"`)
-    //         expect(ingester['topic']).toMatchInlineSnapshot(`"events_plugin_ingestion_test"`)
-    //         expect(ingester['dlqTopic']).toMatchInlineSnapshot(`"events_plugin_ingestion_dlq_test"`)
-    //         expect(ingester['overflowTopic']).toMatchInlineSnapshot(`"events_plugin_ingestion_overflow_test"`)
-    //     })
-
-    //     it('should process a standard event', async () => {
-    //         await ingester.handleKafkaBatch(createKafkaMessages([createEvent()]))
-
-    //         expect(forSnapshot(getProducedKafkaMessages())).toMatchSnapshot()
-    //     })
-
-    //     describe('overflow', () => {
-    //         const now = () => DateTime.now().toMillis()
-    //         beforeEach(() => {
-    //             // Just to make it easy to see what is configured
-    //             expect(hub.EVENT_OVERFLOW_BUCKET_CAPACITY).toEqual(1000)
-    //         })
-
-    //         it('should emit to overflow if token and distinct_id are overflowed', async () => {
-    //             ingester['overflowRateLimiter'].consume(`${team.api_token}:overflow-distinct-id`, 1000, now())
-    //             const overflowMessages = createKafkaMessages([createEvent({ distinct_id: 'overflow-distinct-id' })])
-    //             await ingester.handleKafkaBatch(overflowMessages)
-    //             expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
-    //             expect(getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')).toHaveLength(1)
-    //             expect(
-    //                 forSnapshot(getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test'))
-    //             ).toMatchSnapshot()
-    //         })
-
-    //         it('should allow some events to pass', async () => {
-    //             const manyOverflowedMessages = createKafkaMessages([
-    //                 createEvent({ distinct_id: 'overflow-distinct-id' }),
-    //                 createEvent({ distinct_id: 'overflow-distinct-id' }),
-    //                 createEvent({ distinct_id: 'overflow-distinct-id' }),
-    //             ])
-    //             ingester['overflowRateLimiter'].consume(`${team.api_token}:overflow-distinct-id`, 999, now())
-    //             await ingester.handleKafkaBatch(manyOverflowedMessages)
-    //             expect(getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')).toHaveLength(2)
-
-    //             expect(
-    //                 forSnapshot(getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test'))
-    //             ).toMatchSnapshot()
-    //         })
-
-    //         it('does not overflow if it is consuming from the overflow topic', async () => {
-    //             ingester['topic'] = 'events_plugin_ingestion_overflow_test'
-    //             ingester['overflowRateLimiter'].consume(`${team.api_token}:overflow-distinct-id`, 1000, now())
-
-    //             const overflowMessages = createKafkaMessages([createEvent({ distinct_id: 'overflow-distinct-id' })])
-    //             await ingester.handleKafkaBatch(overflowMessages)
-
-    //             expect(getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')).toHaveLength(0)
-    //             expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(1)
-    //         })
-    //     })
-    // })
-
-    // describe('dropping events', () => {
-    //     describe.each(['headers', 'payload'] as const)('via %s', (kind) => {
-    //         const addMessageHeaders = (message: Message, token?: string, distinctId?: string) => {
-    //             if (kind !== 'headers') {
-    //                 return
-    //             }
-    //             message.headers = []
-
-    //             if (distinctId) {
-    //                 message.headers.push({
-    //                     key: 'distinct_id',
-    //                     value: Buffer.from(distinctId),
-    //                 })
-    //             }
-    //             if (token) {
-    //                 message.headers.push({
-    //                     key: 'token',
-    //                     value: Buffer.from(token),
-    //                 })
-    //             }
-    //         }
-
-    //         beforeEach(() => {
-    //             jest.spyOn(status, 'debug')
-    //         })
-
-    //         const expectDropLogs = (pairs: [string, string | undefined][]) => {
-    //             for (const [token, distinctId] of pairs) {
-    //                 expect(jest.mocked(status.debug)).toHaveBeenCalledWith('🔁', 'Dropped event', {
-    //                     distinctId,
-    //                     token,
-    //                 })
-    //             }
-    //         }
-
-    //         describe('with DROP_EVENTS_BY_TOKEN', () => {
-    //             beforeEach(async () => {
-    //                 hub.DROP_EVENTS_BY_TOKEN = `${team.api_token},phc_other`
-    //                 ingester = new IngestionConsumer(hub)
-    //                 await ingester.start()
-    //             })
-
-    //             it('should drop events with matching token', async () => {
-    //                 const messages = createKafkaMessages([createEvent({}), createEvent({})])
-    //                 addMessageHeaders(messages[0], team.api_token)
-    //                 await ingester.handleKafkaBatch(messages)
-    //                 expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
-    //                 expectDropLogs([
-    //                     [team.api_token, 'user-1'],
-    //                     [team.api_token, 'user-1'],
-    //                 ])
-    //             })
-
-    //             it('should not drop events for a different team token', async () => {
-    //                 const messages = createKafkaMessages([createEvent({ token: team2.api_token })])
-    //                 addMessageHeaders(messages[0], team2.api_token)
-    //                 await ingester.handleKafkaBatch(messages)
-    //                 expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).not.toHaveLength(0)
-    //                 expectDropLogs([])
-    //             })
-
-    //             it('should only drop events in batch matching', async () => {
-    //                 const messages = createKafkaMessages([
-    //                     createEvent({ token: team.api_token }),
-    //                     createEvent({ token: team2.api_token, distinct_id: 'team2-distinct-id' }),
-    //                     createEvent({ token: team.api_token }),
-    //                 ])
-    //                 addMessageHeaders(messages[0], team.api_token)
-    //                 addMessageHeaders(messages[1], team2.api_token)
-    //                 addMessageHeaders(messages[2], team.api_token)
-    //                 await ingester.handleKafkaBatch(messages)
-    //                 const eventsMessages = getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
-    //                 expect(eventsMessages).toHaveLength(1)
-    //                 expect(eventsMessages[0].value).toMatchObject({
-    //                     team_id: team2.id,
-    //                     distinct_id: 'team2-distinct-id',
-    //                 })
-    //                 expectDropLogs([
-    //                     [team.api_token, kind === 'headers' ? undefined : 'user-1'],
-    //                     [team.api_token, kind === 'headers' ? undefined : 'user-1'],
-    //                 ])
-    //             })
-    //         })
-
-    //         describe('with DROP_EVENTS_BY_TOKEN_DISTINCT_ID', () => {
-    //             beforeEach(async () => {
-    //                 hub.DROP_EVENTS_BY_TOKEN_DISTINCT_ID = `${team.api_token}:distinct-id-to-ignore,phc_other:distinct-id-to-ignore`
-    //                 ingester = new IngestionConsumer(hub)
-    //                 await ingester.start()
-    //             })
-    //             it('should drop events with matching token and distinct_id', async () => {
-    //                 const messages = createKafkaMessages([
-    //                     createEvent({
-    //                         distinct_id: 'distinct-id-to-ignore',
-    //                     }),
-    //                 ])
-    //                 addMessageHeaders(messages[0], team.api_token, 'distinct-id-to-ignore')
-    //                 await ingester.handleKafkaBatch(messages)
-    //                 expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
-    //                 expectDropLogs([[team.api_token, 'distinct-id-to-ignore']])
-    //             })
-
-    //             it('should not drop events for a different team token', async () => {
-    //                 const messages = createKafkaMessages([
-    //                     createEvent({
-    //                         token: team2.api_token,
-    //                         distinct_id: 'distinct-id-to-ignore',
-    //                     }),
-    //                 ])
-    //                 addMessageHeaders(messages[0], team2.api_token, 'distinct-id-to-ignore')
-    //                 await ingester.handleKafkaBatch(messages)
-    //                 expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).not.toHaveLength(0)
-    //                 expectDropLogs([])
-    //             })
-
-    //             it('should not drop events for a different distinct_id', async () => {
-    //                 const messages = createKafkaMessages([
-    //                     createEvent({
-    //                         distinct_id: 'other-id',
-    //                     }),
-    //                 ])
-    //                 addMessageHeaders(messages[0], team.api_token, 'not-ignored')
-    //                 await ingester.handleKafkaBatch(messages)
-    //                 expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).not.toHaveLength(0)
-    //                 expectDropLogs([])
-    //             })
-    //         })
-    //     })
-    // })
-
-    // describe('event batching', () => {
-    //     it('should batch events based on the distinct_id', async () => {
-    //         const messages = createKafkaMessages([
-    //             createEvent({ distinct_id: 'distinct-id-1' }),
-    //             createEvent({ distinct_id: 'distinct-id-1' }),
-    //             createEvent({ distinct_id: 'distinct-id-2' }),
-    //             createEvent({ distinct_id: 'distinct-id-1' }),
-    //             createEvent({ token: team2.api_token, distinct_id: 'distinct-id-1' }),
-    //         ])
-
-    //         const batches = await ingester['parseKafkaBatch'](messages)
-
-    //         expect(Object.keys(batches)).toHaveLength(3)
-    //         expect(batches[`${team.api_token}:distinct-id-1`]).toHaveLength(3)
-    //         expect(batches[`${team.api_token}:distinct-id-2`]).toHaveLength(1)
-    //         expect(batches[`${team2.api_token}:distinct-id-1`]).toHaveLength(1)
-    //     })
-    // })
-
-    // describe('error handling', () => {
-    //     let messages: Message[]
-    //     let error: any
-
-    //     beforeEach(async () => {
-    //         ingester = new IngestionConsumer(hub)
-    //         await ingester.start()
-    //         // Simulate some sort of error happening by mocking out the runner
-    //         messages = createKafkaMessages([createEvent()])
-    //         error = new Error('test')
-    //         jest.spyOn(status, 'error').mockImplementation(() => {})
-    //         jest.spyOn(ingester as any, 'getEventPipelineRunner').mockImplementation(() => ({
-    //             run: () => {
-    //                 throw error
-    //             },
-    //             getPromises: () => [],
-    //         }))
-    //     })
-
-    //     afterEach(() => {
-    //         jest.restoreAllMocks()
-    //     })
-
-    //     it('should handled expected error failures such as eventDroppedError and write to the DLQ', async () => {
-    //         error = new EventDroppedError('purposeful_drop')
-    //         await expect(ingester.handleKafkaBatch(messages)).resolves.not.toThrow()
-    //         expect(forSnapshot(getProducedKafkaMessages())).toMatchSnapshot()
-    //     })
-
-    //     it('should not write to the DLQ if doNotSendToDLQ is true', async () => {
-    //         error = new EventDroppedError('purposeful_drop', { doNotSendToDLQ: true })
-    //         await expect(ingester.handleKafkaBatch(messages)).resolves.not.toThrow()
-    //         expect(getProducedKafkaMessages()).toMatchObject([])
-    //     })
-
-    //     it('raises if something goes wrong when writing to the DLQ', async () => {
-    //         error = new EventDroppedError('purposeful_drop')
-    //         jest.spyOn(ingester['kafkaProducer'] as any, 'produce').mockImplementation(() => {
-    //             throw new Error('test')
-    //         })
-    //         await expect(ingester.handleKafkaBatch(messages)).rejects.toThrow('test')
-    //     })
-
-    //     it('raises for other errors', async () => {
-    //         error = new Error('test')
-    //         await expect(ingester.handleKafkaBatch(messages)).rejects.toThrow('test')
-    //     })
-    // })
-
-    // describe('typical event processing', () => {
-    //     /**
-    //      * NOTE: The majority of these tests should be done in the event pipeline runner but
-    //      * this is a good place to have some high level happy paths
-    //      */
-
-    //     beforeEach(async () => {
-    //         ingester = new IngestionConsumer(hub)
-    //         await ingester.start()
-    //     })
-
-    //     const eventTests: [string, () => PipelineEvent[]][] = [
-    //         ['normal event', () => [createEvent()]],
-    //         [
-    //             '$identify event',
-    //             () => [createEvent({ event: '$identify', properties: { $set: { $email: 'test@test.com' } } })],
-    //         ],
-    //         [
-    //             'multiple events',
-    //             () => [
-    //                 createEvent({
-    //                     event: '$pageview',
-    //                     distinct_id: 'anonymous-id-1',
-    //                     properties: { $current_url: 'https://example.com/page1' },
-    //                 }),
-    //                 createEvent({
-    //                     event: '$identify',
-    //                     distinct_id: 'identified-id-1',
-    //                     properties: { $set: { $email: 'test@test.com' }, $anonymous_distinct_id: 'anonymous-id-1' },
-    //                 }),
-    //                 createEvent({
-    //                     event: '$pageview',
-    //                     distinct_id: 'identified-id-1',
-    //                     properties: { $current_url: 'https://example.com/page2' },
-    //                 }),
-    //             ],
-    //         ],
-    //         // [
-    //         //     'heatmap event',
-    //         //     () => [
-    //         //         createEvent({
-    //         //             distinct_id: 'distinct-id-1',
-    //         //             event: '$$heatmap',
-    //         //             properties: {
-    //         //                 $heatmap_data: {
-    //         //                     'http://localhost:3000/': [
-    //         //                         {
-    //         //                             x: 1020,
-    //         //                             y: 363,
-    //         //                             target_fixed: false,
-    //         //                             type: 'mousemove',
-    //         //                         },
-    //         //                         {
-    //         //                             x: 634,
-    //         //                             y: 460,
-    //         //                             target_fixed: false,
-    //         //                             type: 'click',
-    //         //                         },
-    //         //                     ],
-    //         //                 },
-    //         //             },
-    //         //         }),
-    //         //     ],
-    //         // ],
-    //         [
-    //             // NOTE: This currently returns as is - for now we keep this broken but once we release the new ingester we should fix this
-    //             'malformed person information',
-    //             () => [
-    //                 createEvent({
-    //                     distinct_id: 'distinct-id-1',
-    //                     properties: { $set: 'INVALID', $unset: [[[['definitel invalid']]]] },
-    //                 }),
-    //             ],
-    //         ],
-    //         ['malformed event', () => [createEvent({ event: '' })]],
-    //         ['event with common distinct_id that gets dropped', () => [createEvent({ distinct_id: 'distinct_id' })]],
-    //         [
-    //             'ai event',
-    //             () => [
-    //                 createEvent({
-    //                     event: '$ai_generation',
-    //                     properties: {
-    //                         $ai_model: 'gpt-4',
-    //                         $ai_provider: 'openai',
-    //                         $ai_input_tokens: 100,
-    //                         $ai_output_tokens: 50,
-    //                     },
-    //                 }),
-    //             ],
-    //         ],
-    //         [
-    //             'person processing off',
-    //             () => [createEvent({ event: '$pageview', properties: { $process_person_profile: false } })],
-    //         ],
-    //         ['bad uuid', () => [createEvent({ uuid: 'WAT' })]],
-    //         // Handled errors mean we know that it was invalid and are purposefully moving on - everything else is unhandled
-    //     ]
-
-    //     it.each(eventTests)('%s', async (_, createEvents) => {
-    //         const messages = createKafkaMessages(createEvents())
-    //         await ingester.handleKafkaBatch(messages)
-
-    //         expect(forSnapshot(getProducedKafkaMessages())).toMatchSnapshot()
-    //     })
-    // })
+    describe('person processing', () => {})
 })
