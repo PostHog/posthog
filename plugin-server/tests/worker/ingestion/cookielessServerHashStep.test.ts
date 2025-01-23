@@ -1,6 +1,8 @@
 import type { PluginEvent } from '@posthog/plugin-scaffold'
 
+import { cookielessRedisErrorCounter } from '../../../src/main/ingestion-queues/metrics'
 import { CookielessServerHashMode, Hub } from '../../../src/types'
+import { RedisOperationError } from '../../../src/utils/db/error'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import { UUID7 } from '../../../src/utils/utils'
@@ -437,6 +439,17 @@ describe('cookielessServerHashStep', () => {
                 expect(actual3.properties.$session_id).not.toEqual(actual1.properties.$session_id)
                 expect(actual3.properties.$session_id).toBeDefined()
                 expect(actual4.properties.$session_id).toEqual(actual3.properties.$session_id)
+            })
+            it('should increment the redis error counter if redis errors', async () => {
+                const operation = 'scard'
+                const error = new RedisOperationError('redis error', new Error(), operation, { key: 'key' })
+                jest.spyOn(hub.db, 'redisSCard').mockImplementationOnce(() => {
+                    throw error
+                })
+                const spy = jest.spyOn(cookielessRedisErrorCounter, 'labels')
+                const result = await cookielessServerHashStep(hub, event)
+                expect(result).toEqual([undefined])
+                expect(spy.mock.calls[0]).toEqual([{ operation }])
             })
         })
         describe('disabled', () => {

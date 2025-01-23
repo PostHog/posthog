@@ -198,7 +198,7 @@ export async function cookielessServerHashStep(hub: Hub, event: PluginEvent): Pr
     }
 
     try {
-        return runInstrumentedFunction({
+        return await runInstrumentedFunction({
             func: () => cookielessServerHashStepInner(hub, event as PluginEvent & { properties: Properties }),
             statsKey: 'cookieless.process_event',
         })
