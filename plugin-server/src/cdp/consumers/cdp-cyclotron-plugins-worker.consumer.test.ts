@@ -5,12 +5,11 @@ import {
     createInvocation,
     insertHogFunction as _insertHogFunction,
 } from '~/tests/cdp/fixtures'
-import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
-import { PLUGINS_BY_ID } from '../legacy-plugins/manager'
+import { PLUGINS_BY_ID } from '../legacy-plugins'
 import { HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { CdpCyclotronWorkerPlugins } from './cdp-cyclotron-plugins-worker.consumer'
 
@@ -57,6 +56,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
         team = await getFirstTeam(hub)
 
         processor = new CdpCyclotronWorkerPlugins(hub)
+
         await processor.start()
 
         mockFetch.mockClear()
@@ -79,13 +79,16 @@ describe('CdpCyclotronWorkerPlugins', () => {
                     properties: {
                         $current_url: 'https://posthog.com',
                         $lib_version: '1.0.0',
+                        $set: {
+                            email: 'test@posthog.com',
+                        },
                     },
                 } as any,
             }),
             inputs: {
                 intercomApiKey: '1234567890',
                 triggeringEvents: '$identify,mycustomevent',
-                ignoredEmailDomains: 'posthog.com,dev.posthog.com',
+                ignoredEmailDomains: 'dev.posthog.com',
                 useEuropeanDataStorage: 'No',
             },
         }
@@ -144,17 +147,40 @@ describe('CdpCyclotronWorkerPlugins', () => {
         it('should call the plugin onEvent method', async () => {
             jest.spyOn(PLUGINS_BY_ID['intercom'], 'onEvent')
 
-            const results = []
+            const invocation = createInvocation(fn, globals)
+            invocation.globals.event.event = 'mycustomevent'
+            invocation.globals.event.properties = {
+                email: 'test@posthog.com',
+            }
+            await processor.executePluginInvocation(invocation)
 
-            results.push(processor.executePluginInvocation(createInvocation(fn, globals)))
-            results.push(processor.executePluginInvocation(createInvocation(fn, globals)))
-            results.push(processor.executePluginInvocation(createInvocation(fn, globals)))
+            expect(PLUGINS_BY_ID['intercom'].onEvent).toHaveBeenCalledTimes(1)
+            expect(jest.mocked(PLUGINS_BY_ID['intercom'].onEvent!).mock.calls[0][0]).toMatchInlineSnapshot(`
+                {
+                  "$set": undefined,
+                  "$set_once": undefined,
+                  "distinct_id": "distinct_id",
+                  "event": "mycustomevent",
+                  "ip": undefined,
+                  "person": {
+                    "created_at": "",
+                    "properties": {
+                      "email": "test@posthog.com",
+                      "first_name": "Pumpkin",
+                    },
+                    "team_id": 2,
+                    "uuid": "uuid",
+                  },
+                  "properties": {
+                    "email": "test@posthog.com",
+                  },
+                  "team_id": 2,
+                  "timestamp": "2025-01-23T15:59:22.483Z",
+                  "uuid": "b3a1fe86-b10c-43cc-acaf-d208977608d0",
+                }
+            `)
 
-            expect(await Promise.all(results)).toMatchObject([
-                { finished: true },
-                { finished: true },
-                { finished: true },
-            ])
+            expect(mockFetch).toHaveBeenCalledTimes(1)
         })
     })
 })

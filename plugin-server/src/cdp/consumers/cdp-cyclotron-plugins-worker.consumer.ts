@@ -1,7 +1,9 @@
 import { Meta, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { PLUGINS_BY_ID } from '../legacy-plugins/manager'
+import { trackedFetch } from '~/src/utils/fetch'
+
+import { PLUGINS_BY_ID } from '../legacy-plugins'
 import { FetchType, MetaWithFetch } from '../legacy-plugins/types'
 import { HogFunctionInvocation, HogFunctionInvocationResult, HogFunctionTypeType } from '../types'
 import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
@@ -28,7 +30,7 @@ export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
 
     public fetch(...args: Parameters<FetchType>) {
         // TOOD: THis better
-        return this.fetchExecutor.fetch(...args)
+        return trackedFetch(...args)
     }
 
     public async executePluginInvocation(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult> {
@@ -64,9 +66,9 @@ export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
 
         if (!state) {
             const meta: MetaWithFetch = {
-                global: invocation.globals.inputs,
+                config: invocation.globals.inputs,
                 attachments: {},
-                config: {},
+                globalwu: {},
                 jobs: {},
                 metrics: {},
                 cache: {} as any,
