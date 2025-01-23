@@ -14,12 +14,14 @@ from social_core.backends.saml import (
     SAMLAuth,
     SAMLIdentityProvider,
 )
+from social_core.backends.google import GoogleOAuth2
 from social_core.exceptions import AuthFailed, AuthMissingParameter
 from social_django.utils import load_backend, load_strategy
 
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from social_django.models import UserSocialAuth
 
 
 @api_view(["GET"])
@@ -165,3 +167,59 @@ class MultitenantSAMLAuth(SAMLAuth):
         USER_ID_ATTRIBUTES = ["name_id", "NAME_ID", "nameId", OID_USERID]
         uid = self._get_attr(response["attributes"], USER_ID_ATTRIBUTES)
         return f"{response['idp_name']}:{uid}"
+
+
+class CustomGoogleOAuth2(GoogleOAuth2):
+    def get_user_id(self, details, response):
+        """
+        Retrieve and migrate Google OAuth user identification.
+
+        Note: While social-auth-core supports using Google's sub claim via
+        settings.USE_UNIQUE_USER_ID = True, this setting was not enabled historically
+        in our application. This led to emails being stored as uids instead of the
+        more stable Google sub identifier.
+
+        'sub' (subject identifier) is part of OpenID Connect and is guaranteed to be a
+        stable, unique identifier for the user within Google's system. It's designed
+        specifically for authentication purposes and won't change even if the user changes
+        their email or other profile details.
+
+        This method handles two types of user identification:
+        1. Legacy users: Originally stored with email as their uid (due to missing USE_UNIQUE_USER_ID)
+        2. New users: Using Google's sub claim (unique identifier) as uid
+
+        The method first checks if a user exists with the sub as uid. If not found,
+        it looks for a legacy user with email as uid and migrates them to use sub.
+        This ensures a smooth transition from email-based to sub-based identification
+        while maintaining backward compatibility.
+
+        Args:
+            details: User details dictionary from OAuth response
+            response: Full OAuth response from Google
+
+        Returns:
+            str: The Google sub claim to be used as uid
+        """
+        email = response.get("email")
+        sub = response.get("sub")
+
+        if not sub:
+            raise ValueError("Google OAuth response missing 'sub' claim")
+
+        try:
+            # First try: Find user by sub (preferred method)
+            social_auth = UserSocialAuth.objects.get(provider="google-oauth2", uid=sub)
+            return sub
+        except UserSocialAuth.DoesNotExist:
+            pass
+
+        try:
+            # Second try: Find and migrate legacy user using email as uid
+            social_auth = UserSocialAuth.objects.get(provider="google-oauth2", uid=email)
+            # Migrate user from email to sub
+            social_auth.uid = sub
+            social_auth.save()
+            return sub
+        except UserSocialAuth.DoesNotExist:
+            # No existing user found - use sub for new account
+            return sub

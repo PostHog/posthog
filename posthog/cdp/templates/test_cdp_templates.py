@@ -10,8 +10,9 @@ class TestTemplatesGeneral(BaseTest):
 
     def test_templates_are_valid(self):
         for template in HOG_FUNCTION_TEMPLATES:
-            assert validate_inputs_schema(template.inputs_schema)
+            if template.inputs_schema:
+                assert validate_inputs_schema(template.inputs_schema)
 
             if template.type not in TYPES_WITH_TRANSPILED_FILTERS:
-                bytecode = compile_hog(template.hog)
+                bytecode = compile_hog(template.hog, template.type)
                 assert bytecode[0] == "_H"

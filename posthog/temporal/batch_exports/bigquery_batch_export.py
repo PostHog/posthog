@@ -40,18 +40,14 @@ from posthog.temporal.batch_exports.spmc import (
     Consumer,
     Producer,
     RecordBatchQueue,
-    run_consumer_loop,
+    run_consumer,
     wait_for_schema_or_producer,
 )
 from posthog.temporal.batch_exports.temporary_file import (
     BatchExportTemporaryFile,
     WriterFormat,
 )
-from posthog.temporal.batch_exports.utils import (
-    JsonType,
-    set_status_to_running_task,
-)
-from posthog.temporal.common.clickhouse import get_client
+from posthog.temporal.batch_exports.utils import JsonType, set_status_to_running_task
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import configure_temporal_worker_logger
 
@@ -69,7 +65,17 @@ NON_RETRYABLE_ERROR_TYPES = [
     # Raised when table_id isn't valid. Sadly, `ValueError` is rather generic, but we
     # don't anticipate a `ValueError` thrown from our own export code.
     "ValueError",
+    # Raised when attempting to run a batch export without required BigQuery permissions.
+    # Our own version of `Forbidden`.
+    "MissingRequiredPermissionsError",
 ]
+
+
+class MissingRequiredPermissionsError(Exception):
+    """Raised when missing required permissions in BigQuery."""
+
+    def __init__(self):
+        super().__init__("Missing required permissions to run this batch export")
 
 
 def get_bigquery_fields_from_record_schema(
@@ -237,7 +243,12 @@ class BigQueryClient(bigquery.Client):
             yield table
         finally:
             if delete is True:
-                await self.adelete_table(project_id, dataset_id, table_id, not_found_ok)
+                try:
+                    await self.adelete_table(project_id, dataset_id, table_id, not_found_ok)
+                except Forbidden:
+                    await logger.awarning(
+                        "Missing delete permissions to delete %s.%s.%s", project_id, dataset_id, table_id
+                    )
 
     async def amerge_tables(
         self,
@@ -274,6 +285,28 @@ class BigQueryClient(bigquery.Client):
                 final_table, stage_table, merge_key=merge_key, stage_fields_cast_to_json=stage_fields_cast_to_json
             )
 
+    async def acheck_for_query_permissions_on_table(
+        self,
+        table: bigquery.Table,
+    ):
+        """Attempt to SELECT from table to check for query permissions."""
+        job_config = bigquery.QueryJobConfig()
+        if "timestamp" in [field.name for field in table.schema]:
+            query = f"""
+            SELECT 1 FROM  `{table.full_table_id.replace(":", ".", 1)}` WHERE timestamp IS NOT NULL
+            """
+        else:
+            query = f"""
+            SELECT 1 FROM  `{table.full_table_id.replace(":", ".", 1)}`
+            """
+
+        try:
+            query_job = self.query(query, job_config=job_config)
+            await asyncio.to_thread(query_job.result)
+        except Forbidden:
+            return False
+        return True
+
     async def ainsert_into_from_stage_table(
         self,
         into_table: bigquery.Table,
@@ -288,8 +321,33 @@ class BigQueryClient(bigquery.Client):
             fields_to_cast = set(stage_fields_cast_to_json)
         else:
             fields_to_cast = set()
+
+        # The following `REGEXP_REPLACE` functions are used to clean-up un-paired
+        # surrogates, as they are rejected by `PARSE_JSON`. Since BigQuery's regex
+        # engine has no lookahead / lookback, we instead use an OR to match both
+        # valid pairs and invalid single high or low surrogates, and replacing only
+        # with the valid pair in both cases.
         stage_table_fields = ",".join(
-            f"PARSE_JSON(`{field.name}`)" if field.name in fields_to_cast else f"`{field.name}`"
+            f"""
+            PARSE_JSON(
+              REGEXP_REPLACE(
+                REGEXP_REPLACE(
+                  REGEXP_REPLACE(
+                    `{field.name}`,
+                    r'(\\\\u[dD][89A-Fa-f][0-9A-Fa-f]{{2}}\\\\u[dD][c-fC-F][0-9A-Fa-f]{{2}})|(\\\\u[dD][89A-Fa-f][0-9A-Fa-f]{{2}})',
+                    '\\\\1'
+                  ),
+                  r'(\\\\u[dD][89A-Fa-f][0-9A-Fa-f]{{2}}\\\\u[dD][c-fC-F][0-9A-Fa-f]{{2}})|(\\\\u[dD][c-fC-F][0-9A-Fa-f]{{2}})',
+                  '\\\\1'
+                ),
+                r'[\\n\\r]',
+                r'\\\\n'
+              ),
+              wide_number_mode=>'round'
+            )
+            """
+            if field.name in fields_to_cast
+            else f"`{field.name}`"
             for field in into_table.schema
         )
 
@@ -338,9 +396,34 @@ class BigQueryClient(bigquery.Client):
                 values += ", "
                 field_names += ", "
 
+            # The following `REGEXP_REPLACE` functions are used to clean-up un-paired
+            # surrogates, as they are rejected by `PARSE_JSON`. Since BigQuery's regex
+            # engine has no lookahead / lookback, we instead use an OR to match both
+            # valid pairs and invalid single high or low surrogates, and replacing only
+            # with the valid pair in both cases.
             stage_field = (
-                f"PARSE_JSON(stage.`{field.name}`)" if field.name in fields_to_cast else f"stage.`{field.name}`"
+                f"""
+                PARSE_JSON(
+                  REGEXP_REPLACE(
+                    REGEXP_REPLACE(
+                      REGEXP_REPLACE(
+                        stage.`{field.name}`,
+                        r'(\\\\u[dD][89A-Ba-b][0-9A-Fa-f]{{2}}\\\\u[dD][c-fC-F][0-9A-Fa-f]{{2}})|(\\\\u[dD][89A-Fa-f][0-9A-Fa-f]{{2}})',
+                        '\\\\1'
+                      ),
+                      r'(\\\\u[dD][89A-Ba-b][0-9A-Fa-f]{{2}}\\\\u[dD][c-fC-F][0-9A-Fa-f]{{2}})|(\\\\u[dD][c-fC-F][0-9A-Fa-f]{{2}})',
+                      '\\\\1'
+                    ),
+                    r'[\\n\\r]',
+                    r'\\\\n'
+                  ),
+                  wide_number_mode=>'round'
+                )
+                """
+                if field.name in fields_to_cast
+                else f"stage.`{field.name}`"
             )
+
             update_clause += f"final.`{field.name}` = {stage_field}"
             field_names += f"`{field.name}`"
             values += stage_field
@@ -350,7 +433,17 @@ class BigQueryClient(bigquery.Client):
 
         merge_query = f"""
         MERGE `{final_table.full_table_id.replace(":", ".", 1)}` final
-        USING `{stage_table.full_table_id.replace(":", ".", 1)}` stage
+        USING (
+            SELECT * FROM
+            (
+              SELECT
+              *,
+              ROW_NUMBER() OVER (PARTITION BY {",".join(field.name for field in merge_key)}) row_num
+            FROM
+              `{stage_table.full_table_id.replace(":", ".", 1)}`
+            )
+            WHERE row_num = 1
+        ) stage
         {merge_condition}
 
         WHEN MATCHED AND (stage.`{person_version_key}` > final.`{person_version_key}` OR stage.`{person_distinct_id_version_key}` > final.`{person_distinct_id_version_key}`) THEN
@@ -468,11 +561,19 @@ class BigQueryConsumer(Consumer):
         heartbeater: Heartbeater,
         heartbeat_details: BigQueryHeartbeatDetails,
         data_interval_start: dt.datetime | str | None,
+        data_interval_end: dt.datetime | str,
+        writer_format: WriterFormat,
         bigquery_client: BigQueryClient,
         bigquery_table: bigquery.Table,
-        table_schema: list[BatchExportField],
+        table_schema: list[bigquery.SchemaField],
     ):
-        super().__init__(heartbeater, heartbeat_details, data_interval_start)
+        super().__init__(
+            heartbeater=heartbeater,
+            heartbeat_details=heartbeat_details,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            writer_format=writer_format,
+        )
         self.bigquery_client = bigquery_client
         self.bigquery_table = bigquery_table
         self.table_schema = table_schema
@@ -495,12 +596,16 @@ class BigQueryConsumer(Consumer):
             self.bigquery_table,
         )
 
-        await self.bigquery_client.load_parquet_file(batch_export_file, self.bigquery_table, self.table_schema)
+        if self.writer_format == WriterFormat.PARQUET:
+            await self.bigquery_client.load_parquet_file(batch_export_file, self.bigquery_table, self.table_schema)
+        else:
+            await self.bigquery_client.load_jsonl_file(batch_export_file, self.bigquery_table, self.table_schema)
 
         await self.logger.adebug("Loaded %s to BigQuery table '%s'", records_since_last_flush, self.bigquery_table)
         self.rows_exported_counter.add(records_since_last_flush)
         self.bytes_exported_counter.add(bytes_since_last_flush)
 
+        self.heartbeat_details.records_completed += records_since_last_flush
         self.heartbeat_details.track_done_range(last_date_range, self.data_interval_start)
 
 
@@ -522,11 +627,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
     async with (
         Heartbeater() as heartbeater,
         set_status_to_running_task(run_id=inputs.run_id, logger=logger),
-        get_client(team_id=inputs.team_id) as client,
     ):
-        if not await client.is_alive():
-            raise ConnectionError("Cannot establish connection to ClickHouse")
-
         _, details = await should_resume_from_activity_heartbeat(activity, BigQueryHeartbeatDetails)
         if details is None:
             details = BigQueryHeartbeatDetails()
@@ -559,7 +660,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         full_range = (data_interval_start, data_interval_end)
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_BIGQUERY_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
-        producer = Producer(clickhouse_client=client)
+        producer = Producer()
         producer_task = producer.start(
             queue=queue,
             model_name=model_name,
@@ -574,11 +675,10 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
             include_events=inputs.include_events,
             extra_query_parameters=extra_query_parameters,
         )
-        records_completed = 0
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:
-            return records_completed
+            return details.records_completed
 
         record_batch_schema = pa.schema(
             # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
@@ -620,55 +720,66 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         stage_table_name = f"stage_{inputs.table_id}_{data_interval_end_str}"
 
         with bigquery_client(inputs) as bq_client:
-            async with (
-                bq_client.managed_table(
+            async with bq_client.managed_table(
+                project_id=inputs.project_id,
+                dataset_id=inputs.dataset_id,
+                table_id=inputs.table_id,
+                table_schema=schema,
+                delete=False,
+            ) as bigquery_table:
+                can_perform_merge = await bq_client.acheck_for_query_permissions_on_table(bigquery_table)
+
+                if not can_perform_merge:
+                    if model_name == "persons":
+                        raise MissingRequiredPermissionsError()
+
+                    await logger.awarning(
+                        "Missing query permissions on BigQuery table required for merging, will attempt direct load into final table"
+                    )
+
+                async with bq_client.managed_table(
                     project_id=inputs.project_id,
                     dataset_id=inputs.dataset_id,
-                    table_id=inputs.table_id,
-                    table_schema=schema,
-                    delete=False,
-                ) as bigquery_table,
-                bq_client.managed_table(
-                    project_id=inputs.project_id,
-                    dataset_id=inputs.dataset_id,
-                    table_id=stage_table_name,
+                    table_id=stage_table_name if can_perform_merge else inputs.table_id,
                     table_schema=stage_schema,
-                    create=True,
-                    delete=True,
-                ) as bigquery_stage_table,
-            ):
-                records_completed = await run_consumer_loop(
-                    queue=queue,
-                    consumer_cls=BigQueryConsumer,
-                    producer_task=producer_task,
-                    heartbeater=heartbeater,
-                    heartbeat_details=details,
-                    data_interval_end=data_interval_end,
-                    data_interval_start=data_interval_start,
-                    schema=record_batch_schema,
-                    writer_format=WriterFormat.PARQUET,
-                    max_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
-                    non_retryable_error_types=NON_RETRYABLE_ERROR_TYPES,
-                    json_columns=(),
-                    bigquery_client=bq_client,
-                    bigquery_table=bigquery_stage_table,
-                    table_schema=stage_schema,
-                    writer_file_kwargs={"compression": "zstd"},
-                )
+                    create=can_perform_merge,
+                    delete=can_perform_merge,
+                ) as bigquery_stage_table:
+                    consumer = BigQueryConsumer(
+                        heartbeater=heartbeater,
+                        heartbeat_details=details,
+                        data_interval_end=data_interval_end,
+                        data_interval_start=data_interval_start,
+                        writer_format=WriterFormat.PARQUET if can_perform_merge else WriterFormat.JSONL,
+                        bigquery_client=bq_client,
+                        bigquery_table=bigquery_stage_table if can_perform_merge else bigquery_table,
+                        table_schema=stage_schema if can_perform_merge else schema,
+                    )
+                    await run_consumer(
+                        consumer=consumer,
+                        queue=queue,
+                        producer_task=producer_task,
+                        schema=record_batch_schema,
+                        max_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
+                        json_columns=() if can_perform_merge else json_columns,
+                        writer_file_kwargs={"compression": "zstd"} if can_perform_merge else {},
+                        multiple_files=True,
+                    )
 
-                merge_key = (
-                    bigquery.SchemaField("team_id", "INT64"),
-                    bigquery.SchemaField("distinct_id", "STRING"),
-                )
-                await bq_client.amerge_tables(
-                    final_table=bigquery_table,
-                    stage_table=bigquery_stage_table,
-                    mutable=True if model_name == "persons" else False,
-                    merge_key=merge_key,
-                    stage_fields_cast_to_json=json_columns,
-                )
+                    if can_perform_merge:
+                        merge_key = (
+                            bigquery.SchemaField("team_id", "INT64"),
+                            bigquery.SchemaField("distinct_id", "STRING"),
+                        )
+                        await bq_client.amerge_tables(
+                            final_table=bigquery_table,
+                            stage_table=bigquery_stage_table,
+                            mutable=True if model_name == "persons" else False,
+                            merge_key=merge_key,
+                            stage_fields_cast_to_json=json_columns,
+                        )
 
-        return records_completed
+        return details.records_completed
 
 
 @workflow.defn(name="bigquery-export", failure_exception_types=[workflow.NondeterminismError])

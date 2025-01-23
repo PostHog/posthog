@@ -4,7 +4,6 @@ import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { BuilderHog2 } from 'lib/components/hedgehogs'
-import { dayjs } from 'lib/dayjs'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
@@ -87,11 +86,9 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         setSpeed,
         closeExplorer,
     } = useActions(sessionRecordingPlayerLogic(logicProps))
-    const { isNotFound, snapshotsInvalid, start } = useValues(sessionRecordingDataLogic(logicProps))
+    const { isNotFound, isRecentAndInvalid } = useValues(sessionRecordingDataLogic(logicProps))
     const { loadSnapshots } = useActions(sessionRecordingDataLogic(logicProps))
-    const { isFullScreen, explorerMode, isBuffering, messageTooLargeWarnings } = useValues(
-        sessionRecordingPlayerLogic(logicProps)
-    )
+    const { isFullScreen, explorerMode, isBuffering } = useValues(sessionRecordingPlayerLogic(logicProps))
     const { setPlayNextAnimationInterrupted } = useActions(sessionRecordingPlayerLogic(logicProps))
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
     const { isVerticallyStacked, sidebarOpen, playbackMode } = useValues(playerSettingsLogic)
@@ -158,9 +155,6 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         }
     )
 
-    const lessThanFiveMinutesOld = dayjs().diff(start, 'minute') <= 5
-    const cannotPlayback = snapshotsInvalid && lessThanFiveMinutesOld && !messageTooLargeWarnings
-
     const { draggable, elementProps } = useNotebookDrag({ href: urls.replaySingle(sessionRecordingId) })
 
     if (isNotFound) {
@@ -198,7 +192,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                 className="SessionRecordingPlayer__main flex flex-col h-full w-full"
                                 ref={playerMainRef}
                             >
-                                {cannotPlayback ? (
+                                {isRecentAndInvalid ? (
                                     <div className="flex flex-1 flex-col items-center justify-center">
                                         <BuilderHog2 height={200} />
                                         <h1>We're still working on it</h1>

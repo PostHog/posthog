@@ -6,11 +6,11 @@ import json
 import ssl
 import typing
 import uuid
-import structlog
 
 import aiohttp
 import pyarrow as pa
 import requests
+import structlog
 from django.conf import settings
 
 import posthog.temporal.common.asyncpa as asyncpa
@@ -119,6 +119,13 @@ class ClickHouseError(Exception):
         super().__init__(error_message)
 
 
+class ClickHouseAllReplicasAreStaleError(ClickHouseError):
+    """Exception raised when all replicas are stale."""
+
+    def __init__(self, query, error_message):
+        super().__init__(query, error_message)
+
+
 class ClickHouseClient:
     """An asynchronous client to access ClickHouse via HTTP.
 
@@ -219,20 +226,30 @@ class ClickHouseClient:
         """Asynchronously check the HTTP response received from ClickHouse.
 
         Raises:
+            ClickHouseAllReplicasAreStaleError: If status code is not 200 and error message contains
+                "ALL_REPLICAS_ARE_STALE". This can happen when using max_replica_delay_for_distributed_queries
+                and fallback_to_stale_replicas_for_distributed_queries=0
             ClickHouseError: If the status code is not 200.
         """
         if response.status != 200:
             error_message = await response.text()
+            if "ALL_REPLICAS_ARE_STALE" in error_message:
+                raise ClickHouseAllReplicasAreStaleError(query, error_message)
             raise ClickHouseError(query, error_message)
 
     def check_response(self, response, query) -> None:
         """Check the HTTP response received from ClickHouse.
 
         Raises:
+            ClickHouseAllReplicasAreStaleError: If status code is not 200 and error message contains
+                "ALL_REPLICAS_ARE_STALE". This can happen when using max_replica_delay_for_distributed_queries
+                and fallback_to_stale_replicas_for_distributed_queries=0
             ClickHouseError: If the status code is not 200.
         """
         if response.status_code != 200:
             error_message = response.text
+            if "ALL_REPLICAS_ARE_STALE" in error_message:
+                raise ClickHouseAllReplicasAreStaleError(query, error_message)
             raise ClickHouseError(query, error_message)
 
     @contextlib.asynccontextmanager
@@ -464,7 +481,7 @@ async def get_client(
     Usage:
 
         async with get_client() as client:
-            await client.execute("SELECT 1")
+            await client.apost_query("SELECT 1")
 
     Note that this is not a connection pool, so you should not use this for
     queries that are run frequently.
@@ -489,11 +506,12 @@ async def get_client(
     timeout = aiohttp.ClientTimeout(total=None, connect=None, sock_connect=30, sock_read=None)
 
     if team_id is None:
-        max_block_size = settings.CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT
+        default_max_block_size = settings.CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT
     else:
-        max_block_size = settings.CLICKHOUSE_MAX_BLOCK_SIZE_OVERRIDES.get(
+        default_max_block_size = settings.CLICKHOUSE_MAX_BLOCK_SIZE_OVERRIDES.get(
             team_id, settings.CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT
         )
+    max_block_size = kwargs.pop("max_block_size", None) or default_max_block_size
 
     if clickhouse_url is None:
         url = settings.CLICKHOUSE_OFFLINE_HTTP_URL
@@ -510,7 +528,9 @@ async def get_client(
         max_execution_time=settings.CLICKHOUSE_MAX_EXECUTION_TIME,
         max_memory_usage=settings.CLICKHOUSE_MAX_MEMORY_USAGE,
         max_block_size=max_block_size,
+        cancel_http_readonly_queries_on_client_close=1,
         output_format_arrow_string_as_string="true",
+        http_send_timeout=0,
         **kwargs,
     ) as client:
         yield client

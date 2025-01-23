@@ -25,7 +25,7 @@ import {
     HogQLQueryResponse,
     HogQLVariable,
     NodeKind,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, ExportContext, ExporterFormat, InsightLogicProps } from '~/types'
 
@@ -157,7 +157,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
 
     const setQuerySource = useCallback(
         (source: HogQLQuery) => props.setQuery?.({ ...props.query, source }),
-        [props.setQuery]
+        [props.setQuery, props.query]
     )
 
     let component: JSX.Element | null = null

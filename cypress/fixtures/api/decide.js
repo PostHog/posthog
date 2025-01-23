@@ -8,6 +8,7 @@ export function decideResponse(featureFlags) {
         },
         isAuthenticated: true,
         supportedCompression: ['gzip', 'gzip-js', 'lz64'],
+        hasFeatureFlags: Object.keys(featureFlags).length > 0,
         featureFlags,
         sessionRecording: {
             endpoint: '/s/',

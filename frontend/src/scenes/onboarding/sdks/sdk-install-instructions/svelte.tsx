@@ -17,9 +17,9 @@ function SvelteAppClientCodeSnippet(): JSX.Element {
         <CodeSnippet language={Language.JavaScript}>
             {`import posthog from 'posthog-js'
 import { browser } from '$app/environment';
+import { onMount } from 'svelte';
 
-export const load = async () => {
-
+onMount(() => {
   if (browser) {
     posthog.init(
       '${currentTeam?.api_token}',

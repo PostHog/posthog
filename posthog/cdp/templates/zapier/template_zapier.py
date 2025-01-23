@@ -37,7 +37,7 @@ if (inputs.debug) {
                 "hook": {
                     "id": "{source.url}",
                     "event": "{event}",
-                    "target": "https://hooks.zapier.com/{inputs.hook}",
+                    "target": "https://hooks.zapier.com",
                 },
                 "data": {
                     "eventUuid": "{event.uuid}",

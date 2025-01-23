@@ -180,6 +180,32 @@ export function BatchExportsEditFields({
                         </LemonField>
 
                         <div className="flex gap-4">
+                            <LemonField name="file_format" label="Format" className="flex-1">
+                                <LemonSelect
+                                    options={[
+                                        { value: 'JSONLines', label: 'JSON lines' },
+                                        { value: 'Parquet', label: 'Apache Parquet' },
+                                    ]}
+                                />
+                            </LemonField>
+
+                            <LemonField
+                                name="max_file_size_mb"
+                                label="Max file size (MiB)"
+                                showOptional
+                                className="flex-1"
+                                info={
+                                    <>
+                                        Files over this max file size will be split into multiple files. Leave empty or
+                                        set to 0 for no splitting regardless of file size
+                                    </>
+                                }
+                            >
+                                <LemonInput type="number" min={0} />
+                            </LemonField>
+                        </div>
+
+                        <div className="flex gap-4">
                             <LemonField name="compression" label="Compression" className="flex-1">
                                 <LemonSelect
                                     options={[
@@ -196,15 +222,6 @@ export function BatchExportsEditFields({
                                         { value: 'AES256', label: 'AES256' },
                                         { value: 'aws:kms', label: 'aws:kms' },
                                         { value: null, label: 'No encryption' },
-                                    ]}
-                                />
-                            </LemonField>
-
-                            <LemonField name="file_format" label="Format" className="flex-1">
-                                <LemonSelect
-                                    options={[
-                                        { value: 'JSONLines', label: 'JSON lines' },
-                                        { value: 'Parquet', label: 'Apache Parquet' },
                                     ]}
                                 />
                             </LemonField>

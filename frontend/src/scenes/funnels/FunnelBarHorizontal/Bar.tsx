@@ -1,12 +1,14 @@
 import { LemonDropdown } from '@posthog/lemon-ui'
-import { getSeriesColor } from 'lib/colors'
+import { useValues } from 'kea'
 import { capitalizeFirstLetter, percentage } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { Noun } from '~/models/groupsModel'
 import { BreakdownFilter } from '~/queries/schema'
 import { FunnelStepWithConversionMetrics } from '~/types'
 
+import { funnelDataLogic } from '../funnelDataLogic'
 import { FunnelTooltip } from '../FunnelTooltip'
 import { getSeriesPositionName } from '../funnelUtils'
 
@@ -43,6 +45,9 @@ export function Bar({
     aggregationTargetLabel,
     wrapperWidth,
 }: BarProps): JSX.Element | null {
+    const { insightProps } = useValues(insightLogic)
+    const { getFunnelsColor } = useValues(funnelDataLogic(insightProps))
+
     const barRef = useRef<HTMLDivElement | null>(null)
     const labelRef = useRef<HTMLDivElement | null>(null)
     const [labelPosition, setLabelPosition] = useState<LabelPosition>('inside')
@@ -111,7 +116,7 @@ export function Bar({
                 style={{
                     flex: `${conversionPercentage} 1 0`,
                     cursor: cursorType,
-                    backgroundColor: getSeriesColor(breakdownIndex ?? 0),
+                    backgroundColor: getFunnelsColor(step),
                 }}
                 onClick={() => {
                     if (!disabled && onBarClick) {

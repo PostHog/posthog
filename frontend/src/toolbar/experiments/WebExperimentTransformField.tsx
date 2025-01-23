@@ -110,16 +110,6 @@ export function WebExperimentTransformField({
                 fullWidth
                 options={[
                     {
-                        value: 'html',
-                        label: 'HTML',
-                        icon:
-                            transform.html && transform.html.length > 0 ? (
-                                <IconCheckCircle className="text-success" />
-                            ) : (
-                                <IconCode />
-                            ),
-                    },
-                    {
                         value: 'text',
                         label: 'Text',
                         icon:
@@ -137,6 +127,16 @@ export function WebExperimentTransformField({
                                 <IconCheckCircle className="text-success" />
                             ) : (
                                 <IconAIText />
+                            ),
+                    },
+                    {
+                        value: 'html',
+                        label: 'HTML',
+                        icon:
+                            transform.html && transform.html.length > 0 ? (
+                                <IconCheckCircle className="text-success" />
+                            ) : (
+                                <IconCode />
                             ),
                     },
                 ]}

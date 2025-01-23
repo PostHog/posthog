@@ -9,7 +9,7 @@ from posthog.hogql.errors import ImpossibleASTError
 from posthog.hogql.parser import ast
 from posthog.models.team import Team, WeekStartDay
 from posthog.queries.util import get_earliest_timestamp, get_trunc_func_ch
-from posthog.schema import DateRange, InsightDateRange, IntervalType
+from posthog.schema import DateRange, IntervalType
 from posthog.utils import (
     DEFAULT_DATE_FROM_DAYS,
     relative_date_parse,
@@ -24,13 +24,13 @@ class QueryDateRange:
     """Translation of the raw `date_from` and `date_to` filter values to datetimes."""
 
     _team: Team
-    _date_range: Optional[InsightDateRange | DateRange]
+    _date_range: Optional[DateRange]
     _interval: Optional[IntervalType]
     _now_without_timezone: datetime
 
     def __init__(
         self,
-        date_range: Optional[InsightDateRange | DateRange],
+        date_range: Optional[DateRange],
         team: Team,
         interval: Optional[IntervalType],
         now: datetime,
@@ -99,17 +99,20 @@ class QueryDateRange:
     def now_with_timezone(self) -> datetime:
         return self._now_without_timezone.astimezone(ZoneInfo(self._team.timezone))
 
+    def format_date(self, datetime) -> str:
+        return datetime.strftime("%Y-%m-%d %H:%M:%S")
+
     @cached_property
     def date_to_str(self) -> str:
-        return self.date_to().strftime("%Y-%m-%d %H:%M:%S")
+        return self.format_date(self.date_to())
 
     @cached_property
     def date_from_str(self) -> str:
-        return self.date_from().strftime("%Y-%m-%d %H:%M:%S")
+        return self.format_date(self.date_from())
 
     @cached_property
     def previous_period_date_from_str(self) -> str:
-        return self.previous_period_date_from.strftime("%Y-%m-%d %H:%M:%S")
+        return self.format_date(self.previous_period_date_from)
 
     @cached_property
     def interval_type(self) -> IntervalType:
@@ -285,7 +288,7 @@ class QueryDateRange:
 class QueryDateRangeWithIntervals(QueryDateRange):
     def __init__(
         self,
-        date_range: Optional[InsightDateRange],
+        date_range: Optional[DateRange],
         total_intervals: int,
         team: Team,
         interval: Optional[IntervalType],

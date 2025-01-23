@@ -1,23 +1,23 @@
 from unittest.mock import patch
 
 from django.test import override_settings
-from langchain_core.runnables import RunnableLambda
 from langchain_core.messages import (
     HumanMessage as LangchainHumanMessage,
 )
+from langchain_core.runnables import RunnableLambda
+from rest_framework.exceptions import ValidationError
+
 from ee.hogai.summarizer.nodes import SummarizerNode
 from ee.hogai.summarizer.prompts import SUMMARIZER_INSTRUCTION_PROMPT, SUMMARIZER_SYSTEM_PROMPT
+from ee.hogai.utils.types import AssistantState
+from posthog.api.services.query import process_query_dict
 from posthog.schema import (
-    AssistantMessage,
     AssistantTrendsEventsNode,
     AssistantTrendsQuery,
-    FailureMessage,
     HumanMessage,
     VisualizationMessage,
 )
-from rest_framework.exceptions import ValidationError
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from posthog.api.services.query import process_query_dict
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -32,28 +32,26 @@ class TestSummarizerNode(ClickhouseTestMixin, APIBaseTest):
                 lambda _: LangchainHumanMessage(content="The results indicate foobar.")
             )
             new_state = node.run(
-                {
-                    "messages": [
-                        HumanMessage(content="Text"),
+                AssistantState(
+                    messages=[
+                        HumanMessage(content="Text", id="test"),
                         VisualizationMessage(
                             answer=AssistantTrendsQuery(series=[AssistantTrendsEventsNode()]),
                             plan="Plan",
-                            done=True,
+                            id="test2",
+                            initiator="test",
                         ),
                     ],
-                    "plan": "Plan",
-                },
+                    plan="Plan",
+                    start_id="test",
+                ),
                 {},
             )
             mock_process_query_dict.assert_called_once()  # Query processing started
-            self.assertEqual(
-                new_state,
-                {
-                    "messages": [
-                        AssistantMessage(content="The results indicate foobar.", done=True),
-                    ],
-                },
-            )
+            msg = new_state.messages[0]
+            self.assertEqual(msg.content, "The results indicate foobar.")
+            self.assertEqual(msg.type, "ai")
+            self.assertIsNotNone(msg.id)
 
     @patch(
         "ee.hogai.summarizer.nodes.process_query_dict",
@@ -66,28 +64,26 @@ class TestSummarizerNode(ClickhouseTestMixin, APIBaseTest):
                 lambda _: LangchainHumanMessage(content="The results indicate foobar.")
             )
             new_state = node.run(
-                {
-                    "messages": [
-                        HumanMessage(content="Text"),
+                AssistantState(
+                    messages=[
+                        HumanMessage(content="Text", id="test"),
                         VisualizationMessage(
                             answer=AssistantTrendsQuery(series=[AssistantTrendsEventsNode()]),
                             plan="Plan",
-                            done=True,
+                            id="test2",
+                            initiator="test",
                         ),
                     ],
-                    "plan": "Plan",
-                },
+                    plan="Plan",
+                    start_id="test",
+                ),
                 {},
             )
             mock_process_query_dict.assert_called_once()  # Query processing started
-            self.assertEqual(
-                new_state,
-                {
-                    "messages": [
-                        FailureMessage(content="There was an unknown error running this query."),
-                    ],
-                },
-            )
+            msg = new_state.messages[0]
+            self.assertEqual(msg.content, "There was an unknown error running this query.")
+            self.assertEqual(msg.type, "ai/failure")
+            self.assertIsNotNone(msg.id)
 
     @patch(
         "ee.hogai.summarizer.nodes.process_query_dict",
@@ -102,33 +98,29 @@ class TestSummarizerNode(ClickhouseTestMixin, APIBaseTest):
                 lambda _: LangchainHumanMessage(content="The results indicate foobar.")
             )
             new_state = node.run(
-                {
-                    "messages": [
-                        HumanMessage(content="Text"),
+                AssistantState(
+                    messages=[
+                        HumanMessage(content="Text", id="test"),
                         VisualizationMessage(
                             answer=AssistantTrendsQuery(series=[AssistantTrendsEventsNode()]),
                             plan="Plan",
-                            done=True,
+                            id="test2",
+                            initiator="test",
                         ),
                     ],
-                    "plan": "Plan",
-                },
+                    plan="Plan",
+                    start_id="test",
+                ),
                 {},
             )
             mock_process_query_dict.assert_called_once()  # Query processing started
+            msg = new_state.messages[0]
             self.assertEqual(
-                new_state,
-                {
-                    "messages": [
-                        FailureMessage(
-                            content=(
-                                "There was an error running this query: This query exceeds the capabilities of our picolator. "
-                                "Try de-brolling its flim-flam."
-                            )
-                        ),
-                    ],
-                },
+                msg.content,
+                "There was an error running this query: This query exceeds the capabilities of our picolator. Try de-brolling its flim-flam.",
             )
+            self.assertEqual(msg.type, "ai/failure")
+            self.assertIsNotNone(msg.id)
 
     def test_node_requires_a_viz_message_in_state(self):
         node = SummarizerNode(self.team)
@@ -137,12 +129,13 @@ class TestSummarizerNode(ClickhouseTestMixin, APIBaseTest):
             ValueError, "Can only run summarization with a visualization message as the last one in the state"
         ):
             node.run(
-                {
-                    "messages": [
+                AssistantState(
+                    messages=[
                         HumanMessage(content="Text"),
                     ],
-                    "plan": "Plan",
-                },
+                    plan="Plan",
+                    start_id="test",
+                ),
                 {},
             )
 
@@ -151,35 +144,32 @@ class TestSummarizerNode(ClickhouseTestMixin, APIBaseTest):
 
         with self.assertRaisesMessage(ValueError, "Did not found query in the visualization message"):
             node.run(
-                {
-                    "messages": [
-                        VisualizationMessage(
-                            answer=None,
-                            plan="Plan",
-                            done=True,
-                        ),
+                AssistantState(
+                    messages=[
+                        VisualizationMessage(answer=None, plan="Plan", id="test"),
                     ],
-                    "plan": "Plan",
-                },
+                    plan="Plan",
+                    start_id="test",
+                ),
                 {},
             )
 
     def test_agent_reconstructs_conversation(self):
-        self.project.product_description = "Dating app for lonely hedgehogs."
-        self.project.save()
         node = SummarizerNode(self.team)
 
         history = node._construct_messages(
-            {
-                "messages": [
-                    HumanMessage(content="What's the trends in signups?"),
+            AssistantState(
+                messages=[
+                    HumanMessage(content="What's the trends in signups?", id="test"),
                     VisualizationMessage(
                         answer=AssistantTrendsQuery(series=[AssistantTrendsEventsNode()]),
                         plan="Plan",
-                        done=True,
+                        id="test2",
+                        initiator="test",
                     ),
-                ]
-            }
+                ],
+                start_id="test",
+            )
         )
         self.assertEqual(
             history,

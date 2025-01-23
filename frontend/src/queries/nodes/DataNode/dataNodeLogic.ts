@@ -47,7 +47,7 @@ import {
     NodeKind,
     PersonsNode,
     QueryTiming,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import {
     isActorsQuery,
     isErrorTrackingQuery,
@@ -190,6 +190,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         const stringifiedQuery = JSON.stringify(query.query)
                         if (cache.localResults[stringifiedQuery] && !refresh) {
                             return cache.localResults[stringifiedQuery]
+                        }
+
+                        if (!query.query) {
+                            return null
                         }
                     }
 
@@ -337,6 +341,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
     })),
     reducers(({ props }) => ({
+        isRefresh: [
+            false,
+            {
+                loadData: (_, { refresh }) => !!refresh,
+            },
+        ],
         dataLoading: [
             false,
             {
@@ -474,8 +484,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             (variablesOverride) => !!variablesOverride,
         ],
         isShowingCachedResults: [
-            () => [(_, props) => props.cachedResults ?? null, (_, props) => props.query],
-            (cachedResults: AnyResponseType | null, query: DataNode): boolean => {
+            (s) => [(_, props) => props.cachedResults ?? null, (_, props) => props.query, s.isRefresh],
+            (cachedResults: AnyResponseType | null, query: DataNode, isRefresh): boolean => {
+                if (isRefresh) {
+                    return false
+                }
+
                 return (
                     !!cachedResults ||
                     (cache.localResults && 'query' in query && JSON.stringify(query.query) in cache.localResults)
@@ -630,23 +644,26 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             (s) => [s.nextAllowedRefresh, s.lastRefresh],
             (nextAllowedRefresh: string | null, lastRefresh: string | null) => (): string => {
                 const now = dayjs()
-                let disabledReason = ''
-                if (!!nextAllowedRefresh && now.isBefore(dayjs(nextAllowedRefresh))) {
-                    // If this is a saved insight, the result will contain nextAllowedRefresh, and we use that to disable the button
-                    disabledReason = `You can refresh this insight again ${dayjs(nextAllowedRefresh).from(now)}`
-                } else if (
-                    !!lastRefresh &&
-                    now.subtract(UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES - 0.5, 'minutes').isBefore(lastRefresh)
-                ) {
-                    // Unsaved insights don't get cached and get refreshed on every page load, but we avoid allowing users to click
-                    // 'refresh' more than once every UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES. This can be bypassed by simply
-                    // refreshing the page though, as there's no cache layer on the backend
-                    disabledReason = `You can refresh this insight again ${dayjs(lastRefresh)
-                        .add(UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES, 'minutes')
-                        .from(now)}`
+                // Saved insights has a nextAllowedRefresh we use to check if the user can refresh again
+                if (nextAllowedRefresh) {
+                    const nextRefreshTime = dayjs(nextAllowedRefresh)
+                    if (now.isBefore(nextRefreshTime)) {
+                        return `You can refresh this insight again ${nextRefreshTime.from(now)}`
+                    }
                 }
-
-                return disabledReason
+                // For unsaved insights we check the last refresh time
+                if (lastRefresh) {
+                    const earliestRefresh = dayjs(lastRefresh).add(
+                        UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES,
+                        'minutes'
+                    )
+                    if (now.isBefore(earliestRefresh)) {
+                        return `You can refresh this insight again ${earliestRefresh.from(now)}`
+                    }
+                }
+                // If we don't have a nextAllowedRefresh or lastRefresh, we can refresh, so we
+                // return an empty string
+                return ''
             },
         ],
         timings: [

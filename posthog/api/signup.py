@@ -111,6 +111,7 @@ class SignupSerializer(serializers.Serializer):
                 create_team=self.create_team,
                 is_staff=is_instance_first_user,
                 is_email_verified=self.is_email_auto_verified(),
+                role_at_organization=role_at_organization,
                 **validated_data,
             )
         except IntegrityError:
@@ -241,6 +242,7 @@ class InviteSignupSerializer(serializers.Serializer):
                         validated_data.pop("password"),
                         validated_data.pop("first_name"),
                         is_email_verified=False,
+                        role_at_organization=role_at_organization,
                         **validated_data,
                     )
                 except IntegrityError:

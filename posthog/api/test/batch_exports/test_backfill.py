@@ -10,7 +10,7 @@ from posthog.api.test.batch_exports.operations import (
     backfill_batch_export,
     create_batch_export_ok,
 )
-from posthog.api.test.test_organization import create_organization
+from posthog.api.test.batch_exports.fixtures import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.temporal.common.client import sync_connect

@@ -36,7 +36,9 @@ class HogFunctionState(enum.Enum):
 class HogFunctionType(models.TextChoices):
     DESTINATION = "destination"
     SITE_DESTINATION = "site_destination"
+    INTERNAL_DESTINATION = "internal_destination"
     SITE_APP = "site_app"
+    TRANSFORMATION = "transformation"
     EMAIL = "email"
     SMS = "sms"
     PUSH = "push"
@@ -45,8 +47,13 @@ class HogFunctionType(models.TextChoices):
     BROADCAST = "broadcast"
 
 
-TYPES_THAT_RELOAD_PLUGIN_SERVER = (HogFunctionType.DESTINATION, HogFunctionType.EMAIL)
-TYPES_WITH_COMPILED_FILTERS = (HogFunctionType.DESTINATION,)
+TYPES_THAT_RELOAD_PLUGIN_SERVER = (
+    HogFunctionType.DESTINATION,
+    HogFunctionType.EMAIL,
+    HogFunctionType.TRANSFORMATION,
+    HogFunctionType.INTERNAL_DESTINATION,
+)
+TYPES_WITH_COMPILED_FILTERS = (HogFunctionType.DESTINATION, HogFunctionType.INTERNAL_DESTINATION)
 TYPES_WITH_TRANSPILED_FILTERS = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
 TYPES_WITH_JAVASCRIPT_SOURCE = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
 
@@ -65,7 +72,7 @@ class HogFunction(UUIDModel):
     deleted = models.BooleanField(default=False)
     updated_at = models.DateTimeField(auto_now=True)
     enabled = models.BooleanField(default=False)
-    type = models.CharField(max_length=24, choices=HogFunctionType.choices, null=True, blank=True)
+    type = models.CharField(max_length=24, null=True, blank=True)
 
     icon_url = models.TextField(null=True, blank=True)
 
@@ -81,14 +88,15 @@ class HogFunction(UUIDModel):
     encrypted_inputs: EncryptedJSONStringField = EncryptedJSONStringField(null=True, blank=True)
 
     filters = models.JSONField(null=True, blank=True)
+    mappings = models.JSONField(null=True, blank=True)
     masking = models.JSONField(null=True, blank=True)
     template_id = models.CharField(max_length=400, null=True, blank=True)
 
     @property
     def template(self) -> Optional[HogFunctionTemplate]:
-        from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES_BY_ID
+        from posthog.cdp.templates import ALL_HOG_FUNCTION_TEMPLATES_BY_ID
 
-        return HOG_FUNCTION_TEMPLATES_BY_ID.get(self.template_id, None)
+        return ALL_HOG_FUNCTION_TEMPLATES_BY_ID.get(self.template_id, None)
 
     @property
     def filter_action_ids(self) -> list[int]:

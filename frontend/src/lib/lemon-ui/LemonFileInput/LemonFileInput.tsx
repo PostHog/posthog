@@ -13,6 +13,8 @@ export interface LemonFileInputProps extends Pick<HTMLInputElement, 'multiple' |
      * are the files currently being uploaded?
      */
     loading?: boolean
+    /** Whether input field is disabled */
+    disabled?: boolean
     /** if this is not provided then this component is the drop target
      * and is styled when a file is dragged over it
      * if this alternativeDropTargetRef is provided,
@@ -35,6 +37,7 @@ export const LemonFileInput = ({
     onChange,
     multiple,
     loading,
+    disabled,
     // e.g. '.json' or 'image/*'
     accept,
     alternativeDropTargetRef,
@@ -142,14 +145,21 @@ export const LemonFileInput = ({
                     'FileDropTarget flex flex-col gap-1',
                     !alternativeDropTargetRef?.current && drag && 'FileDropTarget--active'
                 )}
+                aria-disabled={disabled}
             >
-                <label className="text-muted inline-flex flow-row items-center gap-1 cursor-pointer">
+                <label
+                    className={clsx(
+                        'text-muted inline-flex flow-row items-center gap-1',
+                        disabled ? 'cursor-not-allowed' : 'cursor-pointer'
+                    )}
+                >
                     <input
                         className="hidden"
                         type="file"
                         multiple={multiple}
                         accept={accept}
                         onChange={onInputChange}
+                        disabled={disabled}
                     />
                     {callToAction || (
                         <>

@@ -1,18 +1,16 @@
 import { IconPlus } from '@posthog/icons'
 import { useValues } from 'kea'
-import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
-import { AvailableFeature, ReplayTabs } from '~/types'
+import { ReplayTabs } from '~/types'
 
 import { createPlaylist } from '../playlist/playlistUtils'
 import { savedSessionRecordingPlaylistsLogic } from './savedSessionRecordingPlaylistsLogic'
 
 export function SavedSessionRecordingPlaylistsEmptyState(): JSX.Element {
-    const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const playlistsLogic = savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Home })
-    const { playlists, loadPlaylistsFailed } = useValues(playlistsLogic)
+    const { loadPlaylistsFailed } = useValues(playlistsLogic)
     return loadPlaylistsFailed ? (
         <LemonBanner type="error">Error while trying to load playlist.</LemonBanner>
     ) : (
@@ -24,13 +22,7 @@ export function SavedSessionRecordingPlaylistsEmptyState(): JSX.Element {
                     type="primary"
                     data-attr="add-session-playlist-button-empty-state"
                     icon={<IconPlus />}
-                    onClick={() =>
-                        guardAvailableFeature(
-                            AvailableFeature.RECORDINGS_PLAYLISTS,
-                            () => void createPlaylist({}, true),
-                            { currentUsage: playlists.count }
-                        )
-                    }
+                    onClick={() => void createPlaylist({}, true)}
                 >
                     New playlist
                 </LemonButton>

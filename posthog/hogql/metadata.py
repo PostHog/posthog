@@ -26,6 +26,7 @@ from posthog.schema import (
     HogQLMetadataResponse,
     HogQLNotice,
 )
+from posthog.hogql.visitor import TraversingVisitor
 
 
 def get_hogql_metadata(
@@ -39,6 +40,7 @@ def get_hogql_metadata(
         errors=[],
         warnings=[],
         notices=[],
+        table_names=[],
     )
 
     query_modifiers = create_default_modifiers_for_team(team)
@@ -71,6 +73,8 @@ def get_hogql_metadata(
             if query.variables:
                 select_ast = replace_variables(select_ast, list(query.variables.values()), team)
             _is_valid_view = is_valid_view(select_ast)
+            table_names = get_table_names(select_ast)
+            response.table_names = table_names
             response.isValidView = _is_valid_view
             print_ast(
                 select_ast,
@@ -138,3 +142,28 @@ def is_valid_view(select_query: ast.SelectQuery | ast.SelectSetQuery) -> bool:
                 if field.chain and field.chain[-1] == "*":
                     return False
     return True
+
+
+def get_table_names(select_query: ast.SelectQuery | ast.SelectSetQuery) -> list[str]:
+    # Don't need types, we're only interested in the table names as passed in
+    collector = TableCollector()
+    collector.visit(select_query)
+    return list(collector.table_names - collector.ctes)
+
+
+class TableCollector(TraversingVisitor):
+    def __init__(self):
+        self.table_names = set()
+        self.ctes = set()
+
+    def visit_cte(self, node: ast.CTE):
+        self.ctes.add(node.name)
+        super().visit(node.expr)
+
+    def visit_join_expr(self, node: ast.JoinExpr):
+        if isinstance(node.table, ast.Field):
+            self.table_names.add(node.table.chain[0])
+        else:
+            self.visit(node.table)
+
+        self.visit(node.next_join)

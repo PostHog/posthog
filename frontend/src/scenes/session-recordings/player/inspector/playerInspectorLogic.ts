@@ -5,6 +5,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { eventToDescription, humanizeBytes, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -22,6 +23,7 @@ import {
     MatchingEventsMatchType,
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
+import { RecordingsQuery } from '~/queries/schema'
 import {
     FilterableInspectorListItemTypes,
     MatchedRecordingEvent,
@@ -248,6 +250,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             ['allPerformanceEvents'],
             sessionRecordingDataLogic(props),
             ['trackedWindow'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
     })),
     actions(() => ({
@@ -297,11 +301,13 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     if (!filters) {
                         throw new Error('Backend matching events type must include its filters')
                     }
-                    const params = toParams({
+
+                    const params: RecordingsQuery = {
                         ...convertUniversalFiltersToRecordingsQuery(filters),
                         session_ids: [props.sessionRecordingId],
-                    })
-                    const response = await api.recordings.getMatchingEvents(params)
+                    }
+
+                    const response = await api.recordings.getMatchingEvents(toParams(params))
                     return response.results.map((x) => ({ uuid: x } as MatchedRecordingEvent))
                 },
             },
@@ -729,9 +735,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 items.sort((a, b) => (a.timestamp.valueOf() > b.timestamp.valueOf() ? 1 : -1))
 
                 // ensure that item with type 'inspector-summary' is always at the top
-                const summary = items.find((item) => item.type === 'inspector-summary')
+                const summary: InspectorListItemSummary | undefined = items.find(
+                    (item) => item.type === 'inspector-summary'
+                ) as InspectorListItemSummary | undefined
                 if (summary) {
-                    ;(summary as InspectorListItemSummary).errorCount = errorCount
+                    summary.errorCount = errorCount
                     items.splice(items.indexOf(summary), 1)
                     items.unshift(summary)
                 }
@@ -983,6 +991,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                 return itemsByType
             },
+        ],
+
+        hasEventsToDisplay: [
+            (s) => [s.allItemsByItemType],
+            (allItemsByItemType): boolean => allItemsByItemType[FilterableInspectorListItemTypes.EVENTS]?.length > 0,
         ],
     })),
     listeners(({ values, actions }) => ({

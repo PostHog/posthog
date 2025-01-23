@@ -10,20 +10,27 @@ import { EventType } from '~/types'
 export default function ViewRecordingButton({
     sessionId,
     timestamp,
+    inModal = false,
     ...props
 }: Pick<LemonButtonProps, 'size' | 'type' | 'data-attr' | 'fullWidth' | 'className' | 'disabledReason'> & {
     sessionId: string
     timestamp?: string | Dayjs
+    // whether to open in a modal or navigate to the replay page
+    inModal?: boolean
 }): JSX.Element {
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
 
     return (
         <LemonButton
-            to={urls.replaySingle(sessionId)}
-            onClick={() => {
-                const fiveSecondsBeforeEvent = dayjs(timestamp).valueOf() - 5000
-                openSessionPlayer({ id: sessionId }, Math.max(fiveSecondsBeforeEvent, 0))
-            }}
+            to={inModal ? undefined : urls.replaySingle(sessionId)}
+            onClick={
+                inModal
+                    ? () => {
+                          const fiveSecondsBeforeEvent = timestamp ? dayjs(timestamp).valueOf() - 5000 : 0
+                          openSessionPlayer({ id: sessionId }, Math.max(fiveSecondsBeforeEvent, 0))
+                      }
+                    : undefined
+            }
             sideIcon={<IconPlayCircle />}
             {...props}
         >

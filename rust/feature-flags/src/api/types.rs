@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashMap;
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -18,4 +19,5 @@ pub enum FlagValue {
 pub struct FlagsResponse {
     pub error_while_computing_flags: bool,
     pub feature_flags: HashMap<String, FlagValue>,
+    pub feature_flag_payloads: HashMap<String, Value>, // flag key -> payload
 }

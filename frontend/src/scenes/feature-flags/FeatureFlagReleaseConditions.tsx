@@ -41,10 +41,14 @@ export function FeatureFlagReleaseConditions({
     onChange,
     hideMatchOptions,
     nonEmptyFeatureFlagVariants,
+    showTrashIconWithOneCondition = false,
+    removedLastConditionCallback,
 }: FeatureFlagReleaseConditionsLogicProps & {
     hideMatchOptions?: boolean
     isSuper?: boolean
     excludeTitle?: boolean
+    showTrashIconWithOneCondition?: boolean
+    removedLastConditionCallback?: () => void
 }): JSX.Element {
     const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
         id,
@@ -137,13 +141,19 @@ export function FeatureFlagReleaseConditions({
                                     noPadding
                                     onClick={() => duplicateConditionSet(index)}
                                 />
-                                {!isEarlyAccessFeatureCondition(group) && filterGroups.length > 1 && (
-                                    <LemonButton
-                                        icon={<IconTrash />}
-                                        noPadding
-                                        onClick={() => removeConditionSet(index)}
-                                    />
-                                )}
+                                {!isEarlyAccessFeatureCondition(group) &&
+                                    (filterGroups.length > 1 || showTrashIconWithOneCondition) && (
+                                        <LemonButton
+                                            icon={<IconTrash />}
+                                            noPadding
+                                            onClick={() => {
+                                                removeConditionSet(index)
+                                                if (filterGroups.length === 1) {
+                                                    removedLastConditionCallback?.()
+                                                }
+                                            }}
+                                        />
+                                    )}
                             </div>
                         )}
                     </div>
@@ -193,21 +203,26 @@ export function FeatureFlagReleaseConditions({
                                             (val, idx) => (
                                                 <LemonSnack key={idx}>
                                                     {val}
-                                                    {isPropertyFilterWithOperator(property) &&
-                                                    ['is_date_before', 'is_date_after'].includes(property.operator) &&
-                                                    dateStringToComponents(String(val)) // check it's a relative date
-                                                        ? ` ( ${dateFilterToText(
-                                                              String(val),
-                                                              undefined,
-                                                              '',
-                                                              [],
-                                                              false,
-                                                              String(val).slice(-1) === 'h'
-                                                                  ? 'MMMM D, YYYY HH:mm:ss'
-                                                                  : 'MMMM D, YYYY',
-                                                              true
-                                                          )} )`
-                                                        : ''}
+                                                    <span>
+                                                        {isPropertyFilterWithOperator(property) &&
+                                                        ['is_date_before', 'is_date_after'].includes(
+                                                            property.operator
+                                                        ) &&
+                                                        dateStringToComponents(String(val)) // check it's a relative date
+                                                            ? ` ( ${dateFilterToText(
+                                                                  String(val),
+                                                                  undefined,
+                                                                  '',
+                                                                  [],
+                                                                  false,
+                                                                  String(val).slice(-1) === 'h'
+                                                                      ? 'MMMM D, YYYY HH:mm:ss'
+                                                                      : 'MMMM D, YYYY',
+                                                                  true
+                                                              )}{' '}
+                                                            )`
+                                                            : ''}
+                                                    </span>
                                                 </LemonSnack>
                                             )
                                         )
@@ -269,8 +284,10 @@ export function FeatureFlagReleaseConditions({
                         >
                             <div className="text-sm ">
                                 Rolled out to{' '}
-                                <b>{group.rollout_percentage != null ? group.rollout_percentage : 100}%</b> of{' '}
-                                <b>{aggregationTargetName}</b> in this set.{' '}
+                                {group.rollout_percentage != null ? <b>{group.rollout_percentage}</b> : <b>100</b>}
+                                <b>%</b>
+                                <span> of </span>
+                                <b>{aggregationTargetName}</b> <span>in this set.</span>
                             </div>
                         </LemonTag>
                     ) : (
@@ -334,7 +351,7 @@ export function FeatureFlagReleaseConditions({
                                     }
                                     return ''
                                 })()}{' '}
-                                of total {aggregationTargetName}.
+                                <span>of total {aggregationTargetName}.</span>
                             </div>
                         </div>
                     )}

@@ -1,8 +1,9 @@
 import './PlayerInspectorList.scss'
 
+import { BaseIcon, IconCheck } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
-import { SettingsBar, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
+import { SettingsBar, SettingsMenu, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
 import { miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 
 import { FilterableInspectorListItemTypes } from '~/types'
@@ -10,32 +11,39 @@ import { FilterableInspectorListItemTypes } from '~/types'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { playerInspectorLogic } from './playerInspectorLogic'
 
-function HideProperties(): JSX.Element | null {
+function HideProperties(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const inspectorLogic = playerInspectorLogic(logicProps)
 
-    const { allItemsByItemType } = useValues(inspectorLogic)
+    const { hasEventsToDisplay } = useValues(inspectorLogic)
+    const { hasEventsFiltersSelected } = useValues(miniFiltersLogic)
 
-    const { miniFiltersForType } = useValues(miniFiltersLogic)
+    const { hideNullValues } = useValues(userPreferencesLogic)
+    const { setHideNullValues } = useActions(userPreferencesLogic)
+
     const { hidePostHogPropertiesInTable } = useValues(userPreferencesLogic)
     const { setHidePostHogPropertiesInTable } = useActions(userPreferencesLogic)
 
-    const hasEventsFiltersSelected = miniFiltersForType(FilterableInspectorListItemTypes.EVENTS).some((x) => x.enabled)
-    const hasEventsToDisplay = allItemsByItemType[FilterableInspectorListItemTypes.EVENTS]?.length > 0
-
     return (
-        <SettingsToggle
-            title={
-                hidePostHogPropertiesInTable
-                    ? 'Do not show PostHog properties in expanded events'
-                    : 'Show PostHog properties in expanded events'
-            }
-            label="Hide PostHog properties"
-            onClick={() => setHidePostHogPropertiesInTable(!hidePostHogPropertiesInTable)}
-            disabledReason={
-                hasEventsToDisplay && hasEventsFiltersSelected ? undefined : 'There are no events in the list'
-            }
-            active={hidePostHogPropertiesInTable}
+        <SettingsMenu
+            items={[
+                {
+                    label: <>{hidePostHogPropertiesInTable ? <IconCheck /> : <BaseIcon />} Hide PostHog properties</>,
+                    onClick: () => setHidePostHogPropertiesInTable(!hidePostHogPropertiesInTable),
+                    active: hidePostHogPropertiesInTable,
+                    disabledReason:
+                        hasEventsToDisplay && hasEventsFiltersSelected ? undefined : 'There are no events in the list',
+                },
+                {
+                    label: <>{hideNullValues ? <IconCheck /> : <BaseIcon />} Hide null values</>,
+                    onClick: () => setHideNullValues(!hideNullValues),
+                    active: hideNullValues,
+                    disabledReason:
+                        hasEventsToDisplay && hasEventsFiltersSelected ? undefined : 'There are no events in the list',
+                },
+            ]}
+            label="Hide properties"
+            highlightWhenActive={false}
         />
     )
 }

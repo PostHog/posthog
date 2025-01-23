@@ -3,7 +3,7 @@ import * as crypto from 'crypto'
 import { RE2JS } from 're2js'
 
 import { performQuery } from '~/queries/query'
-import { HogQLQuery, NodeKind } from '~/queries/schema'
+import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 
 const external = {
     crypto, // TODO: switch to webcrypto and polyfill on the node side

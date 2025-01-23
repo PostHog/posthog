@@ -4,12 +4,14 @@ import json
 import operator
 import os
 import typing
+import unittest.mock
 import uuid
 import warnings
 
 import pyarrow as pa
 import pytest
 import pytest_asyncio
+from django.test import override_settings
 from freezegun.api import freeze_time
 from google.cloud import bigquery
 from temporalio import activity
@@ -177,6 +179,15 @@ async def assert_clickhouse_records_in_bigquery(
                         continue
 
                     if k in json_columns and v is not None:
+                        # We remove unpaired surrogates in BigQuery, so we have to remove them here to so
+                        # that comparison doesn't fail. The problem is that at some point our unpaired surrogate gets
+                        # escaped (which is correct, as unpaired surrogates are not valid). But then the
+                        # comparison fails as in BigQuery we remove unpaired surrogates, not just escape them.
+                        # So, we hardcode replace the test properties. Not ideal, but this works as we get the
+                        # expected result in BigQuery and the comparison is still useful.
+                        v = v.replace("\\ud83e\\udd23\\udd23", "\\ud83e\\udd23").replace(
+                            "\\ud83e\\udd23\\ud83e", "\\ud83e\\udd23"
+                        )
                         expected_record[k] = json.loads(v)
                     elif isinstance(v, dt.datetime):
                         expected_record[k] = v.replace(tzinfo=dt.UTC)
@@ -314,6 +325,38 @@ TEST_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
 @pytest.mark.parametrize("use_json_type", [False, True], indirect=True)
 @pytest.mark.parametrize("model", TEST_MODELS)
+@pytest.mark.parametrize(
+    "test_properties",
+    [
+        {
+            "$browser": "Chrome",
+            "$os": "Mac OS X",
+            "emoji": "🤣",
+            "newline": "\n",
+            "emoji_with_high_surrogate": "🤣\ud83e",
+            "emoji_with_low_surrogate": "🤣\udd23",
+            "emoji_with_high_surrogate_and_newline": "🤣\ud83e\n",
+            "emoji_with_low_surrogate_and_newline": "🤣\udd23\n",
+        }
+    ],
+    indirect=True,
+)
+@pytest.mark.parametrize(
+    "test_person_properties",
+    [
+        {
+            "utm_medium": "referral",
+            "$initial_os": "Linux",
+            "emoji": "🤣",
+            "newline": "\n",
+            "emoji_with_high_surrogate": "🤣\ud83e",
+            "emoji_with_low_surrogate": "🤣\udd23",
+            "emoji_with_high_surrogate_and_newline": "🤣\ud83e\n",
+            "emoji_with_low_surrogate_and_newline": "🤣\udd23\n",
+        }
+    ],
+    indirect=True,
+)
 async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
     clickhouse_client,
     activity_environment,
@@ -361,11 +404,86 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
         **bigquery_config,
     )
 
-    with freeze_time(TEST_TIME) as frozen_time:
+    with freeze_time(TEST_TIME) as frozen_time, override_settings(BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES=1):
         await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
 
         ingested_timestamp = frozen_time().replace(tzinfo=dt.UTC)
 
+        await assert_clickhouse_records_in_bigquery(
+            bigquery_client=bigquery_client,
+            clickhouse_client=clickhouse_client,
+            table_id=f"test_insert_activity_table_{ateam.pk}",
+            dataset_id=bigquery_dataset.dataset_id,
+            team_id=ateam.pk,
+            date_ranges=[(data_interval_start, data_interval_end)],
+            exclude_events=exclude_events,
+            include_events=None,
+            batch_export_model=model,
+            use_json_type=use_json_type,
+            min_ingested_timestamp=ingested_timestamp,
+            sort_key="person_id"
+            if batch_export_model is not None and batch_export_model.name == "persons"
+            else "event",
+        )
+
+
+@pytest.mark.parametrize("use_json_type", [True], indirect=True)
+@pytest.mark.parametrize("model", TEST_MODELS)
+async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table_without_query_permissions(
+    clickhouse_client,
+    activity_environment,
+    bigquery_client,
+    bigquery_config,
+    exclude_events,
+    bigquery_dataset,
+    use_json_type,
+    model: BatchExportModel | BatchExportSchema | None,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+):
+    """Test that the `insert_into_bigquery_activity` function inserts data into a BigQuery table.
+
+    For this test we mock the `acheck_for_query_permissions_on_table` method to assert the
+    behavior of the activity function when lacking query permissions in BigQuery.
+    """
+    if isinstance(model, BatchExportModel) and model.name == "persons":
+        pytest.skip("Unnecessary test case as person batch export requires query permissions")
+
+    batch_export_schema: BatchExportSchema | None = None
+    batch_export_model: BatchExportModel | None = None
+    if isinstance(model, BatchExportModel):
+        batch_export_model = model
+    elif model is not None:
+        batch_export_schema = model
+
+    insert_inputs = BigQueryInsertInputs(
+        team_id=ateam.pk,
+        table_id=f"test_insert_activity_table_{ateam.pk}",
+        dataset_id=bigquery_dataset.dataset_id,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        exclude_events=exclude_events,
+        use_json_type=use_json_type,
+        batch_export_schema=batch_export_schema,
+        batch_export_model=batch_export_model,
+        **bigquery_config,
+    )
+
+    with (
+        freeze_time(TEST_TIME) as frozen_time,
+        override_settings(BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES=1),
+        unittest.mock.patch(
+            "posthog.temporal.batch_exports.bigquery_batch_export.BigQueryClient.acheck_for_query_permissions_on_table",
+            return_value=False,
+        ) as mocked_check,
+    ):
+        await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
+
+        ingested_timestamp = frozen_time().replace(tzinfo=dt.UTC)
+
+        mocked_check.assert_called_once()
         await assert_clickhouse_records_in_bigquery(
             bigquery_client=bigquery_client,
             clickhouse_client=clickhouse_client,

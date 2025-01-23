@@ -68,3 +68,6 @@ Minute.args = { granularity: 'minute' }
 
 export const WithTimeToggle: Story = BasicTemplate.bind({})
 WithTimeToggle.args = { showTimeToggle: true }
+
+export const WithTimeToggleAndMultipleMonths: Story = BasicTemplate.bind({})
+WithTimeToggleAndMultipleMonths.args = { showTimeToggle: true, months: 3 }

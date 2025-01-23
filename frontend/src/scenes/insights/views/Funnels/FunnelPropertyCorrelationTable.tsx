@@ -265,7 +265,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                                         <p className="m-auto">
                                             Highlight properties which are likely to have affected the conversion rate
                                             within the funnel.{' '}
-                                            <Link to="https://posthog.com/manual/correlation">
+                                            <Link to="https://posthog.com/docs/product-analytics/correlation">
                                                 Learn more about correlation analysis.
                                             </Link>
                                         </p>

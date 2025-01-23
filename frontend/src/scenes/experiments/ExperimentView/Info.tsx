@@ -1,10 +1,10 @@
-import '../Experiment.scss'
-
-import { IconWarning } from '@posthog/icons'
-import { Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
+import { IconRefresh, IconWarning } from '@posthog/icons'
+import { LemonButton, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { EditableField } from 'lib/components/EditableField/EditableField'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
@@ -12,18 +12,23 @@ import { ProgressStatus } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatus } from '../experimentsLogic'
-import { ActionBanner, ResultsTag, StatusTag } from './components'
+import { StatusTag } from './components'
 import { ExperimentDates } from './ExperimentDates'
 
 export function Info(): JSX.Element {
-    const { experiment } = useValues(experimentLogic)
-    const { updateExperiment } = useActions(experimentLogic)
+    const { experiment, featureFlags, metricResults } = useValues(experimentLogic)
+    const { updateExperiment, setExperimentStatsVersion, loadMetricResults, loadSecondaryMetricResults } =
+        useActions(experimentLogic)
 
     const { created_by } = experiment
 
     if (!experiment.feature_flag) {
         return <></>
     }
+
+    const currentStatsVersion = experiment.stats_config?.version || 1
+
+    const lastRefresh = metricResults?.[0]?.last_refresh
 
     return (
         <div>
@@ -32,10 +37,6 @@ export function Info(): JSX.Element {
                     <div className="block" data-attr="experiment-status">
                         <div className="text-xs font-semibold uppercase tracking-wide">Status</div>
                         <StatusTag experiment={experiment} />
-                    </div>
-                    <div className="block">
-                        <div className="text-xs font-semibold uppercase tracking-wide">Significance</div>
-                        <ResultsTag />
                     </div>
                     {experiment.feature_flag && (
                         <div className="block">
@@ -71,10 +72,63 @@ export function Info(): JSX.Element {
                             </Link>
                         </div>
                     )}
+                    {featureFlags[FEATURE_FLAGS.EXPERIMENT_STATS_V2] && (
+                        <div className="block">
+                            <div className="text-xs font-semibold uppercase tracking-wide">
+                                <span>Stats Version</span>
+                            </div>
+                            <div className="flex gap-1">
+                                {[1, 2].map((version) => (
+                                    <LemonButton
+                                        key={version}
+                                        size="xsmall"
+                                        type="tertiary"
+                                        active={currentStatsVersion === version}
+                                        onClick={() => {
+                                            setExperimentStatsVersion(version)
+                                        }}
+                                    >
+                                        v{version}
+                                    </LemonButton>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 <div className="w-1/2 flex flex-col justify-end">
                     <div className="ml-auto inline-flex space-x-8">
+                        {lastRefresh && (
+                            <div className="block">
+                                <div className="text-xs font-semibold uppercase tracking-wide">Last refreshed</div>
+                                <div className="inline-flex space-x-2">
+                                    <span
+                                        className={`${
+                                            lastRefresh
+                                                ? dayjs().diff(dayjs(lastRefresh), 'hours') > 12
+                                                    ? 'text-danger'
+                                                    : dayjs().diff(dayjs(lastRefresh), 'hours') > 6
+                                                    ? 'text-warning'
+                                                    : ''
+                                                : ''
+                                        }`}
+                                    >
+                                        {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
+                                    </span>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="xsmall"
+                                        onClick={() => {
+                                            loadMetricResults(true)
+                                            loadSecondaryMetricResults(true)
+                                        }}
+                                        data-attr="refresh-experiment"
+                                        icon={<IconRefresh />}
+                                        tooltip="Refresh experiment results"
+                                    />
+                                </div>
+                            </div>
+                        )}
                         <ExperimentDates />
                         <div className="block">
                             <div className="text-xs font-semibold uppercase tracking-wide">Created by</div>
@@ -98,7 +152,6 @@ export function Info(): JSX.Element {
                     compactButtons
                 />
             </div>
-            <ActionBanner />
         </div>
     )
 }

@@ -6,15 +6,17 @@ import time
 from contextlib import contextmanager
 
 import pytest
+import temporalio.worker
 from asgiref.sync import async_to_sync
-from django.conf import settings
 from temporalio.client import Client as TemporalClient
 from temporalio.service import RPCError
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-from posthog.constants import BATCH_EXPORTS_TASK_QUEUE
+
+from posthog import constants
 from posthog.batch_exports.models import BatchExport
-from posthog.temporal.common.client import sync_connect
+from posthog.constants import BATCH_EXPORTS_TASK_QUEUE
 from posthog.temporal.batch_exports import ACTIVITIES, WORKFLOWS
+from posthog.temporal.common.client import sync_connect
 
 
 class ThreadedWorker(Worker):
@@ -91,10 +93,10 @@ async def describe_workflow(temporal: TemporalClient, workflow_id: str):
 def start_test_worker(temporal: TemporalClient):
     with ThreadedWorker(
         client=temporal,
-        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
         workflows=WORKFLOWS,
         activities=ACTIVITIES,
-        workflow_runner=UnsandboxedWorkflowRunner(),
+        workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         graceful_shutdown_timeout=dt.timedelta(seconds=5),
     ).run_in_thread():
         yield

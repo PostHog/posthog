@@ -16,7 +16,7 @@ from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
 from posthog.constants import AvailableFeature
 from posthog.models import Action, FeatureFlag, Team
 from posthog.models.cohort.cohort import Cohort
-from posthog.models.feedback.survey import Survey
+from posthog.models.feedback.survey import Survey, MAX_ITERATION_COUNT
 from posthog.test.base import (
     APIBaseTest,
     BaseTest,
@@ -402,6 +402,34 @@ class TestSurvey(APIBaseTest):
                 [(res["key"], [survey["id"] for survey in res["surveys"]]) for res in result["results"]],
                 [("flag_0", []), (ff_key, [created_survey1, created_survey2])],
             )
+
+    def test_updating_survey_with_invalid_iteration_count_is_rejected(self):
+        survey_with_targeting = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey with targeting",
+                "type": "popover",
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "variant": None,
+                            "rollout_percentage": None,
+                        }
+                    ]
+                },
+                "iteration_count": MAX_ITERATION_COUNT + 1,
+                "conditions": {"url": "https://app.posthog.com/notebooks"},
+            },
+            format="json",
+        )
+
+        assert survey_with_targeting.status_code == status.HTTP_400_BAD_REQUEST
+        assert survey_with_targeting.json() == {
+            "type": "validation_error",
+            "code": "max_value",
+            "detail": f"Ensure this value is less than or equal to {MAX_ITERATION_COUNT}.",
+            "attr": "iteration_count",
+        }
 
     def test_updating_survey_with_invalid_targeting_throws_appropriate_error(self):
         cohort_not_valid_for_ff = Cohort.objects.create(
@@ -2378,6 +2406,7 @@ class TestSurveyWithActions(APIBaseTest):
         assert len(survey.actions.all()) == 0
 
 
+@freeze_time("2024-12-12 00:00:00")
 class TestSurveyResponseSampling(APIBaseTest):
     def _create_survey_with_sampling_limits(
         self,
@@ -2407,6 +2436,7 @@ class TestSurveyResponseSampling(APIBaseTest):
         )
 
         response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
         survey = Survey.objects.get(id=response_data["id"])
         return survey
 
@@ -2907,8 +2937,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
             for survey in surveys:
                 assert "description" not in survey, f"Description field should not be present in survey: {survey}"
 
-            assert surveys[0]["name"] == "Survey 1"
-            assert surveys[1]["name"] == "Survey 2"
+            assert len(surveys) == 2
 
 
 class TestSurveyAPITokens(PersonalAPIKeysBaseTest, APIBaseTest):

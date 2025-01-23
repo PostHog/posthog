@@ -8,6 +8,7 @@ import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 
+import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { getQueryFromInsightLike } from '~/queries/nodes/InsightViz/utils'
 
 import { tabToName } from './constants'
@@ -22,7 +23,9 @@ type SearchResultProps = {
 
 export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps): JSX.Element => {
     const { aggregationLabel } = useValues(searchBarLogic)
-    const { openResult } = useActions(searchBarLogic)
+    const { setActiveResultIndex, openResult } = useActions(searchBarLogic)
+    const { mobileLayout } = useValues(navigation3000Logic)
+    const { hideNavOnMobile } = useActions(navigation3000Logic)
 
     const ref = useRef<HTMLDivElement | null>(null)
 
@@ -34,33 +37,43 @@ export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps
             if ((ref.current as any)?.scrollIntoViewIfNeeded) {
                 ;(ref.current as any).scrollIntoViewIfNeeded(false)
             } else {
-                ref.current?.scrollIntoView()
+                ref.current?.scrollIntoView({
+                    block: 'nearest',
+                })
             }
         }
     }, [focused])
 
     return (
-        <div
-            className={clsx(
-                'w-full px-2 hover:bg-bg-3000 border-l-4 border-r border-b cursor-pointer',
-                focused ? 'bg-bg-3000 border-l-primary-3000' : 'bg-bg-light'
-            )}
-            onClick={() => {
-                openResult(resultIndex)
-            }}
-            ref={ref}
-        >
-            <div className="px-2 py-3 w-full space-y-0.5 flex flex-col items-start">
-                <span className="text-muted-3000 text-xs">
-                    {result.type !== 'group'
-                        ? tabToName[result.type]
-                        : `${capitalizeFirstLetter(aggregationLabel(result.extra_fields.group_type_index).plural)}`}
-                </span>
-                <span className="text-text-3000 font-bold">
-                    <ResultName result={result} />
-                </span>
+        <>
+            <div
+                className={clsx(
+                    'w-full px-2 hover:bg-bg-3000 border-l-4 border-b cursor-pointer',
+                    focused ? 'bg-bg-3000 border-l-primary-3000' : 'bg-bg-light'
+                )}
+                onClick={() => {
+                    if (mobileLayout) {
+                        hideNavOnMobile()
+                    }
+                    openResult(resultIndex)
+                }}
+                onMouseOver={() => {
+                    setActiveResultIndex(resultIndex)
+                }}
+                ref={ref}
+            >
+                <div className="px-2 py-3 w-full space-y-0.5 flex flex-col items-start">
+                    <span className="text-muted-3000 text-xs">
+                        {result.type !== 'group'
+                            ? tabToName[result.type]
+                            : `${capitalizeFirstLetter(aggregationLabel(result.extra_fields.group_type_index).plural)}`}
+                    </span>
+                    <span className="text-text-3000 font-bold">
+                        <ResultName result={result} />
+                    </span>
+                </div>
             </div>
-        </div>
+        </>
     )
 }
 

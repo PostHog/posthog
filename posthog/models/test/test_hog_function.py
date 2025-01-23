@@ -2,7 +2,7 @@ import json
 from django.test import TestCase
 from inline_snapshot import snapshot
 
-from hogvm.python.operation import HOGQL_BYTECODE_VERSION
+from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.user import User
@@ -275,8 +275,8 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
             {"key": "$pageview", "operator": "regex", "value": "test"},
         ]
         # 1 update team, 1 load hog functions, 1 update hog functions
-        # 8 unrelated due to RemoteConfig refresh
-        with self.assertNumQueries(3 + 8):
+        # 7 unrelated due to RemoteConfig refresh
+        with self.assertNumQueries(3 + 7):
             self.team.save()
         hog_function_1.refresh_from_db()
         hog_function_2.refresh_from_db()

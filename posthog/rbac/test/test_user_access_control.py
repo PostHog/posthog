@@ -281,7 +281,9 @@ class TestUserAccessControl(BaseUserAccessControlTest):
         filtered_teams = list(
             self.user_access_control.filter_queryset_by_access_level(Team.objects.all(), include_all_if_admin=True)
         )
-        assert filtered_teams == [self.team, team2, team3]
+        assert sorted(filtered_teams, key=lambda team: team.id) == sorted(
+            [self.team, team2, team3], key=lambda team: team.id
+        )
 
     def test_organization_access_control(self):
         # A team isn't always available like for organization level routing

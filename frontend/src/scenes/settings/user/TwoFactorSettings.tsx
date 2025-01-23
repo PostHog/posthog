@@ -3,7 +3,6 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { twoFactorLogic } from 'scenes/authentication/twoFactorLogic'
-import { TwoFactorSetupModal } from 'scenes/authentication/TwoFactorSetupModal'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -13,13 +12,8 @@ export function TwoFactorSettings(): JSX.Element {
 
     const { updateUser } = useActions(userLogic)
     const { loadMemberUpdates } = useActions(membersLogic)
-    const {
-        generateBackupCodes,
-        disable2FA,
-        toggleTwoFactorSetupModal,
-        toggleDisable2FAModal,
-        toggleBackupCodesModal,
-    } = useActions(twoFactorLogic)
+    const { generateBackupCodes, disable2FA, openTwoFactorSetupModal, toggleDisable2FAModal, toggleBackupCodesModal } =
+        useActions(twoFactorLogic)
 
     const handleSuccess = (): void => {
         updateUser({})
@@ -28,8 +22,6 @@ export function TwoFactorSettings(): JSX.Element {
 
     return (
         <div className="flex flex-col items-start">
-            <TwoFactorSetupModal onSuccess={handleSuccess} />
-
             {isDisable2FAModalOpen && (
                 <LemonModal
                     title="Disable 2FA"
@@ -118,7 +110,7 @@ export function TwoFactorSettings(): JSX.Element {
                         <IconWarning color="orange" className="text-xl" />
                         <span className="font-medium">2FA is not enabled</span>
                     </div>
-                    <LemonButton type="primary" onClick={() => toggleTwoFactorSetupModal(true)}>
+                    <LemonButton type="primary" onClick={() => openTwoFactorSetupModal()}>
                         Set up 2FA
                     </LemonButton>
                 </div>

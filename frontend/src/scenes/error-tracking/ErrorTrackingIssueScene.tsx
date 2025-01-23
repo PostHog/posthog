@@ -1,6 +1,6 @@
 import './ErrorTracking.scss'
 
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonTabs, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { useEffect } from 'react'
@@ -8,11 +8,11 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { ErrorTrackingIssue } from '~/queries/schema'
 
+import { AlphaAccessScenePrompt } from './AlphaAccessScenePrompt'
 import { AssigneeSelect } from './AssigneeSelect'
-import ErrorTrackingFilters from './ErrorTrackingFilters'
-import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
-import { OverviewTab } from './groups/OverviewTab'
-import { SymbolSetUploadModal } from './SymbolSetUploadModal'
+import { errorTrackingIssueSceneLogic, IssueTab } from './errorTrackingIssueSceneLogic'
+import { EventsTab } from './issue/tabs/EventsTab'
+import { OverviewTab } from './issue/tabs/OverviewTab'
 
 export const scene: SceneExport = {
     component: ErrorTrackingIssueScene,
@@ -28,8 +28,8 @@ const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueLoading, hasGroupActions } = useValues(errorTrackingIssueSceneLogic)
-    const { updateIssue, loadIssue } = useActions(errorTrackingIssueSceneLogic)
+    const { issue, issueLoading, tab } = useValues(errorTrackingIssueSceneLogic)
+    const { updateIssue, loadIssue, setTab } = useActions(errorTrackingIssueSceneLogic)
 
     useEffect(() => {
         // don't like doing this but scene logics do not unmount after being loaded
@@ -40,47 +40,68 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     }, [])
 
     return (
-        <>
-            <PageHeader
-                buttons={
-                    issue && hasGroupActions ? (
-                        issue.status === 'active' ? (
-                            <div className="flex divide-x gap-x-2">
-                                <AssigneeSelect
-                                    assignee={issue.assignee}
-                                    onChange={(assignee) => updateIssue({ assignee })}
-                                    type="secondary"
-                                    showName
-                                />
-                                <div className="flex pl-2 gap-x-2">
-                                    <LemonButton type="secondary" onClick={() => updateIssue({ status: 'archived' })}>
-                                        Archive
-                                    </LemonButton>
-                                    <LemonButton type="primary" onClick={() => updateIssue({ status: 'resolved' })}>
-                                        Resolve
-                                    </LemonButton>
+        <AlphaAccessScenePrompt>
+            <>
+                <PageHeader
+                    buttons={
+                        issue ? (
+                            issue.status === 'active' ? (
+                                <div className="flex divide-x gap-x-2">
+                                    <AssigneeSelect
+                                        assignee={issue.assignee}
+                                        onChange={(assignee) => updateIssue({ assignee })}
+                                        type="secondary"
+                                        showName
+                                    />
+                                    <div className="flex pl-2 gap-x-2">
+                                        <LemonButton
+                                            type="secondary"
+                                            onClick={() => updateIssue({ status: 'archived' })}
+                                        >
+                                            Archive
+                                        </LemonButton>
+                                        <LemonButton type="primary" onClick={() => updateIssue({ status: 'resolved' })}>
+                                            Resolve
+                                        </LemonButton>
+                                    </div>
                                 </div>
-                            </div>
+                            ) : (
+                                <LemonButton
+                                    type="secondary"
+                                    className="upcasefirst-letter:uppercase"
+                                    onClick={() => updateIssue({ status: 'active' })}
+                                    tooltip="Mark as active"
+                                >
+                                    {STATUS_LABEL[issue.status]}
+                                </LemonButton>
+                            )
                         ) : (
-                            <LemonButton
-                                type="secondary"
-                                className="upcasefirst-letter:uppercase"
-                                onClick={() => updateIssue({ status: 'active' })}
-                                tooltip="Mark as active"
-                            >
-                                {STATUS_LABEL[issue.status]}
-                            </LemonButton>
+                            false
                         )
-                    ) : (
-                        false
-                    )
-                }
-            />
-            <ErrorTrackingFilters.FilterGroup />
-            <LemonDivider className="mt-2" />
-            <ErrorTrackingFilters.Options isGroup />
-            <OverviewTab />
-            <SymbolSetUploadModal />
-        </>
+                    }
+                />
+                {issue ? (
+                    <LemonTabs
+                        activeKey={tab}
+                        tabs={[
+                            {
+                                key: IssueTab.Overview,
+                                label: 'Overview',
+                                content: <OverviewTab />,
+                            },
+
+                            {
+                                key: IssueTab.Events,
+                                label: 'Events',
+                                content: <EventsTab />,
+                            },
+                        ]}
+                        onChange={setTab}
+                    />
+                ) : (
+                    <Spinner />
+                )}
+            </>
+        </AlphaAccessScenePrompt>
     )
 }

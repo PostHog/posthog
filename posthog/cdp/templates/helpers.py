@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 from posthog.cdp.validation import compile_hog
 from posthog.test.base import BaseTest
-from hogvm.python.execute import execute_bytecode
+from common.hogvm.python.execute import execute_bytecode
 
 
 class BaseHogFunctionTemplateTest(BaseTest):
@@ -16,7 +16,7 @@ class BaseHogFunctionTemplateTest(BaseTest):
 
     def setUp(self):
         super().setUp()
-        self.compiled_hog = compile_hog(self.template.hog, supported_functions={"fetch", "postHogCapture"})
+        self.compiled_hog = compile_hog(self.template.hog, self.template.type)
 
         self.mock_print = MagicMock(side_effect=lambda *args: print("[DEBUG HogFunctionPrint]", *args))  # noqa: T201
         # Side effect - log the fetch call and return  with sensible output

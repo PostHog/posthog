@@ -119,3 +119,30 @@ export function parseDate(supposedIsoString: string): DateTime {
     }
     return DateTime.fromJSDate(jsDate).toUTC()
 }
+
+export function toYearMonthDayInTimezone(
+    timestamp: number,
+    timeZone: string
+): { year: number; month: number; day: number } {
+    const parts = new Intl.DateTimeFormat('en', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).formatToParts(new Date(timestamp))
+    const year = parts.find((part) => part.type === 'year')?.value
+    const month = parts.find((part) => part.type === 'month')?.value
+    const day = parts.find((part) => part.type === 'day')?.value
+    if (!year || !month || !day) {
+        throw new Error('Failed to get year, month, or day')
+    }
+    return { year: Number(year), month: Number(month), day: Number(day) }
+}
+
+export function toStartOfDayInTimezone(timestamp: number, timeZone: string): Date {
+    const { year, month, day } = toYearMonthDayInTimezone(timestamp, timeZone)
+    return DateTime.fromObject(
+        { year, month, day, hour: 0, minute: 0, second: 0, millisecond: 0 },
+        { zone: timeZone }
+    ).toJSDate()
+}

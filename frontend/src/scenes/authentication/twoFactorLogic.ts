@@ -4,7 +4,9 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import type { twoFactorLogicType } from './twoFactorLogicType'
 
@@ -26,7 +28,8 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
     path(['scenes', 'authentication', 'loginLogic']),
     props({} as TwoFactorLogicProps),
     connect({
-        values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags']],
+        values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags'], userLogic, ['user']],
+        actions: [userLogic, ['loadUser'], membersLogic, ['loadAllMembers']],
     }),
     actions({
         setGeneralError: (code: string, detail: string) => ({ code, detail }),
@@ -34,7 +37,8 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
         loadStatus: true,
         generateBackupCodes: true,
         disable2FA: true,
-        toggleTwoFactorSetupModal: (open: boolean) => ({ open }),
+        openTwoFactorSetupModal: (forceOpen?: boolean) => ({ forceOpen }),
+        closeTwoFactorSetupModal: true,
         toggleDisable2FAModal: (open: boolean) => ({ open }),
         toggleBackupCodesModal: (open: boolean) => ({ open }),
     }),
@@ -42,7 +46,15 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
         isTwoFactorSetupModalOpen: [
             false,
             {
-                toggleTwoFactorSetupModal: (_, { open }) => open,
+                openTwoFactorSetupModal: () => true,
+                closeTwoFactorSetupModal: () => false,
+            },
+        ],
+        forceOpenTwoFactorSetupModal: [
+            false,
+            {
+                openTwoFactorSetupModal: (_, { forceOpen }) => !!forceOpen,
+                closeTwoFactorSetupModal: () => false,
             },
         ],
         isDisable2FAModalOpen: [
@@ -88,11 +100,9 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
         startSetup: [
             {},
             {
-                toggleTwoFactorSetupModal: async ({ open }, breakpoint) => {
-                    if (open) {
-                        breakpoint()
-                        await api.get('api/users/@me/two_factor_start_setup/')
-                    }
+                openTwoFactorSetupModal: async (_, breakpoint) => {
+                    breakpoint()
+                    await api.get('api/users/@me/two_factor_start_setup/')
                     return { status: 'completed' }
                 },
             },
@@ -143,6 +153,10 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
                 await api.create<any>('api/users/@me/two_factor_disable/')
                 lemonToast.success('2FA disabled successfully')
                 actions.loadStatus()
+
+                // Refresh user and members
+                actions.loadUser()
+                actions.loadAllMembers()
             } catch (e) {
                 const { code, detail } = e as Record<string, any>
                 actions.setGeneralError(code, detail)
@@ -152,15 +166,17 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
         generateBackupCodesSuccess: () => {
             lemonToast.success('Backup codes generated successfully')
         },
-        toggleTwoFactorSetupModal: ({ open }) => {
-            if (!open) {
-                // Clear the form when closing the modal
-                actions.resetToken()
-            }
+        closeTwoFactorSetupModal: () => {
+            // Clear the form when closing the modal
+            actions.resetToken()
         },
     })),
 
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values }) => {
         actions.loadStatus()
+
+        if (values.user && values.user.organization?.enforce_2fa && !values.user.is_2fa_enabled) {
+            actions.openTwoFactorSetupModal(true)
+        }
     }),
 ])

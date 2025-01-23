@@ -52,7 +52,7 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
                     {
                         key: 'persons',
                         url: urls.persons(),
-                        label: 'People & groups',
+                        label: 'Persons',
                         content: <Persons />,
                     },
                     {
@@ -137,7 +137,12 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
     }),
     actionToUrl(({ values }) => ({
         setTabKey: ({ tabKey }) => {
-            return values.tabs.find((x) => x.key === tabKey)?.url || values.tabs[0].url
+            const tab = values.tabs.find((x) => x.key === tabKey)
+            if (!tab) {
+                return values.tabs[0].url
+            }
+            // Preserve existing search params when changing tabs
+            return [tab.url, router.values.searchParams, router.values.hashParams, { replace: true }]
         },
     })),
     urlToAction(({ actions }) => {

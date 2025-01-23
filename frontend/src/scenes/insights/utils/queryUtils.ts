@@ -146,7 +146,11 @@ const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOpts): In
             yAxisScaleType: undefined,
             hiddenLegendIndexes: undefined,
             hiddenLegendBreakdowns: undefined,
+            resultCustomizations: undefined,
+            resultCustomizationBy: undefined,
         }
+
+        cleanedQuery.dataColorTheme = undefined
 
         if (isInsightQueryWithSeries(cleanedQuery)) {
             cleanedQuery.series = cleanedQuery.series.map((entity) => {

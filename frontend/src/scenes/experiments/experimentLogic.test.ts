@@ -4,7 +4,7 @@ import { userLogic } from 'scenes/userLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { experimentLogic } from './experimentLogic'
+import { experimentLogic, percentageDistribution } from './experimentLogic'
 
 const RUNNING_EXP_ID = 45
 const RUNNING_FUNNEL_EXP_ID = 46
@@ -119,6 +119,31 @@ describe('experimentLogic', () => {
 
             // 0 entrants over 14 days, so infinite running time
             expect(logic.values.recommendedExposureForCountData(0)).toEqual(Infinity)
+        })
+    })
+
+    describe('percentageDistribution', () => {
+        it('given variant count, calculates correct rollout percentages', async () => {
+            expect(percentageDistribution(1)).toEqual([100])
+            expect(percentageDistribution(2)).toEqual([50, 50])
+            expect(percentageDistribution(3)).toEqual([34, 33, 33])
+            expect(percentageDistribution(4)).toEqual([25, 25, 25, 25])
+            expect(percentageDistribution(5)).toEqual([20, 20, 20, 20, 20])
+            expect(percentageDistribution(6)).toEqual([17, 17, 17, 17, 16, 16])
+            expect(percentageDistribution(7)).toEqual([15, 15, 14, 14, 14, 14, 14])
+            expect(percentageDistribution(8)).toEqual([13, 13, 13, 13, 12, 12, 12, 12])
+            expect(percentageDistribution(9)).toEqual([12, 11, 11, 11, 11, 11, 11, 11, 11])
+            expect(percentageDistribution(10)).toEqual([10, 10, 10, 10, 10, 10, 10, 10, 10, 10])
+            expect(percentageDistribution(11)).toEqual([10, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9])
+            expect(percentageDistribution(12)).toEqual([9, 9, 9, 9, 8, 8, 8, 8, 8, 8, 8, 8])
+            expect(percentageDistribution(13)).toEqual([8, 8, 8, 8, 8, 8, 8, 8, 8, 7, 7, 7, 7])
+            expect(percentageDistribution(14)).toEqual([8, 8, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7])
+            expect(percentageDistribution(15)).toEqual([7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 6, 6, 6, 6, 6])
+            expect(percentageDistribution(16)).toEqual([7, 7, 7, 7, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6])
+            expect(percentageDistribution(17)).toEqual([6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 5, 5])
+            expect(percentageDistribution(18)).toEqual([6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 5, 5, 5, 5, 5, 5, 5, 5])
+            expect(percentageDistribution(19)).toEqual([6, 6, 6, 6, 6, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5])
+            expect(percentageDistribution(20)).toEqual([5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5])
         })
     })
 })

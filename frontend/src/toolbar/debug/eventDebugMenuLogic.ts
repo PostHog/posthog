@@ -1,5 +1,5 @@
 import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
+import { CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS, CORE_FILTER_DEFINITIONS_BY_GROUP, PROPERTY_KEYS } from 'lib/taxonomy'
 import { uuid } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
@@ -22,8 +22,22 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
             eventType,
             enabled,
         }),
+        setHidePostHogProperties: (hide: boolean) => ({ hide }),
+        setHidePostHogFlags: (hide: boolean) => ({ hide }),
     }),
     reducers({
+        hidePostHogProperties: [
+            false,
+            {
+                setHidePostHogProperties: (_, { hide }) => hide,
+            },
+        ],
+        hidePostHogFlags: [
+            false,
+            {
+                setHidePostHogFlags: (_, { hide }) => hide,
+            },
+        ],
         searchVisible: [
             false,
             {
@@ -121,6 +135,42 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
 
                     return !!selectedEventTypes.includes('custom')
                 })
+            },
+        ],
+
+        expandedProperties: [
+            (s) => [s.expandedEvent, s.events, s.hidePostHogProperties, s.hidePostHogFlags],
+            (expandedEvent, events, hidePostHogProperties, hidePostHogFlags) => {
+                if (!expandedEvent) {
+                    return []
+                }
+                const theExpandedEvent = events.find((e) => e.uuid === expandedEvent)
+                if (!theExpandedEvent) {
+                    return []
+                }
+
+                const propsFiltered = hidePostHogProperties
+                    ? Object.fromEntries(
+                          Object.entries(theExpandedEvent.properties).filter(([key]) => {
+                              const isPostHogProperty = key.startsWith('$') && PROPERTY_KEYS.includes(key)
+                              const isNonDollarPostHogProperty = CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS.includes(key)
+                              return !isPostHogProperty && !isNonDollarPostHogProperty
+                          })
+                      )
+                    : theExpandedEvent.properties
+
+                return Object.fromEntries(
+                    Object.entries(propsFiltered).filter(([key]) => {
+                        if (hidePostHogFlags) {
+                            if (key === '$active_feature_flags') {
+                                return false
+                            } else if (key.startsWith('$feature/')) {
+                                return false
+                            }
+                        }
+                        return true
+                    })
+                )
             },
         ],
     }),

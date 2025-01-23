@@ -7,7 +7,7 @@ from typing import Literal, Optional, TypedDict, Union, cast
 
 from pydantic import BaseModel, Field, RootModel
 
-from ee.hogai.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
 from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
@@ -55,6 +55,7 @@ class SingleArgumentTaxonomyAgentTool(BaseModel):
         "retrieve_event_properties",
         "final_answer",
         "handle_incorrect_response",
+        "ask_user_for_help",
     ]
     arguments: str
 
@@ -143,6 +144,16 @@ class TaxonomyAgentToolkit(ABC):
                     Args:
                         entity: The type of the entity that you want to retrieve properties for.
                         property_name: The name of the property that you want to retrieve values for.
+                """,
+            },
+            {
+                "name": "ask_user_for_help",
+                "signature": "(question: str)",
+                "description": """
+                    Use this tool to ask a question to the user. Your question must be concise and clear.
+
+                    Args:
+                        question: The question you want to ask.
                 """,
             },
         ]

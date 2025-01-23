@@ -35,7 +35,7 @@ export async function processError(
         captureException(new Error('Tried to process error for nonexistent plugin config!'), {
             tags: { team_id: event?.team_id },
         })
-        return
+        return Promise.resolve()
     }
 
     if (error instanceof DependencyUnavailableError) {

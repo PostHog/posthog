@@ -5,6 +5,50 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { SessionRecordingType } from '~/types'
 
+const EXPECTED_RECORDING_PROPERTIES = [
+    {
+        id: 's1',
+        properties: {
+            $browser: 'Chrome',
+            $device_type: 'Desktop',
+            $geoip_country_code: 'AU',
+            $os: 'Windows',
+            $os_name: 'Windows 10',
+            $referring_domain: 'google.com',
+        },
+    },
+    {
+        id: 's2',
+        properties: {
+            $browser: 'Safari',
+            $device_type: 'Mobile',
+            $geoip_country_code: 'GB',
+            $os: 'iOS',
+            $os_name: 'iOS 14',
+            $referring_domain: 'google.com',
+        },
+    },
+]
+
+const EXPECTED_RECORDING_PROPERTIES_BY_ID = {
+    s1: {
+        $browser: 'Chrome',
+        $device_type: 'Desktop',
+        $geoip_country_code: 'AU',
+        $os: 'Windows',
+        $os_name: 'Windows 10',
+        $referring_domain: 'google.com',
+    },
+    s2: {
+        $browser: 'Safari',
+        $device_type: 'Mobile',
+        $geoip_country_code: 'GB',
+        $os: 'iOS',
+        $os_name: 'iOS 14',
+        $referring_domain: 'google.com',
+    },
+}
+
 const mockSessons: SessionRecordingType[] = [
     {
         id: 's1',
@@ -41,8 +85,8 @@ describe('sessionRecordingsListPropertiesLogic', () => {
             post: {
                 '/api/environments/:team_id/query': {
                     results: [
-                        ['s1', JSON.stringify({ blah: 'blah1' })],
-                        ['s2', JSON.stringify({ blah: 'blah2' })],
+                        ['s1', 'AU', 'Chrome', 'Desktop', 'Windows', 'Windows 10', 'google.com'],
+                        ['s2', 'GB', 'Safari', 'Mobile', 'iOS', 'iOS 14', 'google.com'],
                     ],
                 },
             },
@@ -61,14 +105,8 @@ describe('sessionRecordingsListPropertiesLogic', () => {
         }).toDispatchActions(['loadPropertiesForSessionsSuccess'])
 
         expect(logic.values).toMatchObject({
-            recordingProperties: [
-                { id: 's1', properties: { blah: 'blah1' } },
-                { id: 's2', properties: { blah: 'blah2' } },
-            ],
-            recordingPropertiesById: {
-                s1: { blah: 'blah1' },
-                s2: { blah: 'blah2' },
-            },
+            recordingProperties: EXPECTED_RECORDING_PROPERTIES,
+            recordingPropertiesById: EXPECTED_RECORDING_PROPERTIES_BY_ID,
         })
     })
 
@@ -78,10 +116,7 @@ describe('sessionRecordingsListPropertiesLogic', () => {
         }).toDispatchActions(['loadPropertiesForSessionsSuccess'])
 
         expect(logic.values).toMatchObject({
-            recordingPropertiesById: {
-                s1: { blah: 'blah1' },
-                s2: { blah: 'blah2' },
-            },
+            recordingPropertiesById: EXPECTED_RECORDING_PROPERTIES_BY_ID,
         })
 
         await expectLogic(logic, () => {
@@ -89,10 +124,7 @@ describe('sessionRecordingsListPropertiesLogic', () => {
         }).toNotHaveDispatchedActions(['loadPropertiesForSessionsSuccess'])
 
         expect(logic.values).toMatchObject({
-            recordingPropertiesById: {
-                s1: { blah: 'blah1' },
-                s2: { blah: 'blah2' },
-            },
+            recordingPropertiesById: EXPECTED_RECORDING_PROPERTIES_BY_ID,
         })
     })
 })

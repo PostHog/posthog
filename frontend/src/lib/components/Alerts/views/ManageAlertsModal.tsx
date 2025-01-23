@@ -8,7 +8,7 @@ import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture'
 import { pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { AlertState, InsightThresholdType } from '~/queries/schema'
+import { AlertState, InsightThresholdType } from '~/queries/schema/schema-general'
 import { InsightShortId } from '~/types'
 
 import { insightAlertsLogic, InsightAlertsLogicProps } from '../insightAlertsLogic'
@@ -45,10 +45,10 @@ export function AlertListItem({ alert, onClick }: AlertListItemProps): JSX.Eleme
 
                     {alert.enabled ? (
                         <div className="text-muted pl-3">
-                            {bounds?.lower !== undefined &&
+                            {bounds?.lower != null &&
                                 `Low ${isPercentage ? bounds.lower * 100 : bounds.lower}${isPercentage ? '%' : ''}`}
-                            {bounds?.lower !== undefined && bounds?.upper ? ' · ' : ''}
-                            {bounds?.upper !== undefined &&
+                            {bounds?.lower != null && bounds?.upper != null ? ' · ' : ''}
+                            {bounds?.upper != null &&
                                 `High ${isPercentage ? bounds.upper * 100 : bounds.upper}${isPercentage ? '%' : ''}`}
                         </div>
                     ) : (

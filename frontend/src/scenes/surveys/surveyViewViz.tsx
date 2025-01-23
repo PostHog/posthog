@@ -207,6 +207,7 @@ export function RatingQuestionBarChart({
     }
     useEffect(() => {
         loadSurveyRatingResults({ questionIndex, iteration })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [questionIndex])
 
     return (
@@ -301,6 +302,7 @@ export function NPSSurveyResultsBarChart({
 
     useEffect(() => {
         loadSurveyRecurringNPSResults({ questionIndex })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [questionIndex])
 
     return (
@@ -397,6 +399,7 @@ export function SingleChoiceQuestionPieChart({
 
     useEffect(() => {
         loadSurveySingleChoiceResults({ questionIndex })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [questionIndex])
 
     return (
@@ -499,12 +502,15 @@ export function MultipleChoiceQuestionBarChart({
 
     useEffect(() => {
         loadSurveyMultipleChoiceResults({ questionIndex })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [questionIndex])
 
     useEffect(() => {
         if (surveyMultipleChoiceResults?.[questionIndex]?.data?.length) {
             setChartHeight(100 + 20 * surveyMultipleChoiceResults[questionIndex].data.length)
         }
+        // TODO this one maybe should have questionIndex as a dependency
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [surveyMultipleChoiceResults])
 
     return (
@@ -581,6 +587,7 @@ export function OpenTextViz({
 
     useEffect(() => {
         loadSurveyOpenTextResults({ questionIndex })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [questionIndex])
 
     return (
@@ -736,9 +743,9 @@ function ResponseSummaryFeedback({ surveyId }: { surveyId: string }): JSX.Elemen
             return // Already rated
         }
         setRating(newRating)
-        posthog.capture('survey_resonse_rated', {
+        posthog.capture('ai_survey_summary_rated', {
             survey_id: surveyId,
-            answer_rating: rating,
+            answer_rating: newRating,
         })
     }
 

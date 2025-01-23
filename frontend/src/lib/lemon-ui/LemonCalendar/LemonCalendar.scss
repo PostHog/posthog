@@ -1,4 +1,5 @@
 .LemonCalendar {
+    --lemon-calendar-month-height: 305px;
     --lemon-calendar-row-gap: 2px;
     --lemon-calendar-day-width: 40px;
     --lemon-calendar-today-radius: 2px;
@@ -6,6 +7,9 @@
 
     // Tricky: needs to match the equivalent height button from LemonButton.scss
     --lemon-calendar-time-button-height: 2.3125rem;
+
+    // Force height for month so when swtiching to longer months, the height doesn't change
+    height: var(--lemon-calendar-month-height);
 
     .LemonCalendar__month {
         width: 100%;
@@ -23,6 +27,10 @@
     }
 
     .LemonCalendar__month tr {
+        &.LemonCalendar__month-header {
+            height: var(--lemon-calendar-time-button-height);
+        }
+
         .LemonButton {
             &.rounded-none {
                 border-radius: 0;

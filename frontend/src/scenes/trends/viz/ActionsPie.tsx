@@ -1,7 +1,6 @@
 import './ActionsPie.scss'
 
 import { useValues } from 'kea'
-import { getSeriesColor } from 'lib/colors'
 import { useEffect, useState } from 'react'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -38,6 +37,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
         querySource,
         breakdownFilter,
         hiddenLegendIndexes,
+        getTrendsColor,
     } = useValues(trendsDataLogic(insightProps))
 
     const renderingMetadata = context?.chartRenderingMetadata?.[ChartDisplayType.ActionsPie]
@@ -46,7 +46,8 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
 
     function updateData(): void {
         const days = indexedResults.length > 0 ? indexedResults[0].days : []
-        const colorList = indexedResults.map(({ seriesIndex }) => getSeriesColor(seriesIndex))
+
+        const colorList = indexedResults.map(getTrendsColor)
 
         setData([
             {
@@ -59,7 +60,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
                     return formatBreakdownLabel(
                         item.breakdown_value,
                         breakdownFilter,
-                        cohorts,
+                        cohorts.results,
                         formatPropertyValueForDisplay
                     )
                 }),

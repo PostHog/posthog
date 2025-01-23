@@ -78,7 +78,7 @@ def log_notebook_activity(
     )
 
 
-class NotebookMinimalSerializer(serializers.ModelSerializer):
+class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
 
@@ -97,7 +97,7 @@ class NotebookMinimalSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class NotebookSerializer(NotebookMinimalSerializer, UserAccessControlSerializerMixin):
+class NotebookSerializer(NotebookMinimalSerializer):
     class Meta:
         model = Notebook
         fields = [

@@ -12,6 +12,7 @@ pub enum InvalidTokenReason {
     TooLong,
     NotAscii,
     PersonalApiKey,
+    NullByte,
 }
 
 impl InvalidTokenReason {
@@ -22,6 +23,7 @@ impl InvalidTokenReason {
             // Self::IsNotString => "not_string",
             Self::TooLong => "too_long",
             Self::PersonalApiKey => "personal_api_key",
+            Self::NullByte => "null_byte",
         }
     }
 }
@@ -55,6 +57,11 @@ pub fn validate_token(token: &str) -> Result<(), InvalidTokenReason> {
 
     if token.starts_with("phx_") {
         return Err(InvalidTokenReason::PersonalApiKey);
+    }
+
+    // We refuse tokens with null bytes
+    if token.contains('\0') {
+        return Err(InvalidTokenReason::NullByte);
     }
 
     Ok(())
@@ -95,5 +102,13 @@ mod tests {
 
         assert!(valid.is_err());
         assert_eq!(valid.unwrap_err(), InvalidTokenReason::PersonalApiKey);
+    }
+
+    #[test]
+    fn blocks_null_byte() {
+        let valid = validate_token("hello\0there");
+
+        assert!(valid.is_err());
+        assert_eq!(valid.unwrap_err(), InvalidTokenReason::NullByte);
     }
 }

@@ -16,6 +16,7 @@ export function WebAnalyticsRecordingsTile({ tile }: { tile: ReplayTile }): JSX.
     const { layout } = tile
     const { replayFilters, webAnalyticsFilters } = useValues(webAnalyticsLogic)
     const { currentTeam } = useValues(teamLogic)
+
     const sessionRecordingsListLogicInstance = sessionRecordingsPlaylistLogic({
         logicKey: 'webAnalytics',
         filters: replayFilters,

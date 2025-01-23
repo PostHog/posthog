@@ -1,15 +1,18 @@
 import { LemonBanner } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import { IntegrationScopesWarning } from 'lib/integrations/IntegrationScopesWarning'
 
-import { IntegrationType } from '~/types'
+import { HogFunctionInputSchemaType, IntegrationType } from '~/types'
 
 export function IntegrationView({
     integration,
     suffix,
+    schema,
 }: {
     integration: IntegrationType
     suffix?: JSX.Element
+    schema?: HogFunctionInputSchemaType
 }): JSX.Element {
     const errors = (integration.errors && integration.errors?.split(',')) || []
 
@@ -36,7 +39,7 @@ export function IntegrationView({
                 {suffix}
             </div>
 
-            {errors.length > 0 && (
+            {errors.length > 0 ? (
                 <div className="p-2">
                     <LemonBanner
                         type="error"
@@ -54,6 +57,8 @@ export function IntegrationView({
                             : `There was an error with this integration: ${errors[0]}`}
                     </LemonBanner>
                 </div>
+            ) : (
+                <IntegrationScopesWarning integration={integration} schema={schema} />
             )}
         </div>
     )

@@ -145,12 +145,29 @@ export const BASE_MATH_DEFINITIONS: Record<BaseMathType, MathDefinition> = {
         shortName: 'first time',
         description: (
             <>
-                Only count events if users do it for the first time.
+                Only the first time the user performed this event will count, and only if it matches the event filters.
                 <br />
                 <br />
                 <i>
-                    Example: If a single user performs an event for the first time ever within a given period, it counts
-                    as 1. Subsequent events by the same user will not be counted.
+                    Example: If the we are looking for pageview events to posthog.com/about, but the user's first
+                    pageview was on posthog.com, it will not match, even if they went to posthog.com/about afterwards.
+                </i>
+            </>
+        ),
+        category: MathCategory.EventCount,
+    },
+    [BaseMathType.FirstMatchingEventForUser]: {
+        name: 'First matching event for user',
+        shortName: 'first matching event',
+        description: (
+            <>
+                The first time the user performed this event that matches the event filters will count.
+                <br />
+                <br />
+                <i>
+                    Example: If the we are looking for pageview events to posthog.com/about, and the user's first
+                    pageview was on posthog.com but then they navigated to posthog.com/about, it will match the pageview
+                    event from posthog.com/about
                 </i>
             </>
         ),
@@ -220,6 +237,19 @@ export const PROPERTY_MATH_DEFINITIONS: Record<PropertyMathType, MathDefinition>
                 <br />
                 <br />
                 For example 100 events captured with property <code>amount</code> equal to 101..200, result in 150.
+            </>
+        ),
+        category: MathCategory.PropertyValue,
+    },
+    [PropertyMathType.P75]: {
+        name: '75th percentile',
+        shortName: '75th percentile',
+        description: (
+            <>
+                Event property 75th percentile.
+                <br />
+                <br />
+                For example 100 events captured with property <code>amount</code> equal to 101..200, result in 175.
             </>
         ),
         category: MathCategory.PropertyValue,
@@ -296,6 +326,12 @@ export const COUNT_PER_ACTOR_MATH_DEFINITIONS: Record<CountPerActorMathType, Mat
         name: 'Median',
         shortName: 'median',
         description: <>Event count per actor 50th percentile.</>,
+        category: MathCategory.EventCountPerActor,
+    },
+    [CountPerActorMathType.P75]: {
+        name: '75th percentile',
+        shortName: '75th percentile',
+        description: <>Event count per actor 75th percentile.</>,
         category: MathCategory.EventCountPerActor,
     },
     [CountPerActorMathType.P90]: {

@@ -66,7 +66,9 @@ export function loadPostHogJS(): void {
                 autocapture: {
                     capture_copied_text: true,
                 },
+                capture_performance: { web_vitals: true },
                 person_profiles: 'always',
+                __preview_remote_config: true,
 
                 // Helper to capture events for assertions in Cypress
                 _onCapture: (window as any)._cypress_posthog_captures

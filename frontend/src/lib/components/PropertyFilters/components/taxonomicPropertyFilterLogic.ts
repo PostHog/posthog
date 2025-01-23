@@ -68,7 +68,8 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
         ],
         selectedCohortName: [
             (s) => [s.filter, cohortsModel.selectors.cohorts],
-            (filter, cohorts) => (filter?.type === 'cohort' ? cohorts.find((c) => c.id === filter?.value)?.name : null),
+            (filter, cohorts) =>
+                filter?.type === 'cohort' ? cohorts.results.find((c) => c.id === filter?.value)?.name : null,
         ],
         activeTaxonomicGroup: [
             (s) => [s.filter, s.taxonomicGroups],

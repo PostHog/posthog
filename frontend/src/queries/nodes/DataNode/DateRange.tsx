@@ -1,13 +1,13 @@
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 
-import { EventsQuery, HogQLQuery, SessionAttributionExplorerQuery } from '~/queries/schema'
-import { isEventsQuery, isHogQLQuery, isSessionAttributionExplorerQuery } from '~/queries/utils'
+import { EventsQuery, HogQLQuery, SessionAttributionExplorerQuery, TracesQuery } from '~/queries/schema'
+import { isEventsQuery, isHogQLQuery, isSessionAttributionExplorerQuery, isTracesQuery } from '~/queries/utils'
 
-interface DateRangeProps<Q extends EventsQuery | HogQLQuery | SessionAttributionExplorerQuery> {
+interface DateRangeProps<Q extends EventsQuery | HogQLQuery | SessionAttributionExplorerQuery | TracesQuery> {
     query: Q
     setQuery?: (query: Q) => void
 }
-export function DateRange<Q extends EventsQuery | HogQLQuery | SessionAttributionExplorerQuery>({
+export function DateRange<Q extends EventsQuery | HogQLQuery | SessionAttributionExplorerQuery | TracesQuery>({
     query,
     setQuery,
 }: DateRangeProps<Q>): JSX.Element | null {
@@ -27,6 +27,7 @@ export function DateRange<Q extends EventsQuery | HogQLQuery | SessionAttributio
             />
         )
     }
+
     if (isHogQLQuery(query) || isSessionAttributionExplorerQuery(query)) {
         return (
             <DateFilter
@@ -49,5 +50,25 @@ export function DateRange<Q extends EventsQuery | HogQLQuery | SessionAttributio
             />
         )
     }
+
+    if (isTracesQuery(query)) {
+        return (
+            <DateFilter
+                dateFrom={query.dateRange?.date_from ?? undefined}
+                dateTo={query.dateRange?.date_to ?? undefined}
+                onChange={(changedDateFrom, changedDateTo) => {
+                    const newQuery: Q = {
+                        ...query,
+                        dateRange: {
+                            date_from: changedDateFrom ?? undefined,
+                            date_to: changedDateTo ?? undefined,
+                        },
+                    }
+                    setQuery?.(newQuery)
+                }}
+            />
+        )
+    }
+
     return null
 }

@@ -48,7 +48,7 @@ from posthog.schema import (
     BreakdownFilter,
     DataWarehouseNode,
     EventsNode,
-    InsightDateRange,
+    DateRange,
     PropertyGroupFilter,
     TrendsFilter,
     TrendsQuery,
@@ -178,7 +178,7 @@ def convert_filter_to_trends_query(filter: Filter) -> TrendsQuery:
         series=series,
         kind="TrendsQuery",
         filterTestAccounts=filter.filter_test_accounts,
-        dateRange=InsightDateRange(date_from=filter_as_dict.get("date_from"), date_to=filter_as_dict.get("date_to")),
+        dateRange=DateRange(date_from=filter_as_dict.get("date_from"), date_to=filter_as_dict.get("date_to")),
         samplingFactor=filter.sampling_factor,
         aggregation_group_type_index=filter.aggregation_group_type_index,
         breakdownFilter=BreakdownFilter(
@@ -4093,6 +4093,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_materialized_columns(["some_number"])
     def test_median_filtering(self):
         self._test_math_property_aggregation("median", values=range(101, 201), expected_value=150)
+
+    @also_test_with_materialized_columns(["some_number"])
+    def test_p75_filtering(self):
+        self._test_math_property_aggregation("p75", values=range(101, 201), expected_value=175)
 
     @also_test_with_materialized_columns(["some_number"])
     def test_p90_filtering(self):

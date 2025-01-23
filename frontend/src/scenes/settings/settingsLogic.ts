@@ -1,9 +1,8 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { urls } from 'scenes/urls'
+import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { Realm } from '~/types'
@@ -17,13 +16,22 @@ export const settingsLogic = kea<settingsLogicType>([
     key((props) => props.logicKey ?? 'global'),
     path((key) => ['scenes', 'settings', 'settingsLogic', key]),
     connect({
-        values: [featureFlagLogic, ['featureFlags'], userLogic, ['hasAvailableFeature'], preflightLogic, ['preflight']],
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            userLogic,
+            ['hasAvailableFeature'],
+            preflightLogic,
+            ['preflight'],
+            teamLogic,
+            ['currentTeam'],
+        ],
     }),
 
     actions({
-        selectSection: (section: SettingSectionId, level: SettingLevelId) => ({ section, level }),
         selectLevel: (level: SettingLevelId) => ({ level }),
-        selectSetting: (setting: string) => ({ setting }),
+        selectSection: (section: SettingSectionId, level: SettingLevelId) => ({ section, level }),
+        selectSetting: (setting: SettingId) => ({ setting }),
         openCompactNavigation: true,
         closeCompactNavigation: true,
     }),
@@ -43,6 +51,14 @@ export const settingsLogic = kea<settingsLogicType>([
                 selectSection: (_, { section }) => section,
             },
         ],
+        selectedSettingId: [
+            (props.settingId ?? null) as SettingId | null,
+            {
+                selectLevel: () => null,
+                selectSection: () => null,
+                selectSetting: (_, { setting }) => setting,
+            },
+        ],
 
         isCompactNavigationOpen: [
             false,
@@ -51,6 +67,7 @@ export const settingsLogic = kea<settingsLogicType>([
                 closeCompactNavigation: () => false,
                 selectLevel: () => false,
                 selectSection: () => false,
+                selectSetting: () => false,
             },
         ],
     })),
@@ -65,12 +82,6 @@ export const settingsLogic = kea<settingsLogicType>([
                     }
                     return acc
                 }, [])
-            },
-        ],
-        settingId: [
-            () => [(_, props) => props],
-            (props): SettingId | null => {
-                return props.settingId || null
             },
         ],
         sections: [
@@ -135,8 +146,8 @@ export const settingsLogic = kea<settingsLogicType>([
             },
         ],
         settings: [
-            (s) => [s.selectedLevel, s.selectedSectionId, s.sections, s.settingId, s.doesMatchFlags, s.preflight],
-            (selectedLevel, selectedSectionId, sections, settingId, doesMatchFlags, preflight): Setting[] => {
+            (s) => [s.selectedLevel, s.selectedSectionId, s.sections, s.doesMatchFlags, s.preflight, s.currentTeam],
+            (selectedLevel, selectedSectionId, sections, doesMatchFlags, preflight, currentTeam): Setting[] => {
                 let settings: Setting[] = []
 
                 if (selectedSectionId) {
@@ -147,10 +158,6 @@ export const settingsLogic = kea<settingsLogicType>([
                         .reduce((acc, section) => [...acc, ...section.settings], [] as Setting[])
                 }
 
-                if (settingId) {
-                    return settings.filter((x) => x.id === settingId)
-                }
-
                 return settings.filter((x) => {
                     if (!doesMatchFlags(x)) {
                         return false
@@ -158,8 +165,17 @@ export const settingsLogic = kea<settingsLogicType>([
                     if (x.hideOn?.includes(Realm.Cloud) && preflight?.cloud) {
                         return false
                     }
+                    if (x.allowForTeam) {
+                        return x.allowForTeam(currentTeam)
+                    }
                     return true
                 })
+            },
+        ],
+        selectedSetting: [
+            (s) => [s.settings, s.selectedSettingId],
+            (settings, selectedSettingId): Setting | null => {
+                return settings.find((s) => s.id === selectedSettingId) ?? null
             },
         ],
         doesMatchFlags: [
@@ -188,15 +204,4 @@ export const settingsLogic = kea<settingsLogicType>([
             },
         ],
     }),
-
-    listeners(({ values }) => ({
-        async selectSetting({ setting }) {
-            const url = urls.absolute(
-                urls.currentProject(
-                    urls.settings(values.selectedSectionId ?? values.selectedLevel, setting as SettingId)
-                )
-            )
-            await copyToClipboard(url)
-        },
-    })),
 ])

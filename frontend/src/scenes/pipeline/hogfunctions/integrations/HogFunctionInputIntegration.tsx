@@ -1,5 +1,4 @@
 import { useActions } from 'kea'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 import { HogFunctionInputSchemaType } from '~/types'
 
@@ -16,18 +15,11 @@ export function HogFunctionInputIntegration({ schema, ...props }: HogFunctionInp
         <>
             <IntegrationChoice
                 {...props}
+                schema={schema}
                 integration={schema.integration}
                 redirectUrl={`${window.location.pathname}?integration_target=${schema.key}`}
                 beforeRedirect={() => persistForUnload()}
             />
-            {schema.type === 'integration' && schema.integration === 'google-ads' ? (
-                <LemonBanner type="warning">
-                    <span>
-                        We are still waiting for our Google Ads integration to be approved. You might see a `Google
-                        hasn’t verified this app` warning when trying to connect your account.
-                    </span>
-                </LemonBanner>
-            ) : null}
         </>
     )
 }

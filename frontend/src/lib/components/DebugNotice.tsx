@@ -1,4 +1,5 @@
-import { IconCode, IconX } from '@posthog/icons'
+import { IconCode, IconWarning, IconX } from '@posthog/icons'
+import { Link, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { IconBranch } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -63,25 +64,48 @@ export function DebugNotice(): JSX.Element | null {
                 <LemonButton
                     icon={<IconX />}
                     tooltip="Dismiss"
+                    tooltipPlacement="right"
                     size="small"
                     noPadding
                     onClick={() => setNoticeHidden(true)}
                 />
             </div>
-            <div
-                className="flex items-center gap-2 px-2 h-8 border-l-4 border-brand-red"
-                title={`Branch: ${debugInfo.branch}`}
-            >
-                <IconBranch className="text-lg" />
-                <b className="min-w-0 flex-1 truncate">{debugInfo.branch}</b>
-            </div>
-            <div
-                className="flex items-center gap-2 px-2 h-8 border-l-4 border-brand-yellow"
-                title={`Revision: ${debugInfo.revision}`}
-            >
-                <IconCode className="text-lg" />
-                <b className="min-w-0 flex-1 truncate">{debugInfo.revision}</b>
-            </div>
+            <Tooltip title="Branch" placement="right">
+                <div className="flex items-center gap-2 w-fit px-2 h-8 border-l-4 border-brand-red">
+                    <IconBranch className="text-lg" />
+                    <b className="min-w-0 flex-1 truncate">{debugInfo.branch}</b>
+                </div>
+            </Tooltip>
+            <Tooltip title="Revision" placement="right">
+                <div className="flex items-center gap-2 w-fit px-2 h-8 border-l-4 border-brand-yellow">
+                    <IconCode className="text-lg" />
+                    <b className="min-w-0 flex-1 truncate">{debugInfo.revision}</b>
+                </div>
+            </Tooltip>
+            {window.location.port !== '8010' && (
+                <Tooltip
+                    title={
+                        <>
+                            You're currently using the app over port 8000,
+                            <br />
+                            which only serves the web app, without capture (/e/).
+                            <br />
+                            Use port 8010 for full PostHog, proxied via Caddy.
+                        </>
+                    }
+                    placement="right"
+                >
+                    <div className="flex items-center gap-2 w-fit px-2 h-8 border-l-4 border-brand-key">
+                        <IconWarning className="text-lg" />
+                        <Link
+                            to={window.location.href.replace(`:${window.location.port}`, ':8010')}
+                            className="font-semibold text-default underline min-w-0 flex-1 truncate"
+                        >
+                            Click here to fix port!
+                        </Link>
+                    </div>
+                </Tooltip>
+            )}
         </div>
     )
 }

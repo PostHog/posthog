@@ -445,6 +445,12 @@ def save_last_incremental_value(schema_id: str, team_id: str, source: DltSource,
 
     logger.debug(f"Updating incremental_field_last_value with {last_value}")
 
+    if last_value is None:
+        logger.debug(
+            f"Incremental value is None. This could mean the table has zero rows. Full incremental object: {incremental_object}"
+        )
+        return
+
     schema.update_incremental_field_last_value(last_value)
 
 
@@ -455,6 +461,7 @@ def validate_schema_and_update_table_sync(
     table_schema: TSchemaTables,
     row_count: int,
     table_format: DataWarehouseTable.TableFormat,
+    table_schema_dict: Optional[dict[str, str]] = None,
 ) -> None:
     """
 
@@ -478,6 +485,18 @@ def validate_schema_and_update_table_sync(
     job = ExternalDataJob.objects.prefetch_related(
         "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
     ).get(pk=run_id)
+
+    using_v2_pipeline = job.pipeline_version == ExternalDataJob.PipelineVersion.V2
+    pipeline_version = (
+        ExternalDataJob.PipelineVersion.V1
+        if job.pipeline_version is None
+        else ExternalDataJob.PipelineVersion(job.pipeline_version)
+    )
+
+    # Temp so we dont create a bunch of orphaned Table objects
+    if using_v2_pipeline:
+        logger.debug("Using V2 pipeline - dont create table object or get columns")
+        return
 
     credential = get_or_create_datawarehouse_credential(
         team_id=team_id,
@@ -528,41 +547,63 @@ def validate_schema_and_update_table_sync(
         assert isinstance(table_created, DataWarehouseTable) and table_created is not None
 
         # Temp fix #2 for Delta tables without table_format
-        try:
-            table_created.get_columns()
-        except Exception as e:
-            if table_format == DataWarehouseTable.TableFormat.DeltaS3Wrapper:
-                logger.exception("get_columns exception with DeltaS3Wrapper format - trying Delta format", exc_info=e)
-
-                table_created.format = DataWarehouseTable.TableFormat.Delta
+        if not using_v2_pipeline:
+            try:
                 table_created.get_columns()
-                table_created.save()
+            except Exception as e:
+                if table_format == DataWarehouseTable.TableFormat.DeltaS3Wrapper:
+                    logger.exception(
+                        "get_columns exception with DeltaS3Wrapper format - trying Delta format", exc_info=e
+                    )
 
-                logger.info("Delta format worked - updating table to use Delta")
-            else:
-                raise
+                    table_created.format = DataWarehouseTable.TableFormat.Delta
+                    table_created.get_columns()
+                    table_created.save()
 
-        for schema in table_schema.values():
-            if schema.get("resource") == _schema_name:
-                schema_columns = schema.get("columns") or {}
-                raw_db_columns: dict[str, dict[str, str]] = table_created.get_columns()
-                db_columns = {key: column.get("clickhouse", "") for key, column in raw_db_columns.items()}
+                    logger.info("Delta format worked - updating table to use Delta")
+                else:
+                    raise
 
-                columns = {}
-                for column_name, db_column_type in db_columns.items():
-                    dlt_column = schema_columns.get(column_name)
-                    if dlt_column is not None:
-                        dlt_data_type = dlt_column.get("data_type")
-                        hogql_type = dlt_to_hogql_type(dlt_data_type)
-                    else:
-                        hogql_type = dlt_to_hogql_type(None)
+        # If using new non-DLT pipeline
+        if using_v2_pipeline and table_schema_dict is not None:
+            raw_db_columns: dict[str, dict[str, str]] = table_created.get_columns(pipeline_version=pipeline_version)
+            db_columns = {key: column.get("clickhouse", "") for key, column in raw_db_columns.items()}
 
-                    columns[column_name] = {
-                        "clickhouse": db_column_type,
-                        "hogql": hogql_type,
-                    }
-                table_created.columns = columns
-                break
+            columns = {}
+            for column_name, db_column_type in db_columns.items():
+                hogql_type = table_schema_dict.get(column_name)
+
+                if hogql_type is None:
+                    raise Exception(f"HogQL type not found for column: {column_name}")
+
+                columns[column_name] = {
+                    "clickhouse": db_column_type,
+                    "hogql": hogql_type,
+                }
+            table_created.columns = columns
+        else:
+            # If using DLT pipeline
+            for schema in table_schema.values():
+                if schema.get("resource") == _schema_name:
+                    schema_columns = schema.get("columns") or {}
+                    raw_db_columns: dict[str, dict[str, str]] = table_created.get_columns()
+                    db_columns = {key: column.get("clickhouse", "") for key, column in raw_db_columns.items()}
+
+                    columns = {}
+                    for column_name, db_column_type in db_columns.items():
+                        dlt_column = schema_columns.get(column_name)
+                        if dlt_column is not None:
+                            dlt_data_type = dlt_column.get("data_type")
+                            hogql_type = dlt_to_hogql_type(dlt_data_type)
+                        else:
+                            hogql_type = dlt_to_hogql_type(None)
+
+                        columns[column_name] = {
+                            "clickhouse": db_column_type,
+                            "hogql": hogql_type,
+                        }
+                    table_created.columns = columns
+                    break
 
         table_created.save()
 
@@ -573,7 +614,7 @@ def validate_schema_and_update_table_sync(
             .get(id=_schema_id, team_id=team_id)
         )
 
-        if schema_model:
+        if not using_v2_pipeline and schema_model:
             schema_model.table = table_created
             schema_model.save()
 

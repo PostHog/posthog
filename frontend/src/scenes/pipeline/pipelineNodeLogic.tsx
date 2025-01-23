@@ -4,7 +4,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activity/activityForSceneLogic'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { ActivityScope, Breadcrumb, PipelineNodeTab, PipelineStage } from '~/types'
 
 import type { pipelineNodeLogicType } from './pipelineNodeLogicType'
@@ -78,13 +78,15 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
             ],
         ],
 
-        activityFilters: [
+        [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.node],
-            (node): ActivityFilters | null => {
+            (node): SidePanelSceneContext | null => {
                 return node.backend === PipelineBackend.Plugin
                     ? {
-                          scope: ActivityScope.PLUGIN,
-                          item_id: `${node.id}`,
+                          activity_scope: ActivityScope.PLUGIN,
+                          activity_item_id: `${node.id}`,
+                          //   access_control_resource: 'plugin',
+                          //   access_control_resource_id: `${node.id}`,
                       }
                     : null
             },

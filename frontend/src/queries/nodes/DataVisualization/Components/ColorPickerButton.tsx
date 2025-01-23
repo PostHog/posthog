@@ -1,7 +1,7 @@
 import { LemonButton, Popover } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { SeriesGlyph } from 'lib/components/SeriesGlyph'
-import { hexToRGBA, lightenDarkenColor, RGBToHex, RGBToRGBA } from 'lib/utils'
+import { ColorGlyph } from 'lib/components/SeriesGlyph'
+import { lightenDarkenColor, RGBToHex } from 'lib/utils'
 import { useState } from 'react'
 import { ColorResult, TwitterPicker } from 'react-color'
 
@@ -57,17 +57,7 @@ export const ColorPickerButton = ({
                 sideIcon={<></>}
                 className="ConditionalFormattingTab__ColorPicker"
             >
-                <SeriesGlyph
-                    style={{
-                        borderColor: color,
-                        color: color,
-                        backgroundColor: isDarkModeOn
-                            ? RGBToRGBA(lightenDarkenColor(color, -20), 0.3)
-                            : hexToRGBA(color, 0.5),
-                    }}
-                >
-                    <></>
-                </SeriesGlyph>
+                <ColorGlyph color={color} />
             </LemonButton>
         </Popover>
     )

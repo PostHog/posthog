@@ -1,5 +1,6 @@
 import datetime as dt
 from typing import Any, TypedDict, cast
+from loginas.utils import is_impersonated_session
 
 import posthoganalytics
 import structlog
@@ -31,6 +32,7 @@ from posthog.batch_exports.service import (
     sync_batch_export,
     unpause_batch_export,
 )
+from posthog.constants import AvailableFeature
 from posthog.hogql import ast, errors
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select
@@ -244,6 +246,20 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "schema",
         ]
         read_only_fields = ["id", "team_id", "created_at", "last_updated_at", "latest_runs", "schema"]
+
+    def validate(self, attrs: dict) -> dict:
+        team = self.context["get_team"]()
+        attrs["team"] = team
+
+        has_addon = team.organization.is_feature_available(AvailableFeature.DATA_PIPELINES)
+
+        if not has_addon:
+            # Check if the user is impersonated - if so we allow changes as it could be an admin user fixing things
+
+            if not is_impersonated_session(self.context["request"]):
+                raise serializers.ValidationError("The Data Pipelines addon is required for batch exports.")
+
+        return attrs
 
     def create(self, validated_data: dict) -> BatchExport:
         """Create a BatchExport."""

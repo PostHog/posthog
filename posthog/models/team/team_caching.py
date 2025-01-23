@@ -38,6 +38,8 @@ def get_team_in_cache(token: str) -> Optional["Team"]:
     if team_data:
         try:
             parsed_data = json.loads(team_data)
+            if "project_id" not in parsed_data:
+                parsed_data["project_id"] = parsed_data["id"]
             return Team(**parsed_data)
         except Exception as e:
             capture_exception(e)

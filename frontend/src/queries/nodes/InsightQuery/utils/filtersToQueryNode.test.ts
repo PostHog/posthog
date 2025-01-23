@@ -10,7 +10,7 @@ import {
     RetentionQuery,
     StickinessQuery,
     TrendsQuery,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import {
     ActionFilter,
     BaseMathType,

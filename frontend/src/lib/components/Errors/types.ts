@@ -3,6 +3,11 @@ export interface ErrorTrackingException {
     module: string
     type: string
     value: string
+    mechanism?: {
+        synthetic?: boolean
+        handled?: boolean
+        type: 'generic'
+    }
 }
 
 interface ErrorTrackingRawStackTrace {

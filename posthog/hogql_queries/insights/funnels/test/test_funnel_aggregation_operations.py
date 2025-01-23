@@ -8,7 +8,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql_queries.insights.funnels.funnel_aggregation_operations import FirstTimeForUserAggregationQuery
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.schema import EventsNode, FunnelsFilter, FunnelsQuery, InsightDateRange
+from posthog.schema import EventsNode, FunnelsFilter, FunnelsQuery, DateRange
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 
@@ -17,7 +17,7 @@ class TestFunnelAggregationOperations(ClickhouseTestMixin, APIBaseTest):
         funnels_query = FunnelsQuery(
             series=[EventsNode(event="$pageview")],
             funnelsFilter=FunnelsFilter(funnelWindowInterval=14),
-            dateRange=InsightDateRange(date_from="-14d"),
+            dateRange=DateRange(date_from="-14d"),
         )
         ctx = FunnelQueryContext(funnels_query, self.team)
         filters = parse_expr("1 = 1")
@@ -35,7 +35,7 @@ class TestFunnelAggregationOperations(ClickhouseTestMixin, APIBaseTest):
         funnels_query = FunnelsQuery(
             series=[EventsNode(event="$pageview")],
             funnelsFilter=FunnelsFilter(funnelWindowInterval=14),
-            dateRange=InsightDateRange(date_from="-14d"),
+            dateRange=DateRange(date_from="-14d"),
         )
 
         with freeze_time("2024-07-31"):
@@ -88,7 +88,7 @@ class TestFunnelAggregationOperations(ClickhouseTestMixin, APIBaseTest):
         funnels_query = FunnelsQuery(
             series=[EventsNode(event="$pageview")],
             funnelsFilter=FunnelsFilter(funnelWindowInterval=14),
-            dateRange=InsightDateRange(date_from="-14d"),
+            dateRange=DateRange(date_from="-14d"),
         )
 
         with freeze_time("2024-07-31"):
@@ -115,7 +115,7 @@ class TestFunnelAggregationOperations(ClickhouseTestMixin, APIBaseTest):
         funnels_query = FunnelsQuery(
             series=[EventsNode(event="$pageview")],
             funnelsFilter=FunnelsFilter(funnelWindowInterval=14),
-            dateRange=InsightDateRange(date_from="-14d"),
+            dateRange=DateRange(date_from="-14d"),
         )
 
         with freeze_time("2024-07-31"):
@@ -143,7 +143,7 @@ class TestFunnelAggregationOperations(ClickhouseTestMixin, APIBaseTest):
         funnels_query = FunnelsQuery(
             series=[EventsNode(event="$pageview")],
             funnelsFilter=FunnelsFilter(funnelWindowInterval=14),
-            dateRange=InsightDateRange(date_from="-14d"),
+            dateRange=DateRange(date_from="-14d"),
         )
         ctx = FunnelQueryContext(funnels_query, self.team)
 
@@ -161,7 +161,7 @@ class TestFunnelAggregationOperations(ClickhouseTestMixin, APIBaseTest):
         funnels_query = FunnelsQuery(
             series=[EventsNode(event="$pageview")],
             funnelsFilter=FunnelsFilter(funnelWindowInterval=14),
-            dateRange=InsightDateRange(date_from="-14d"),
+            dateRange=DateRange(date_from="-14d"),
         )
         ctx = FunnelQueryContext(funnels_query, self.team)
 
@@ -183,7 +183,7 @@ class TestFunnelAggregationOperations(ClickhouseTestMixin, APIBaseTest):
         funnels_query = FunnelsQuery(
             series=[EventsNode(event="$pageview")],
             funnelsFilter=FunnelsFilter(funnelWindowInterval=14),
-            dateRange=InsightDateRange(date_from="-14d"),
+            dateRange=DateRange(date_from="-14d"),
             samplingFactor=0.1,
         )
         ctx = FunnelQueryContext(funnels_query, self.team)
@@ -202,7 +202,7 @@ class TestFunnelAggregationOperations(ClickhouseTestMixin, APIBaseTest):
         funnels_query = FunnelsQuery(
             series=[EventsNode(event="$pageview")],
             funnelsFilter=FunnelsFilter(funnelWindowInterval=14),
-            dateRange=InsightDateRange(date_from="-14d"),
+            dateRange=DateRange(date_from="-14d"),
         )
         ctx = FunnelQueryContext(funnels_query, self.team)
 

@@ -1,8 +1,6 @@
 from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentToolkit, ToolkitTool
-from ee.hogai.utils import dereference_schema
-from posthog.schema import (
-    AssistantTrendsQuery,
-)
+from ee.hogai.utils.helpers import dereference_schema
+from posthog.schema import AssistantTrendsQuery
 
 
 class TrendsTaxonomyAgentToolkit(TaxonomyAgentToolkit):

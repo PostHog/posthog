@@ -23,6 +23,7 @@ import { Experiment, ExperimentsTabs, ProductKey, ProgressStatus } from '~/types
 import { experimentsLogic, getExperimentStatus } from './experimentsLogic'
 import { StatusTag } from './ExperimentView/components'
 import { Holdouts } from './Holdouts'
+import { SharedMetrics } from './SharedMetrics/SharedMetrics'
 
 export const scene: SceneExport = {
     component: Experiments,
@@ -211,11 +212,14 @@ export function Experiments(): JSX.Element {
                     { key: ExperimentsTabs.Yours, label: 'Your experiments' },
                     { key: ExperimentsTabs.Archived, label: 'Archived experiments' },
                     { key: ExperimentsTabs.Holdouts, label: 'Holdout groups' },
+                    { key: ExperimentsTabs.SharedMetrics, label: 'Shared metrics' },
                 ]}
             />
 
             {tab === ExperimentsTabs.Holdouts ? (
                 <Holdouts />
+            ) : tab === ExperimentsTabs.SharedMetrics ? (
+                <SharedMetrics />
             ) : (
                 <>
                     {tab === ExperimentsTabs.Archived ? (

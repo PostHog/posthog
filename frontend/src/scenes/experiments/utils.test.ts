@@ -1,6 +1,6 @@
 import { EntityType, FeatureFlagFilters, InsightType } from '~/types'
 
-import { getNiceTickValues } from './ExperimentView/DeltaViz'
+import { getNiceTickValues } from './MetricsView/MetricsView'
 import { getMinimumDetectableEffect, transformFiltersForWinningVariant } from './utils'
 
 describe('utils', () => {

@@ -6,7 +6,14 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 
-import { chatResponseChunk, failureChunk, generationFailureChunk } from './__mocks__/chatResponse.mocks'
+import {
+    chatResponseChunk,
+    CONVERSATION_ID,
+    failureChunk,
+    formChunk,
+    generationFailureChunk,
+    humanMessage,
+} from './__mocks__/chatResponse.mocks'
 import { MaxInstance } from './Max'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
@@ -16,7 +23,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             post: {
-                '/api/environments/:team_id/query/chat/': (_, res, ctx) => res(ctx.text(chatResponseChunk)),
+                '/api/environments/:team_id/conversations/': (_, res, ctx) => res(ctx.text(chatResponseChunk)),
             },
         }),
     ],
@@ -28,10 +35,7 @@ const meta: Meta = {
 }
 export default meta
 
-// The session ID is hard-coded here, as it's used for randomizing the welcome headline
-const SESSION_ID = 'b1b4b3b4-1b3b-4b3b-1b3b4b3b4b3b'
-
-const Template = ({ sessionId: SESSION_ID }: { sessionId: string }): JSX.Element => {
+const Template = ({ conversationId: CONVERSATION_ID }: { conversationId: string }): JSX.Element => {
     const { acceptDataProcessing } = useActions(maxGlobalLogic)
 
     useEffect(() => {
@@ -40,7 +44,7 @@ const Template = ({ sessionId: SESSION_ID }: { sessionId: string }): JSX.Element
 
     return (
         <div className="relative flex flex-col h-fit">
-            <BindLogic logic={maxLogic} props={{ sessionId: SESSION_ID }}>
+            <BindLogic logic={maxLogic} props={{ conversationId: CONVERSATION_ID }}>
                 <MaxInstance />
             </BindLogic>
         </div>
@@ -69,7 +73,7 @@ export const Welcome: StoryFn = () => {
         acceptDataProcessing(false)
     }, [])
 
-    return <Template sessionId={SESSION_ID} />
+    return <Template conversationId={CONVERSATION_ID} />
 }
 
 export const WelcomeSuggestionsAvailable: StoryFn = () => {
@@ -95,7 +99,7 @@ export const WelcomeLoadingSuggestions: StoryFn = () => {
         loadCurrentProjectSuccess({ ...MOCK_DEFAULT_PROJECT, product_description: 'A Storybook test.' })
     }, [])
 
-    return <Template sessionId={SESSION_ID} />
+    return <Template conversationId={CONVERSATION_ID} />
 }
 WelcomeLoadingSuggestions.parameters = {
     testOptions: {
@@ -104,29 +108,29 @@ WelcomeLoadingSuggestions.parameters = {
 }
 
 export const Thread: StoryFn = () => {
-    const { askMax } = useActions(maxLogic({ sessionId: SESSION_ID }))
+    const { askMax } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
 
     useEffect(() => {
-        askMax('What are my most popular pages?')
+        askMax(humanMessage.content)
     }, [])
 
-    return <Template sessionId={SESSION_ID} />
+    return <Template conversationId={CONVERSATION_ID} />
 }
 
 export const EmptyThreadLoading: StoryFn = () => {
     useStorybookMocks({
         post: {
-            '/api/environments/:team_id/query/chat/': (_req, _res, ctx) => [ctx.delay('infinite')],
+            '/api/environments/:team_id/conversations/': (_req, _res, ctx) => [ctx.delay('infinite')],
         },
     })
 
-    const { askMax } = useActions(maxLogic({ sessionId: SESSION_ID }))
+    const { askMax } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
 
     useEffect(() => {
-        askMax('What are my most popular pages?')
+        askMax(humanMessage.content)
     }, [])
 
-    return <Template sessionId={SESSION_ID} />
+    return <Template conversationId={CONVERSATION_ID} />
 }
 EmptyThreadLoading.parameters = {
     testOptions: {
@@ -137,15 +141,15 @@ EmptyThreadLoading.parameters = {
 export const GenerationFailureThread: StoryFn = () => {
     useStorybookMocks({
         post: {
-            '/api/environments/:team_id/query/chat/': (_, res, ctx) => res(ctx.text(generationFailureChunk)),
+            '/api/environments/:team_id/conversations/': (_, res, ctx) => res(ctx.text(generationFailureChunk)),
         },
     })
 
-    const { askMax, setMessageStatus } = useActions(maxLogic({ sessionId: SESSION_ID }))
-    const { threadRaw, threadLoading } = useValues(maxLogic({ sessionId: SESSION_ID }))
+    const { askMax, setMessageStatus } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
+    const { threadRaw, threadLoading } = useValues(maxLogic({ conversationId: CONVERSATION_ID }))
 
     useEffect(() => {
-        askMax('What are my most popular pages?')
+        askMax(humanMessage.content)
     }, [])
 
     useEffect(() => {
@@ -154,38 +158,54 @@ export const GenerationFailureThread: StoryFn = () => {
         }
     }, [threadRaw.length, threadLoading])
 
-    return <Template sessionId={SESSION_ID} />
+    return <Template conversationId={CONVERSATION_ID} />
 }
 
 export const ThreadWithFailedGeneration: StoryFn = () => {
     useStorybookMocks({
         post: {
-            '/api/environments/:team_id/query/chat/': (_, res, ctx) => res(ctx.text(failureChunk)),
+            '/api/environments/:team_id/conversations/': (_, res, ctx) => res(ctx.text(failureChunk)),
         },
     })
 
-    const { askMax } = useActions(maxLogic({ sessionId: SESSION_ID }))
+    const { askMax } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
 
     useEffect(() => {
-        askMax('What are my most popular pages?')
+        askMax(humanMessage.content)
     }, [])
 
-    return <Template sessionId={SESSION_ID} />
+    return <Template conversationId={CONVERSATION_ID} />
 }
 
 export const ThreadWithRateLimit: StoryFn = () => {
     useStorybookMocks({
         post: {
-            '/api/environments/:team_id/query/chat/': (_, res, ctx) =>
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
                 res(ctx.text(chatResponseChunk), ctx.status(429)),
         },
     })
 
-    const { askMax } = useActions(maxLogic({ sessionId: SESSION_ID }))
+    const { askMax } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
 
     useEffect(() => {
         askMax('Is Bielefeld real?')
     }, [])
 
-    return <Template sessionId={SESSION_ID} />
+    return <Template conversationId={CONVERSATION_ID} />
+}
+
+export const ThreadWithForm: StoryFn = () => {
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) => res(ctx.text(formChunk)),
+        },
+    })
+
+    const { askMax } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
+
+    useEffect(() => {
+        askMax(humanMessage.content)
+    }, [])
+
+    return <Template conversationId={CONVERSATION_ID} />
 }

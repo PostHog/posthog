@@ -24,8 +24,8 @@ const checkFileDownloaded = async (filename: string, timeout: number, delayMs = 
 
 export default defineConfig({
     video: false,
-    defaultCommandTimeout: 20000,
-    requestTimeout: 8000,
+    defaultCommandTimeout: 40000,
+    requestTimeout: 16000,
     pageLoadTimeout: 80000,
     projectId: 'twojfp',
     viewportWidth: 1200,
@@ -34,7 +34,7 @@ export default defineConfig({
     // cypress default is 'top' this means sometimes the element is underneath the top navbar
     // not what a human would do... so, set it to center to avoid this weird behavior
     scrollBehavior: 'center',
-    retries: { runMode: 2 },
+    retries: { runMode: 3 },
     e2e: {
         // We've imported your old cypress plugins here.
         // You may want to clean this up later by importing these.

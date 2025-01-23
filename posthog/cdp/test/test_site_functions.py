@@ -1,3 +1,4 @@
+import json
 import subprocess
 import tempfile
 from inline_snapshot import snapshot
@@ -45,6 +46,12 @@ class TestSiteFunctions(TestCase):
 
         return result
 
+    def _execute_javascript(self, js) -> str:
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            f.write(js.encode("utf-8"))
+            f.flush()
+            return subprocess.check_output(["node", f.name]).decode("utf-8")
+
     def test_get_transpiled_function_basic(self):
         result = self.compile_and_run()
         assert isinstance(result, str)
@@ -71,13 +78,14 @@ function onLoad() {
 };return exports;})();
     let processEvent = undefined;
     if ('onEvent' in source) {
-        processEvent = function processEvent(globals) {
+        processEvent = function processEvent(globals, posthog) {
             if (!('onEvent' in source)) { return; };
             const inputs = buildInputs(globals);
             const filterGlobals = { ...globals.groups, ...globals.event, person: globals.person, inputs, pdi: { distinct_id: globals.event.distinct_id, person: globals.person } };
             let __getGlobal = (key) => filterGlobals[key];
             const filterMatches = true;
-            if (filterMatches) { source.onEvent({ ...globals, inputs, posthog }); }
+            if (!filterMatches) { return; }
+            ;
         }
     }
 
@@ -85,15 +93,24 @@ function onLoad() {
         const posthog = config.posthog;
         const callback = config.callback;
         if ('onLoad' in source) {
-            const r = source.onLoad({ inputs: buildInputs({}, true), posthog: posthog });
+            const globals = {
+                person: {
+                    properties: posthog.get_property('$stored_person_properties'),
+                }
+            }
+            const r = source.onLoad({ inputs: buildInputs(globals, true), posthog: posthog });
             if (r && typeof r.then === 'function' && typeof r.finally === 'function') { r.catch(() => callback(false)).then(() => callback(true)) } else { callback(true) }
         } else {
             callback(true);
         }
 
-        return {
-            processEvent: processEvent
+        const response = {}
+
+        if (processEvent) {
+            response.processEvent = (globals) => processEvent(globals, posthog)
         }
+
+        return response
     }
 
     return { init: init };
@@ -123,15 +140,16 @@ function onLoad() {
         assert '__getGlobal("person")' in result
 
     def test_get_transpiled_function_with_filters(self):
-        self.hog_function.hog = "export function onEvent(event) { console.log(event.event); }"
+        self.hog_function.hog = "export function onEvent(globals) { console.log(globals); }"
         self.hog_function.filters = {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]}
 
         result = self.compile_and_run()
 
-        assert "console.log(event.event);" in result
+        assert "console.log(globals);" in result
         assert "const filterMatches = " in result
         assert '__getGlobal("event") == "$pageview"' in result
-        assert "if (filterMatches) { source.onEvent({" in result
+        assert "const filterMatches = !!(!!((__getGlobal" in result
+        assert "if (!filterMatches) { return; }" in result
 
     def test_get_transpiled_function_with_invalid_template_input(self):
         self.hog_function.hog = "export function onLoad() { console.log(inputs.greeting); }"
@@ -242,7 +260,7 @@ function onLoad() {
         action.steps = [{"event": "$pageview", "url": "https://example.com"}]  # type: ignore
         action.save()
 
-        self.hog_function.hog = "export function onEvent(event) { console.log(event.event); }"
+        self.hog_function.hog = "export function onEvent(globals) { console.log(globals); }"
         self.hog_function.filters = {
             "events": [{"id": "$pageview", "name": "$pageview", "type": "events"}],
             "actions": [{"id": str(action.pk), "name": "Test Action", "type": "actions"}],
@@ -251,7 +269,158 @@ function onLoad() {
 
         result = self.compile_and_run()
 
-        assert "console.log(event.event);" in result
+        assert "console.log(globals);" in result
         assert "const filterMatches = " in result
         assert '__getGlobal("event") == "$pageview"' in result
         assert "https://example.com" in result
+
+    def test_get_transpiled_function_with_mappings(self):
+        self.hog_function.hog = "export function onLoad({ inputs, posthog }) { console.log(inputs); }"
+        self.hog_function.inputs = {"greeting": {"value": "Hello, {person.properties.nonexistent_property}!"}}
+        self.hog_function.filters = {
+            "events": [{"id": "$pageview", "name": "$pageview", "type": "events"}],
+        }
+        self.hog_function.mappings = [
+            {
+                "inputs": {"greeting": {"value": "Hallo, {person.properties.nonexistent_property}!"}},
+                "filters": {"events": [{"id": "$autocapture", "name": "$autocapture", "type": "events"}]},
+            }
+        ]
+
+        result = self.compile_and_run()
+
+        assert "console.log(inputs);" in result
+        assert 'const filterMatches = !!(!!((__getGlobal("event") == "$pageview")));' in result
+        assert 'if (!!(!!((__getGlobal("event") == "$autocapture")))) {' in result
+        assert "const newInputs = structuredClone(inputs);" in result
+        assert 'newInputs["greeting"] = concat("Hallo, ", __getProperty' in result
+
+    def test_run_function_onload(self):
+        self.hog_function.hog = "export function onLoad({ inputs, posthog }) { console.log(inputs.message); }"
+        self.hog_function.filters = {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]}
+        self.hog_function.inputs = {"message": {"value": "Hello World {person.properties.name}"}}
+
+        result = self.compile_and_run()
+        assert "Hello World" in result
+
+        response = self._execute_javascript(
+            result
+            + "().init({ posthog: { get_property: () => ({name: 'Bob'}) }, callback: () => { console.log('Loaded') } })"
+        )
+        assert "Hello World Bob\nLoaded" == response.strip()
+
+    def test_run_function_onevent(self):
+        self.hog_function.hog = "export function onEvent({ inputs }) { console.log(inputs.message); }"
+        # self.hog_function.filters = {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]}
+        self.hog_function.inputs = {"message": {"value": "Hello World {event.properties.id}"}}
+        self.hog_function.mappings = [
+            {
+                "inputs": {"greeting": {"value": "Hallo, {person.properties.nonexistent_property}!"}},
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events"}]},
+            }
+        ]
+
+        result = self.compile_and_run()
+        assert "Hello World" in result
+
+        globals = {
+            "event": {"event": "$pageview", "properties": {"id": "banana"}},
+            "groups": {},
+            "person": {"properties": {"name": "Bob"}},
+        }
+        response = self._execute_javascript(
+            result
+            + "().init({ posthog: { get_property: () => ({name: 'Bob'}) }, callback: () => { console.log('Loaded') } }).processEvent("
+            + json.dumps(globals)
+            + ")"
+        )
+        assert "Loaded\nHello World banana" == response.strip()
+
+        globals = {
+            "event": {"event": "$autocapture", "properties": {"id": "banana"}},
+            "groups": {},
+            "person": {"properties": {"name": "Bob"}},
+        }
+        response = self._execute_javascript(
+            result
+            + "().init({ posthog: { get_property: () => ({name: 'Bob'}) }, callback: () => { console.log('Loaded') } }).processEvent("
+            + json.dumps(globals)
+            + ")"
+        )
+        assert "Loaded" == response.strip()
+
+    def test_run_function_skip_disabled_mapping(self):
+        self.hog_function.hog = "export function onEvent({ inputs }) { console.log(inputs.message); }"
+        self.hog_function.inputs = {"message": {"value": "Hello World {event.properties.id}"}}
+        self.hog_function.mappings = [
+            {
+                "inputs": {"greeting": {"value": "Hallo!"}},
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events"}]},
+                "disabled": True,
+            }
+        ]
+
+        result = self.compile_and_run()
+        assert "Hello World" in result
+
+        globals = {
+            "event": {"event": "$pageview", "properties": {"id": "banana"}},
+            "groups": {},
+            "person": {"properties": {"name": "Bob"}},
+        }
+        response = self._execute_javascript(
+            result
+            + "().init({ posthog: { get_property: () => ({name: 'Bob'}) }, callback: () => { console.log('Loaded') } }).processEvent("
+            + json.dumps(globals)
+            + ")"
+        )
+        assert "Loaded" == response.strip()
+
+    def test_get_transpiled_function_with_ordered_inputs(self):
+        self.hog_function.hog = "export function onLoad() { console.log(inputs); }"
+        self.hog_function.inputs = {
+            "first": {"value": "I am first", "order": 0},
+            "second": {"value": "{person.properties.name}", "order": 1},
+            "third": {"value": "{event.properties.url}", "order": 2},
+        }
+
+        result = self.compile_and_run()
+
+        assert '"first": "I am first"' in result
+        idx_first = result.index('"first": "I am first"')
+        idx_second = result.index('inputs["second"] = getInputsKey("second");')
+        idx_third = result.index('inputs["third"] = getInputsKey("third");')
+
+        assert idx_first < idx_second < idx_third
+
+    def test_get_transpiled_function_without_order(self):
+        self.hog_function.hog = "export function onLoad() { console.log(inputs); }"
+        self.hog_function.inputs = {
+            "noOrder": {"value": "I have no order"},
+            "alsoNoOrder": {"value": "{person.properties.name}"},
+            "withOrder": {"value": "{event.properties.url}", "order": 10},
+        }
+
+        result = self.compile_and_run()
+
+        idx_noOrder = result.index('"noOrder": "I have no order"')
+        idx_alsoNoOrder = result.index('inputs["alsoNoOrder"] = getInputsKey("alsoNoOrder");')
+        idx_withOrder = result.index('inputs["withOrder"] = getInputsKey("withOrder");')
+
+        assert idx_noOrder < idx_alsoNoOrder < idx_withOrder
+
+    def test_get_transpiled_function_with_duplicate_orders(self):
+        self.hog_function.hog = "export function onLoad() { console.log(inputs); }"
+        self.hog_function.inputs = {
+            "alpha": {"value": "{person.properties.alpha}", "order": 1},
+            "beta": {"value": "{person.properties.beta}", "order": 1},
+            "gamma": {"value": "Just gamma", "order": 1},
+        }
+
+        result = self.compile_and_run()
+
+        idx_alpha = result.index('inputs["alpha"] = getInputsKey("alpha");')
+        idx_beta = result.index('inputs["beta"] = getInputsKey("beta");')
+        idx_gamma = result.index('"gamma": "Just gamma"')
+
+        assert idx_alpha is not None and idx_beta is not None and idx_gamma is not None

@@ -1,7 +1,7 @@
 import './WorldMap.scss'
 
 import { useActions, useValues } from 'kea'
-import { BRAND_BLUE_HSL, gradateColor } from 'lib/colors'
+import { gradateColor } from 'lib/utils'
 import React, { HTMLProps, useEffect, useRef } from 'react'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -9,7 +9,7 @@ import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 import { groupsModel } from '~/models/groupsModel'
-import { InsightQueryNode, NodeKind } from '~/queries/schema'
+import { InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType, ChartParams, TrendResult } from '~/types'
 
 import { SeriesDatum } from '../../InsightTooltip/insightTooltipUtils'
@@ -111,6 +111,7 @@ interface WorldMapSVGProps extends ChartParams {
         countrySeries: TrendResult | undefined
     ) => Omit<HTMLProps<SVGElement>, 'key'>
     querySource: InsightQueryNode | null
+    backgroundColor: string
 }
 
 const WorldMapSVG = React.memo(
@@ -125,6 +126,7 @@ const WorldMapSVG = React.memo(
                 updateTooltipCoordinates,
                 worldMapCountryProps,
                 querySource,
+                backgroundColor,
             },
             ref
         ) => {
@@ -146,7 +148,7 @@ const WorldMapSVG = React.memo(
                         const countrySeries: TrendResult | undefined = countryCodeToSeries[countryCode]
                         const aggregatedValue = countrySeries?.aggregated_value || 0
                         const fill = aggregatedValue
-                            ? gradateColor(BRAND_BLUE_HSL, aggregatedValue / maxAggregatedValue, SATURATION_FLOOR)
+                            ? gradateColor(backgroundColor, aggregatedValue / maxAggregatedValue, SATURATION_FLOOR)
                             : undefined
 
                         const {
@@ -185,7 +187,12 @@ const WorldMapSVG = React.memo(
 
                         return React.cloneElement(countryElement, {
                             key: countryCode,
-                            style: { color: fill, cursor: onClick ? 'pointer' : undefined, ...style },
+                            style: {
+                                color: fill,
+                                '--world-map-hover': backgroundColor,
+                                cursor: onClick ? 'pointer' : undefined,
+                                ...style,
+                            },
                             onMouseEnter: () => showTooltip(countryCode, countrySeries || null),
                             onMouseLeave: () => hideTooltip(),
                             onMouseMove: (e: MouseEvent) => {
@@ -203,11 +210,13 @@ const WorldMapSVG = React.memo(
 
 export function WorldMap({ showPersonsModal = true, context }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { countryCodeToSeries, maxAggregatedValue, querySource } = useValues(worldMapLogic(insightProps))
+    const { countryCodeToSeries, maxAggregatedValue, querySource, theme } = useValues(worldMapLogic(insightProps))
     const { showTooltip, hideTooltip, updateTooltipCoordinates } = useActions(worldMapLogic(insightProps))
     const renderingMetadata = context?.chartRenderingMetadata?.[ChartDisplayType.WorldMap]
 
     const svgRef = useWorldMapTooltip(showPersonsModal)
+
+    const backgroundColor = theme?.['preset-1'] || '#000000' // Default to black if no color found
 
     return (
         <WorldMapSVG
@@ -220,6 +229,7 @@ export function WorldMap({ showPersonsModal = true, context }: ChartParams): JSX
             ref={svgRef}
             worldMapCountryProps={renderingMetadata?.countryProps}
             querySource={querySource}
+            backgroundColor={backgroundColor}
         />
     )
 }

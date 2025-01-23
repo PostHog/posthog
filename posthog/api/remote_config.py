@@ -5,6 +5,14 @@ from rest_framework.views import APIView
 from posthog.models.remote_config import RemoteConfig
 
 
+def add_vary_headers(response):
+    """
+    Add Vary headers for Origin and Referer to responses.
+    """
+    response["Vary"] = "Origin, Referer"
+    return response
+
+
 class BaseRemoteConfigAPIView(APIView):
     """
     Base class for RemoteConfig API views.
@@ -23,28 +31,28 @@ class BaseRemoteConfigAPIView(APIView):
 class RemoteConfigAPIView(BaseRemoteConfigAPIView):
     def get(self, request, token: str, *args, **kwargs):
         try:
-            resource = RemoteConfig.get_config_via_token(self.check_token(token))
+            resource = RemoteConfig.get_config_via_token(self.check_token(token), request=request)
         except RemoteConfig.DoesNotExist:
             raise Http404()
 
-        return JsonResponse(resource)
+        return add_vary_headers(JsonResponse(resource))
 
 
 class RemoteConfigJSAPIView(BaseRemoteConfigAPIView):
     def get(self, request, token: str, *args, **kwargs):
         try:
-            script_content = RemoteConfig.get_config_js_via_token(self.check_token(token))
+            script_content = RemoteConfig.get_config_js_via_token(self.check_token(token), request=request)
         except RemoteConfig.DoesNotExist:
             raise Http404()
 
-        return HttpResponse(script_content, content_type="application/javascript")
+        return add_vary_headers(HttpResponse(script_content, content_type="application/javascript"))
 
 
 class RemoteConfigArrayJSAPIView(BaseRemoteConfigAPIView):
     def get(self, request, token: str, *args, **kwargs):
         try:
-            script_content = RemoteConfig.get_array_js_via_token(self.check_token(token))
+            script_content = RemoteConfig.get_array_js_via_token(self.check_token(token), request=request)
         except RemoteConfig.DoesNotExist:
             raise Http404()
 
-        return HttpResponse(script_content, content_type="application/javascript")
+        return add_vary_headers(HttpResponse(script_content, content_type="application/javascript"))

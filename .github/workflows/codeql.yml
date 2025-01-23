@@ -16,12 +16,10 @@ on:
         branches: ['master']
         paths-ignore:
             - 'rust/**'
-            - '.github/**'
     pull_request:
         branches: ['master']
         paths-ignore:
             - 'rust/**'
-            - '.github/**'
     schedule:
         - cron: '27 1 * * 0'
 

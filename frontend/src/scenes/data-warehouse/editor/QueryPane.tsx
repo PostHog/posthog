@@ -31,7 +31,6 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                     <AutoSizer>
                         {({ height, width }) => (
                             <CodeEditor
-                                className="border"
                                 language="hogQL"
                                 value={props.queryInput}
                                 sourceQuery={props.sourceQuery}

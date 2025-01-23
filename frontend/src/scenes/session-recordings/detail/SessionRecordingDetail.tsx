@@ -2,8 +2,10 @@ import './SessionRecordingScene.scss'
 
 import { useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import {
     sessionRecordingDetailLogic,
@@ -24,14 +26,19 @@ export const scene: SceneExport = {
 
 export function SessionRecordingDetail({ id }: SessionRecordingDetailLogicProps = {}): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
+
     return (
         <div className="SessionRecordingScene">
             <PageHeader />
             {currentTeam && !currentTeam?.session_recording_opt_in ? (
                 <div className="mb-4">
                     <LemonBanner type="info">
-                        Session recordings are currently disabled for this project. To use this feature, please go to
-                        your <Link to={`${urls.settings('project')}#recordings`}>project settings</Link> and enable it.
+                        Session recordings are currently disabled for this {settingLevel}. To use this feature, please
+                        go to your <Link to={`${urls.settings('project')}#recordings`}>project settings</Link> and
+                        enable it.
                     </LemonBanner>
                 </div>
             ) : null}

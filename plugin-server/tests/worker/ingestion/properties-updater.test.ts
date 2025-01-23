@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 
 import { Group, Hub, Team } from '../../../src/types'
 import { DB } from '../../../src/utils/db/db'
+import { MessageSizeTooLarge } from '../../../src/utils/db/error'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { upsertGroup } from '../../../src/worker/ingestion/properties-updater'
@@ -145,6 +146,15 @@ describe('properties-updater', () => {
             const group = await fetchGroup()
             expect(group.version).toEqual(2)
             expect(group.group_properties).toEqual({ a: 1, b: 2, d: 3 })
+        })
+
+        it('handles message size too large errors', async () => {
+            jest.spyOn(db, 'upsertGroupClickhouse').mockImplementationOnce((): Promise<void> => {
+                const error = new Error('message size too large')
+                throw new MessageSizeTooLarge(error.message, error)
+            })
+
+            await expect(upsert({ a: 1, b: 2 }, PAST_TIMESTAMP)).resolves.toEqual(undefined)
         })
     })
 })

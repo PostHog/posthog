@@ -60,7 +60,7 @@ export function GroupIntroductionFooter({ needsUpgrade }: { needsUpgrade: boolea
                     You can now use Group Analytics. See{' '}
                     <Link
                         className="font-medium"
-                        to="https://posthog.com/manual/group-analytics?utm_medium=in-product&utm_campaign=group-analytics-get-started"
+                        to="https://posthog.com/docs/product-analytics/group-analytics?utm_medium=in-product&utm_campaign=group-analytics-get-started"
                         target="_blank"
                         data-attr="group-analytics-get-started"
                     >

@@ -766,7 +766,19 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ast.Call(name="toIntervalMonth", args=[ast.Constant(value=1)]),
             )
             self.assertEqual(
+                self._expr("interval '1 month'"),
+                ast.Call(name="toIntervalMonth", args=[ast.Constant(value=1)]),
+            )
+            self.assertEqual(
                 self._expr("now() - interval 1 week"),
+                ast.ArithmeticOperation(
+                    op=ast.ArithmeticOperationOp.Sub,
+                    left=ast.Call(name="now", args=[]),
+                    right=ast.Call(name="toIntervalWeek", args=[ast.Constant(value=1)]),
+                ),
+            )
+            self.assertEqual(
+                self._expr("now() - interval '1 week'"),
                 ast.ArithmeticOperation(
                     op=ast.ArithmeticOperationOp.Sub,
                     left=ast.Call(name="now", args=[]),

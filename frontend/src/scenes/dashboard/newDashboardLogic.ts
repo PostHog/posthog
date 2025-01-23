@@ -5,11 +5,15 @@ import api from 'lib/api'
 import { DashboardRestrictionLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { legacyEntityToNode, sanitizeRetentionEntity } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
+import { NodeKind } from '~/queries/schema/schema-general'
+import { isInsightVizNode } from '~/queries/utils'
 import { DashboardTemplateType, DashboardTemplateVariableType, DashboardTile, DashboardType, JsonType } from '~/types'
 
 import type { newDashboardLogicType } from './newDashboardLogicType'
@@ -35,24 +39,47 @@ export interface NewDashboardLogicProps {
 }
 
 // Currently this is a very generic recursive function incase we want to add template variables to aspects beyond events
-export function applyTemplate(obj: DashboardTile | JsonType, variables: DashboardTemplateVariableType[]): JsonType {
+export function applyTemplate(
+    obj: DashboardTile | JsonType,
+    variables: DashboardTemplateVariableType[],
+    queryKind: NodeKind | null
+): JsonType {
     if (typeof obj === 'string') {
         if (obj.startsWith('{') && obj.endsWith('}')) {
             const variableId = obj.substring(1, obj.length - 1)
             const variable = variables.find((variable) => variable.id === variableId)
             if (variable && variable.default) {
+                // added for future compatibility - at the moment we only have event variables
+                const isEventVariable = variable.type === 'event'
+
+                if (queryKind && isEventVariable) {
+                    let mathAvailability = MathAvailability.None
+                    if (queryKind === NodeKind.TrendsQuery) {
+                        mathAvailability = MathAvailability.All
+                    } else if (queryKind === NodeKind.StickinessQuery) {
+                        mathAvailability = MathAvailability.ActorsOnly
+                    } else if (queryKind === NodeKind.FunnelsQuery) {
+                        mathAvailability = MathAvailability.FunnelsOnly
+                    }
+                    return (
+                        queryKind === NodeKind.RetentionQuery
+                            ? sanitizeRetentionEntity(variable.default as any)
+                            : legacyEntityToNode(variable.default as any, true, mathAvailability)
+                    ) as JsonType
+                }
+
                 return variable.default as JsonType
             }
             return obj
         }
     }
     if (Array.isArray(obj)) {
-        return obj.map((item) => applyTemplate(item, variables))
+        return obj.map((item) => applyTemplate(item, variables, queryKind))
     }
     if (typeof obj === 'object' && obj !== null) {
         const newObject: JsonType = {}
         for (const [key, value] of Object.entries(obj)) {
-            newObject[key] = applyTemplate(value, variables)
+            newObject[key] = applyTemplate(value, variables, queryKind)
         }
         return newObject
     }
@@ -60,7 +87,15 @@ export function applyTemplate(obj: DashboardTile | JsonType, variables: Dashboar
 }
 
 function makeTilesUsingVariables(tiles: DashboardTile[], variables: DashboardTemplateVariableType[]): JsonType[] {
-    return tiles.map((tile: DashboardTile) => applyTemplate(tile, variables))
+    return tiles.map((tile: DashboardTile) => {
+        const isQueryBased = 'query' in tile && tile.query != null
+        const queryKind: NodeKind | null = isQueryBased
+            ? isInsightVizNode(tile.query as any)
+                ? (tile.query as any)?.source.kind
+                : (tile.query as any)?.kind
+            : null
+        return applyTemplate(tile, variables, queryKind)
+    })
 }
 
 export const newDashboardLogic = kea<newDashboardLogicType>([

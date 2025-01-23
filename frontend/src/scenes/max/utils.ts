@@ -1,18 +1,20 @@
 import {
-    AssistantFunnelsQuery,
     AssistantMessage,
     AssistantMessageType,
-    AssistantTrendsQuery,
     FailureMessage,
-    FunnelsQuery,
     HumanMessage,
     ReasoningMessage,
     RootAssistantMessage,
     RouterMessage,
-    TrendsQuery,
     VisualizationMessage,
-} from '~/queries/schema'
-import { isTrendsQuery } from '~/queries/utils'
+} from '~/queries/schema/schema-assistant-messages'
+import {
+    AssistantFunnelsQuery,
+    AssistantRetentionQuery,
+    AssistantTrendsQuery,
+} from '~/queries/schema/schema-assistant-queries'
+import { FunnelsQuery, RetentionQuery, TrendsQuery } from '~/queries/schema/schema-general'
+import { isFunnelsQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
 
 export function isReasoningMessage(message: RootAssistantMessage | undefined | null): message is ReasoningMessage {
     return message?.type === AssistantMessageType.Reasoning
@@ -40,25 +42,26 @@ export function isRouterMessage(message: RootAssistantMessage | undefined | null
     return message?.type === AssistantMessageType.Router
 }
 
-// Both schemas below must infer correct types, so the assistant queries can be converted to a regular query.
-/**
- * Type cast for the assistant's trends query.
- */
-export function castAssistantTrendsQuery(query: AssistantTrendsQuery): TrendsQuery {
+// The cast function below look like no-ops, but they're here to ensure AssistantFooQuery types stay compatible
+// with their respective FooQuery types. If an incompatibility arises, TypeScript will shout here
+function castAssistantTrendsQuery(query: AssistantTrendsQuery): TrendsQuery {
     return query
 }
-
-/**
- * Type cast for the assistant's funnels query.
- */
-export function castAssistantFunnelsQuery(query: AssistantFunnelsQuery): FunnelsQuery {
+function castAssistantFunnelsQuery(query: AssistantFunnelsQuery): FunnelsQuery {
     return query
 }
-
-export function castAssistantQuery(query: AssistantTrendsQuery | AssistantFunnelsQuery): TrendsQuery | FunnelsQuery {
+function castAssistantRetentionQuery(query: AssistantRetentionQuery): RetentionQuery {
+    return query
+}
+export function castAssistantQuery(
+    query: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery
+): TrendsQuery | FunnelsQuery | RetentionQuery {
     if (isTrendsQuery(query)) {
         return castAssistantTrendsQuery(query)
+    } else if (isFunnelsQuery(query)) {
+        return castAssistantFunnelsQuery(query)
+    } else if (isRetentionQuery(query)) {
+        return castAssistantRetentionQuery(query)
     }
-
-    return castAssistantFunnelsQuery(query as AssistantFunnelsQuery)
+    throw new Error('Unsupported query type')
 }
