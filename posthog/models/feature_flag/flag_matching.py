@@ -1037,7 +1037,7 @@ def set_feature_flag_hash_key_overrides(team_id: int, distinct_ids: list[str], h
 
 
 def handle_feature_flag_exception(err: Exception, log_message: str = "", set_healthcheck: bool = True):
-    logger.exception(log_message)
+    logger.exception(f"{log_message} - {err}")
     reason = parse_exception_for_error_message(err)
     FLAG_EVALUATION_ERROR_COUNTER.labels(reason=reason).inc()
     if reason == "unknown":
