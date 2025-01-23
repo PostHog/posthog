@@ -844,6 +844,7 @@ def get_all_feature_flags(
         # check every 10 seconds whether the database is alive or not
         is_database_alive = (not settings.DECIDE_SKIP_POSTGRES_FLAGS) and postgres_healthcheck.is_connected()
         if not is_database_alive or not flags_have_experience_continuity_enabled:
+            logger.debug(f"setting skip_database_flags to {not is_database_alive}")
             return _get_all_feature_flags(
                 all_feature_flags,
                 team_id,
@@ -1037,7 +1038,7 @@ def set_feature_flag_hash_key_overrides(team_id: int, distinct_ids: list[str], h
 
 
 def handle_feature_flag_exception(err: Exception, log_message: str = "", set_healthcheck: bool = True):
-    logger.exception(f"{log_message} - {err}")
+    logger.exception(log_message)
     reason = parse_exception_for_error_message(err)
     FLAG_EVALUATION_ERROR_COUNTER.labels(reason=reason).inc()
     if reason == "unknown":
@@ -1046,7 +1047,6 @@ def handle_feature_flag_exception(err: Exception, log_message: str = "", set_hea
     # DataErrors are generally not because the db is down, but because of bad data.
     # We don't want to set the healthcheck down for bad data.
     if not isinstance(err, DataError) and isinstance(err, DatabaseError) and set_healthcheck:
-        logger.info(f"Setting postgres healthcheck down due to database error: {err}")
         postgres_healthcheck.set_connection(False)
 
 
