@@ -6,6 +6,7 @@ import {
     getProducedKafkaMessages,
     getProducedKafkaMessagesForTopic,
     mockProducer,
+    resetMockProducer,
 } from '~/tests/helpers/mocks/producer.mock'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
@@ -100,11 +101,11 @@ describe('IngestionConsumer', () => {
         team = await getFirstTeam(hub)
         const team2Id = await createTeam(hub.db.postgres, team.organization_id)
         team2 = (await hub.db.fetchTeam(team2Id)) as Team
+
+        resetMockProducer()
     })
 
     afterEach(async () => {
-        jest.restoreAllMocks()
-        jest.setTimeout(10000)
         if (ingester) {
             await ingester.stop()
         }
@@ -341,7 +342,7 @@ describe('IngestionConsumer', () => {
             messages = createKafkaMessages([createEvent()])
             error = new Error('test')
             jest.spyOn(status, 'error').mockImplementation(() => {})
-            jest.spyOn(ingester as any, 'getEventPipelineRunner').mockImplementation(() => ({
+            jest.spyOn(ingester as any, 'getEventPipelineRunner').mockImplementationOnce(() => ({
                 run: () => {
                     throw error
                 },
@@ -350,7 +351,7 @@ describe('IngestionConsumer', () => {
         })
 
         afterEach(() => {
-            jest.restoreAllMocks()
+            jest.clearAllMocks()
         })
 
         it('should handled expected error failures such as eventDroppedError and write to the DLQ', async () => {
@@ -367,7 +368,7 @@ describe('IngestionConsumer', () => {
 
         it('raises if something goes wrong when writing to the DLQ', async () => {
             error = new EventDroppedError('purposeful_drop')
-            jest.spyOn(ingester['kafkaProducer'] as any, 'produce').mockImplementation(() => {
+            mockProducer.produce = jest.fn().mockImplementation(() => {
                 throw new Error('test')
             })
             await expect(ingester.handleKafkaBatch(messages)).rejects.toThrow('test')
