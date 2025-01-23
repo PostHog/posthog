@@ -1,4 +1,16 @@
 /** @type {import('tailwindcss').Config} */
+
+const accentColors = {
+    'accent-primary': 'var(--accent-primary)',
+    'accent-primary-hover': 'var(--accent-primary-hover)',
+    'accent-primary-active': 'var(--accent-primary-active)',
+    'accent-primary-highlight': 'var(--accent-primary-highlight)',
+    'accent-secondary': 'var(--accent-secondary)',
+    'accent-secondary-hover': 'var(--accent-secondary-hover)',
+    'accent-secondary-active': 'var(--accent-secondary-active)',
+    'accent-secondary-highlight': 'var(--accent-secondary-highlight)',
+}
+
 const config = {
     content: [
         './frontend/src/**/*.{ts,tsx}',
@@ -19,32 +31,32 @@ const config = {
             purple: '#B62AD9',
         },
         backgroundColor: {
-            'accent-primary': 'var(--accent-primary)',
-            'accent-primary-hover': 'var(--accent-primary-hover)',
-            'accent-secondary': 'var(--accent-secondary)',
+            ...accentColors,
             
-            'accent-secondary-hover': 'var(--accent-secondary-hover)',
-            'fill-info-overlay': 'var(--bg-fill-info-overlay)',
-            'fill-warning-overlay': 'var(--bg-fill-warning-overlay)',
-            'fill-error-overlay': 'var(--bg-fill-error-overlay)',
-            'fill-success-overlay': 'var(--bg-fill-success-overlay)',
+            'fill-primary': 'var(--bg-fill-primary)',
+            'fill-secondary': 'var(--bg-fill-secondary)',
+            'fill-tertiary': 'var(--bg-fill-tertiary)',
+            'fill-info-secondary': 'var(--bg-fill-info-secondary)',
+            'fill-info-tertiary': 'var(--bg-fill-info-tertiary)',
+            'fill-warning-secondary': 'var(--bg-fill-warning-secondary)',
+            'fill-warning-tertiary': 'var(--bg-fill-warning-tertiary)',
+            'fill-error-secondary': 'var(--bg-fill-error-secondary)',
+            'fill-error-tertiary': 'var(--bg-fill-error-tertiary)',
+            'fill-success-secondary': 'var(--bg-fill-success-secondary)',
+            'fill-success-tertiary': 'var(--bg-fill-success-tertiary)',
         },
         textColor: {
-            'accent-primary': 'var(--accent-primary)',
-            'accent-primary-hover': 'var(--accent-primary-hover)',
-            'accent-secondary': 'var(--accent-secondary)',
-            'accent-secondary-hover': 'var(--accent-secondary-hover)',
+            ...accentColors,
             
-            'on-fill-warning': 'var(--text-warning-on-bg-fill)',
-            'on-fill-error': 'var(--text-error-on-bg-fill)',
-            'on-fill-success': 'var(--text-success-on-bg-fill)',
+            'primary': 'var(--text-primary)',
+            'on-warning-on-fill': 'var(--text-warning-on-bg-fill)',
+            'on-error-on-fill': 'var(--text-error-on-bg-fill)',
+            'on-success-on-fill': 'var(--text-success-on-bg-fill)',
         },
         borderColor: {
-            'accent-primary': 'var(--accent-primary)',
-            'accent-primary-hover': 'var(--accent-primary-hover)',
-            'accent-secondary': 'var(--accent-secondary)',
-            'accent-secondary-hover': 'var(--accent-secondary-hover)',
+            ...accentColors,
 
+            'primary': 'var(--border-primary)',
             'info': 'var(--border-info)',
             'warning': 'var(--border-warning)',
             'error': 'var(--border-error)',

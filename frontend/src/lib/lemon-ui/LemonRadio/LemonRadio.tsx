@@ -16,7 +16,6 @@ export interface LemonRadioProps<T extends React.Key> {
     options: LemonRadioOption<T>[]
     className?: string
     radioPosition?: 'center' | 'top'
-    size?: 'sm' | 'base' | 'lg'
 }
 
 /** Single choice radio. */
@@ -26,7 +25,6 @@ export function LemonRadio<T extends React.Key>({
     options,
     className,
     radioPosition,
-    size = 'sm',
 }: LemonRadioProps<T>): JSX.Element {
     return (
         <div className={clsx('flex flex-col gap-2 font-medium', className)}>
@@ -42,33 +40,20 @@ export function LemonRadio<T extends React.Key>({
                                 'items-center': radioPosition === 'center' || !radioPosition,
                             }
                         )}
-                        onClick={() => {
-                            if (!disabledReason) {
-                                onChange(value)
-                            }
-                        }}
                     >
-                        <div
-                            className={clsx(
-                                size === 'sm' ? 'size-3' : size === 'lg' ? 'size-5' : 'size-4',
-                                'rounded-full border-2 flex items-center justify-center',
-                                disabledReason
-                                    ? 'border-muted bg-muted/10'
-                                    : value === selectedValue
-                                    ? 'border-accent-primary bg-accent-primary'
-                                    : 'border-border hover:border-accent-primary'
-                            )}
+                        <input
+                            type="radio"
+                            className="cursor-pointer"
+                            checked={value === selectedValue}
+                            value={value}
+                            onChange={() => {
+                                if (!disabledReason) {
+                                    onChange(value)
+                                }
+                            }}
+                            disabled={!!disabledReason}
                             {...optionProps}
-                        >
-                            {value === selectedValue && (
-                                <div
-                                    className={clsx(
-                                        size === 'sm' ? 'size-1.5' : size === 'lg' ? 'size-2.5' : 'size-2',
-                                        'rounded-full bg-white'
-                                    )}
-                                />
-                            )}
-                        </div>
+                        />
                         <span>{label}</span>
                         {description && (
                             <div className="text-muted row-start-2 col-start-2 text-pretty">{description}</div>
