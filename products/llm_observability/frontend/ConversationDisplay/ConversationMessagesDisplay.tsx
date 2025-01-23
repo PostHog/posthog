@@ -3,10 +3,11 @@ import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { JSONViewer } from 'lib/components/JSONViewer'
-import { IconArrowDown, IconArrowUp, IconExclamation } from 'lib/lemon-ui/icons'
+import { IconExclamation } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { useState } from 'react'
 
+import { LLMInputOutput } from '../LLMInputOutput'
 import { CompatMessage } from '../types'
 import { normalizeMessages } from '../utils'
 
@@ -23,47 +24,35 @@ export function ConversationMessagesDisplay({
     const outputNormalized = normalizeMessages(output, 'assistant')
 
     return (
-        <div className="bg-bg-light rounded-lg border p-2">
-            <h4 className="flex items-center gap-x-1.5 text-xs font-semibold mb-2">
-                <IconArrowUp className="text-base" />
-                Input
-            </h4>
-            {inputNormalized?.map((message, i) => (
-                <>
-                    <MessageDisplay key={i} message={message} />
-                    {
-                        i < inputNormalized.length - 1 && (
-                            <div className="border-l ml-2 h-2" />
-                        ) /* Spacer connecting messages */
-                    }
-                </>
-            )) || (
-                <div className="rounded border text-default p-2 italic bg-[var(--background-danger-subtle)]">
-                    No input
-                </div>
-            )}
-            <h4 className="flex items-center gap-x-1.5 text-xs font-semibold my-2">
-                <IconArrowDown className="text-base" />
-                Output{outputNormalized && outputNormalized.length > 1 ? ' (multiple choices)' : ''}
-            </h4>
-            {outputNormalized?.map((message, i) => (
-                <>
-                    <MessageDisplay key={i} message={message} isOutput />
-                    {i < outputNormalized.length - 1 && (
-                        <div className="border-l ml-4 h-2" /> /* Spacer connecting messages visually */
-                    )}
-                </>
-            )) || (
-                <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--background-danger-subtle)]">
-                    <IconExclamation className="text-base" />
-                    {httpStatus ? `Generation failed with HTTP status ${httpStatus}` : 'Missing output'}
-                </div>
-            )}
-        </div>
+        <LLMInputOutput
+            inputDisplay={
+                inputNormalized?.map((message, i) => (
+                    <>
+                        <LLMMessageDisplay key={i} message={message} />
+                        {i < inputNormalized.length - 1 && (
+                            <div className="border-l ml-2 h-2" /> /* Spacer connecting messages visually */
+                        )}
+                    </>
+                )) || (
+                    <div className="rounded border text-default p-2 italic bg-[var(--background-danger-subtle)]">
+                        No input
+                    </div>
+                )
+            }
+            outputDisplay={
+                outputNormalized?.map((message, i) => <LLMMessageDisplay key={i} message={message} isOutput />) || (
+                    <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--background-danger-subtle)]">
+                        <IconExclamation className="text-base" />
+                        {httpStatus ? `Generation failed with HTTP status ${httpStatus}` : 'Missing output'}
+                    </div>
+                )
+            }
+            outputHeading={`Output${outputNormalized && outputNormalized.length > 1 ? ' (multiple choices)' : ''}`}
+        />
     )
 }
 
-function MessageDisplay({ message, isOutput }: { message: CompatMessage; isOutput?: boolean }): JSX.Element {
+export function LLMMessageDisplay({ message, isOutput }: { message: CompatMessage; isOutput?: boolean }): JSX.Element {
     const [isRenderingMarkdown, setIsRenderingMarkdown] = useState(!!message.content)
 
     const { role, content, ...additionalKwargs } = message
@@ -85,15 +74,17 @@ function MessageDisplay({ message, isOutput }: { message: CompatMessage; isOutpu
             <div className="flex items-center gap-1 w-full px-2 h-6 text-xs font-medium">
                 <span className="grow">{role}</span>
                 {content && (
-                    <LemonButton
-                        size="small"
-                        noPadding
-                        icon={isRenderingMarkdown ? <IconMarkdownFilled /> : <IconMarkdown />}
-                        tooltip="Toggle Markdown rendering"
-                        onClick={() => setIsRenderingMarkdown(!isRenderingMarkdown)}
-                    />
+                    <>
+                        <LemonButton
+                            size="small"
+                            noPadding
+                            icon={isRenderingMarkdown ? <IconMarkdownFilled /> : <IconMarkdown />}
+                            tooltip="Toggle Markdown rendering"
+                            onClick={() => setIsRenderingMarkdown(!isRenderingMarkdown)}
+                        />
+                        <CopyToClipboardInline iconSize="small" description="message content" explicitValue={content} />
+                    </>
                 )}
-                <CopyToClipboardInline iconSize="small" description="message content" explicitValue={content} />
             </div>
             {!!content && (
                 <div className={clsx('p-2 whitespace-pre-wrap border-t', !isRenderingMarkdown && 'font-mono text-xs')}>
@@ -107,12 +98,10 @@ function MessageDisplay({ message, isOutput }: { message: CompatMessage; isOutpu
                             key={key}
                             name={key}
                             src={value}
-                            collapseStringsAfterLength={200}
-                            displayDataTypes={false}
-                            // shouldCollapse limits depth shown at first. `> 4` is chosen so that we do show
+                            // `collapsed` limits depth shown at first. 4 is chosen so that we do show
                             // function arguments in `tool_calls`, but if an argument is an object,
                             // its child objects are collapsed by default
-                            shouldCollapse={({ namespace }) => namespace.length > 5}
+                            collapsed={4}
                         />
                     ))}
                 </div>

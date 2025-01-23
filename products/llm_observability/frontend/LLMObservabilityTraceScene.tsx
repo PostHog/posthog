@@ -1,6 +1,7 @@
 import { LemonDivider, LemonTag, LemonTagProps, Link, SpinnerOverlay } from '@posthog/lemon-ui'
 import classNames from 'classnames'
 import { useValues } from 'kea'
+import { JSONViewer } from 'lib/components/JSONViewer'
 import { NotFound } from 'lib/components/NotFound'
 import { range } from 'lib/utils'
 import React, { useMemo } from 'react'
@@ -15,6 +16,7 @@ import { LLMTrace, LLMTraceEvent, TracesQueryResponse } from '~/queries/schema'
 import { ConversationMessagesDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
 import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
+import { LLMInputOutput } from './LLMInputOutput'
 import { getDataNodeLogicProps, llmObservabilityTraceLogic } from './llmObservabilityTraceLogic'
 import { formatLLMCost, formatLLMLatency, formatLLMUsage, isLLMTraceEvent, removeMilliseconds } from './utils'
 
@@ -227,7 +229,18 @@ function EventContent({ event }: { event: LLMTrace | LLMTraceEvent | null }): JS
                             httpStatus={event.properties.$ai_http_status}
                         />
                     ) : (
-                        <ConversationMessagesDisplay input={event.inputState} output={event.outputState} />
+                        <LLMInputOutput
+                            inputDisplay={
+                                <div className="p-2 text-xs border rounded bg-[var(--bg-fill-tertiary)]">
+                                    <JSONViewer src={event.inputState} collapsed={4} />
+                                </div>
+                            }
+                            outputDisplay={
+                                <div className="p-2 text-xs border rounded bg-[var(--bg-fill-success-tertiary)]">
+                                    <JSONViewer src={event.outputState} collapsed={4} />
+                                </div>
+                            }
+                        />
                     )}
                 </>
             )}
