@@ -519,3 +519,45 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].id, "trace1")
         self.assertEqual(response.results[0].events[0].properties["$ai_model_parameters"], {"temperature": 0.5})
+
+    def test_outputs_other_trace_events(self):
+        _create_person(distinct_ids=["person1"], team=self.team, properties={"foo": "bar"})
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace1",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 0),
+            properties={"$ai_model_parameters": {"temperature": 0.5}},
+        )
+        _create_event(
+            distinct_id="person1",
+            event="$ai_metric",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 10),
+            properties={"$ai_metric_name": "foo", "$ai_metric_value": "bar", "$ai_trace_id": "trace1"},
+        )
+        _create_event(
+            distinct_id="person1",
+            event="$ai_feedback",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 15),
+            properties={"$ai_feedback_text": "bar", "$ai_trace_id": "trace1"},
+        )
+
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:20:00Z"),
+            ),
+        ).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].id, "trace1")
+        self.assertEqual(len(response.results[0].events), 3)
+        events = response.results[0].events
+        self.assertEqual(events[0].event, "$ai_generation")
+        self.assertEqual(events[1].event, "$ai_metric")
+        self.assertEqual(
+            events[1].properties, {"$ai_metric_name": "foo", "$ai_metric_value": "bar", "$ai_trace_id": "trace1"}
+        )
+        self.assertEqual(events[2].event, "$ai_feedback")
+        self.assertEqual(events[2].properties, {"$ai_feedback_text": "bar", "$ai_trace_id": "trace1"})
