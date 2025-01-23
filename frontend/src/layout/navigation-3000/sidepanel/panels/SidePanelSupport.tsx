@@ -259,7 +259,7 @@ export const SidePanelSupport = (): JSX.Element => {
                                         targetBlank
                                         className="mt-2"
                                     >
-                                        Email support
+                                        Email our support engineers
                                     </LemonButton>
                                 </Section>
                             ) : null}
