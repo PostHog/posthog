@@ -34,7 +34,8 @@ export function MetricTag({ properties }: MetricTagProps): JSX.Element {
         <LemonTag className="bg-bg-light cursor-default">
             <CopyToClipboardInline
                 iconSize="xsmall"
-                description={strValue}
+                description="metric"
+                explicitValue={strValue}
                 tooltipMessage={isValueLong ? description : 'Click to copy the value'}
             >
                 {title}

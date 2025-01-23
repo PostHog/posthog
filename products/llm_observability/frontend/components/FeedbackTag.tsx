@@ -12,7 +12,12 @@ export function FeedbackTag({ properties }: FeedbackTagProps): JSX.Element {
 
     return (
         <LemonTag className="bg-bg-light cursor-default">
-            <CopyToClipboardInline iconSize="xsmall" description={text} tooltipMessage={text}>
+            <CopyToClipboardInline
+                iconSize="xsmall"
+                description="user feedback"
+                tooltipMessage={text}
+                explicitValue={String(feedbackText)}
+            >
                 {`User feedback${feedbackPreview ? `: ${feedbackPreview}...` : ''}`}
             </CopyToClipboardInline>
         </LemonTag>

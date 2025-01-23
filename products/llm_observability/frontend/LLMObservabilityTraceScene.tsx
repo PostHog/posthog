@@ -1,7 +1,9 @@
-import { LemonDivider, LemonTag, Link, SpinnerOverlay } from '@posthog/lemon-ui'
+import { IconAIText, IconReceipt } from '@posthog/icons'
+import { LemonDivider, LemonTag, Link, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 import classNames from 'classnames'
 import { BindLogic, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
+import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import React from 'react'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -52,7 +54,11 @@ function TraceSceneWrapper(): JSX.Element {
                 <NotFound object="trace" />
             ) : (
                 <div className="relative pb-4 space-y-4 flex flex-col md:h-[calc(100vh_-_var(--breadcrumbs-height-full)_-_var(--scene-padding)_-_var(--scene-padding-bottom))] ">
-                    <TraceMetadata trace={trace} metricEvents={metricEvents} feedbackEvents={feedbackEvents} />
+                    <TraceMetadata
+                        trace={trace}
+                        metricEvents={metricEvents as LLMTraceEvent[]}
+                        feedbackEvents={feedbackEvents as LLMTraceEvent[]}
+                    />
                     <div className="flex flex-1 min-h-0 gap-4 flex-col md:flex-row">
                         <TraceSidebar trace={trace} eventId={eventId} events={showableEvents!} />
                         <EventContent event={event} />
@@ -63,22 +69,32 @@ function TraceSceneWrapper(): JSX.Element {
     )
 }
 
-function Chip({ title, children }: { title: string; children: React.ReactNode }): JSX.Element {
+function Chip({
+    title,
+    children,
+    icon,
+}: {
+    title: string
+    children: React.ReactNode
+    icon?: JSX.Element
+}): JSX.Element {
     return (
-        <div className="flex gap-2 items-center">
-            <span className="font-medium">{title}</span>
-            <span>{children}</span>
-        </div>
+        <Tooltip title={title}>
+            <LemonTag size="medium" className="bg-bg-light" icon={icon}>
+                <span className="sr-only">{title}</span>
+                {children}
+            </LemonTag>
+        </Tooltip>
     )
 }
 
 function UsageChip({ event }: { event: LLMTraceEvent | LLMTrace }): JSX.Element | null {
     const usage = formatLLMUsage(event)
-    return usage ? <Chip title="Usage">{usage}</Chip> : null
-}
-
-function CostChip({ cost, title }: { cost: number; title: string }): JSX.Element {
-    return <Chip title={title}>{formatLLMCost(cost)}</Chip>
+    return usage ? (
+        <Chip title="Usage" icon={<IconAIText />}>
+            {usage}
+        </Chip>
+    ) : null
 }
 
 function TraceMetadata({
@@ -91,16 +107,28 @@ function TraceMetadata({
     feedbackEvents: LLMTraceEvent[]
 }): JSX.Element {
     return (
-        <header className="flex gap-x-8 gap-y-2 flex-wrap border border-border rounded p-4 bg-bg-light text-sm">
+        <header className="flex gap-2 flex-wrap">
             {'person' in trace && (
                 <Chip title="Person">
                     <PersonDisplay withIcon="sm" person={trace.person} />
                 </Chip>
             )}
             <UsageChip event={trace} />
-            {typeof trace.inputCost === 'number' && <CostChip cost={trace.inputCost} title="Input cost" />}
-            {typeof trace.outputCost === 'number' && <CostChip cost={trace.outputCost} title="Output cost" />}
-            {typeof trace.totalCost === 'number' && <CostChip cost={trace.totalCost} title="Total cost" />}
+            {typeof trace.inputCost === 'number' && (
+                <Chip title="Input cost" icon={<IconArrowUp />}>
+                    {formatLLMCost(trace.inputCost)}
+                </Chip>
+            )}
+            {typeof trace.outputCost === 'number' && (
+                <Chip title="Output cost" icon={<IconArrowDown />}>
+                    {formatLLMCost(trace.outputCost)}
+                </Chip>
+            )}
+            {typeof trace.totalCost === 'number' && (
+                <Chip title="Total cost" icon={<IconReceipt />}>
+                    {formatLLMCost(trace.totalCost)}
+                </Chip>
+            )}
             {metricEvents.map((metric) => (
                 <MetricTag key={metric.id} properties={metric.properties} />
             ))}
