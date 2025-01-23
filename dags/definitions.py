@@ -10,7 +10,7 @@ deletes_job = define_asset_job(
     name="deletes_job",
     selection=[
         "create_pending_deletes_table",
-        "pending_person_deletions",
+        "load_pending_person_deletions",
         "create_pending_deletes_dictionary",
         "delete_person_events",
         "cleanup_delete_assets",
