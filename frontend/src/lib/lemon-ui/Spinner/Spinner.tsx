@@ -43,7 +43,7 @@ export function SpinnerOverlay({
     return (
         <div className={twJoin('SpinnerOverlay', sceneLevel && 'SpinnerOverlay--scene-level')} aria-hidden={!visible}>
             {mode === 'editing' ? (
-                <IconPencil className="text-5xl text-primary z-10 drop-shadow-xl" />
+                <IconPencil className="text-5xl text-accent-primary z-10 drop-shadow-xl" />
             ) : (
                 <Spinner className={twMerge('text-5xl', className)} {...spinnerProps} />
             )}
