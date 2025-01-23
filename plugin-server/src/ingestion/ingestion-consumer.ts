@@ -158,10 +158,16 @@ export class IngestionConsumer {
                 }
 
                 try {
+                    status.debug('🔁', `Processing event`, {
+                        event,
+                    })
                     const eventKey = `${event.token}:${event.distinct_id}`
                     // Check the rate limiter and emit to overflow if necessary
                     const isBelowRateLimit = this.overflowRateLimiter.consume(eventKey, 1, message.timestamp)
                     if (this.overflowEnabled() && !isBelowRateLimit) {
+                        status.debug('🔁', `Sending to overflow`, {
+                            event,
+                        })
                         ingestionPartitionKeyOverflowed.labels(`${event.team_id ?? event.token}`).inc()
                         if (this.ingestionWarningLimiter.consume(eventKey, 1)) {
                             status.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)
@@ -172,6 +178,10 @@ export class IngestionConsumer {
                     }
 
                     const result = await this.runEventPipeline(event)
+
+                    status.debug('🔁', `Processed event`, {
+                        event,
+                    })
 
                     result.ackPromises?.forEach((promise) => {
                         void this.scheduleWork(
@@ -186,7 +196,11 @@ export class IngestionConsumer {
             }
         })
 
+        status.debug('🔁', `Waiting for promises`, {
+            promises: this.promises.size,
+        })
         await Promise.all(this.promises)
+        status.debug('🔁', `Processed batch`)
     }
 
     private async runEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
