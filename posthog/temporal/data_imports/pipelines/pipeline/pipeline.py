@@ -19,7 +19,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import 
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
 from posthog.temporal.data_imports.pipelines.pipeline_sync import validate_schema_and_update_table_sync
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
-from posthog.warehouse.models import DataWarehouseTable, ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from posthog.warehouse.models import DataWarehouseTable, ExternalDataJob, ExternalDataSchema
 
 
 class PipelineNonDLT:
@@ -68,9 +68,8 @@ class PipelineNonDLT:
                 self._logger.debug("Deleting existing table due to reset_pipeline being set")
                 self._delta_table_helper.reset_table()
 
-                source: ExternalDataSource = self._job.pipeline
-                source.job_inputs.pop("reset_pipeline", None)
-                source.save()
+                self._schema.sync_type_config.pop("reset_pipeline", None)
+                self._schema.save()
 
             for item in self._resource:
                 py_table = None
