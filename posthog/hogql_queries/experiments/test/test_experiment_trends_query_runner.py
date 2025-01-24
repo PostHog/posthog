@@ -1256,7 +1256,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "type": "person",
                 },
                 {
-                    "control_absolute_exposure": 8,
+                    "control_absolute_exposure": 9,
                     "test_absolute_exposure": 9,
                 },
             ],
@@ -1287,7 +1287,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 },
             ],
             [
-                "cohorts",
+                "cohort_static",
                 {
                     "key": "id",
                     "type": "cohort",
@@ -1313,13 +1313,14 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         feature_flag_property = f"$feature/{feature_flag.key}"
 
-        cohort_static = Cohort.objects.create(
-            team=self.team,
-            name="cohort_static",
-            is_static=True,
-        )
-        if name == "cohorts":
-            filter["value"] = cohort_static.pk
+        cohort = None
+        if name == "cohort_static":
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name="cohort_static",
+                is_static=True,
+            )
+            filter["value"] = cohort.pk
 
         self.team.test_account_filters = [filter]
         self.team.save()
@@ -1335,7 +1336,6 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     math_property="usage",
                     math_property_type="data_warehouse_properties",
                 )
-                # EventsNode(event="$feature_flag_called")
             ],
             filterTestAccounts=True,
         )
@@ -1367,23 +1367,18 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     timestamp=datetime(2023, 1, i + 1),
                 )
 
-        # Person profile for "distinct_control_2"
-        distinct_control_2_uuid = "7af9a5c8-d24f-4c3b-9e1d-8c1e856c9f0d"
         _create_person(
             team=self.team,
-            uuid=distinct_control_2_uuid,
-            distinct_ids=[distinct_control_2_uuid, "distinct_control_2"],
-            properties={"email": "distinct_control_2@posthog.com"},
+            distinct_ids=["distinct_control_0"],
         )
 
-        # Internal test user
-        internal_test_1_uuid = "018f14b8-6cf3-7ffd-80bb-5ef1a9e4d328"
         _create_person(
             team=self.team,
-            uuid=internal_test_1_uuid,
-            distinct_ids=[internal_test_1_uuid, "internal_test_1"],
+            distinct_ids=["internal_test_1"],
             properties={"email": "internal_test_1@posthog.com"},
         )
+        # 10th exposure for 'test'
+        # filtered out by "event_properties" and "person_properties"
         _create_event(
             team=self.team,
             event="$feature_flag_called",
@@ -1443,8 +1438,9 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         flush_persons_and_events()
 
-        cohort_static.insert_users_by_list([distinct_control_2_uuid, internal_test_1_uuid])
-        self.assertEqual(cohort_static.people.count(), 2)
+        if "cohort_static" in name:
+            cohort.insert_users_by_list(["distinct_control_0", "internal_test_1"])
+            self.assertEqual(cohort.people.count(), 2)
 
         query_runner = ExperimentTrendsQueryRunner(
             query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
