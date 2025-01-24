@@ -34,14 +34,9 @@ jobs:
               env:
                   GITHUB_TOKEN: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
-            - name: Send Slack notification
-              uses: rtCamp/action-slack-notify@v2
-              env:
-                  SLACK_CHANNEL: subscriptions-slack-testing
-                  SLACK_COLOR: ${{ job.status }} # or a specific color like 'good' or '#ff00ff'
-                  SLACK_ICON: https://github.com/posthog.png?size=48
-                  SLACK_MESSAGE: "PR [#${{ github.event.pull_request.number }}](${{ github.event.pull_request.html_url }}) $${{ job.status }}. PR is labeled 'automerge'. Automerge result was ${{ steps.automerge.outputs.mergeResult }}"
-                  SLACK_TITLE: 'PR ${{ github.event.pull_request.title }} ${{ steps.automerge.outputs.mergeResult }}'
-                  SLACK_USERNAME: Max Hedgehog
-                  SLACK_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-                  SLACKIFY_MARKDOWN: true
+            - name: Send automerge event to PostHog
+              uses: PostHog/posthog-github-action@v0.1
+              with:
+                  posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
+                  event: 'posthog-github-automerge-pr-status'
+                  properties: '{"prUrl": ${{ github.event.pull_request.html_url }}, "jobStatus": ${{ job.status }}, "prTitle": "${{ github.event.pull_request.title}}", "prNumber": "${{ github.event.pull_request.number}}", "mergeResult": "${{ steps.automerge.outputs.mergeResult }}" }'
