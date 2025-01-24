@@ -8,14 +8,11 @@ $primitive-transparent: hsl(0deg 0% 0% / 0%);
 $primitive-3000: (
     25: hsl(75deg 14% 96.5%),
     50: hsl(75deg 14% 95%),
-    // 100 mapped (From Figma): light background
     100: hsl(70deg 16% 93%),
-    // 150 mapped (From Figma): medium accent
-    150: hsl(77deg 13% 89%),
-    200: hsl(78deg 13% 85%),
-    // 250 mapped (From Figma): light border
+    /* 100 mapped (From Figma): light background */ 150: hsl(77deg 13% 89%),
+    /* 150 mapped (From Figma): medium accent */ 200: hsl(78deg 13% 85%),
     250: hsl(67deg 8% 80%),
-    300: hsl(72deg 8% 76%),
+    /* 250 mapped (From Figma): light border */ 300: hsl(72deg 8% 76%),
     350: hsl(70deg 8% 71%),
     400: hsl(69deg 8% 65%),
     450: hsl(67deg 8% 60%),
@@ -44,16 +41,25 @@ $primitive-neutral: (
 );
 $primitive-neutral-cool: (
     50: hsl(240deg 8% 95%),
+    75: hsl(236deg 8% 92.5%),
     100: hsl(232deg 8% 90%),
+    150: hsl(232.5deg 8% 85%),
     200: hsl(233deg 8% 80%),
+    250: hsl(231.5deg 8% 75%),
     300: hsl(230deg 8% 70%),
+    350: hsl(230.5deg 8% 65%),
     400: hsl(231deg 8% 60%),
+    450: hsl(231deg 8% 55%),
     500: hsl(231deg 8% 50%),
+    550: hsl(230.5deg 8% 45%),
     600: hsl(230deg 8% 40%),
+    650: hsl(230deg 8% 35%),
     700: hsl(230deg 8% 30%),
+    750: hsl(235deg 8% 25%),
     800: hsl(230deg 8% 20%),
+    850: hsl(235deg 8% 15%),
     900: hsl(240deg 8% 10%),
-    950: hsl(240deg 8% 5%),
+    950: hsl(240deg 8% 8%),
 );
 $primitive-stone: (
     50: hsl(60deg 9% 98%),
@@ -365,14 +371,17 @@ $primitive-rose: (
     // Backgrounds
     // Behind surfaces, large areas: app scenes, etc.
     // //////////////////////////////////////////////////////////
-    // --bg-primary: var(--primitive-neutral-100); /* Most prominent/used background */
+    --bg-primary: var(--primitive-3000-50); /* Most prominent/used background (replaces --bg-3000) */
 
     // Surfaces
     // Above backgrounds, smaller areas: Cards, Tables, stuff that stands out
     // //////////////////////////////////////////////////////////
-    // --surface-primary: var(--primitive-white); /* Most prominent surface (Cards, tables, etc.) */
+    --surface-primary: var(--primitive-white); /* Most prominent surface (Cards, tables, etc.) */
+    --surface-secondary: var(--primitive-3000-100); /* Second most prominent surface (Toolbars) */
+    --surface-tertiary: var(--primitive-3000-150); /* Most prominent surface (Cards, tables, etc.) */
 
     // Content (text, icons)
+    // //////////////////////////////////////////////////////////
     --text-primary: var(--primitive-neutral-950); /* Text on primary surface/background */
 
     // Fills
@@ -408,6 +417,10 @@ $primitive-rose: (
 
     @each $name, $value in $primitive-3000 {
         --primitive-3000-#{$name}: #{$value};
+    }
+
+    @each $name, $value in $primitive-neutral {
+        --primitive-neutral-#{$name}: #{$value};
     }
 
     @each $name, $value in $primitive-neutral-cool {
@@ -535,15 +548,19 @@ $primitive-rose: (
 
     // Backgrounds
     // //////////////////////////////////////////////////////////
+    --bg-primary: var(--primitive-neutral-cool-950);
 
     // Surfaces
     // //////////////////////////////////////////////////////////
+    --surface-primary: var(--primitive-neutral-cool-850);
+    --surface-secondary: var(--primitive-neutral-cool-900);
+    --surface-tertiary: var(--primitive-neutral-cool-950);
 
     // Fills
     // //////////////////////////////////////////////////////////
     --bg-fill-primary: var(--primitive-neutral-cool-900);
-    --bg-fill-secondary: var(--primitive-neutral-cool-800);
-    --bg-fill-tertiary: var(--primitive-neutral-cool-700);
+    --bg-fill-secondary: var(--primitive-neutral-cool-850);
+    --bg-fill-tertiary: var(--primitive-neutral-cool-800);
     --bg-fill-info-secondary: var(--primitive-blue-950);
     --bg-fill-info-tertiary: #{rgba(map.get($primitive-blue, 950), 0.5)};
     --bg-fill-warning-secondary: var(--primitive-yellow-950);

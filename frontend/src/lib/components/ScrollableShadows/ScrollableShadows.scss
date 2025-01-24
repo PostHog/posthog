@@ -35,6 +35,16 @@
         &::after {
             box-shadow: -16px 0 16px -16px rgb(0 0 0 / 25%) inset;
         }
+
+        [theme='dark'] & {
+            &::before {
+                box-shadow: 16px 0 16px -16px rgb(0 0 0 / 100%) inset;
+            }
+
+            &::after {
+                box-shadow: -16px 0 16px -16px rgb(0 0 0 / 100%) inset;
+            }
+        }
     }
 
     &.ScrollableShadows--vertical {
@@ -50,6 +60,16 @@
 
         &::after {
             box-shadow: 0 -16px 16px -16px rgb(0 0 0 / 25%) inset;
+        }
+
+        [theme='dark'] & {
+            &::before {
+                box-shadow: 0 16px 16px -16px rgb(0 0 0 / 100%) inset;
+            }
+
+            &::after {
+                box-shadow: 0 -16px 16px -16px rgb(0 0 0 / 100%) inset;
+            }
         }
     }
 
