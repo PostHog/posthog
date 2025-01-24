@@ -13,7 +13,7 @@
         "build": {
             "executor": "nx:run-commands",
             "options": {
-                "commands": ["npm run build"],
+                "commands": ["pnpm run build"],
                 "cwd": "{projectRoot}"
             },
             "inputs": ["{projectRoot}/src/**/*"],
