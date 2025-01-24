@@ -9,12 +9,5 @@
         }
     },
     "defaultBase": "master",
-    "plugins": [
-        {
-            "plugin": "@nx/eslint/plugin",
-            "options": {
-                "targetName": "lint"
-            }
-        }
-    ]
+    "plugins": []
 }

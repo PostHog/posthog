@@ -76,8 +76,6 @@
         "@microlink/react-json-view": "^1.21.3",
         "@microsoft/fetch-event-source": "^2.0.1",
         "@monaco-editor/react": "4.6.0",
-        "@nx/eslint": "20.3.1",
-        "@nx/jest": "20.3.1",
         "@nx/web": "20.3.1",
         "@posthog/hogvm": "file:./common/hogvm/typescript",
         "@posthog/icons": "0.10.0",

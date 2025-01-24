@@ -127,7 +127,7 @@ jobs:
               run: |
                   cd common/hogvm/typescript
                   pnpm install --frozen-lockfile
-                  pnpm run test
+                  npx nx test hogvm-ts
 
             - name: Run Hog tests
               run: |
