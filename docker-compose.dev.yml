@@ -14,14 +14,12 @@ services:
             service: proxy
         ports:
             - 8010:8000
-            - 8000:8000
         depends_on:
             - replay-capture
             - capture
             - feature-flags
         extra_hosts:
             - 'web:host-gateway'
-            - 'host.docker.internal:host-gateway'
     db:
         extends:
             file: docker-compose.base.yml

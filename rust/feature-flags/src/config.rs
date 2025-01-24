@@ -126,17 +126,33 @@ impl Config {
     }
 
     pub fn get_maxmind_db_path(&self) -> PathBuf {
-        if self.maxmind_db_path.is_empty() {
-            Path::new(env!("CARGO_MANIFEST_DIR"))
+        let path = if self.maxmind_db_path.is_empty() {
+            let manifest_dir = env!("CARGO_MANIFEST_DIR");
+            let default_path = Path::new(manifest_dir)
                 .parent()
                 .unwrap()
                 .parent()
                 .unwrap()
                 .join("share")
-                .join("GeoLite2-City.mmdb")
+                .join("GeoLite2-City.mmdb");
+
+            tracing::info!(
+                "No custom maxmind_db_path set. Using default path: {:?}",
+                default_path
+            );
+            default_path
         } else {
-            PathBuf::from(&self.maxmind_db_path)
+            let custom_path = PathBuf::from(&self.maxmind_db_path);
+            tracing::info!("Using custom maxmind_db_path: {:?}", custom_path);
+            custom_path
+        };
+
+        tracing::info!("Checking if path exists: {:?}", path);
+        if !path.exists() {
+            tracing::error!("GeoIP database file not found at: {:?}", path);
         }
+
+        path
     }
 }
 
