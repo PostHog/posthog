@@ -90,7 +90,9 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
 
         _trim_source_job_inputs(model.pipeline)
 
-        reset_pipeline = model.schema.sync_type_config.get("reset_pipeline", False) is True
+        schema: ExternalDataSchema | None = model.schema
+        assert schema is not None
+        reset_pipeline = schema.sync_type_config.get("reset_pipeline", False) is True
 
         schema = (
             ExternalDataSchema.objects.prefetch_related("source")
