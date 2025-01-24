@@ -7,14 +7,8 @@ on:
             - completed
 
 jobs:
-    what_is_the_outcome:
-        runs-on: ubuntu-latest
-    steps:
-        run: |
-            echo "Debugging failure: Check Suite Payload: ${{ toJson(github.event) }}"
-
     notify_on_failure:
-        if: ${{ github.event.check_suite.conclusion == 'failure' }}
+        #        if: ${{ github.event.check_suite.conclusion == 'failure' }}
         runs-on: ubuntu-latest
 
         steps:
@@ -40,6 +34,10 @@ jobs:
                   else
                     echo "::set-output name=result::false"
                   fi
+
+            - name: debug
+              run: |
+                  echo "Debugging failure: Check Suite Payload: ${{ toJson(github.event) }}"
 
             - name: Send Slack notification if the PR has "automerge" label
               if: ${{ steps.automerge_check.outputs.result == 'true' }}
