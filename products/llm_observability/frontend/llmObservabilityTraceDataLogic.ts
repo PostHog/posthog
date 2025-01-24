@@ -53,7 +53,8 @@ export const llmObservabilityTraceDataLogic = kea<llmObservabilityTraceDataLogic
         ],
         showableEvents: [
             (s) => [s.trace],
-            (trace): LLMTraceEvent[] | undefined => trace?.events.filter((event) => !FEEDBACK_EVENTS.has(event.event)),
+            (trace): LLMTraceEvent[] =>
+                trace ? trace.events.filter((event) => !FEEDBACK_EVENTS.has(event.event)) : [],
         ],
         metricEvents: [
             (s) => [s.trace],
@@ -66,12 +67,15 @@ export const llmObservabilityTraceDataLogic = kea<llmObservabilityTraceDataLogic
                 trace?.events.filter((event) => event.event === '$ai_feedback' && event.properties.$ai_feedback_text),
         ],
         event: [
-            (s) => [s.eventId, s.showableEvents],
-            (eventId, showableEvents): LLMTraceEvent | undefined => {
-                if (!showableEvents) {
-                    return undefined
+            (s, p) => [p.traceId, s.eventId, s.trace, s.showableEvents],
+            (traceId, eventId, trace, showableEvents): LLMTrace | LLMTraceEvent | null => {
+                if (!eventId || eventId === traceId) {
+                    return trace || null
                 }
-                return eventId ? showableEvents.find((event) => event.id === eventId) : showableEvents[0]
+                if (!showableEvents?.length) {
+                    return null
+                }
+                return showableEvents.find((event) => event.id === eventId)
             },
         ],
     }),

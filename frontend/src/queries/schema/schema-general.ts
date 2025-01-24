@@ -2260,6 +2260,9 @@ export interface LLMTrace {
     inputCost?: number
     outputCost?: number
     totalCost?: number
+    inputState?: any
+    outputState?: any
+    traceName?: string
     events: LLMTraceEvent[]
 }
 

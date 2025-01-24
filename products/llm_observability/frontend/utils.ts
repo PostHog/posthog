@@ -43,6 +43,10 @@ export function formatLLMCost(cost: number): string {
     return usdFormatter.format(cost)
 }
 
+export function isLLMTraceEvent(item: LLMTrace | LLMTraceEvent): item is LLMTraceEvent {
+    return 'properties' in item
+}
+
 export function isOpenAICompatToolCall(input: unknown): input is OpenAIToolCall {
     return (
         input !== null &&
