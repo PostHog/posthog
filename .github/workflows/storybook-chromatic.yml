@@ -117,6 +117,9 @@ jobs:
             - name: Install package.json dependencies with pnpm
               run: pnpm install --frozen-lockfile
 
+            - name: Build frontend build dependencies
+              run: npx nx build:deps frontend --verbose
+
             - name: Install CI utilities with pnpm
               run: pnpm install http-server wait-on
 

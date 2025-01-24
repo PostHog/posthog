@@ -1,30 +1,46 @@
 {
     "$schema": "https://json.schemastore.org/nx",
-    "name": "posthog-frontend",
+    "name": "frontend",
     "sourceRoot": "{projectRoot}/frontend/src",
     "root": ".",
     "projectType": "application",
     "targets": {
-        "serve": {
+        "prepare:deps": {
             "executor": "nx:run-commands",
             "options": {
-                "commands": ["npm start"]
+                "commands": ["echo 'Preparing frontend dependencies'"]
+            },
+            "dependsOn": ["^prepare"]
+        },
+        "build:deps": {
+            "executor": "nx:run-commands",
+            "options": {
+                "commands": ["echo 'Building frontend dependencies'"]
             },
             "dependsOn": ["^build"]
         },
         "build": {
             "executor": "nx:run-commands",
             "options": {
-                "commands": ["npm run build"]
+                "commands": ["pnpm run build"]
             },
-            "dependsOn": ["^build"],
+            "dependsOn": ["build:deps"],
+            "inputs": ["{projectRoot}/frontend/src/**/*"],
             "outputs": ["{projectRoot}/frontend/dist"]
+        },
+        "serve": {
+            "executor": "nx:run-commands",
+            "options": {
+                "commands": ["pnpm start"]
+            },
+            "dependsOn": ["^build"]
         },
         "test": {
             "executor": "nx:run-commands",
             "options": {
-                "commands": ["npm run test"]
-            }
+                "commands": ["pnpm run test"]
+            },
+            "dependsOn": ["^build"]
         }
     }
 }

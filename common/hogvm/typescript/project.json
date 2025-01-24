@@ -4,6 +4,12 @@
     "sourceRoot": "{projectRoot}/src",
     "projectType": "library",
     "targets": {
+        "prepare": {
+            "executor": "nx:run-commands",
+            "options": {
+                "commands": ["pnpm install --frozen-lockfile"]
+            }
+        },
         "build": {
             "executor": "nx:run-commands",
             "options": {
@@ -14,9 +20,9 @@
             "outputs": ["{projectRoot}/dist"]
         },
         "test": {
-            "executor": "@nrwl/jest:jest",
+            "executor": "nx:run-commands",
             "options": {
-                "jestConfig": "./jest.config.ts"
+                "commands": ["pnpm run test"]
             }
         }
     }

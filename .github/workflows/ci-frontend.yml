@@ -86,6 +86,10 @@ jobs:
               if: needs.changes.outputs.frontend == 'true'
               run: pnpm install --frozen-lockfile
 
+            - name: Build frontend build dependencies
+              if: needs.changes.outputs.frontend == 'true'
+              run: npx nx build:deps frontend --verbose
+
             - name: Check formatting with prettier
               if: needs.changes.outputs.frontend == 'true'
               run: pnpm prettier:check
@@ -154,6 +158,10 @@ jobs:
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.frontend == 'true'
               run: pnpm install --frozen-lockfile
+
+            - name: Build frontend build dependencies
+              if: needs.changes.outputs.frontend == 'true'
+              run: npx nx build:deps frontend --verbose
 
             - name: Test with Jest
               # set maxWorkers or Jest only uses 1 CPU in GitHub Actions

@@ -145,6 +145,10 @@ jobs:
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
               run: pnpm install --frozen-lockfile
 
+            - name: Build frontend build dependencies
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
+              run: npx nx build:deps frontend --verbose
+
             - name: Stop/Start stack with Docker Compose
               # these are required checks so, we can't skip entire sections
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
