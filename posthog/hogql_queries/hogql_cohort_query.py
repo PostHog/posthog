@@ -156,63 +156,6 @@ class HogQLCohortQuery:
 
         return self._actors_query_from_source(InsightActorsQuery(source=trends_query))
 
-    def get_performed_event_multiple_old(self, prop: Property) -> ast.SelectQuery:
-        count = parse_and_validate_positive_integer(prop.operator_value, "operator_value")
-        # either an action or an event
-        series: list[Union[EventsNode, ActionsNode]]
-        if prop.event_type == "events":
-            series = [EventsNode(event=prop.key)] * (count + 1)
-        elif prop.event_type == "actions":
-            series = [ActionsNode(id=int(prop.key))] * (count + 1)
-        else:
-            raise ValueError(f"Event type must be 'events' or 'actions'")
-
-        funnelStep: Optional[int] = None
-
-        funnelCustomSteps: Optional[list[int]] = None
-
-        if prop.operator == "gte":
-            funnelStep = count
-        elif prop.operator == "lte":
-            funnelCustomSteps = list(range(1, count + 1))
-        elif prop.operator == "gt":
-            funnelStep = count + 1
-        elif prop.operator == "lt":
-            funnelCustomSteps = list(range(1, count))
-        elif prop.operator == "eq" or prop.operator == "exact" or prop.operator is None:  # type: ignore[comparison-overlap]
-            # People who dropped out at count + 1
-            funnelStep = -(count + 1)
-        else:
-            raise ValidationError("count_operator must be gt(e), lt(e), exact, or None")
-
-        if prop.event_filters:
-            property_groups = Filter(data={"properties": prop.event_filters}).property_groups
-            typed_properties: list[AnyPropertyFilter] = []
-            for property in property_groups.values:
-                if isinstance(property, PropertyGroup):
-                    raise ValidationError("Property groups are not supported in this behavioral cohort type")
-                typed_properties.append(property_to_typed_property(property))
-            for serie in series:
-                serie.properties = typed_properties
-
-        if prop.explicit_datetime:
-            date_from = prop.explicit_datetime
-        else:
-            date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
-            date_interval = validate_interval(prop.time_interval)
-            date_from = f"-{date_value}{date_interval[:1]}"
-
-        funnel_query = FunnelsQuery(
-            series=series,
-            dateRange=DateRange(date_from=date_from),
-            funnelsFilter=FunnelsFilter(
-                funnelWindowInterval=12 * 50, funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.MONTH
-            ),
-        )
-        return self._actors_query_from_source(
-            FunnelsActorsQuery(source=funnel_query, funnelStep=funnelStep, funnelCustomSteps=funnelCustomSteps)
-        )
-
     def get_performed_event_multiple(self, prop: Property) -> ast.SelectQuery:
         count = parse_and_validate_positive_integer(prop.operator_value, "operator_value")
 
