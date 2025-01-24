@@ -132,7 +132,8 @@ jobs:
             - name: Run Hog tests
               run: |
                   cd common/hogvm/typescript
-                  pnpm run build 
+                  pnpm run generate:stl
+                  pnpm run build
                   cd ../
                   ./test.sh && git diff --exit-code
 
