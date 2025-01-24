@@ -1513,7 +1513,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         overrideVariableValue: ({ variableId, value, allVariables }) => {
             const { currentLocation } = router.values
 
-            const currentVariable = allVariables.find((variable: HogQLVariable) => variable.id === variableId)
+            const currentVariable = allVariables.find((variable: Variable) => variable.id === variableId)
 
             if (!currentVariable) {
                 return [currentLocation.pathname, currentLocation.searchParams, currentLocation.hashParams]
@@ -1524,14 +1524,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 [currentVariable.code_name]: value,
             }
 
-            return [
-                currentLocation.pathname,
-                {
-                    ...currentLocation.searchParams,
-                    ...newUrlVariables,
-                },
-                currentLocation.hashParams,
-            ]
+            const newSearchParams = {
+                ...currentLocation.searchParams,
+                ...encodeURLVariables(newUrlVariables),
+            }
+
+            return [currentLocation.pathname, newSearchParams, currentLocation.hashParams]
         },
     })),
 
@@ -1549,7 +1547,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
         '/dashboard/:id': (_, searchParams) => {
             if (values.featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES]) {
-                actions.setURLVariables(searchParams)
+                const variables = parseURLVariables(searchParams)
+                actions.setURLVariables(variables)
             }
             actions.setSubscriptionMode(false, undefined)
             actions.setTextTileId(null)
@@ -1569,3 +1568,34 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
 ])
+
+// URL can have a "query_variables" param that contains a JSON object of variables
+// we need to parse this and set the variables
+
+const parseURLVariables = (searchParams: Record<string, any>): Record<string, Partial<HogQLVariable>> => {
+    const variables: Record<string, Partial<HogQLVariable>> = {}
+
+    for (const [key, value] of Object.entries(searchParams)) {
+        if (key === 'query_variables') {
+            try {
+                const parsedVariables = JSON.parse(value)
+                Object.assign(variables, parsedVariables)
+            } catch (e) {
+                console.error('Failed to parse query_variables from URL:', e)
+            }
+            continue
+        }
+    }
+
+    return variables
+}
+
+const encodeURLVariables = (variables: Record<string, string>): Record<string, string> => {
+    const encodedVariables: Record<string, string> = {}
+
+    if (Object.keys(variables).length > 0) {
+        encodedVariables.query_variables = JSON.stringify(variables)
+    }
+
+    return encodedVariables
+}
