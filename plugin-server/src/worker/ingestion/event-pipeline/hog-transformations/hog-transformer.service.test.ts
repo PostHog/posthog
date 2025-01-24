@@ -118,11 +118,5 @@ describe('HogTransformer', () => {
                 $geoip_subdivision_1_name: 'Östergötland County',
             })
         })
-
-        it('should not transform event if properties are not of correct type', async () => {})
-
-        xit('should handle multiple transformations in sequence', async () => {})
-
-        xit('should handle transformation errors', async () => {})
     })
 })
