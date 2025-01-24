@@ -15,10 +15,12 @@ export function ConversationMessagesDisplay({
     input,
     output,
     httpStatus,
+    bordered = false,
 }: {
     input: any
     output: any
     httpStatus?: number
+    bordered?: boolean
 }): JSX.Element {
     const inputNormalized = normalizeMessages(input, 'user')
     const outputNormalized = normalizeMessages(output, 'assistant')
@@ -48,6 +50,7 @@ export function ConversationMessagesDisplay({
                 )
             }
             outputHeading={`Output${outputNormalized && outputNormalized.length > 1 ? ' (multiple choices)' : ''}`}
+            bordered={bordered}
         />
     )
 }
