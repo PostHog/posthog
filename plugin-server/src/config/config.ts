@@ -216,7 +216,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         // Session recording V2
         SESSION_RECORDING_MAX_BATCH_SIZE_KB: 100 * 1024, // 100MB
         SESSION_RECORDING_MAX_BATCH_AGE_MS: 10 * 1000, // 10 seconds
-        HOG_TRANSFORMATIONS_ALPHA: true,
+
+        // Hog Transformations (Alpha)
+        HOG_TRANSFORMATIONS_ALPHA_ENABLED: true,
     }
 }
 

@@ -121,8 +121,8 @@ export class HogTransformerService {
 
                     // Type check execResult before accessing result
                     if (!result.execResult) {
-                        status.warn('⚠️', 'Missing execution result')
-                        continue
+                        status.warn('⚠️', 'Missing execution result - no transformation applied')
+                        return event
                     }
 
                     const transformedEvent: unknown = result.execResult
@@ -145,7 +145,7 @@ export class HogTransformerService {
                             function_id: hogFunction.id,
                             properties: transformedEvent.properties,
                         })
-                        continue
+                        return event
                     }
 
                     // Validate event name is a string if present

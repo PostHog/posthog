@@ -13,7 +13,8 @@ export async function transformEventStep(
     event: PluginEvent,
     hogTransformer: HogTransformerService
 ): Promise<PluginEvent> {
-    if (false) {
+    // return unmodified event if hog transformations are not enabled
+    if (isInHogTransformationsAlpha) {
         return event
     }
     return hogTransformer.transformEvent(event)

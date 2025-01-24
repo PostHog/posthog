@@ -229,7 +229,7 @@ export class EventPipelineRunner {
         // Pass the hogTransformer to transformEventStep
         const transformedEvent = await this.runStep(
             transformEventStep,
-            [this.hub.HOG_TRANSFORMATIONS_ALPHA, processedEvent, this.hogTransformer],
+            [this.hub.HOG_TRANSFORMATIONS_ALPHA_ENABLED, processedEvent, this.hogTransformer],
             event.team_id
         )
 

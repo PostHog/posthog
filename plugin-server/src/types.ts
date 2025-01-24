@@ -320,7 +320,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CYCLOTRON_SHARD_DEPTH_LIMIT: number
 
     // HOG Transformations (Alpha feature)
-    HOG_TRANSFORMATIONS_ALPHA: boolean
+    HOG_TRANSFORMATIONS_ALPHA_ENABLED: boolean
 
     SESSION_RECORDING_MAX_BATCH_SIZE_KB: number | undefined
     SESSION_RECORDING_MAX_BATCH_AGE_MS: number | undefined
