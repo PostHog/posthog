@@ -17,7 +17,6 @@ services:
         depends_on:
             - replay-capture
             - capture
-            - feature-flags
         extra_hosts:
             - 'web:host-gateway'
     db:
