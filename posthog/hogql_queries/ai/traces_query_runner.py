@@ -212,7 +212,7 @@ class TracesQueryRunner(QueryRunner):
                     round(toFloat(sum(properties.$ai_total_cost_usd)), 4) as total_cost,
                     arraySort(x -> x.3, groupArray(tuple(uuid, event, timestamp, properties))) as events
                 FROM events
-                WHERE event = '$ai_generation' AND {common_conditions}
+                WHERE event IN ('$ai_generation', '$ai_metric', '$ai_feedback') AND {common_conditions}
                 GROUP BY id
             ) AS generations
             LEFT JOIN (
