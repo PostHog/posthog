@@ -1,16 +1,11 @@
 import { IconAIText, IconReceipt } from '@posthog/icons'
-import { LemonDivider, LemonTag, Link, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
-import { LemonDivider, LemonTag, LemonTagProps, Link, SpinnerOverlay } from '@posthog/lemon-ui'
-import classNames from 'classnames'
+import { LemonDivider, LemonTag, LemonTagProps, Link, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 import classNames from 'classnames'
 import { BindLogic, useValues } from 'kea'
-import { useValues } from 'kea'
 import { JSONViewer } from 'lib/components/JSONViewer'
-import { NotFound } from 'lib/components/NotFound'
 import { NotFound } from 'lib/components/NotFound'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { range } from 'lib/utils'
-import React from 'react'
 import React from 'react'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -27,8 +22,6 @@ import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
 import { LLMInputOutput } from './LLMInputOutput'
 import { llmObservabilityTraceDataLogic } from './llmObservabilityTraceDataLogic'
 import { llmObservabilityTraceLogic } from './llmObservabilityTraceLogic'
-import { llmObservabilityTraceLogic } from './llmObservabilityTraceLogic'
-import { formatLLMCost, formatLLMLatency, formatLLMUsage, removeMilliseconds } from './utils'
 import { formatLLMCost, formatLLMLatency, formatLLMUsage, isLLMTraceEvent, removeMilliseconds } from './utils'
 
 export const scene: SceneExport = {
@@ -246,15 +239,14 @@ function TraceNode({
 
 function EventContent({ event }: { event: LLMTrace | LLMTraceEvent | null }): JSX.Element {
     return (
-        <div className="flex-1 bg-bg-light border rounded flex flex-col border-border p-4 overflow-y-auto">
+        <div className="flex-1 bg-bg-light max-h-fit border rounded flex flex-col border-border p-4 overflow-y-auto">
             {!event ? (
                 <InsightEmptyState heading="Event not found" detail="Check if the event ID is correct." />
             ) : (
                 <>
-                    <header className="mb-4 space-y-2">
-                        <div className="flex-row flex items-center gap-2 mb-4">
+                    <header className="space-y-2">
+                        <div className="flex-row flex items-center gap-2">
                             <EventTypeTag event={event} />
-
                             <h3 className="text-lg font-semibold p-0 m-0">
                                 {isLLMTraceEvent(event)
                                     ? `${event.properties.$ai_model} (${event.properties.$ai_provider})`
@@ -279,6 +271,7 @@ function EventContent({ event }: { event: LLMTrace | LLMTraceEvent | null }): JS
                         )}
                         {isLLMTraceEvent(event) && <ParametersHeader eventProperties={event.properties} />}
                     </header>
+                    <LemonDivider className="my-3" />
                     {isLLMTraceEvent(event) ? (
                         <ConversationMessagesDisplay
                             input={event.properties.$ai_input}

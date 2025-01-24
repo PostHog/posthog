@@ -5,7 +5,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { IconExclamation } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { Fragment, useState } from 'react'
+import { useState } from 'react'
 
 import { LLMInputOutput } from '../LLMInputOutput'
 import { CompatMessage } from '../types'
@@ -15,10 +15,12 @@ export function ConversationMessagesDisplay({
     input,
     output,
     httpStatus,
+    bordered = false,
 }: {
     input: any
     output: any
     httpStatus?: number
+    bordered?: boolean
 }): JSX.Element {
     const inputNormalized = normalizeMessages(input, 'user')
     const outputNormalized = normalizeMessages(output, 'assistant')
@@ -48,6 +50,7 @@ export function ConversationMessagesDisplay({
                 )
             }
             outputHeading={`Output${outputNormalized && outputNormalized.length > 1 ? ' (multiple choices)' : ''}`}
+            bordered={bordered}
         />
     )
 }
