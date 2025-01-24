@@ -1,13 +1,13 @@
 import json
 from collections.abc import Generator, Iterator
 from typing import Any, Optional, cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
+import posthoganalytics
 from langchain_core.callbacks.base import BaseCallbackHandler
 from langchain_core.messages import AIMessageChunk
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
-import posthoganalytics
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel
 
@@ -79,6 +79,7 @@ class Assistant:
         new_message: HumanMessage,
         user: Optional[User] = None,
         is_new_conversation: bool = False,
+        trace_id: Optional[str | UUID] = None,
     ):
         self._team = team
         self._user = user
@@ -96,6 +97,7 @@ class Assistant:
                     "conversation_id": str(self._conversation.id),
                     "is_first_conversation": is_new_conversation,
                 },
+                trace_id=trace_id,
             )
             if posthoganalytics.default_client
             else None
