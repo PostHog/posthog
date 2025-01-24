@@ -1256,7 +1256,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "type": "person",
                 },
                 {
-                    "control_absolute_exposure": 9,
+                    "control_absolute_exposure": 8,
                     "test_absolute_exposure": 9,
                 },
             ],
@@ -1269,7 +1269,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "type": "event",
                 },
                 {
-                    "control_absolute_exposure": 9,
+                    "control_absolute_exposure": 8,
                     "test_absolute_exposure": 9,
                 },
             ],
@@ -1300,6 +1300,20 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "test_absolute_exposure": 1,
                 },
             ],
+            [
+                "cohort_dynamic",
+                {
+                    "key": "id",
+                    "type": "cohort",
+                    # value is generated in the test
+                    "value": None,
+                    "operator": "exact",
+                },
+                {
+                    "control_absolute_exposure": 2,
+                    "test_absolute_exposure": 1,
+                },
+            ],
         ]
     )
     def test_query_runner_with_data_warehouse_internal_filters(self, name, filter: dict, filter_expected: dict):
@@ -1319,6 +1333,19 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 name="cohort_static",
                 is_static=True,
+            )
+            filter["value"] = cohort.pk
+        elif name == "cohort_dynamic":
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name="cohort_dynamic",
+                groups=[
+                    {
+                        "properties": [
+                            {"key": "email", "operator": "not_icontains", "value": "@posthog.com", "type": "person"}
+                        ]
+                    }
+                ],
             )
             filter["value"] = cohort.pk
 
@@ -1370,6 +1397,11 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         _create_person(
             team=self.team,
             distinct_ids=["distinct_control_0"],
+        )
+
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_test_3"],
         )
 
         _create_person(
@@ -1441,6 +1473,8 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         if "cohort_static" in name:
             cohort.insert_users_by_list(["distinct_control_0", "internal_test_1"])
             self.assertEqual(cohort.people.count(), 2)
+        elif name == "cohort_dynamic":
+            cohort.calculate_people_ch(pending_version=0)
 
         query_runner = ExperimentTrendsQueryRunner(
             query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
@@ -1515,7 +1549,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         control_result = next(variant for variant in trend_result.variants if variant.key == "control")
         test_result = next(variant for variant in trend_result.variants if variant.key == "test")
 
-        self.assertEqual(control_result.absolute_exposure, 9)
+        self.assertEqual(control_result.absolute_exposure, 8)
         self.assertEqual(test_result.absolute_exposure, 10)
 
     def test_query_runner_with_data_warehouse_series_no_end_date_and_nested_id(self):
