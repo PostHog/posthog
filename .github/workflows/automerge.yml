@@ -40,9 +40,8 @@ jobs:
                   SLACK_CHANNEL: subscriptions-slack-testing
                   SLACK_COLOR: ${{ job.status }} # or a specific color like 'good' or '#ff00ff'
                   SLACK_ICON: https://github.com/posthog.png?size=48
+                  SLACK_MESSAGE: "PR [#${{ github.event.pull_request.number }}](${{ github.event.pull_request.html_url }}) $${{ job.status }}. PR is labeled 'automerge'. Automerge result was ${{ steps.automerge.outputs.mergeResult }}"
+                  SLACK_TITLE: 'PR ${{ github.event.pull_request.title }} ${{ steps.automerge.outputs.mergeResult }}'
                   SLACK_USERNAME: Max Hedgehog
                   SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
-                  PR_TITLE: ${{ github.event.pull_request.title }}
-              with:
-                  message: "PR $PR_TITLE #${{ github.event.check_suite.pull_requests[0].number }} $${{ job.status }}. PR is labeled 'automerge'. Automerge result was ${{ steps.automerge.outputs.mergeResult }}"
-                  status: ${{ job.status }}
+                  SLACKIFY_MARKDOWN: true
