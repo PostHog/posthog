@@ -1738,13 +1738,12 @@ export const experimentLogic = kea<experimentLogicType>([
         firstPrimaryMetric: [
             (s) => [s.experiment],
             (experiment: Experiment): ExperimentTrendsQuery | ExperimentFunnelsQuery | undefined => {
-                const primarySharedMetrics = experiment.saved_metrics.filter(
-                    (sharedMetric) => sharedMetric.metadata.type === 'primary'
-                )
-                if (experiment.metrics.length > 0) {
+                if (experiment.metrics.length) {
                     return experiment.metrics[0]
-                } else if (primarySharedMetrics.length > 0) {
-                    return primarySharedMetrics[0].query
+                }
+                const primaryMetric = experiment.saved_metrics.find((metric) => metric.metadata.type === 'primary')
+                if (primaryMetric) {
+                    return primaryMetric.query
                 }
             },
         ],
