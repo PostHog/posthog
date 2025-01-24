@@ -1,4 +1,4 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { objectsEqual } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -7,9 +7,14 @@ import { RevenueTrackingConfig, RevenueTrackingEventItem } from '~/types'
 
 import type { revenueEventsSettingsLogicType } from './revenueEventsSettingsLogicType'
 
+const createEmptyConfig = (): RevenueTrackingConfig => ({ events: [] })
+
 export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
-    connect({ values: [teamLogic, ['currentTeam']], actions: [teamLogic, ['updateCurrentTeam']] }),
     path(['scenes', 'settings', 'environment', 'revenueEventsSettingsLogic']),
+    connect({
+        values: [teamLogic, ['currentTeam', 'currentTeamId']],
+        actions: [teamLogic, ['updateCurrentTeam']],
+    }),
     actions({
         addEvent: (eventName: string) => ({ eventName }),
         deleteEvent: (eventName: string) => ({ eventName }),
@@ -83,10 +88,24 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
         saveChanges: {
             save: () => {
                 if (values.saveDisabledReason) {
-                    return
+                    return null
                 }
-                return actions.updateCurrentTeam({ revenue_tracking_config: values.revenueTrackingConfig })
+                actions.updateCurrentTeam({
+                    revenue_tracking_config: values.revenueTrackingConfig || createEmptyConfig(),
+                })
+                return null
+            },
+        },
+        revenueTrackingConfig: {
+            loadRevenueTrackingConfig: async () => {
+                if (values.currentTeam) {
+                    return values.currentTeam.revenue_tracking_config || createEmptyConfig()
+                }
+                return null
             },
         },
     })),
+    afterMount(({ actions }) => {
+        actions.loadRevenueTrackingConfig()
+    }),
 ])

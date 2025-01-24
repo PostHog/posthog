@@ -11,7 +11,7 @@ import { RevenueTrackingEventItem } from '~/types'
 
 export function RevenueEventsSettings(): JSX.Element {
     const { saveDisabledReason, events } = useValues(revenueEventsSettingsLogic)
-    const { addEvent, deleteEvent, updatePropertyName, saveChanges } = useActions(revenueEventsSettingsLogic)
+    const { addEvent, deleteEvent, updatePropertyName, save } = useActions(revenueEventsSettingsLogic)
 
     const renderPropertyColumn = useCallback(
         (_, item: RevenueTrackingEventItem) => {
@@ -37,11 +37,7 @@ export function RevenueEventsSettings(): JSX.Element {
     return (
         <div className="space-y-4">
             <div>
-                <p>
-                    Add events to revenue tracking in web analytics. The events here will be added to the total revenue
-                    shown.
-                </p>
-                <p>Pageview and autocapture events are always included.</p>
+                <p>Add revenue tracking for Custom events in Web analytics</p>
             </div>
             <LemonTable<RevenueTrackingEventItem>
                 columns={[
@@ -55,23 +51,18 @@ export function RevenueEventsSettings(): JSX.Element {
                     {
                         key: 'delete',
                         title: '',
-                        render: (_, item) =>
-                            item.eventName === '$pageview' || item.eventName === '$autocapture' ? null : (
-                                <LemonButton
-                                    type="secondary"
-                                    onClick={() => deleteEvent(item.eventName)}
-                                    icon={<IconTrash />}
-                                >
-                                    Delete
-                                </LemonButton>
-                            ),
+                        render: (_, item) => (
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => deleteEvent(item.eventName)}
+                                icon={<IconTrash />}
+                            >
+                                Delete
+                            </LemonButton>
+                        ),
                     },
                 ]}
-                dataSource={[
-                    { eventName: '$pageview', revenueProperty: 'revenue' },
-                    { eventName: '$autocapture', revenueProperty: 'revenue' },
-                    ...events,
-                ]}
+                dataSource={events}
                 rowKey={(item) => item.eventName}
             />
 
@@ -85,7 +76,7 @@ export function RevenueEventsSettings(): JSX.Element {
                 }}
             />
             <div className="mt-4">
-                <LemonButton type="primary" onClick={saveChanges} disabledReason={saveDisabledReason}>
+                <LemonButton type="primary" onClick={save} disabledReason={saveDisabledReason}>
                     Save
                 </LemonButton>
             </div>
