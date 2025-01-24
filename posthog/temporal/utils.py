@@ -8,3 +8,4 @@ class ExternalDataWorkflowInputs:
     team_id: int
     external_data_source_id: uuid.UUID
     external_data_schema_id: uuid.UUID | None = None
+    billable: bool = True
