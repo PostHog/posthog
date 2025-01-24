@@ -35,6 +35,7 @@ jobs:
                   GITHUB_TOKEN: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - name: Send automerge event to PostHog
+              if: ${{ steps.automerge.outputs.mergeResult != '' }}
               uses: PostHog/posthog-github-action@v0.1
               with:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
