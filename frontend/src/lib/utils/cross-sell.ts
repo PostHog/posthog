@@ -6,6 +6,7 @@ export type ProductCrossSellContext = Record<string, unknown>
 
 export enum ProductCrossSellLocation {
     TAXONOMIC_FILTER_EMPTY_STATE = 'taxonomic_filter_empty_state',
+    WEB_ANALYTICS_INSIGHT = 'web_analytics_insight',
 }
 
 export type ProductCrossSellProperties = {

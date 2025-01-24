@@ -32,13 +32,13 @@ module = Extension(
 
 setup(
     name="hogql_parser",
-    version="1.0.50",
-    url="https://github.com/PostHog/posthog/tree/master/hogql_parser",
+    version="1.0.454",
+    url="https://github.com/PostHog/posthog/tree/master/common/hogql_parser",
+    description="HogQL parser for internal PostHog use",
     author="PostHog Inc.",
     author_email="hey@posthog.com",
     maintainer="PostHog Inc.",
     maintainer_email="hey@posthog.com",
-    description="HogQL parser for internal PostHog use",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
     package_data={"hogql_parser": ["__init__.pyi", "py.typed"]},

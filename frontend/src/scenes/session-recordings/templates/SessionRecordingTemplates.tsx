@@ -176,7 +176,7 @@ const RecordingTemplateCard = (props: RecordingTemplateCardProps): JSX.Element =
                         </div>
                     )}
                     <h3 className="mb-0">
-                        <Link onClick={() => showVariables()} className="text-primary">
+                        <Link onClick={() => showVariables()} className="text-accent-primary">
                             {props.template.name}
                         </Link>
                     </h3>

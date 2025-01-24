@@ -2659,7 +2659,7 @@ const api = {
     },
 
     conversations: {
-        async create(data: { content: string; conversation?: string | null }): Promise<Response> {
+        async create(data: { content: string; conversation?: string | null; trace_id: string }): Promise<Response> {
             return api.createResponse(new ApiRequest().conversations().assembleFullUrl(), data)
         },
     },

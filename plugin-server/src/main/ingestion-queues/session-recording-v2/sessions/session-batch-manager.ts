@@ -38,13 +38,10 @@ export class SessionBatchManager {
         })
     }
 
-    public async flushIfNeeded(): Promise<void> {
-        return this.queue.add(async () => {
-            const timeSinceLastFlush = Date.now() - this.lastFlushTime
-            if (this.currentBatch.size >= this.maxBatchSizeBytes || timeSinceLastFlush >= this.maxBatchAgeMs) {
-                await this.rotateBatch()
-            }
-        })
+    public shouldFlush(): boolean {
+        const batchSize = this.currentBatch.size
+        const batchAge = Date.now() - this.lastFlushTime
+        return batchSize >= this.maxBatchSizeBytes || batchAge >= this.maxBatchAgeMs
     }
 
     public async discardPartitions(partitions: number[]): Promise<void> {
