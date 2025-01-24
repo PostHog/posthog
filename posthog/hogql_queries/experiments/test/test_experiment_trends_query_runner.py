@@ -872,32 +872,6 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
         experiment.save()
 
-        _create_person(
-            team=self.team,
-            distinct_ids=["user_control_1"],
-        )
-        _create_person(
-            team=self.team,
-            distinct_ids=["user_control_2"],
-        )
-        _create_person(
-            team=self.team,
-            distinct_ids=["user_control_3"],
-            properties={"email": "user_control_3@posthog.com"},
-        )
-        _create_person(
-            team=self.team,
-            distinct_ids=["user_control_6"],
-            properties={"email": "user_control_6@posthog.com"},
-        )
-        _create_person(
-            team=self.team,
-            distinct_ids=["user_test_2"],
-            properties={"email": "user_test_2@posthog.com"},
-        )
-
-        flush_persons_and_events()
-
         # Populate count events
         for variant, count in [("control", 7), ("test", 9)]:
             for i in range(count):
@@ -923,6 +897,30 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         **extra_properties,
                     },
                 )
+
+        _create_person(
+            team=self.team,
+            distinct_ids=["user_control_1"],
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["user_control_2"],
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["user_control_3"],
+            properties={"email": "user_control_3@posthog.com"},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["user_control_6"],
+            properties={"email": "user_control_6@posthog.com"},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["user_test_2"],
+            properties={"email": "user_test_2@posthog.com"},
+        )
 
         flush_persons_and_events()
 
