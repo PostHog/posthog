@@ -842,22 +842,50 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "test_absolute_exposure": 1,
                 },
             ],
+            [
+                "cohort_dynamic",
+                {
+                    "key": "id",
+                    "type": "cohort",
+                    # value is generated in the test
+                    "value": None,
+                    "operator": "exact",
+                },
+                {
+                    "control_absolute_exposure": 2,
+                    "test_absolute_exposure": 1,
+                },
+            ],
         ]
     )
     def test_query_runner_with_internal_filters(self, name: str, filter: dict, expected_results: dict):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
 
+        cohort = None
+        if name == "cohort_static":
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name="cohort_static",
+                is_static=True,
+            )
+            filter["value"] = cohort.pk
+        elif name == "cohort_dynamic":
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name="cohort_dynamic",
+                groups=[
+                    {
+                        "properties": [
+                            {"key": "email", "operator": "not_icontains", "value": "@posthog.com", "type": "person"},
+                        ]
+                    }
+                ],
+            )
+            filter["value"] = cohort.pk
+
         self.team.test_account_filters = [filter]
         self.team.save()
-
-        cohort_static = Cohort.objects.create(
-            team=self.team,
-            name="cohort_static",
-            is_static=True,
-        )
-        if name == "cohort_static":
-            filter["value"] = cohort_static.pk
 
         feature_flag_property = f"$feature/{feature_flag.key}"
         count_query = TrendsQuery(series=[EventsNode(event="$pageview")], filterTestAccounts=True)
@@ -921,11 +949,18 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             distinct_ids=["user_test_2"],
             properties={"email": "user_test_2@posthog.com"},
         )
+        _create_person(
+            team=self.team,
+            distinct_ids=["user_test_3"],
+        )
 
         flush_persons_and_events()
 
-        cohort_static.insert_users_by_list(["user_control_1", "user_control_2", "user_test_2"])
-        self.assertEqual(cohort_static.people.count(), 3)
+        if name == "cohort_static":
+            cohort.insert_users_by_list(["user_control_1", "user_control_2", "user_test_2"])
+            self.assertEqual(cohort.people.count(), 3)
+        elif name == "cohort_dynamic":
+            cohort.calculate_people_ch(pending_version=0)
 
         query_runner = ExperimentTrendsQueryRunner(
             query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
