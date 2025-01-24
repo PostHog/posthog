@@ -213,8 +213,12 @@ services:
             args:
                 BIN: feature-flags
         restart: on-failure
+        volumes:
+            - ./share/GeoLite2-City.mmdb:/share/GeoLite2-City.mmdb
         environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            WRITE_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            READ_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            MAXMIND_DATABASE_PATH: '/share/GeoLite2-City.mmdb'
             REDIS_URL: 'redis://redis:6379/'
             ADDRESS: '0.0.0.0:3001'
             SKIP_WRITES: 'false'

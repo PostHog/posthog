@@ -18,6 +18,7 @@ services:
         depends_on:
             - replay-capture
             - capture
+            - feature-flags
             - web
     db:
         extends:

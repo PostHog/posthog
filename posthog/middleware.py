@@ -51,6 +51,7 @@ ALWAYS_ALLOWED_ENDPOINTS = [
     "s",
     "static",
     "_health",
+    "flags",
 ]
 
 if DEBUG:
@@ -66,7 +67,7 @@ default_cookie_options = {
     "samesite": "Strict",
 }
 
-cookie_api_paths_to_ignore = {"e", "s", "capture", "batch", "decide", "api", "track"}
+cookie_api_paths_to_ignore = {"e", "s", "capture", "batch", "decide", "api", "track", "flags"}
 
 
 class AllowIPMiddleware:
