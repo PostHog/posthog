@@ -186,7 +186,7 @@ export function PlayerMeta({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
                     <div className={clsx('flex-1', isSmallPlayer ? 'min-w-[1rem]' : 'min-w-[5rem]')} />
                     <PlayerMetaLinks iconsOnly={iconsOnly} />
                     <ResolutionView />
-                    <div className="flex items-center gap-x-1 ml-2">
+                    <div className="ml-2">
                         <PlayerPersonMeta />
                     </div>
                 </div>
