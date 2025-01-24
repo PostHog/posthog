@@ -19,6 +19,7 @@ export function ConversationDisplay({ eventProperties }: { eventProperties: Even
                 input={eventProperties.$ai_input}
                 output={eventProperties.$ai_output_choices}
                 httpStatus={eventProperties.$ai_http_status}
+                bordered
             />
         </>
     )

@@ -13,6 +13,9 @@ export function JSONViewer({
 
     return (
         <ReactJson // eslint-disable-line react/forbid-elements
+            // HACK: Weirdly when `theme` prop changes on the same component instance, the JSON viewer drops `style`
+            // we provided, so we force a different identity between dark and light mode with `key`, to re-render fully
+            key={isDarkModeOn ? 'dark' : 'light'}
             style={{ background: 'transparent' }}
             theme={isDarkModeOn ? 'railscasts' : 'rjv-default'}
             name={name}
