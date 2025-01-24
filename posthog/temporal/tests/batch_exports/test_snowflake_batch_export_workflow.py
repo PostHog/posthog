@@ -6,7 +6,6 @@ import operator
 import os
 import re
 import tempfile
-import typing as t
 import unittest.mock
 import uuid
 from collections import deque
@@ -38,6 +37,7 @@ from posthog.temporal.batch_exports.snowflake_batch_export import (
     SnowflakeHeartbeatDetails,
     SnowflakeInsertInputs,
     insert_into_snowflake_activity,
+    load_private_key,
     snowflake_default_fields,
 )
 from posthog.temporal.common.clickhouse import ClickHouseClient
@@ -981,74 +981,35 @@ SKIP_IF_MISSING_REQUIRED_ENV_VARS = pytest.mark.skipif(
 )
 
 
-def _get_snowflake_cursor(
-    user: str,
-    password: str | None,
-    role: str,
-    account: str,
-    warehouse: str,
-    database: str,
-    schema: str,
-    private_key_file: str | None,
-    private_key_file_pwd: str | None,
-) -> t.Generator[snowflake.connector.cursor.SnowflakeCursor, None, None]:
-    with snowflake.connector.connect(
-        user=user,
-        password=password,
-        role=role,
-        account=account,
-        warehouse=warehouse,
-        private_key_file=private_key_file,
-        private_key_file_pwd=private_key_file_pwd,
-    ) as connection:
-        cursor = connection.cursor()
-        cursor.execute(f'CREATE DATABASE "{database}"')
-        cursor.execute(f'CREATE SCHEMA "{database}"."{schema}"')
-        cursor.execute(f'USE SCHEMA "{database}"."{schema}"')
-
-        yield cursor
-
-        cursor.execute(f'DROP DATABASE IF EXISTS "{database}" CASCADE')
-
-
 @pytest.fixture
 def snowflake_cursor(snowflake_config):
     """Manage a snowflake cursor that cleans up after we are done."""
+    password = None
+    private_key = None
     if snowflake_config["authentication_type"] == "keypair":
-        private_key_file_path = None
-        if private_key := snowflake_config.get("private_key"):
-            private_key_file_pwd = None
-            if private_key_passphrase := snowflake_config.get("private_key_passphrase"):
-                private_key_file_pwd = private_key_passphrase.encode()
+        if snowflake_config.get("private_key") is None:
+            raise ValueError("Private key is required for keypair authentication")
 
-            with tempfile.NamedTemporaryFile(mode="w") as private_key_file:
-                private_key_file.write(private_key)
-                private_key_file.flush()
-                private_key_file_path = private_key_file.name
-
-                yield from _get_snowflake_cursor(
-                    user=snowflake_config["user"],
-                    password=None,
-                    role=snowflake_config["role"],
-                    account=snowflake_config["account"],
-                    warehouse=snowflake_config["warehouse"],
-                    database=snowflake_config["database"],
-                    schema=snowflake_config["schema"],
-                    private_key_file=private_key_file_path,
-                    private_key_file_pwd=private_key_file_pwd,
-                )
+        private_key = load_private_key(snowflake_config["private_key"], snowflake_config["private_key_passphrase"])
     else:
-        yield from _get_snowflake_cursor(
-            user=snowflake_config["user"],
-            password=snowflake_config.get("password"),
-            role=snowflake_config["role"],
-            account=snowflake_config["account"],
-            warehouse=snowflake_config["warehouse"],
-            database=snowflake_config["database"],
-            schema=snowflake_config["schema"],
-            private_key_file=None,
-            private_key_file_pwd=None,
-        )
+        password = snowflake_config["password"]
+
+    with snowflake.connector.connect(
+        user=snowflake_config["user"],
+        password=password,
+        role=snowflake_config["role"],
+        account=snowflake_config["account"],
+        warehouse=snowflake_config["warehouse"],
+        private_key=private_key,
+    ) as connection:
+        cursor = connection.cursor()
+        cursor.execute(f'CREATE DATABASE "{snowflake_config["database"]}"')
+        cursor.execute(f'CREATE SCHEMA "{snowflake_config["database"]}"."{snowflake_config["schema"]}"')
+        cursor.execute(f'USE SCHEMA "{snowflake_config["database"]}"."{snowflake_config["schema"]}"')
+
+        yield cursor
+
+        cursor.execute(f'DROP DATABASE IF EXISTS "{snowflake_config["database"]}" CASCADE')
 
 
 TEST_MODELS: list[BatchExportModel | BatchExportSchema | None] = [

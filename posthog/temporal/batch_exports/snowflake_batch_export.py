@@ -6,11 +6,12 @@ import datetime as dt
 import functools
 import io
 import json
-import tempfile
 import typing
 
 import pyarrow as pa
 import snowflake.connector
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import serialization
 from django.conf import settings
 from snowflake.connector.connection import SnowflakeConnection
 from snowflake.connector.cursor import ResultMetadata
@@ -156,6 +157,20 @@ class SnowflakeInsertInputs:
 SnowflakeField = tuple[str, str]
 
 
+def load_private_key(private_key: str, passphrase: str | None) -> bytes:
+    p_key = serialization.load_pem_private_key(
+        private_key.encode("utf-8"),
+        password=passphrase.encode() if passphrase is not None else None,
+        backend=default_backend(),
+    )
+
+    return p_key.private_bytes(
+        encoding=serialization.Encoding.DER,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+
+
 class SnowflakeClient:
     """Snowflake connection client used in batch exports."""
 
@@ -168,17 +183,15 @@ class SnowflakeClient:
         schema: str,
         role: str | None = None,
         password: str | None = None,
-        private_key_file: str | None = None,
-        private_key_file_pwd: bytes | None = None,
+        private_key: bytes | None = None,
     ):
-        if password is None and private_key_file is None:
+        if password is None and private_key is None:
             raise ValueError("Either password or private key must be provided")
 
         self.role = role
         self.user = user
         self.password = password
-        self.private_key_file = private_key_file
-        self.private_key_file_pwd = private_key_file_pwd
+        self.private_key = private_key
         self.account = account
         self.warehouse = warehouse
         self.database = database
@@ -193,8 +206,7 @@ class SnowflakeClient:
         # (for example, if they've already created a batch export with password auth and are now switching to keypair auth)
         # Therefore we decide which one to use based on the authentication_type.
         password = None
-        private_key_file_path = None
-        private_key_file_pwd = None
+        private_key = None
         if inputs.authentication_type == "password":
             password = inputs.password
             if password is None:
@@ -203,14 +215,8 @@ class SnowflakeClient:
             if inputs.private_key is None:
                 raise ValueError("Private key is required for keypair authentication")
 
-            with tempfile.NamedTemporaryFile(mode="w", delete=False) as private_key_file:
-                private_key_file.write(inputs.private_key)
-                private_key_file.flush()
-                private_key_file_path = private_key_file.name
+            private_key = load_private_key(inputs.private_key, inputs.private_key_passphrase)
 
-            private_key_file_pwd = None
-            if inputs.private_key_passphrase:
-                private_key_file_pwd = inputs.private_key_passphrase.encode()
         else:
             raise ValueError(f"Invalid authentication type: {inputs.authentication_type}")
 
@@ -222,8 +228,7 @@ class SnowflakeClient:
             schema=inputs.schema,
             role=inputs.role,
             password=password,
-            private_key_file=private_key_file_path,
-            private_key_file_pwd=private_key_file_pwd,
+            private_key=private_key,
         )
 
     @property
@@ -249,8 +254,7 @@ class SnowflakeClient:
                 database=self.database,
                 schema=self.schema,
                 role=self.role,
-                private_key_file=self.private_key_file,
-                private_key_file_pwd=self.private_key_file_pwd,
+                private_key=self.private_key,
             )
 
         except OperationalError as err:
