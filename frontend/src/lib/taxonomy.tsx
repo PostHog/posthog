@@ -177,7 +177,12 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         $ai_generation: {
             label: 'AI Generation',
-            description: 'A call to a generative AI model, e.g. an LLM',
+            description: 'A call to a generative AI model (LLM)',
+        },
+        $ai_trace: {
+            label: 'AI Trace',
+            description:
+                'A generative AI trace. Usually a trace tracks a single user interaction and contains one or more AI generation calls',
         },
         $ai_metric: {
             label: 'AI Metric',
@@ -1378,9 +1383,9 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'The number of tokens in the input prmopt that was sent to the LLM API',
             examples: [23],
         },
-        $ai_output: {
+        $ai_output_choices: {
             label: 'AI Output (LLM)',
-            description: 'The output JSON that was received from the LLM API',
+            description: 'The output message choices JSON that was received from the LLM API',
             examples: [
                 '{"choices": [{"text": "Quantum computing is a type of computing that harnesses the power of quantum mechanics to perform operations on data."}]}',
             ],
@@ -1419,6 +1424,29 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'AI Model Parameters (LLM)',
             description: 'The parameters used to configure the model in the LLM API, in JSON',
             examples: ['{"temperature": 0.5, "max_tokens": 50}'],
+        },
+        $ai_stream: {
+            label: 'AI Stream (LLM)',
+            description: 'Whether the response from the LLM API was streamed',
+            examples: ['true', 'false'],
+        },
+        $ai_temperature: {
+            label: 'AI Temperature (LLM)',
+            description: 'The temperature parameter used in the request to the LLM API',
+            examples: [0.7, 1.0],
+        },
+        $ai_input_state: {
+            label: 'AI Input State (LLM)',
+            description: 'Input state of the LLM agent',
+        },
+        $ai_output_state: {
+            label: 'AI Output State (LLM)',
+            description: 'Output state of the LLM agent',
+        },
+        $ai_trace_name: {
+            label: 'AI Trace Name (LLM)',
+            description: 'The name given to this trace of LLM API calls',
+            examples: ['LangGraph'],
         },
         $ai_provider: {
             label: 'AI Provider (LLM)',

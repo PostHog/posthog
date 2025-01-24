@@ -1,4 +1,5 @@
 import dataclasses
+from typing import Optional
 import uuid
 
 
@@ -9,3 +10,4 @@ class ExternalDataWorkflowInputs:
     external_data_source_id: uuid.UUID
     external_data_schema_id: uuid.UUID | None = None
     billable: bool = True
+    reset_pipeline: Optional[bool] = None
