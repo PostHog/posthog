@@ -63,8 +63,8 @@ dependencies:
     specifier: 20.3.1
     version: 20.3.1(@swc/core@1.3.93)(@types/node@18.11.9)(nx@20.3.1)(typescript@4.9.5)
   '@posthog/hogvm':
-    specifier: file:./common/hogvm
-    version: file:common/hogvm
+    specifier: file:./common/hogvm/typescript
+    version: file:common/hogvm/typescript(luxon@3.5.0)
   '@posthog/icons':
     specifier: 0.10.0
     version: 0.10.0(react-dom@18.2.0)(react@18.2.0)
@@ -16548,6 +16548,11 @@ packages:
     dependencies:
       yallist: 4.0.0
 
+  /luxon@3.5.0:
+    resolution: {integrity: sha512-rh+Zjr6DNfUYR3bPwJEnuwDdqMbxZW7LOQfUN4B54+Cl+0o5zaU9RJ6bcidfDtC1cWCZXQ+nvX8bf6bAji37QQ==}
+    engines: {node: '>=12'}
+    dev: false
+
   /lz-string@1.4.4:
     resolution: {integrity: sha512-0ckx7ZHRPqb0oUm8zNr+90mtf9DQB60H1wMCjBtfi62Kl3a7JbHob6gA2bC+xRvZoOL+1hzUK8jeuEIQE8svEQ==}
     hasBin: true
@@ -22787,7 +22792,12 @@ packages:
     resolution: {integrity: sha512-Bq0B+ixT/DMyG8kgX2xWcI5jUvCwqrMxSFam7m0lAf78nf04hv6lNCsyLYdyYTrCVMqNDY/206K7eExYCeSyUQ==}
     dev: false
 
-  file:common/hogvm:
-    resolution: {directory: common/hogvm, type: directory}
-    name: hogvm
+  file:common/hogvm/typescript(luxon@3.5.0):
+    resolution: {directory: common/hogvm/typescript, type: directory}
+    id: file:common/hogvm/typescript
+    name: '@posthog/hogvm'
+    peerDependencies:
+      luxon: ^3.4.4
+    dependencies:
+      luxon: 3.5.0
     dev: false

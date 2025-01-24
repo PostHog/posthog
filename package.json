@@ -79,7 +79,7 @@
         "@nx/eslint": "20.3.1",
         "@nx/jest": "20.3.1",
         "@nx/web": "20.3.1",
-        "@posthog/hogvm": "file:./common/hogvm",
+        "@posthog/hogvm": "file:./common/hogvm/typescript",
         "@posthog/icons": "0.10.0",
         "@posthog/plugin-scaffold": "^1.4.4",
         "@react-hook/size": "^2.1.2",
