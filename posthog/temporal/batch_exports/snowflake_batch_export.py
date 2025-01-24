@@ -201,7 +201,7 @@ class SnowflakeClient:
         private_key: bytes | None = None,
     ):
         if password is None and private_key is None:
-            raise ValueError("Either password or private key must be provided")
+            raise SnowflakeAuthenticationError("Either password or private key must be provided")
 
         self.role = role
         self.user = user
