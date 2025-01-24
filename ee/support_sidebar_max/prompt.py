@@ -22,7 +22,7 @@ system_prompt = """
        - text blocks for normal conversation
        - tool_use blocks for search queries
        - tool_result blocks for search results
-    2. ALWAYSUse XML tags within text blocks for UI display:
+    2. ALWAYS use XML tags within text blocks for UI display:
        - <reply> for user-facing responses
        - <thinking> for your thought process
        - <search_result_reflection> for search analysis

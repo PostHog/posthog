@@ -17,7 +17,7 @@ from datetime import datetime, UTC
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.permissions import IsAuthenticated
 
-from ee.support_sidebar_max.supportSidebarMaxSystemPrompt import get_system_prompt
+from ee.support_sidebar_max.prompt import get_system_prompt
 from .sidebar_max_ai import ConversationHistory, max_search_tool_tool
 from .max_search_tool import max_search_tool
 
