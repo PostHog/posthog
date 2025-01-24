@@ -28,7 +28,7 @@ export function LemonCard({
     return (
         <div
             className={`LemonCard ${hoverEffect && 'LemonCard--hoverEffect'} border ${
-                focused ? 'border-2 border-primary' : 'border-border'
+                focused ? 'border-2 border-accent-primary' : 'border-border'
             } rounded p-6 bg-bg-light ${onClick && !focused ? 'cursor-pointer' : ''} ${className}`}
             onClick={onClick}
             {...props}

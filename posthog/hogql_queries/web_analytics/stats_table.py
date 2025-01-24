@@ -455,6 +455,13 @@ GROUP BY session_id, breakdown_value
                 else response.columns
             )
 
+        # Add replay URL column if it doesn't exist (for session replay cross-selling)
+        if columns is not None:
+            if "context.columns.replay_url" not in columns:
+                # Append replay URL column to the list of columns (as Robbie suggested)
+                columns = [*list(columns), "context.columns.replay_url"]
+                results_mapped = [[*row, ""] for row in (results_mapped or [])]
+
         return WebStatsTableQueryResponse(
             columns=columns,
             results=results_mapped,
