@@ -150,7 +150,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         resolutionDisplay: [
             (s) => [s.resolution],
             (resolution) => {
-                return `${resolution?.width || '??'} x ${resolution?.height || '??'}`
+                return `${resolution?.width || '--'} x ${resolution?.height || '--'}`
             },
         ],
         scaleDisplay: [
