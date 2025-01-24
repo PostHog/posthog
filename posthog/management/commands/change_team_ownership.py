@@ -5,7 +5,7 @@ import structlog
 from django.core.management import CommandError
 from django.core.management.base import BaseCommand
 
-from posthog.models import Organization, Team
+from posthog.models import Organization, Team, Project
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
@@ -40,6 +40,9 @@ def run(options):
     team = Team.objects.get(pk=team_id)
     logger.info(f"Team {team_id} is currently in organization {team.organization_id}, named {team.organization.name}")
 
+    project = Project.objects.get(pk=team.project_id)
+    logger.info(f"Team {team_id} is currently in project {team.project_id}, named {project.name}")
+
     org = Organization.objects.get(pk=organization_id)
     logger.info(f"Target organization {organization_id} is named {org.name}")
 
@@ -48,7 +51,9 @@ def run(options):
 
     if live_run:
         team.organization_id = organization_id
+        project.organization_id = organization_id
         team.save()
-        logger.info("Saved team change")
+        project.save()
+        logger.info("Saved team and project changes")
     else:
         logger.info("Skipping the team change, pass --live-run to run it")
