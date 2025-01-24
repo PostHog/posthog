@@ -249,8 +249,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         },
                         trendsFilter: {
                             aggregationAxisPostfix: ' s',
-                            decimalPlaces: 3,
-                            yAxisScaleType: 'log10',
+                            decimalPlaces: 2,
                         },
                         dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
                         properties: propertyFilters,
