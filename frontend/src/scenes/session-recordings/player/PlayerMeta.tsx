@@ -17,6 +17,8 @@ import { urls } from 'scenes/urls'
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { Logo } from '~/toolbar/assets/Logo'
 
+import { PlayerInspector } from './PlayerInspector'
+import { PlayerPersonMeta } from './PlayerPersonMeta'
 import { sessionRecordingPlayerLogic, SessionRecordingPlayerMode } from './sessionRecordingPlayerLogic'
 
 function URLOrScreen({ lastUrl }: { lastUrl: string | undefined }): JSX.Element | null {
@@ -185,6 +187,10 @@ export function PlayerMeta({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
                     <div className={clsx('flex-1', isSmallPlayer ? 'min-w-[1rem]' : 'min-w-[5rem]')} />
                     <PlayerMetaLinks iconsOnly={iconsOnly} />
                     <ResolutionView isCompact={isSmallPlayer} />
+                    <div className="flex items-center gap-x-1 ml-2">
+                        <PlayerPersonMeta />
+                        <PlayerInspector />
+                    </div>
                 </div>
             </div>
         </DraggableToNotebook>
