@@ -17,7 +17,7 @@ import { urls } from 'scenes/urls'
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { Logo } from '~/toolbar/assets/Logo'
 
-import { PlayerInspector } from './PlayerInspector'
+import { PlayerBottomSettings } from './controller/PlayerController'
 import { PlayerPersonMeta } from './PlayerPersonMeta'
 import { sessionRecordingPlayerLogic, SessionRecordingPlayerMode } from './sessionRecordingPlayerLogic'
 
@@ -67,7 +67,7 @@ function URLOrScreen({ lastUrl }: { lastUrl: string | undefined }): JSX.Element 
     )
 }
 
-function ResolutionView(): JSX.Element {
+export function ResolutionView(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
 
     const { resolutionDisplay, scaleDisplay, loading } = useValues(playerMetaLogic(logicProps))
@@ -188,9 +188,10 @@ export function PlayerMeta({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
                     <ResolutionView />
                     <div className="flex items-center gap-x-1 ml-2">
                         <PlayerPersonMeta />
-                        <PlayerInspector />
+                        {/*<PlayerInspector />*/}
                     </div>
                 </div>
+                <PlayerBottomSettings />
             </div>
         </DraggableToNotebook>
     )
