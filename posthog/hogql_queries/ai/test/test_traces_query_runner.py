@@ -641,3 +641,63 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             ),
         ).calculate()
         self.assertEqual(len(response.results), 0)
+
+    @snapshot_clickhouse_queries
+    def test_trace_property_filter_for_event_group(self):
+        _create_person(distinct_ids=["person1"], team=self.team)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace1",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 0),
+        )
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace1",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 2),
+            properties={"foo": "bar"},
+        )
+        _create_ai_trace_event(
+            trace_id="trace1",
+            trace_name="runnable",
+            input_state={"messages": [{"role": "user", "content": "Foo"}]},
+            output_state={"messages": [{"role": "user", "content": "Foo"}, {"role": "assistant", "content": "Bar"}]},
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 5),
+        )
+
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(
+                properties=[
+                    EventPropertyFilter(key="$ai_trace_name", value="runnable", operator=PropertyOperator.EXACT)
+                ],
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
+            ),
+        ).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(len(response.results[0].events), 2)
+
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(
+                properties=[EventPropertyFilter(key="foo", value="bar", operator=PropertyOperator.EXACT)],
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
+            ),
+        ).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(len(response.results[0].events), 2)
+
+        # Shouldn't return anything because there isn't such trace
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(
+                properties=[
+                    EventPropertyFilter(key="$ai_trace_name", value="runnable", operator=PropertyOperator.EXACT),
+                    EventPropertyFilter(key="foo", value="bar", operator=PropertyOperator.EXACT),
+                ],
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
+            ),
+        ).calculate()
+        self.assertEqual(len(response.results), 0)
