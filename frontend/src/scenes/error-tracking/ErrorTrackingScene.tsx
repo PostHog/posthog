@@ -69,14 +69,26 @@ export function ErrorTrackingScene(): JSX.Element {
             <BindLogic logic={errorTrackingDataNodeLogic} props={{ query, key: insightVizDataNodeKey(insightProps) }}>
                 <Header />
                 <FeedbackNotice text="Error tracking is currently in beta. Thanks for taking part! We'd love to hear what you think." />
-                <ErrorTrackingFilters.FilterGroup>
-                    <ErrorTrackingFilters.UniversalSearch />
-                </ErrorTrackingFilters.FilterGroup>
+                <Filters />
                 <LemonDivider className="mt-2" />
                 {selectedIssueIds.length === 0 ? <ErrorTrackingFilters.Options /> : <ErrorTrackingActions />}
                 <Query query={query} context={context} />
             </BindLogic>
         </AlphaAccessScenePrompt>
+    )
+}
+
+const Filters = (): JSX.Element => {
+    return (
+        <div className="flex flex-1 items-center justify-between space-x-2">
+            <div className="flex flex-1 items-center gap-2 mx-2">
+                <ErrorTrackingFilters.UniversalSearch />
+                <ErrorTrackingFilters.FilterGroup />
+            </div>
+            <div>
+                <ErrorTrackingFilters.InternalAccounts />
+            </div>
+        </div>
     )
 }
 

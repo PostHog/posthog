@@ -1,6 +1,8 @@
+import { IconPeople } from '@posthog/icons'
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { SettingsToggle } from 'lib/components/PanelLayout/PanelLayout'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
@@ -15,38 +17,24 @@ import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 
 const errorTrackingDateOptions = dateMapping.filter((dm) => dm.key != 'Yesterday')
 
-export const FilterGroup = ({ children }: { children?: React.ReactNode }): JSX.Element => {
-    const { filterGroup, filterTestAccounts } = useValues(errorTrackingLogic)
-    const { setFilterGroup, setFilterTestAccounts } = useActions(errorTrackingLogic)
+const FilterGroup = (): JSX.Element => {
+    const { filterGroup } = useValues(errorTrackingLogic)
+    const { setFilterGroup } = useActions(errorTrackingLogic)
 
     return (
-        <div className="flex flex-1 items-center justify-between space-x-2">
-            <div className="flex flex-1 items-center gap-2 mx-2">
-                {children}
-                <UniversalFilters
-                    rootKey="error-tracking"
-                    group={filterGroup}
-                    // TODO: Probably makes sense to create a new taxonomic group for exception-specific event property filters only, keep it clean.
-                    taxonomicGroupTypes={[
-                        TaxonomicFilterGroupType.EventProperties,
-                        TaxonomicFilterGroupType.PersonProperties,
-                        TaxonomicFilterGroupType.Cohorts,
-                    ]}
-                    onChange={setFilterGroup}
-                >
-                    <RecordingsUniversalFilterGroup />
-                </UniversalFilters>
-            </div>
-            <div>
-                <TestAccountFilter
-                    size="small"
-                    filters={{ filter_test_accounts: filterTestAccounts }}
-                    onChange={({ filter_test_accounts }) => {
-                        setFilterTestAccounts(filter_test_accounts || false)
-                    }}
-                />
-            </div>
-        </div>
+        <UniversalFilters
+            rootKey="error-tracking"
+            group={filterGroup}
+            // TODO: Probably makes sense to create a new taxonomic group for exception-specific event property filters only, keep it clean.
+            taxonomicGroupTypes={[
+                TaxonomicFilterGroupType.EventProperties,
+                TaxonomicFilterGroupType.PersonProperties,
+                TaxonomicFilterGroupType.Cohorts,
+            ]}
+            onChange={setFilterGroup}
+        >
+            <RecordingsUniversalFilterGroup />
+        </UniversalFilters>
     )
 }
 
@@ -82,7 +70,7 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
     )
 }
 
-export const Options = (): JSX.Element => {
+const Options = (): JSX.Element => {
     const { dateRange, assignee } = useValues(errorTrackingLogic)
     const { setDateRange, setAssignee } = useActions(errorTrackingLogic)
     const { orderBy } = useValues(errorTrackingSceneLogic)
@@ -153,7 +141,7 @@ export const Options = (): JSX.Element => {
     )
 }
 
-export const UniversalSearch = (): JSX.Element => {
+const UniversalSearch = (): JSX.Element => {
     const { searchQuery } = useValues(errorTrackingLogic)
     const { setSearchQuery } = useActions(errorTrackingLogic)
 
@@ -169,8 +157,39 @@ export const UniversalSearch = (): JSX.Element => {
     )
 }
 
+const InternalAccounts = (): JSX.Element => {
+    const { filterTestAccounts } = useValues(errorTrackingLogic)
+    const { setFilterTestAccounts } = useActions(errorTrackingLogic)
+
+    return (
+        <TestAccountFilter
+            size="small"
+            filters={{ filter_test_accounts: filterTestAccounts }}
+            onChange={({ filter_test_accounts }) => {
+                setFilterTestAccounts(filter_test_accounts || false)
+            }}
+        />
+    )
+}
+
+const InternalAccountsPanelSetting = (): JSX.Element => {
+    const { filterTestAccounts } = useValues(errorTrackingLogic)
+    const { setFilterTestAccounts } = useActions(errorTrackingLogic)
+
+    return (
+        <SettingsToggle
+            onClick={() => setFilterTestAccounts(!filterTestAccounts)}
+            icon={<IconPeople />}
+            label="Show internal people"
+            active={!filterTestAccounts}
+        />
+    )
+}
+
 export default {
     FilterGroup,
     Options,
     UniversalSearch,
+    InternalAccounts,
+    InternalAccountsPanelSetting,
 }

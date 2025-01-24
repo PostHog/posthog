@@ -47,20 +47,15 @@ export const errorTrackingQuery = ({
 export const errorTrackingIssueQuery = ({
     issueId,
     dateRange,
-    filterTestAccounts,
-    filterGroup,
 }: {
     issueId: string
     dateRange: DateRange
-    filterTestAccounts: boolean
-    filterGroup: UniversalFiltersGroup
 }): ErrorTrackingQuery => {
     return {
         kind: NodeKind.ErrorTrackingQuery,
         issueId: issueId,
         dateRange: dateRange,
-        filterGroup: filterGroup as PropertyGroupFilter,
-        filterTestAccounts: filterTestAccounts,
+        filterTestAccounts: false,
     }
 }
 

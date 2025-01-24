@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { errorTrackingIssueSceneLogic } from 'scenes/error-tracking/errorTrackingIssueSceneLogic'
 import { getExceptionAttributes } from 'scenes/error-tracking/utils'
 
-export const OverviewPanel = (): JSX.Element => {
+export const Overview = (): JSX.Element => {
     const { issueProperties, issueLoading } = useValues(errorTrackingIssueSceneLogic)
 
     const { synthetic, level, browser, os, library, unhandled } = getExceptionAttributes(issueProperties)

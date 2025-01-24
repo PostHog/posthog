@@ -1,8 +1,9 @@
 import './ErrorTracking.scss'
 
-import { LemonButton, LemonTabs, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
+import PanelLayout from 'lib/components/PanelLayout/PanelLayout'
 import { useEffect } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -10,9 +11,10 @@ import { ErrorTrackingIssue } from '~/queries/schema'
 
 import { AlphaAccessScenePrompt } from './AlphaAccessScenePrompt'
 import { AssigneeSelect } from './AssigneeSelect'
-import { errorTrackingIssueSceneLogic, IssueTab } from './errorTrackingIssueSceneLogic'
-import { EventsTab } from './issue/tabs/EventsTab'
-import { OverviewTab } from './issue/tabs/OverviewTab'
+import ErrorTrackingFilters from './ErrorTrackingFilters'
+import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
+import { Events } from './issue/Events'
+import { Metadata } from './issue/Metadata'
 
 export const scene: SceneExport = {
     component: ErrorTrackingIssueScene,
@@ -28,8 +30,8 @@ const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueLoading, tab } = useValues(errorTrackingIssueSceneLogic)
-    const { updateIssue, loadIssue, setTab } = useActions(errorTrackingIssueSceneLogic)
+    const { issue, issueLoading } = useValues(errorTrackingIssueSceneLogic)
+    const { updateIssue, loadIssue } = useActions(errorTrackingIssueSceneLogic)
 
     useEffect(() => {
         // don't like doing this but scene logics do not unmount after being loaded
@@ -81,27 +83,40 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                     }
                 />
                 {issue ? (
-                    <LemonTabs
-                        activeKey={tab}
-                        tabs={[
-                            {
-                                key: IssueTab.Overview,
-                                label: 'Overview',
-                                content: <OverviewTab />,
-                            },
-
-                            {
-                                key: IssueTab.Events,
-                                label: 'Events',
-                                content: <EventsTab />,
-                            },
-                        ]}
-                        onChange={setTab}
-                    />
+                    <PanelLayout className="ErrorTrackingPanelLayout">
+                        <PanelLayout.Container column primary={false} className="h-full">
+                            <PanelLayout.Panel primary={false}>
+                                <Metadata />
+                            </PanelLayout.Panel>
+                            <PanelLayout.Panel primary={false}>
+                                <Filters />
+                            </PanelLayout.Panel>
+                        </PanelLayout.Container>
+                        <PanelLayout.Container primary column>
+                            <PanelLayout.Panel primary={false}>
+                                <Events />
+                            </PanelLayout.Panel>
+                        </PanelLayout.Container>
+                    </PanelLayout>
                 ) : (
                     <Spinner />
                 )}
             </>
         </AlphaAccessScenePrompt>
+    )
+}
+
+const Filters = (): JSX.Element => {
+    return (
+        <>
+            <PanelLayout.PanelSettings title="Filters" border="bottom" />
+            <div className="p-2 space-y-2">
+                <ErrorTrackingFilters.UniversalSearch />
+                <ErrorTrackingFilters.FilterGroup />
+            </div>
+            <PanelLayout.PanelSettings border="top">
+                <ErrorTrackingFilters.InternalAccountsPanelSetting />
+            </PanelLayout.PanelSettings>
+        </>
     )
 }

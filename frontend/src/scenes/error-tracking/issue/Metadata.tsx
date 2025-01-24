@@ -5,7 +5,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyLargeNumber } from 'lib/utils'
 import { errorTrackingIssueSceneLogic } from 'scenes/error-tracking/errorTrackingIssueSceneLogic'
 
-export const MetaPanel = (): JSX.Element => {
+export const Metadata = (): JSX.Element => {
     const { issue } = useValues(errorTrackingIssueSceneLogic)
 
     const hasSessionCount = issue && issue.sessions != 0

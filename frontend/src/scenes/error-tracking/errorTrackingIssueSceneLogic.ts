@@ -1,38 +1,41 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { Dayjs } from 'lib/dayjs'
+import { Dayjs, dayjs } from 'lib/dayjs'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ErrorTrackingIssue } from '~/queries/schema'
-import { Breadcrumb, EventType } from '~/types'
+import { DateRange, ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import { Breadcrumb } from '~/types'
 
 import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from './queries'
-
-export interface ErrorTrackingEvent {
-    uuid: string
-    timestamp: Dayjs
-    properties: EventType['properties']
-    person: {
-        distinct_id: string
-        uuid?: string
-        created_at?: string
-        properties?: Record<string, any>
-    }
-}
+import { getExceptionAttributes } from './utils'
 
 export interface ErrorTrackingIssueSceneLogicProps {
     id: ErrorTrackingIssue['id']
 }
 
-export enum IssueTab {
-    Overview = 'overview',
-    Events = 'events',
-    Breakdowns = 'breakdowns',
+function generateIssueDateRange(first_seen: string, last_seen?: string): DateRange {
+    // Minimum 30 days required for Sparkline data
+    const thirtyDaysAgo = dayjs().subtract(30, 'day').startOf('day')
+    const firstSeen = dayjs(first_seen).startOf('day')
+
+    const thirtyDayMinimum = (date: Dayjs, referenceDate: Dayjs): string => {
+        const thirtyDaysPrior = referenceDate.subtract(30, 'day').startOf('day')
+        return date.isSameOrAfter(thirtyDaysPrior) ? thirtyDaysPrior.toISOString() : date.startOf('day').toISOString()
+    }
+
+    if (last_seen) {
+        const lastSeen = dayjs(last_seen).startOf('day')
+
+        if (lastSeen.isBefore(thirtyDaysAgo)) {
+            return { date_to: lastSeen.toISOString(), date_from: thirtyDayMinimum(firstSeen, lastSeen) }
+        }
+        return { date_from: thirtyDaysAgo.toISOString() }
+    }
+    return { date_from: thirtyDayMinimum(firstSeen, dayjs()) }
 }
 
 export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType>([
@@ -41,31 +44,14 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     key((props) => props.id),
 
     connect({
-        values: [errorTrackingLogic, ['dateRange', 'filterTestAccounts', 'filterGroup']],
+        values: [errorTrackingLogic, ['filterTestAccounts', 'filterGroup']],
     }),
 
     actions({
         loadIssue: true,
-        setTab: (tab: IssueTab) => ({ tab }),
-        setActiveEventUUID: (uuid: ErrorTrackingEvent['uuid']) => ({ uuid }),
         setIssue: (issue: ErrorTrackingIssue) => ({ issue }),
         updateIssue: (issue: Partial<Pick<ErrorTrackingIssue, 'assignee' | 'status'>>) => ({ issue }),
     }),
-
-    reducers(() => ({
-        tab: [
-            IssueTab.Overview as IssueTab,
-            {
-                setTab: (_, { tab }) => tab,
-            },
-        ],
-        activeEventUUID: [
-            undefined as ErrorTrackingEvent['uuid'] | undefined,
-            {
-                setActiveEventUUID: (_, { uuid }) => uuid,
-            },
-        ],
-    })),
 
     loaders(({ props, values }) => ({
         issue: [
@@ -75,13 +61,11 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     const response = await api.errorTracking.getIssue(props.id)
                     return { ...values.issue, ...response }
                 },
-                loadClickHouseIssue: async () => {
+                loadClickHouseIssue: async (first_seen: string) => {
                     const response = await api.query(
                         errorTrackingIssueQuery({
                             issueId: props.id,
-                            dateRange: values.dateRange,
-                            filterTestAccounts: values.filterTestAccounts,
-                            filterGroup: values.filterGroup,
+                            dateRange: generateIssueDateRange(first_seen, values.issue?.last_seen),
                         }),
                         {},
                         undefined,
@@ -134,34 +118,22 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             (s) => [s.issue],
             (issue): Record<string, any> => (issue && issue.earliest ? JSON.parse(issue.earliest) : {}),
         ],
+        exceptionAttributes: [(s) => [s.issueProperties], (issueProperties) => getExceptionAttributes(issueProperties)],
+        exceptionList: [(s) => [s.exceptionAttributes], (exceptionAttributes) => exceptionAttributes.exceptionList],
     }),
 
-    listeners(({ actions }) => ({
-        loadIssue: () => actions.loadRelationalIssue(),
-        setIssueSuccess: ({ issue }) => {
-            if (issue && !issue.earliest) {
-                actions.loadIssue()
+    listeners(({ values, actions }) => ({
+        loadIssue: () => {
+            if (!values.issueLoading) {
+                const issue = values.issue
+                if (!issue) {
+                    actions.loadRelationalIssue()
+                } else if (!issue.last_seen) {
+                    actions.loadClickHouseIssue(issue.first_seen)
+                }
             }
         },
-    })),
-
-    actionToUrl(({ values }) => ({
-        setTab: () => {
-            const searchParams = router.values.searchParams
-            if (values.tab == IssueTab.Overview) {
-                delete searchParams['tab']
-            } else {
-                searchParams['tab'] = values.tab
-            }
-            return [router.values.location.pathname, searchParams]
-        },
-    })),
-
-    urlToAction(({ actions }) => ({
-        [urls.errorTrackingIssue('*')]: (_, searchParams) => {
-            if (searchParams.tab) {
-                actions.setTab(searchParams.tab)
-            }
-        },
+        loadRelationalIssueSuccess: ({ issue }) => actions.loadClickHouseIssue(issue.first_seen),
+        setIssueSuccess: () => actions.loadIssue(),
     })),
 ])
