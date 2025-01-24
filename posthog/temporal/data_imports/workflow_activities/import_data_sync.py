@@ -94,6 +94,9 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
         assert schema is not None
         reset_pipeline = schema.sync_type_config.get("reset_pipeline", False) is True
 
+        logger.debug(f"schema.sync_type_config = {schema.sync_type_config}")
+        logger.debug(f"reset_pipeline = {reset_pipeline}")
+
         schema = (
             ExternalDataSchema.objects.prefetch_related("source")
             .exclude(deleted=True)
