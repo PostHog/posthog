@@ -828,6 +828,20 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "test_absolute_exposure": 0,
                 },
             ],
+            [
+                "cohort_static",
+                {
+                    "key": "id",
+                    "type": "static-cohort",
+                    # value is generated in the test
+                    "value": None,
+                    "operator": "exact",
+                },
+                {
+                    "control_absolute_exposure": 2,
+                    "test_absolute_exposure": 1,
+                },
+            ],
         ]
     )
     def test_query_runner_with_internal_filters(self, name: str, filter: dict, expected_results: dict):
@@ -836,6 +850,14 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.team.test_account_filters = [filter]
         self.team.save()
+
+        cohort_static = Cohort.objects.create(
+            team=self.team,
+            name="cohort_static",
+            is_static=True,
+        )
+        if name == "cohort_static":
+            filter["value"] = cohort_static.pk
 
         feature_flag_property = f"$feature/{feature_flag.key}"
         count_query = TrendsQuery(series=[EventsNode(event="$pageview")], filterTestAccounts=True)
@@ -849,6 +871,32 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
         experiment.save()
+
+        _create_person(
+            team=self.team,
+            distinct_ids=["user_control_1"],
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["user_control_2"],
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["user_control_3"],
+            properties={"email": "user_control_3@posthog.com"},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["user_control_6"],
+            properties={"email": "user_control_6@posthog.com"},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["user_test_2"],
+            properties={"email": "user_test_2@posthog.com"},
+        )
+
+        flush_persons_and_events()
 
         # Populate count events
         for variant, count in [("control", 7), ("test", 9)]:
@@ -876,26 +924,10 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     },
                 )
 
-        _create_person(
-            team=self.team,
-            uuid="c8fe7fbb-4d89-45df-96a5-835c6b7269a8",
-            distinct_ids=["user_control_3"],
-            properties={"email": "user_control_3@posthog.com"},
-        )
-        _create_person(
-            team=self.team,
-            uuid="a71d3149-2c3b-4e57-9853-4f2a783b98dd",
-            distinct_ids=["user_control_6"],
-            properties={"email": "user_control_6@posthog.com"},
-        )
-        _create_person(
-            team=self.team,
-            uuid="b82d3149-2c3b-4e57-9853-4f2a783b98dd",
-            distinct_ids=["user_test_2"],
-            properties={"email": "user_test_2@posthog.com"},
-        )
-
         flush_persons_and_events()
+
+        cohort_static.insert_users_by_list(["user_control_1", "user_control_2", "user_test_2"])
+        self.assertEqual(cohort_static.people.count(), 3)
 
         query_runner = ExperimentTrendsQueryRunner(
             query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
