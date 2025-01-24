@@ -7,9 +7,15 @@ on:
             - completed
 
 jobs:
+    what_is_the_outcome:
+        runs-on: ubuntu-latest
+    steps:
+        run: |
+            echo "Debugging failure: Check Suite Payload: ${{ toJson(github.event) }}"
+
     notify_on_failure:
         if: ${{ github.event.check_suite.conclusion == 'failure' }}
-        runs-on: ubuntu-24.04
+        runs-on: ubuntu-latest
 
         steps:
             - name: Checkout code
