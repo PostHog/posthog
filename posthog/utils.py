@@ -349,6 +349,8 @@ def render_template(
         context["sentry_environment"] = sentry_environment
     if stripe_public_key := os.environ.get("STRIPE_PUBLIC_KEY"):
         context["stripe_public_key"] = stripe_public_key
+    if livestream_host := os.environ.get("LIVESTREAM_HOST"):
+        context["livestream_host"] = livestream_host
 
     context["git_rev"] = get_git_commit_short()  # Include commit in prod for the `console.info()` message
     if settings.DEBUG and not settings.TEST:
