@@ -114,11 +114,11 @@ jobs:
                   node-version: 18.12.1
                   cache: pnpm
 
-            - name: Install package.json dependencies with pnpm
-              run: pnpm install --frozen-lockfile
-
-            - name: Build frontend build dependencies
-              run: npx nx build:deps frontend --verbose
+            - name: Build and install frontend build dependencies
+              run: |
+                  pnpm install --frozen-lockfile
+                  npx nx prepare:deps frontend --verbose
+                  npx nx build:deps frontend --verbose
 
             - name: Install CI utilities with pnpm
               run: pnpm install http-server wait-on
