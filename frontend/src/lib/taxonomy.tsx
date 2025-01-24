@@ -179,6 +179,14 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'AI Generation',
             description: 'A call to a generative AI model, e.g. an LLM',
         },
+        $ai_metric: {
+            label: 'AI Metric',
+            description: 'An evaluation metric for a trace of generative AI models (LLMs)',
+        },
+        $ai_feedback: {
+            label: 'AI Feedback',
+            description: 'User-provided feedback for a trace of a generative AI model (LLM)',
+        },
         // Mobile SDKs events
         'Application Opened': {
             label: 'Application Opened',
@@ -1427,6 +1435,21 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'AI Request URL (LLM)',
             description: 'The full URL of the request made to the LLM API',
             examples: ['https://api.openai.com/v1/chat/completions'],
+        },
+        $ai_metric_name: {
+            label: 'AI Metric Name (LLM)',
+            description: 'The name assigned to the metric used to evaluate the LLM trace',
+            examples: ['rating', 'accuracy'],
+        },
+        $ai_metric_value: {
+            label: 'AI Metric Value (LLM)',
+            description: 'The value assigned to the metric used to evaluate the LLM trace',
+            examples: ['"negative"', '95'],
+        },
+        $ai_feedback_text: {
+            label: 'AI Feedback Text (LLM)',
+            description: 'The text provided by the user for feedback on the LLM trace',
+            examples: ['"The response was helpful, but it did not use the provided context."'],
         },
     },
     numerical_event_properties: {}, // Same as event properties, see assignment below
