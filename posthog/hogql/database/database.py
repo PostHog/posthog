@@ -410,9 +410,17 @@ def create_hogql_database(
             )
 
         if "person_id" not in warehouse[warehouse_modifier.table_name].fields.keys():
-            if True:  # TODO: only if we have "events"
+            events_join = next(
+                (
+                    join
+                    for join in DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True)
+                    if join.joining_table_name == "events"
+                ),
+                None,
+            )
+            if events_join:
                 warehouse[warehouse_modifier.table_name].fields["person_id"] = FieldTraverser(
-                    chain=["events", "person_id"]
+                    chain=[events_join.field_name, "person_id"]
                 )
             else:
                 warehouse[warehouse_modifier.table_name].fields["person_id"] = ExpressionField(
