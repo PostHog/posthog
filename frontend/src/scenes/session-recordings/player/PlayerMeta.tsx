@@ -188,7 +188,6 @@ export function PlayerMeta({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
                     <ResolutionView />
                     <div className="flex items-center gap-x-1 ml-2">
                         <PlayerPersonMeta />
-                        {/*<PlayerInspector />*/}
                     </div>
                 </div>
                 <PlayerBottomSettings />
