@@ -154,21 +154,26 @@ export class SessionRecordingIngester {
 
         await runInstrumentedFunction({
             statsKey: `recordingingesterv2.handleEachBatch.processMessages`,
-            func: async () => this.processMessages(processedMessages, context.heartbeat),
+            func: async () => this.processMessages(processedMessages),
         })
+
+        context.heartbeat()
+
+        if (this.sessionBatchManager.shouldFlush()) {
+            await runInstrumentedFunction({
+                statsKey: `recordingingesterv2.handleEachBatch.flush`,
+                func: async () => this.sessionBatchManager.flush(),
+            })
+        }
     }
 
-    private async processMessages(parsedMessages: MessageWithTeam[], heartbeat: () => void) {
+    private async processMessages(parsedMessages: MessageWithTeam[]) {
         await this.sessionBatchManager.withBatch(async (batch) => {
             for (const message of parsedMessages) {
                 this.consume(message, batch)
             }
             return Promise.resolve()
         })
-
-        heartbeat()
-
-        await this.sessionBatchManager.flushIfNeeded()
     }
 
     private consume(message: MessageWithTeam, batch: SessionBatchRecorderInterface) {

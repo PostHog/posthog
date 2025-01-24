@@ -275,7 +275,7 @@ export function PlayerInspectorListItem({
             ref={ref}
             className={clsx(
                 'ml-1 flex flex-col items-center',
-                isExpanded && 'border border-primary',
+                isExpanded && 'border border-accent-primary',
                 isExpanded && item.highlightColor && `border border-${item.highlightColor}-dark`,
                 isHovering && 'bg-bg-light'
             )}
