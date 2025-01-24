@@ -25,7 +25,7 @@ FROM node:18.19.1-bookworm-slim AS frontend-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
-COPY package.json pnpm-lock.yaml project.json nx.json ./
+COPY package.json pnpm-lock.yaml ./
 COPY patches/ patches/
 RUN corepack enable && pnpm --version && \
     mkdir /tmp/pnpm-store && \
@@ -36,8 +36,8 @@ COPY frontend/ frontend/
 COPY products/ products/
 COPY ee/frontend/ ee/frontend/
 COPY ./bin/ ./bin/
-COPY babel.config.js tsconfig.json webpack.config.js tailwind.config.js ./
-RUN npx nx build frontend
+COPY babel.config.js tsconfig.json webpack.config.js tailwind.config.js nx.json project.json ./
+RUN npx nx build posthog-frontend
 
 #
 # ---------------------------------------------------------
