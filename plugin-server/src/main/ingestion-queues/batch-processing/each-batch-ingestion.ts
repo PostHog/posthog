@@ -167,9 +167,9 @@ export async function eachBatchParallelIngestion(
                 // Process every message sequentially, stash promises to await on later
                 for (const { message, pluginEvent } of currentBatch) {
                     try {
+                        const runner = new EventPipelineRunner(queue.pluginsServer, pluginEvent, queue.hogTransformer)
                         const result = (await retryIfRetriable(async () => {
-                            const runner = new EventPipelineRunner(queue.pluginsServer, pluginEvent)
-                            return await runner.runEventPipeline(pluginEvent)
+                            return await runner.runEventPipeline(pluginEvent) // TODO: pass it all the way down boy
                         })) as IngestResult
 
                         result.ackPromises?.forEach((promise) =>

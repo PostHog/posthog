@@ -13,6 +13,7 @@ import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '..
 import { createEventStep } from './createEventStep'
 import { emitEventStep } from './emitEventStep'
 import { extractHeatmapDataStep } from './extractHeatmapDataStep'
+import { HogTransformerService } from './hog-transformations/hog-transformer.service'
 import {
     eventProcessedAndIngestedCounter,
     pipelineLastStepCounter,
@@ -28,7 +29,6 @@ import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
 import { produceExceptionSymbolificationEventStep } from './produceExceptionSymbolificationEventStep'
 import { transformEventStep } from './transformEventStep'
-import { HogTransformerService } from './hog-transformations/hog-transformer.service'
 
 export type EventPipelineResult = {
     // Promises that the batch handler should await on before committing offsets,
@@ -57,11 +57,11 @@ export class EventPipelineRunner {
     eventsProcessor: EventsProcessor
     hogTransformer: HogTransformerService
 
-    constructor(hub: Hub, event: PipelineEvent) {
+    constructor(hub: Hub, event: PipelineEvent, hogTransformer: HogTransformerService) {
         this.hub = hub
         this.originalEvent = event
         this.eventsProcessor = new EventsProcessor(hub)
-        this.hogTransformer = new HogTransformerService(hub)
+        this.hogTransformer = hogTransformer
     }
 
     isEventDisallowed(event: PipelineEvent): boolean {
@@ -228,8 +228,8 @@ export class EventPipelineRunner {
 
         // Pass the hogTransformer to transformEventStep
         const transformedEvent = await this.runStep(
-            transformEventStep, 
-            [this.hub.HOG_TRANSFORMATIONS_ALPHA, processedEvent, this.hogTransformer], 
+            transformEventStep,
+            [this.hub.HOG_TRANSFORMATIONS_ALPHA, processedEvent, this.hogTransformer],
             event.team_id
         )
 

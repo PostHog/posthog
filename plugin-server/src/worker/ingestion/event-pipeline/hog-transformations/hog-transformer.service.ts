@@ -3,7 +3,12 @@ import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { HogExecutorService } from '~/src/cdp/services/hog-executor.service'
 import { HogFunctionManagerService } from '~/src/cdp/services/hog-function-manager.service'
 
-import { HogFunctionInvocation, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../../../../cdp/types'
+import {
+    HogFunctionInvocation,
+    HogFunctionInvocationGlobalsWithInputs,
+    HogFunctionType,
+    HogFunctionTypeType,
+} from '../../../../cdp/types'
 import { createInvocation } from '../../../../cdp/utils'
 import { runInstrumentedFunction } from '../../../../main/utils'
 import { Hub } from '../../../../types'
@@ -61,6 +66,7 @@ export class HogTransformerService {
 
     private createHogFunctionInvocation(event: PluginEvent, hogFunction: HogFunctionType): HogFunctionInvocation {
         const globals = this.createInvocationGlobals(event)
+
         return createInvocation(globals, hogFunction)
     }
 
@@ -86,6 +92,11 @@ export class HogTransformerService {
         return true
     }
 
+    public async start(): Promise<void> {
+        const hogTypes: HogFunctionTypeType[] = ['transformation']
+        await this.hogFunctionManager.start(hogTypes)
+    }
+
     public transformEvent(event: PluginEvent): Promise<PluginEvent> {
         return runInstrumentedFunction({
             statsKey: `hogTransformer`,
@@ -94,13 +105,11 @@ export class HogTransformerService {
             func: async () => {
                 const teamHogFunctions = this.hogFunctionManager.getTeamHogFunctions(event.team_id)
                 const transformationFunctions = this.getTransformationFunctions()
-
                 // For now, execute each transformation function in sequence
                 // Later we can add support for chaining/ordering
                 for (const hogFunction of teamHogFunctions) {
                     const invocation = this.createHogFunctionInvocation(event, hogFunction)
                     const result = this.hogExecutor.execute(invocation, { functions: transformationFunctions })
-
                     if (result.error) {
                         status.warn('⚠️', 'Error in transformation', {
                             error: result.error,
