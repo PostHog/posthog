@@ -956,10 +956,10 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         flush_persons_and_events()
 
-        if name == "cohort_static":
+        if name == "cohort_static" and cohort:
             cohort.insert_users_by_list(["user_control_1", "user_control_2", "user_test_2"])
             self.assertEqual(cohort.people.count(), 3)
-        elif name == "cohort_dynamic":
+        elif name == "cohort_dynamic" and cohort:
             cohort.calculate_people_ch(pending_version=0)
 
         query_runner = ExperimentTrendsQueryRunner(
@@ -1470,10 +1470,10 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         flush_persons_and_events()
 
-        if "cohort_static" in name:
+        if name == "cohort_static" and cohort:
             cohort.insert_users_by_list(["distinct_control_0", "internal_test_1"])
             self.assertEqual(cohort.people.count(), 2)
-        elif name == "cohort_dynamic":
+        elif name == "cohort_dynamic" and cohort:
             cohort.calculate_people_ch(pending_version=0)
 
         query_runner = ExperimentTrendsQueryRunner(
