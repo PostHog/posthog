@@ -2,11 +2,9 @@
     "$schema": "./node_modules/nx/schemas/nx-schema.json",
     "targetDefaults": {
         "build": {
-            "outputs": ["{projectRoot}/frontend/dist"],
             "cache": true
         },
-        "build:esbuild": {
-            "outputs": ["{projectRoot}/frontend/dist"],
+        "test": {
             "cache": true
         }
     },

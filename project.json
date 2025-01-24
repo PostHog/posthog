@@ -9,7 +9,8 @@
             "executor": "nx:run-commands",
             "options": {
                 "commands": ["npm start"]
-            }
+            },
+            "dependsOn": ["^build"]
         },
         "build": {
             "executor": "nx:run-commands",
