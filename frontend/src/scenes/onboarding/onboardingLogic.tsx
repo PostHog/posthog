@@ -10,6 +10,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import {
     AvailableOnboardingProducts,
     BillingProductV2AddonType,
@@ -17,6 +18,7 @@ import {
     OnboardingProduct,
     ProductKey,
     ReplayTabs,
+    SidePanelTab,
 } from '~/types'
 
 import type { onboardingLogicType } from './onboardingLogicType'
@@ -142,12 +144,16 @@ export const onboardingLogic = kea<onboardingLogicType>([
             ['isCloudOrDev'],
             replayLandingPageLogic,
             ['replayLandingPage'],
+            activationLogic,
+            ['isReady'],
         ],
         actions: [
             billingLogic,
             ['loadBillingSuccess'],
             teamLogic,
             ['updateCurrentTeam', 'updateCurrentTeamSuccess', 'recordProductIntentOnboardingComplete'],
+            activationLogic,
+            ['openSidePanel'],
         ],
     }),
     actions({
@@ -375,6 +381,10 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     actions.setProductKey(nextProductKey)
                     router.actions.push(urls.onboarding(nextProductKey))
                 }
+            }
+
+            if (activationLogic.values.isReady && values.isFirstProductOnboarding) {
+                activationLogic.actions.openSidePanel(SidePanelTab.Activation)
             }
         },
         setAllOnboardingSteps: () => {

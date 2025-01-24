@@ -60,7 +60,7 @@ export const activationLogic = kea<activationLogicType>([
         ],
         actions: [
             inviteLogic,
-            ['showInviteModal', 'loadInvitesSuccess', 'loadInvitesFailure'],
+            ['showInviteModal', 'loadInvitesSuccess', 'loadInvitesFailure', 'loadInvites'],
             sidePanelStateLogic,
             ['openSidePanel'],
             savedInsightsLogic,
@@ -338,6 +338,7 @@ export const activationLogic = kea<activationLogicType>([
         afterMount: () => {
             actions.loadCustomEvents()
             actions.loadInsights()
+            actions.loadInvites()
         },
     })),
     permanentlyMount(),

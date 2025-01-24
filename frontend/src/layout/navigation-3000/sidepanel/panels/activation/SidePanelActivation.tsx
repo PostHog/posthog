@@ -1,5 +1,6 @@
 import { IconCheckCircle, IconX } from '@posthog/icons'
 import { LemonButton, LemonButtonWithSideActionProps } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ProfessorHog } from 'lib/components/hedgehogs'
 import { LemonIconProps } from 'lib/lemon-ui/icons'
@@ -65,7 +66,12 @@ export const SidePanelActivationIcon = ({ className }: { className: LemonIconPro
     const { activeTasks, completionPercent } = useValues(activationLogic)
 
     return (
-        <LemonProgressCircle progress={completionPercent / 100} strokePercentage={0.15} size={20} className={className}>
+        <LemonProgressCircle
+            progress={completionPercent / 100}
+            strokePercentage={0.15}
+            size={20}
+            className={clsx('text-accent-primary', className)}
+        >
             <span className="text-xs font-semibold">{activeTasks.length}</span>
         </LemonProgressCircle>
     )
