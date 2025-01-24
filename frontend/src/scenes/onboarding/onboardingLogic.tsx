@@ -1,5 +1,6 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -146,6 +147,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
             ['replayLandingPage'],
             activationLogic,
             ['isReady'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             billingLogic,
@@ -383,8 +386,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 }
             }
 
-            if (activationLogic.values.isReady && values.isFirstProductOnboarding) {
-                activationLogic.actions.openSidePanel(SidePanelTab.Activation)
+            if (
+                values.isReady &&
+                values.isFirstProductOnboarding &&
+                featureFlagLogic.values.featureFlags['OPEN_QUICK_START_AFTER_ONBOARDING']
+            ) {
+                actions.openSidePanel(SidePanelTab.Activation)
             }
         },
         setAllOnboardingSteps: () => {

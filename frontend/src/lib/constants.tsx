@@ -238,6 +238,7 @@ export const FEATURE_FLAGS = {
     WEB_VITALS: 'web-vitals', // owner: @rafaeelaudibert #team-web-analytics
     LLM_OBSERVABILITY: 'llm-observability', // owner: #team-ai-product-manager
     ONBOARDING_SESSION_REPLAY_SEPERATE_STEP: 'onboarding-session-replay-separate-step', // owner: @joshsny #team-growth
+    OPEN_QUICK_START_AFTER_ONBOARDING: 'open-quick-start-after-onboarding', // owner: @joshsny #team-growth
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
