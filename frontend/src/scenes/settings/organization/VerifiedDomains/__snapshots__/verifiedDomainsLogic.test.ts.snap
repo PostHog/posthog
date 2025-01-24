@@ -96,6 +96,9 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "recording_domains": [
           "https://recordings.posthog.com/",
         ],
+        "revenue_tracking_config": {
+          "events": [],
+        },
         "session_recording_linked_flag": null,
         "session_recording_minimum_duration_milliseconds": null,
         "session_recording_network_payload_capture_config": {
