@@ -1,14 +1,14 @@
 .LemonTable {
     --row-base-height: auto;
     --row-horizontal-padding: 1rem;
-    --lemon-table-background-color: var(--bg-table);
+    --lemon-table-background-color: var(--surface-primary);
 
     position: relative;
     flex: 1;
     width: 100%;
     overflow: hidden;
     font-size: 13px;
-    background: var(--lemon-table-background-color);
+    background: var(--lemon-table-background-color) !important;
     border: 1px solid var(--border);
     border-radius: var(--radius);
 
@@ -146,7 +146,7 @@
 
             &.LemonTable__expansion {
                 position: relative;
-                background: var(--bg-3000);
+                background: var(--bg-primary);
 
                 > td {
                     // Disable padding inside the expansion for better tailored placement of contents
