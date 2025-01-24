@@ -253,7 +253,7 @@ def get_decide(request: HttpRequest):
     is_request_sampled_for_logging = random() < settings.DECIDE_REQUEST_LOGGING_SAMPLING_RATE
     if team:
         if is_request_sampled_for_logging:
-            logger.info(
+            logger.warn(
                 "DECIDE_REQUEST_STARTED",
                 team_id=team.id,
                 distinct_id=data.get("distinct_id", None),
@@ -337,7 +337,7 @@ def get_decide(request: HttpRequest):
             ).inc()
 
             if is_request_sampled_for_logging:
-                logger.info(
+                logger.warn(
                     "DECIDE_REQUEST_SUCCEEDED",
                     team_id=team.id,
                     distinct_id=distinct_id,
