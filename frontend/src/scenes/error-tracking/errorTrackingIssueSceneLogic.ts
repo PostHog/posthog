@@ -68,7 +68,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                         }),
                         {},
                         undefined,
-                        'force_blocking'
+                        'lazy_async'
                     )
 
                     // ErrorTrackingQuery returns a list of issues

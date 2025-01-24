@@ -1,9 +1,12 @@
 import { IconInfo } from '@posthog/icons'
 import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyLargeNumber } from 'lib/utils'
 import { errorTrackingIssueSceneLogic } from 'scenes/error-tracking/errorTrackingIssueSceneLogic'
+
+import { sparklineLabelsDay, sparklineLabelsMonth } from '../utils'
 
 export const Metadata = (): JSX.Element => {
     const { issue } = useValues(errorTrackingIssueSceneLogic)
@@ -66,6 +69,28 @@ export const Metadata = (): JSX.Element => {
                     <div className="text-2xl font-semibold">
                         <Count value={issue?.aggregations?.users} />
                     </div>
+                </div>
+            </div>
+            <div className="space-y-1">
+                <div className="text-muted text-xs">Last 24 hours</div>
+                <div>
+                    <Sparkline
+                        loading={!issue?.aggregations?.volumeDay}
+                        className="h-12"
+                        data={issue?.aggregations?.volumeDay || Array(24).fill(0)}
+                        labels={sparklineLabelsDay}
+                    />
+                </div>
+            </div>
+            <div className="space-y-1">
+                <div className="text-muted text-xs">Last month</div>
+                <div>
+                    <Sparkline
+                        loading={!issue?.aggregations?.volumeMonth}
+                        className="h-12"
+                        data={issue?.aggregations?.volumeMonth || Array(31).fill(0)}
+                        labels={sparklineLabelsMonth}
+                    />
                 </div>
             </div>
         </div>
