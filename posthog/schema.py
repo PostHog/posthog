@@ -2255,12 +2255,15 @@ class LLMTrace(BaseModel):
     events: list[LLMTraceEvent]
     id: str
     inputCost: Optional[float] = None
+    inputState: Optional[Any] = None
     inputTokens: Optional[float] = None
     outputCost: Optional[float] = None
+    outputState: Optional[Any] = None
     outputTokens: Optional[float] = None
     person: LLMTracePerson
     totalCost: Optional[float] = None
     totalLatency: Optional[float] = None
+    traceName: Optional[str] = None
 
 
 class LifecycleFilter(BaseModel):

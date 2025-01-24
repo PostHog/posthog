@@ -8920,12 +8920,14 @@
                 "inputCost": {
                     "type": "number"
                 },
+                "inputState": {},
                 "inputTokens": {
                     "type": "number"
                 },
                 "outputCost": {
                     "type": "number"
                 },
+                "outputState": {},
                 "outputTokens": {
                     "type": "number"
                 },
@@ -8937,6 +8939,9 @@
                 },
                 "totalLatency": {
                     "type": "number"
+                },
+                "traceName": {
+                    "type": "string"
                 }
             },
             "required": ["id", "createdAt", "person", "events"],
