@@ -16,6 +16,17 @@
             "skipFiles": ["${workspaceFolder}/node_modules/kea-typegen/**/*.js"]
         },
         {
+            "name": "Frontend (no typegen)",
+            "command": "pnpm start-http",
+            "request": "launch",
+            "type": "node-terminal",
+            "cwd": "${workspaceFolder}",
+            "presentation": {
+                "group": "main"
+            },
+            "skipFiles": ["${workspaceFolder}/node_modules/kea-typegen/**/*.js"]
+        },
+        {
             "name": "Frontend (https)",
             "command": "pnpm start",
             "request": "launch",
