@@ -1,7 +1,12 @@
-import { EntityType, FeatureFlagFilters, InsightType } from '~/types'
+import metricFunnelEventsJson from '~/mocks/fixtures/api/experiments/_metric_funnel_events.json'
+import metricTrendActionJson from '~/mocks/fixtures/api/experiments/_metric_trend_action.json'
+import metricTrendCustomExposureJson from '~/mocks/fixtures/api/experiments/_metric_trend_custom_exposure.json'
+import metricTrendFeatureFlagCalledJson from '~/mocks/fixtures/api/experiments/_metric_trend_feature_flag_called.json'
+import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
+import { EntityType, FeatureFlagFilters, InsightType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { getNiceTickValues } from './MetricsView/MetricsView'
-import { getMinimumDetectableEffect, transformFiltersForWinningVariant } from './utils'
+import { getMinimumDetectableEffect, getViewRecordingFilters, transformFiltersForWinningVariant } from './utils'
 
 describe('utils', () => {
     it('Funnel experiment returns correct MDE', async () => {
@@ -233,5 +238,150 @@ describe('getNiceTickValues', () => {
 
         // Larger values
         expect(getNiceTickValues(8.5)).toEqual([-10, -8, -6, -4, -2, 0, 2, 4, 6, 8, 10])
+    })
+})
+
+describe('getViewRecordingFilters', () => {
+    const featureFlagKey = 'jan-16-running'
+
+    it('returns the correct filters for a funnel metric', () => {
+        const filters = getViewRecordingFilters(
+            metricFunnelEventsJson as ExperimentFunnelsQuery,
+            featureFlagKey,
+            'control'
+        )
+        expect(filters).toEqual([
+            {
+                id: '[jan-16-running] seen',
+                name: '[jan-16-running] seen',
+                type: 'events',
+                properties: [
+                    {
+                        key: `$feature/${featureFlagKey}`,
+                        type: PropertyFilterType.Event,
+                        value: ['control'],
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+            },
+            {
+                id: '[jan-16-running] payment',
+                name: '[jan-16-running] payment',
+                type: 'events',
+                properties: [
+                    {
+                        key: `$feature/${featureFlagKey}`,
+                        type: PropertyFilterType.Event,
+                        value: ['control'],
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+            },
+        ])
+    })
+    it('returns the correct filters for a trend metric', () => {
+        const filters = getViewRecordingFilters(
+            metricTrendFeatureFlagCalledJson as ExperimentTrendsQuery,
+            featureFlagKey,
+            'test'
+        )
+        expect(filters).toEqual([
+            {
+                id: '$feature_flag_called',
+                name: '$feature_flag_called',
+                type: 'events',
+                properties: [
+                    {
+                        key: '$feature_flag_response',
+                        type: PropertyFilterType.Event,
+                        value: ['test'],
+                        operator: PropertyOperator.Exact,
+                    },
+                    {
+                        key: '$feature_flag',
+                        type: PropertyFilterType.Event,
+                        value: 'jan-16-running',
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+            },
+            {
+                id: '[jan-16-running] event one',
+                name: '[jan-16-running] event one',
+                type: 'events',
+                properties: [
+                    {
+                        key: `$feature/${featureFlagKey}`,
+                        type: PropertyFilterType.Event,
+                        value: ['test'],
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+            },
+        ])
+    })
+    it('returns the correct filters for a trend metric with custom exposure', () => {
+        const filters = getViewRecordingFilters(
+            metricTrendCustomExposureJson as ExperimentTrendsQuery,
+            featureFlagKey,
+            'test'
+        )
+        expect(filters).toEqual([
+            {
+                id: '[jan-16-running] event zero',
+                name: '[jan-16-running] event zero',
+                type: 'events',
+                properties: [
+                    {
+                        key: `$feature/${featureFlagKey}`,
+                        type: PropertyFilterType.Event,
+                        value: ['test'],
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+            },
+            {
+                id: '[jan-16-running] event one',
+                name: '[jan-16-running] event one',
+                type: 'events',
+                properties: [
+                    {
+                        key: `$feature/${featureFlagKey}`,
+                        type: PropertyFilterType.Event,
+                        value: ['test'],
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+            },
+        ])
+    })
+    it('returns the correct filters for a trend metric with an action', () => {
+        const filters = getViewRecordingFilters(metricTrendActionJson as ExperimentTrendsQuery, featureFlagKey, 'test')
+        expect(filters).toEqual([
+            {
+                id: '$feature_flag_called',
+                name: '$feature_flag_called',
+                type: 'events',
+                properties: [
+                    {
+                        key: '$feature_flag_response',
+                        type: PropertyFilterType.Event,
+                        value: ['test'],
+                        operator: PropertyOperator.Exact,
+                    },
+                    {
+                        key: '$feature_flag',
+                        type: PropertyFilterType.Event,
+                        value: 'jan-16-running',
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+            },
+            {
+                id: 8,
+                name: 'jan-16-running payment action',
+                type: 'actions',
+            },
+        ])
     })
 })

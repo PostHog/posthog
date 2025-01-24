@@ -39,24 +39,22 @@ export function WebVitalsPathBreakdown(props: {
     const webVitalsQueryResponse = response as WebVitalsPathBreakdownQueryResponse | undefined
 
     return (
-        <div className="border rounded bg-bg-muted flex-1 flex flex-col min-h-60 h-full">
-            <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x h-full">
-                <div className="p-4">
-                    <Header band="good" label="Good" />
-                    <Content band="good" response={webVitalsQueryResponse} responseLoading={responseLoading} />
-                </div>
-                <div className="p-4">
-                    <Header band="needs_improvements" label="Needs Improvements" />
-                    <Content
-                        band="needs_improvements"
-                        response={webVitalsQueryResponse}
-                        responseLoading={responseLoading}
-                    />
-                </div>
-                <div className="p-4">
-                    <Header band="poor" label="Poor" />
-                    <Content band="poor" response={webVitalsQueryResponse} responseLoading={responseLoading} />
-                </div>
+        <div className="border rounded bg-bg-muted grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x min-h-60 h-full">
+            <div className="p-4">
+                <Header band="good" label="Good" />
+                <Content band="good" response={webVitalsQueryResponse} responseLoading={responseLoading} />
+            </div>
+            <div className="p-4">
+                <Header band="needs_improvements" label="Needs Improvements" />
+                <Content
+                    band="needs_improvements"
+                    response={webVitalsQueryResponse}
+                    responseLoading={responseLoading}
+                />
+            </div>
+            <div className="p-4">
+                <Header band="poor" label="Poor" />
+                <Content band="poor" response={webVitalsQueryResponse} responseLoading={responseLoading} />
             </div>
         </div>
     )
@@ -157,7 +155,7 @@ const Content = ({
                                 <div
                                     className="absolute top-0 left-0 h-full"
                                     // eslint-disable-next-line react/forbid-dom-props
-                                    style={{ width, backgroundColor: 'var(--neutral-250)', opacity: 0.5 }}
+                                    style={{ width, backgroundColor: 'var(--muted)', opacity: 0.5 }}
                                 />
                                 <span title={path} className="relative z-10 truncate mr-2 flex-1">
                                     {path}
