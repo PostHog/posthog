@@ -278,6 +278,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             const previousLength = values.localFilters.length
             const newLength = previousLength + 1
             const order = filter.order ?? values.localFilters[previousLength - 1].order
+
             const newFilters = [...values.localFilters]
             for (const _filter of newFilters) {
                 // Because duplicate filters are inserted within the current filters we need to move over the remaining filers
@@ -285,12 +286,13 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                     _filter.order = _filter.order + 1
                 }
             }
-            newFilters.splice(order, 0, {
+            newFilters.splice(order + 1, 0, {
                 ...filter,
                 uuid: uuid(),
                 custom_name: undefined,
                 order: order + 1,
             } as LocalFilter)
+
             actions.setFilters(newFilters)
             actions.setEntityFilterVisibility(order + 1, values.entityFilterVisible[order])
             eventUsageLogic.actions.reportInsightFilterAdded(newLength, GraphSeriesAddedSource.Duplicate)
