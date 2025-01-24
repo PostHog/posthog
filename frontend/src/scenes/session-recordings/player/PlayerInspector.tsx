@@ -20,8 +20,13 @@ export function PlayerInspector(): JSX.Element {
     }
 
     return (
-        <LemonButton size="xsmall" tooltip="Inspector" icon={<IconUnverifiedEvent />} onClick={handleClick}>
-            Inspector
+        <LemonButton
+            size="xsmall"
+            tooltip="View all activities from this session, including events, console logs, network requests, and an overview. Explore what happened in detail."
+            icon={<IconUnverifiedEvent />}
+            onClick={handleClick}
+        >
+            Activity
         </LemonButton>
     )
 }
