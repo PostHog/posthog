@@ -18,6 +18,7 @@ export enum ProductIntentContext {
 
     // Cross Sells
     TAXONOMIC_FILTER_EMPTY_STATE = 'taxonomic filter empty state',
+    WEB_ANALYTICS_INSIGHT = 'web_analytics_insight',
 }
 
 export type ProductIntentMetadata = Record<string, unknown>

@@ -175,6 +175,10 @@ function InspectDOM(): JSX.Element {
 }
 
 function PlayerBottomSettings(): JSX.Element {
+    const {
+        logicProps: { noInspector },
+    } = useValues(sessionRecordingPlayerLogic)
+
     return (
         <SettingsBar border="top" className="justify-between">
             <div className="flex flex-row gap-0.5">
@@ -183,7 +187,7 @@ function PlayerBottomSettings(): JSX.Element {
                 <SetPlaybackSpeed />
                 <SetTimeFormat />
             </div>
-            <InspectDOM />
+            {noInspector ? null : <InspectDOM />}
         </SettingsBar>
     )
 }

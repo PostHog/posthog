@@ -671,7 +671,8 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.setExperiment({ type: type })
         },
         loadExperimentSuccess: async ({ experiment }) => {
-            experiment && actions.reportExperimentViewed(experiment)
+            const duration = experiment?.start_date ? dayjs().diff(experiment.start_date, 'second') : null
+            experiment && actions.reportExperimentViewed(experiment, duration)
 
             if (experiment?.start_date) {
                 actions.loadMetricResults()

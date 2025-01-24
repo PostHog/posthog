@@ -36,9 +36,9 @@
     }
 
     &.LemonTag--highlight {
-        color: var(--highlight);
+        color: var(--accent-primary);
         background: none;
-        border-color: var(--highlight);
+        border-color: var(--accent-primary);
     }
 
     &.LemonTag--warning {
@@ -87,7 +87,7 @@
         line-height: 16px;
         color: var(--primary-alt);
         vertical-align: bottom;
-        background-color: var(--primary-highlight);
+        background-color: var(--accent-primary-highlight);
         border-radius: 40px;
     }
 
