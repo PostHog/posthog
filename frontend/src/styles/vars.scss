@@ -298,7 +298,9 @@ $_lifecycle_dormant: map.get($colors, 'danger');
     --border-3000: var(--border-3000-light);
     --border-light-opaque: #eee;
     --border-bold-3000: var(--border-bold-3000-light);
-    --glass-bg-3000: var(--glass-bg-3000-light);
+
+    // --glass-bg-3000: var(--glass-bg-3000-light);
+    --glass-bg-3000: var(--surface-tertiary); // var(--glass-bg-3000-light);
     --glass-border-3000: var(--glass-border-3000-light);
     --bg-light: #fff;
     --bg-table: #f9faf7;
@@ -336,7 +338,9 @@ $_lifecycle_dormant: map.get($colors, 'danger');
     --border-3000: var(--border-3000-dark);
     --border-light-opaque: #1e2028;
     --border-bold-3000: var(--border-bold-3000-dark);
-    --glass-bg-3000: var(--glass-bg-3000-dark);
+
+    // --glass-bg-3000: var(--glass-bg-3000-dark);
+    --glass-bg-3000: var(--surface-quaternary);
     --glass-border-3000: var(--glass-border-3000-dark);
     --bg-light: var(--accent-3000);
     --bg-table: #232429;

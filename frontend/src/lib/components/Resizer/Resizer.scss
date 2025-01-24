@@ -94,11 +94,12 @@
 
     &:hover .Resizer__handle::after,
     &--resizing .Resizer__handle::after {
+        outline: 3px solid var(--accent-primary);
         opacity: 0.25;
     }
 
     &--resizing .Resizer__handle::before,
     &--resizing .Resizer__handle::after {
-        transform: var(--scale);
+        cursor: grabbing;
     }
 }

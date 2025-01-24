@@ -10,7 +10,7 @@
     width: 100%;
     height: 100vh;
     overflow: hidden;
-    background: var(--bg-3000);
+    background: var(--bg-primary);
 
     .storybook-test-runner & {
         height: auto;
@@ -97,7 +97,7 @@
         flex-direction: column;
         justify-content: space-between;
         overflow-y: auto;
-        background: var(--accent-3000);
+        background: var(--surface-secondary);
 
         .LemonButton__chrome {
             --lemon-button-padding-horizontal: 0.25rem !important;

@@ -43,6 +43,15 @@ input[type='search'] {
     }
 }
 
+body.is-resizing {
+    cursor: grabbing !important;
+
+    // Disable pointer events on all elements except the resizer
+    *:not(.Resizer) {
+        pointer-events: none;
+    }
+}
+
 .page-title-row {
     display: flex;
     flex-wrap: wrap;
