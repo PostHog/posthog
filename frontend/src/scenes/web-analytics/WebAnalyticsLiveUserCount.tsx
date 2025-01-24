@@ -29,7 +29,7 @@ export const WebAnalyticsLiveUserCount = (): JSX.Element | null => {
     return (
         <div className="flex flex-row items-center flex-1 justify-center sm:justify-start">
             <Tooltip title={tooltip}>
-                <span className="whitespace-nowrap">
+                <span className="whitespace-nowrap" data-attr="web-analytics-live-user-count">
                     <IconLive /> <strong>{humanFriendlyLargeNumber(liveUserCount)}</strong> currently online
                 </span>
             </Tooltip>

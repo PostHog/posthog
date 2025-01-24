@@ -63,14 +63,13 @@ class TracesQueryRunner(QueryRunner):
         )
 
     def to_query(self) -> ast.SelectQuery:
-        query = self._get_event_query()
-        query.where = self._get_where_clause()
-        return query
+        return self._get_event_query()
 
     def calculate(self):
         with self.timings.measure("traces_query_hogql_execute"):
             query_result = self.paginator.execute_hogql_query(
                 query=self.to_query(),
+                placeholders={"common_conditions": self._get_where_clause()},
                 team=self.team,
                 query_type=NodeKind.TRACES_QUERY,
                 timings=self.timings,
@@ -108,7 +107,7 @@ class TracesQueryRunner(QueryRunner):
 
         for result in mapped_results:
             # Exclude traces that are outside of the capture range.
-            timestamp_dt = cast(datetime, result["trace_timestamp"])
+            timestamp_dt = cast(datetime, result["first_timestamp"])
             if (
                 timestamp_dt < self._date_range.date_from_for_filtering()
                 or timestamp_dt > self._date_range.date_to_for_filtering()
@@ -125,12 +124,15 @@ class TracesQueryRunner(QueryRunner):
             "created_at": "createdAt",
             "person": "person",
             "total_latency": "totalLatency",
+            "input_state_parsed": "inputState",
+            "output_state_parsed": "outputState",
             "input_tokens": "inputTokens",
             "output_tokens": "outputTokens",
             "input_cost": "inputCost",
             "output_cost": "outputCost",
             "total_cost": "totalCost",
             "events": "events",
+            "trace_name": "traceName",
         }
 
         generations = []
@@ -143,6 +145,14 @@ class TracesQueryRunner(QueryRunner):
             "person": self._map_person(result["first_person"]),
             "events": generations,
         }
+        try:
+            trace_dict["input_state_parsed"] = orjson.loads(trace_dict["input_state"])
+        except (TypeError, orjson.JSONDecodeError):
+            pass
+        try:
+            trace_dict["output_state_parsed"] = orjson.loads(trace_dict["output_state"])
+        except (TypeError, orjson.JSONDecodeError):
+            pass
         # Remap keys from snake case to camel case
         trace = LLMTrace.model_validate(
             {TRACE_FIELDS_MAPPING[key]: value for key, value in trace_dict.items() if key in TRACE_FIELDS_MAPPING}
@@ -172,10 +182,28 @@ class TracesQueryRunner(QueryRunner):
     def _get_event_query(self) -> ast.SelectQuery:
         query = parse_select(
             """
+            SELECT
+                generations.id AS id,
+                generations.first_timestamp AS first_timestamp,
+                generations.first_person AS first_person,
+                generations.total_latency AS total_latency,
+                generations.input_tokens AS input_tokens,
+                generations.output_tokens AS output_tokens,
+                generations.input_cost AS input_cost,
+                generations.output_cost AS output_cost,
+                generations.total_cost AS total_cost,
+                generations.events AS events,
+                traces.input_state AS input_state,
+                traces.output_state AS output_state,
+                traces.trace_name AS trace_name
+            FROM (
                 SELECT
                     properties.$ai_trace_id as id,
-                    min(timestamp) as trace_timestamp,
-                    tuple(max(person.id), max(distinct_id), max(person.created_at), max(person.properties)) as first_person,
+                    min(timestamp) as first_timestamp,
+                    tuple(
+                        argMin(person.id, timestamp), argMin(distinct_id, timestamp),
+                        argMin(person.created_at, timestamp), argMin(person.properties, timestamp)
+                    ) as first_person,
                     round(toFloat(sum(properties.$ai_latency)), 2) as total_latency,
                     sum(properties.$ai_input_tokens) as input_tokens,
                     sum(properties.$ai_output_tokens) as output_tokens,
@@ -183,33 +211,36 @@ class TracesQueryRunner(QueryRunner):
                     round(toFloat(sum(properties.$ai_output_cost_usd)), 4) as output_cost,
                     round(toFloat(sum(properties.$ai_total_cost_usd)), 4) as total_cost,
                     arraySort(x -> x.3, groupArray(tuple(uuid, event, timestamp, properties))) as events
-                FROM
-                    events
-                GROUP BY
-                    id
-                ORDER BY
-                    trace_timestamp DESC
+                FROM events
+                WHERE event = '$ai_generation' AND {common_conditions}
+                GROUP BY id
+            ) AS generations
+            LEFT JOIN (
+                SELECT
+                    properties.$ai_trace_id as id,
+                    argMin(properties.$ai_input_state, timestamp) as input_state,
+                    argMin(properties.$ai_output_state, timestamp) as output_state,
+                    argMin(properties.$ai_trace_name, timestamp) as trace_name,
+                FROM events
+                WHERE event = '$ai_trace' AND {common_conditions}
+                GROUP BY id -- In case there are multiple trace events for the same trace ID, an unexpected but possible case
+            ) AS traces
+            ON traces.id = generations.id
+            ORDER BY first_timestamp DESC
             """
         )
         return cast(ast.SelectQuery, query)
 
     def _get_where_clause(self):
-        timestamp_field = ast.Field(chain=["events", "timestamp"])
-
         where_exprs: list[ast.Expr] = [
             ast.CompareOperation(
-                left=ast.Field(chain=["event"]),
-                op=ast.CompareOperationOp.Eq,
-                right=ast.Constant(value="$ai_generation"),
-            ),
-            ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
-                left=timestamp_field,
+                left=ast.Field(chain=["events", "timestamp"]),
                 right=self._date_range.date_from_as_hogql(),
             ),
             ast.CompareOperation(
                 op=ast.CompareOperationOp.LtEq,
-                left=timestamp_field,
+                left=ast.Field(chain=["events", "timestamp"]),
                 right=self._date_range.date_to_as_hogql(),
             ),
         ]

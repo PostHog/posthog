@@ -2,20 +2,15 @@ import { MessageHeader } from 'node-rdkafka'
 
 import { status } from '../../../../utils/status'
 import { MessageWithTeam } from '../teams/types'
-import { BatchMessageProcessor, CaptureIngestionWarningFn } from '../types'
+import { CaptureIngestionWarningFn } from '../types'
 import { VersionMetrics } from './version-metrics'
 
-export class LibVersionMonitor<TInput> implements BatchMessageProcessor<TInput, MessageWithTeam> {
-    constructor(
-        private readonly sourceProcessor: BatchMessageProcessor<TInput, MessageWithTeam>,
-        private readonly captureWarning: CaptureIngestionWarningFn,
-        private readonly metrics: VersionMetrics
-    ) {}
+export class LibVersionMonitor {
+    constructor(private readonly captureWarning: CaptureIngestionWarningFn, private readonly metrics: VersionMetrics) {}
 
-    public async parseBatch(messages: TInput[]): Promise<MessageWithTeam[]> {
-        const processedMessages = await this.sourceProcessor.parseBatch(messages)
-        await Promise.all(processedMessages.map((message) => this.checkLibVersion(message)))
-        return processedMessages
+    public async processBatch(messages: MessageWithTeam[]): Promise<MessageWithTeam[]> {
+        await Promise.all(messages.map((message) => this.checkLibVersion(message)))
+        return messages
     }
 
     private async checkLibVersion(message: MessageWithTeam): Promise<void> {
