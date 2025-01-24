@@ -103,6 +103,7 @@ const NEW_FLAG: FeatureFlagType = {
     user_access_level: 'editor',
     tags: [],
     is_remote_configuration: false,
+    has_encrypted_payloads: false,
 }
 const NEW_VARIANT = {
     key: '',
