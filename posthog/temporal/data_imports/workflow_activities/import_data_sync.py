@@ -101,24 +101,26 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
         )
 
         endpoints = [schema.name]
+        processed_incremental_last_value = None
 
-        if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE_V2:
-            # Get the V2 last value, if it's not set yet (e.g. the first run), then fallback to the V1 value
-            processed_incremental_last_value = process_incremental_last_value(
-                schema.sync_type_config.get("incremental_field_last_value_v2"),
-                schema.sync_type_config.get("incremental_field_type"),
-            )
+        if reset_pipeline is not True:
+            if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE_V2:
+                # Get the V2 last value, if it's not set yet (e.g. the first run), then fallback to the V1 value
+                processed_incremental_last_value = process_incremental_last_value(
+                    schema.sync_type_config.get("incremental_field_last_value_v2"),
+                    schema.sync_type_config.get("incremental_field_type"),
+                )
 
-            if processed_incremental_last_value is None:
+                if processed_incremental_last_value is None:
+                    processed_incremental_last_value = process_incremental_last_value(
+                        schema.sync_type_config.get("incremental_field_last_value"),
+                        schema.sync_type_config.get("incremental_field_type"),
+                    )
+            else:
                 processed_incremental_last_value = process_incremental_last_value(
                     schema.sync_type_config.get("incremental_field_last_value"),
                     schema.sync_type_config.get("incremental_field_type"),
                 )
-        else:
-            processed_incremental_last_value = process_incremental_last_value(
-                schema.sync_type_config.get("incremental_field_last_value"),
-                schema.sync_type_config.get("incremental_field_type"),
-            )
 
         if schema.is_incremental:
             logger.debug(f"Incremental last value being used is: {processed_incremental_last_value}")
