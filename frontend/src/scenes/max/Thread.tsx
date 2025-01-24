@@ -379,7 +379,7 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
             </div>
             {feedbackInputStatus !== 'hidden' && (
                 <MessageTemplate type="ai">
-                    <div className="flex items-center">
+                    <div className="flex items-center gap-1">
                         <h4 className="m-0 text-sm grow">
                             {feedbackInputStatus === 'pending'
                                 ? 'What disappointed you about the answer?'
