@@ -67,7 +67,7 @@ function URLOrScreen({ lastUrl }: { lastUrl: string | undefined }): JSX.Element 
     )
 }
 
-function ResolutionView({ isCompact }: { isCompact: boolean }): JSX.Element {
+function ResolutionView(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
 
     const { resolutionDisplay, scaleDisplay, loading } = useValues(playerMetaLogic(logicProps))
@@ -86,9 +86,8 @@ function ResolutionView({ isCompact }: { isCompact: boolean }): JSX.Element {
             }
         >
             <span className="text-muted-alt text-xs">
-                <>
-                    {resolutionDisplay} {!isCompact && `(${scaleDisplay})`}
-                </>
+                <span className="hidden @[30rem]:inline-block">{resolutionDisplay} </span>
+                <span>({scaleDisplay})</span>
             </span>
         </Tooltip>
     )
@@ -127,7 +126,7 @@ export function PlayerMeta({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
                             </Link>
                         </Tooltip>
                     ) : null}
-                    <ResolutionView isCompact={isSmallPlayer} />
+                    <ResolutionView />
                 </div>
             </div>
         )
@@ -160,7 +159,7 @@ export function PlayerMeta({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
                     'PlayerMeta--fullscreen': isFullScreen,
                 })}
             >
-                <div className="flex items-center justify-between gap-1 whitespace-nowrap overflow-hidden px-1 py-0.5 text-xs">
+                <div className="flex items-center justify-between gap-1 whitespace-nowrap overflow-hidden px-1 py-0.5 text-xs @container">
                     {loading ? (
                         <LemonSkeleton className="w-1/3 h-4 my-1" />
                     ) : (
@@ -186,7 +185,7 @@ export function PlayerMeta({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
                     )}
                     <div className={clsx('flex-1', isSmallPlayer ? 'min-w-[1rem]' : 'min-w-[5rem]')} />
                     <PlayerMetaLinks iconsOnly={iconsOnly} />
-                    <ResolutionView isCompact={isSmallPlayer} />
+                    <ResolutionView />
                     <div className="flex items-center gap-x-1 ml-2">
                         <PlayerPersonMeta />
                         <PlayerInspector />
