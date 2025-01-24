@@ -3,13 +3,15 @@ import { useActions, useValues } from 'kea'
 import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
 import { ChainedStackTraces } from 'lib/components/Errors/StackTraces'
 import { errorTrackingIssueSceneLogic } from 'scenes/error-tracking/errorTrackingIssueSceneLogic'
-import { hasAnyInAppFrames, hasStacktrace } from 'scenes/error-tracking/utils'
+import { getExceptionAttributes, hasAnyInAppFrames } from 'scenes/error-tracking/utils'
 
 import { ErrorTrackingIssueEventsPanel } from '../Events'
 
 const Content = (): JSX.Element => {
-    const { exceptionList } = useValues(errorTrackingIssueSceneLogic)
+    const { issueProperties } = useValues(errorTrackingIssueSceneLogic)
     const { showAllFrames } = useValues(stackFrameLogic)
+
+    const { exceptionList } = getExceptionAttributes(issueProperties)
     const hasAnyInApp = hasAnyInAppFrames(exceptionList)
 
     return <ChainedStackTraces showAllFrames={hasAnyInApp ? showAllFrames : true} exceptionList={exceptionList} />
@@ -20,10 +22,12 @@ const EmptyState = (): JSX.Element => {
 }
 
 const Header = ({ active }: { active: boolean }): JSX.Element => {
-    const { exceptionList } = useValues(errorTrackingIssueSceneLogic)
+    const { issueProperties } = useValues(errorTrackingIssueSceneLogic)
     const { showAllFrames } = useValues(stackFrameLogic)
-    const hasAnyInApp = hasAnyInAppFrames(exceptionList)
     const { setShowAllFrames } = useActions(stackFrameLogic)
+
+    const { exceptionList } = getExceptionAttributes(issueProperties)
+    const hasAnyInApp = hasAnyInAppFrames(exceptionList)
 
     return (
         <div className="flex justify-between items-center w-full">
@@ -57,5 +61,5 @@ export default {
     Content,
     Header,
     EmptyState,
-    hasContent: ({ exceptionList }) => hasStacktrace(exceptionList),
+    hasContent: ({ hasStack }) => hasStack,
 } as ErrorTrackingIssueEventsPanel

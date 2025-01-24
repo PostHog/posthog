@@ -5942,6 +5942,9 @@
         "ErrorTrackingIssue": {
             "additionalProperties": false,
             "properties": {
+                "aggregations": {
+                    "$ref": "#/definitions/ErrorTrackingIssueAggregations"
+                },
                 "assignee": {
                     "anyOf": [
                         {
@@ -5952,41 +5955,48 @@
                         }
                     ]
                 },
-                "customVolume": {
-                    "items": {
-                        "type": "number"
-                    },
-                    "type": "array"
-                },
                 "description": {
                     "type": ["string", "null"]
                 },
                 "earliest": {
                     "type": "string"
                 },
-                "first_seen": {
+                "firstSeen": {
                     "format": "date-time",
                     "type": "string"
                 },
                 "id": {
                     "type": "string"
                 },
-                "last_seen": {
+                "lastSeen": {
                     "format": "date-time",
                     "type": "string"
                 },
                 "name": {
                     "type": ["string", "null"]
                 },
+                "status": {
+                    "enum": ["archived", "active", "resolved", "pending_release"],
+                    "type": "string"
+                }
+            },
+            "required": ["assignee", "description", "firstSeen", "id", "name", "status"],
+            "type": "object"
+        },
+        "ErrorTrackingIssueAggregations": {
+            "additionalProperties": false,
+            "properties": {
+                "customVolume": {
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
+                },
                 "occurrences": {
                     "type": "number"
                 },
                 "sessions": {
                     "type": "number"
-                },
-                "status": {
-                    "enum": ["archived", "active", "resolved", "pending_release"],
-                    "type": "string"
                 },
                 "users": {
                     "type": "number"
@@ -6004,20 +6014,7 @@
                     "type": "array"
                 }
             },
-            "required": [
-                "id",
-                "name",
-                "description",
-                "first_seen",
-                "last_seen",
-                "occurrences",
-                "sessions",
-                "users",
-                "volumeDay",
-                "volumeMonth",
-                "assignee",
-                "status"
-            ],
+            "required": ["occurrences", "sessions", "users", "volumeDay", "volumeMonth"],
             "type": "object"
         },
         "ErrorTrackingIssueAssignee": {
@@ -6153,6 +6150,40 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "ErrorTrackingRelationalIssue": {
+            "additionalProperties": false,
+            "properties": {
+                "assignee": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ErrorTrackingIssueAssignee"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "description": {
+                    "type": ["string", "null"]
+                },
+                "firstSeen": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": ["string", "null"]
+                },
+                "status": {
+                    "enum": ["archived", "active", "resolved", "pending_release"],
+                    "type": "string"
+                }
+            },
+            "required": ["id", "name", "description", "assignee", "status", "firstSeen"],
             "type": "object"
         },
         "ErrorTrackingSparklineConfig": {

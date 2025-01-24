@@ -1666,12 +1666,12 @@ export interface ErrorTrackingRelationalIssue {
     assignee: ErrorTrackingIssueAssignee | null
     status: 'archived' | 'active' | 'resolved' | 'pending_release'
     /**  @format date-time */
-    first_seen: string
+    firstSeen: string
 }
 
 export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
     /**  @format date-time */
-    last_seen?: string
+    lastSeen?: string
     earliest?: string
     aggregations?: ErrorTrackingIssueAggregations
 }

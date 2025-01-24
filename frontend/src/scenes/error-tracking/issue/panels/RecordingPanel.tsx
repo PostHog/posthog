@@ -32,7 +32,6 @@ export default {
     Content,
     Header: 'Recording',
     EmptyState,
-    hasContent: ({ issueProperties }) =>
-        issueProperties['$session_id'] && issueProperties['$recording_status'] === 'active',
+    hasContent: ({ hasRecording }) => hasRecording,
     className: 'p-0',
 } as ErrorTrackingIssueEventsPanel

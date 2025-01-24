@@ -63,10 +63,12 @@ export const errorTrackingIssueEventsQuery = ({
     issue,
     filterTestAccounts,
     filterGroup,
+    dateRange,
 }: {
     issue: ErrorTrackingIssue | null
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
+    dateRange: DateRange
 }): DataTableNode | null => {
     if (!issue) {
         return null
@@ -90,8 +92,8 @@ export const errorTrackingIssueEventsQuery = ({
         where,
         properties,
         filterTestAccounts: filterTestAccounts,
-        after: issue.first_seen,
-        before: issue.last_seen,
+        after: dateRange.date_from || issue.firstSeen,
+        before: dateRange.date_to || undefined,
     }
 
     return {

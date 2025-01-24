@@ -75,8 +75,8 @@ class ErrorTrackingQueryRunner(QueryRunner):
             ast.Alias(
                 alias="users", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["distinct_id"])])
             ),
-            ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
-            ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
+            ast.Alias(alias="lastSeen", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
+            ast.Alias(alias="firstSeen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
             ast.Alias(alias="volumeDay", expr=self.volume(ErrorTrackingSparklineConfig(interval="hour", value=24))),
             ast.Alias(alias="volumeMonth", expr=self.volume(ErrorTrackingSparklineConfig(interval="day", value=31))),
         ]
@@ -207,8 +207,16 @@ class ErrorTrackingQueryRunner(QueryRunner):
         with self.timings.measure("issue_resolution"):
             for result_dict in mapped_results:
                 issue = issues.get(result_dict["id"])
+
                 if issue:
-                    results.append(result_dict | issue)
+                    results.append(
+                        issue
+                        | {
+                            "firstSeen": result_dict.get("firstSeen"),
+                            "lastSeen": result_dict.get("lastSeen"),
+                            "aggregations": self.extract_aggregations(result_dict),
+                        }
+                    )
                 else:
                     logger.error(
                         "error tracking issue not found",
@@ -217,6 +225,11 @@ class ErrorTrackingQueryRunner(QueryRunner):
                     )
 
         return results
+
+    def extract_aggregations(self, result):
+        aggregations = dict((k, result[k]) for k in ("occurrences", "sessions", "users", "volumeDay", "volumeMonth"))
+        aggregations["customVolume"] = result.get("customVolume") if "customVolume" in result else None
+        return aggregations
 
     def volume(self, config: ErrorTrackingSparklineConfig):
         toStartOfInterval = INTERVAL_FUNCTIONS.get(config.interval)
