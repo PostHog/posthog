@@ -39,4 +39,4 @@ jobs:
               with:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
                   event: 'posthog-github-automerge-pr-status'
-                  properties: '{"prUrl": "${{ github.event.pull_request.html_url }}", "jobStatus": ${{ job.status }}, "prTitle": "${{ github.event.pull_request.title}}", "prNumber": "${{ github.event.pull_request.number}}", "mergeResult": "${{ steps.automerge.outputs.mergeResult }}" }'
+                  properties: '{"prUrl": "${{ github.event.pull_request.html_url }}", "jobStatus": "${{ job.status }}", "prTitle": "${{ github.event.pull_request.title}}", "prNumber": "${{ github.event.pull_request.number}}", "mergeResult": "${{ steps.automerge.outputs.mergeResult }}" }'
