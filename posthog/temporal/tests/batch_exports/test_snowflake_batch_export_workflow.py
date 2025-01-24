@@ -32,6 +32,7 @@ from posthog.temporal.batch_exports.batch_exports import (
     start_batch_export_run,
 )
 from posthog.temporal.batch_exports.snowflake_batch_export import (
+    InvalidPrivateKeyError,
     SnowflakeBatchExportInputs,
     SnowflakeBatchExportWorkflow,
     SnowflakeHeartbeatDetails,
@@ -1791,3 +1792,8 @@ async def test_insert_into_snowflake_activity_handles_person_schema_changes(
         sort_key="person_id",
         expected_fields=expected_fields,
     )
+
+
+def test_load_private_key_raises_error_if_key_is_invalid():
+    with pytest.raises(InvalidPrivateKeyError):
+        load_private_key("invalid_key", None)

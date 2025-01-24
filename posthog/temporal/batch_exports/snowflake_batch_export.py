@@ -68,8 +68,10 @@ NON_RETRYABLE_ERROR_TYPES = [
     "SnowflakeConnectionError",
     # Raised when a table is not found in Snowflake.
     "SnowflakeTableNotFoundError",
-    # Raised when a using key-pair auth and the private key is not valid.
-    "SnowflakeInvalidPrivateKeyError",
+    # Raised when a using key-pair auth and the private key or passphrase is not valid.
+    "InvalidPrivateKeyError",
+    # Raised when a valid authentication method is not provided.
+    "SnowflakeAuthenticationError",
 ]
 
 
@@ -110,11 +112,18 @@ class SnowflakeTableNotFoundError(Exception):
         super().__init__(f"Table '{table_name}' not found in Snowflake")
 
 
-class SnowflakeInvalidPrivateKeyError(Exception):
+class SnowflakeAuthenticationError(Exception):
+    """Raised when a valid authentication method is not provided."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
+
+
+class InvalidPrivateKeyError(Exception):
     """Raised when a private key is not valid."""
 
     def __init__(self, message: str):
-        super().__init__(f"Invalid private key: {message}")
+        super().__init__(message)
 
 
 @dataclasses.dataclass
@@ -158,11 +167,17 @@ SnowflakeField = tuple[str, str]
 
 
 def load_private_key(private_key: str, passphrase: str | None) -> bytes:
-    p_key = serialization.load_pem_private_key(
-        private_key.encode("utf-8"),
-        password=passphrase.encode() if passphrase is not None else None,
-        backend=default_backend(),
-    )
+    try:
+        p_key = serialization.load_pem_private_key(
+            private_key.encode("utf-8"),
+            password=passphrase.encode() if passphrase is not None else None,
+            backend=default_backend(),
+        )
+    except ValueError as e:
+        msg = "Invalid private key"
+        if passphrase is not None and "Incorrect password?" in str(e):
+            msg = "Could not load private key: incorrect passphrase?"
+        raise InvalidPrivateKeyError(msg)
 
     return p_key.private_bytes(
         encoding=serialization.Encoding.DER,
@@ -210,15 +225,15 @@ class SnowflakeClient:
         if inputs.authentication_type == "password":
             password = inputs.password
             if password is None:
-                raise ValueError("Password is required for password authentication")
+                raise SnowflakeAuthenticationError("Password is required for password authentication")
         elif inputs.authentication_type == "keypair":
             if inputs.private_key is None:
-                raise ValueError("Private key is required for keypair authentication")
+                raise SnowflakeAuthenticationError("Private key is required for keypair authentication")
 
             private_key = load_private_key(inputs.private_key, inputs.private_key_passphrase)
 
         else:
-            raise ValueError(f"Invalid authentication type: {inputs.authentication_type}")
+            raise SnowflakeAuthenticationError(f"Invalid authentication type: {inputs.authentication_type}")
 
         return cls(
             user=inputs.user,
