@@ -13,6 +13,7 @@ import {
     ChartDisplayType,
     EventDefinitionType,
     HogQLMathType,
+    PropertyFilterType,
     PropertyMathType,
 } from '~/types'
 
@@ -130,7 +131,10 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                             },
                         ],
                         dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
-                        properties: propertyFilters,
+                        properties: propertyFilters.concat({
+                            type: PropertyFilterType.HogQL,
+                            key: 'distinct_id != properties.$ai_trace_id',
+                        }),
                         filterTestAccounts: shouldFilterTestAccounts,
                     },
                 },
@@ -183,7 +187,10 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                             decimalPlaces: 2,
                         },
                         dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
-                        properties: propertyFilters,
+                        properties: propertyFilters.concat({
+                            type: PropertyFilterType.HogQL,
+                            key: 'distinct_id != properties.$ai_trace_id',
+                        }),
                         filterTestAccounts: shouldFilterTestAccounts,
                     },
                 },
