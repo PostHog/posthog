@@ -251,6 +251,13 @@ STATICFILES_DIRS = [
 ]
 STATICFILES_STORAGE = "whitenoise.storage.ManifestStaticFilesStorage"
 
+
+def static_varies_origin(headers, path, url):
+    headers["Vary"] = "Accept-Encoding, Origin"
+
+
+WHITENOISE_ADD_HEADERS_FUNCTION = static_varies_origin
+
 AUTH_USER_MODEL = "posthog.User"
 
 LOGIN_URL = "/login"
