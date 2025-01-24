@@ -2,7 +2,7 @@ import dataclasses
 import uuid
 from datetime import datetime
 from dateutil import parser
-from typing import Any
+from typing import Any, Optional
 
 from django.conf import settings
 from django.db import close_old_connections
@@ -35,6 +35,7 @@ class ImportDataActivityInputs:
     schema_id: uuid.UUID
     source_id: uuid.UUID
     run_id: str
+    reset_pipeline: Optional[bool] = None
 
 
 def process_incremental_last_value(value: Any | None, field_type: IncrementalFieldType | None) -> Any | None:
@@ -92,7 +93,11 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
 
         schema: ExternalDataSchema | None = model.schema
         assert schema is not None
-        reset_pipeline = schema.sync_type_config.get("reset_pipeline", False) is True
+
+        if inputs.reset_pipeline is not None:
+            reset_pipeline = inputs.reset_pipeline
+        else:
+            reset_pipeline = schema.sync_type_config.get("reset_pipeline", False) is True
 
         logger.debug(f"schema.sync_type_config = {schema.sync_type_config}")
         logger.debug(f"reset_pipeline = {reset_pipeline}")
