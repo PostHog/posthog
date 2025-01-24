@@ -305,6 +305,9 @@ export const activationLogic = kea<activationLogicType>([
     }),
     listeners(({ actions, values }) => ({
         runTask: async ({ id }) => {
+            posthog.capture('activation sidebar task run', {
+                task: id,
+            })
             switch (id) {
                 case ActivationTasks.IngestFirstEvent:
                     router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS))
