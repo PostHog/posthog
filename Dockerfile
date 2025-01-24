@@ -25,19 +25,23 @@ FROM node:18.19.1-bookworm-slim AS frontend-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
+# Copy everything we need to `pnpm install`
 COPY package.json pnpm-lock.yaml ./
 COPY patches/ patches/
+COPY common/hogvm/typescript/package.json common/hogvm/typescript/pnpm-lock.yaml common/hogvm/typescript/
 RUN corepack enable && pnpm --version && \
     mkdir /tmp/pnpm-store && \
     pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
     rm -rf /tmp/pnpm-store
 
+# Build the frontend.
 COPY frontend/ frontend/
 COPY products/ products/
+COPY common/ common/
 COPY ee/frontend/ ee/frontend/
 COPY ./bin/ ./bin/
 COPY babel.config.js tsconfig.json webpack.config.js tailwind.config.js nx.json project.json ./
-RUN npx nx build posthog-frontend
+RUN npx nx build posthog-frontend --verbose
 
 #
 # ---------------------------------------------------------

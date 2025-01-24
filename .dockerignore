@@ -4,7 +4,7 @@
 !.storybook
 !babel.config.js
 !bin
-!common/hogvm/python
+!common/hogvm
 !common/plugin_transpiler/*.*
 !common/plugin_transpiler/src
 !dags
@@ -44,6 +44,7 @@
 !tsconfig.json
 !unit.json.tpl
 !webpack.config.js
+common/hogvm/typescript/node_modules
 rust/.env
 rust/.github
 rust/cyclotron-node/dist
