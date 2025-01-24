@@ -43,5 +43,5 @@ jobs:
                   SLACK_MESSAGE: "PR [#${{ github.event.pull_request.number }}](${{ github.event.pull_request.html_url }}) $${{ job.status }}. PR is labeled 'automerge'. Automerge result was ${{ steps.automerge.outputs.mergeResult }}"
                   SLACK_TITLE: 'PR ${{ github.event.pull_request.title }} ${{ steps.automerge.outputs.mergeResult }}'
                   SLACK_USERNAME: Max Hedgehog
-                  SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+                  SLACK_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
                   SLACKIFY_MARKDOWN: true
