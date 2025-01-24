@@ -25,7 +25,7 @@ FROM node:18.19.1-bookworm-slim AS frontend-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml project.json nx.json ./
 COPY patches/ patches/
 RUN corepack enable && pnpm --version && \
     mkdir /tmp/pnpm-store && \
