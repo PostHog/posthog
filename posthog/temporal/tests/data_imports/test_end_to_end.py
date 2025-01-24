@@ -123,6 +123,7 @@ async def _run(
     mock_data_response: Any,
     sync_type: Optional[ExternalDataSchema.SyncType] = None,
     sync_type_config: Optional[dict] = None,
+    billable: Optional[bool] = None,
 ):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=uuid.uuid4(),
@@ -147,6 +148,7 @@ async def _run(
         team_id=team.id,
         external_data_source_id=source.pk,
         external_data_schema_id=schema.id,
+        billable=billable if billable is not None else True,
     )
 
     await _execute_run(workflow_id, inputs, mock_data_response)
@@ -172,8 +174,8 @@ async def _run(
                 continue
             assert name in (res.columns or [])
 
-        await sync_to_async(source.refresh_from_db)()
-        assert source.job_inputs.get("reset_pipeline", None) is None
+        await sync_to_async(schema.refresh_from_db)()
+        assert schema.sync_type_config.get("reset_pipeline", None) is None
 
     return workflow_id, inputs
 
@@ -520,8 +522,9 @@ async def test_reset_pipeline(team, stripe_balance_transaction):
         schema_name="BalanceTransaction",
         table_name="stripe_balancetransaction",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id", "reset_pipeline": "True"},
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
         mock_data_response=stripe_balance_transaction["data"],
+        sync_type_config={"reset_pipeline": True},
     )
 
 
@@ -1249,23 +1252,41 @@ async def test_delete_table_on_reset(team, stripe_balance_transaction):
                 schema_name="BalanceTransaction",
                 table_name="stripe_balancetransaction",
                 source_type="Stripe",
-                job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id", "reset_pipeline": "True"},
+                job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
                 mock_data_response=stripe_balance_transaction["data"],
+                sync_type_config={"reset_pipeline": True},
             )
 
-            source = await sync_to_async(ExternalDataSource.objects.get)(id=inputs.external_data_source_id)
+            schema = await sync_to_async(ExternalDataSchema.objects.get)(id=inputs.external_data_schema_id)
 
-            assert source.job_inputs is not None and isinstance(source.job_inputs, dict)
-            source.job_inputs["reset_pipeline"] = "True"
+            assert schema.sync_type_config is not None and isinstance(schema.sync_type_config, dict)
+            schema.sync_type_config["reset_pipeline"] = True
 
-            await sync_to_async(source.save)()
+            await sync_to_async(schema.save)()
 
             await _execute_run(str(uuid.uuid4()), inputs, stripe_balance_transaction["data"])
 
         mock_delta_table_delete.assert_called()
         mock_s3_delete.assert_called()
 
-        await sync_to_async(source.refresh_from_db)()
+        await sync_to_async(schema.refresh_from_db)()
 
-        assert source.job_inputs is not None and isinstance(source.job_inputs, dict)
-        assert "reset_pipeline" not in source.job_inputs.keys()
+        assert schema.sync_type_config is not None and isinstance(schema.sync_type_config, dict)
+        assert "reset_pipeline" not in schema.sync_type_config.keys()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_billable_job(team, stripe_balance_transaction):
+    workflow_id, inputs = await _run(
+        team=team,
+        schema_name="BalanceTransaction",
+        table_name="stripe_balancetransaction",
+        source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        mock_data_response=stripe_balance_transaction["data"],
+        billable=False,
+    )
+
+    run: ExternalDataJob = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=inputs.external_data_source_id)
+    assert run.billable is False

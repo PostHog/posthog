@@ -188,10 +188,28 @@ export const LineGraph = (): JSX.Element => {
                     },
                     scaleID: hasLeftYAxis ? 'yLeft' : 'yRight',
                     value: cur.value,
+                    enter: (ctx) => {
+                        if (ctx.chart.options.plugins?.annotation?.annotations) {
+                            const annotations = ctx.chart.options.plugins.annotation.annotations as Record<string, any>
+                            if (annotations[`line${curIndex}`]) {
+                                annotations[`line${curIndex}`].label.content = `${cur.label}: ${cur.value}`
+                                ctx.chart.update()
+                            }
+                        }
+                    },
+                    leave: (ctx) => {
+                        if (ctx.chart.options.plugins?.annotation?.annotations) {
+                            const annotations = ctx.chart.options.plugins.annotation.annotations as Record<string, any>
+                            if (annotations[`line${curIndex}`]) {
+                                annotations[`line${curIndex}`].label.content = cur.label
+                                ctx.chart.update()
+                            }
+                        }
+                    },
                 }
 
                 acc.annotations[`line${curIndex}`] = {
-                    type: 'line',
+                    type: 'line' as const,
                     ...line,
                 }
 

@@ -1,26 +1,23 @@
-import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 import classNames from 'classnames'
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { lowercaseFirstLetter } from 'lib/utils'
-import React from 'react'
 
-import { EventType } from '~/types'
+import { MetadataTag } from '../components/MetadataTag'
 
 export function MetadataHeader({
-    eventProperties,
+    inputTokens,
+    outputTokens,
+    totalCostUsd,
+    model,
+    latency,
     className,
 }: {
-    eventProperties: EventType['properties']
+    inputTokens?: number
+    outputTokens?: number
+    totalCostUsd?: number
+    model?: string
+    latency?: number
     className?: string
 }): JSX.Element {
-    const {
-        $ai_input_tokens: inputTokens,
-        $ai_output_tokens: outputTokens,
-        $ai_total_cost_usd: totalCostUsd,
-        $ai_model: model,
-        $ai_latency: latency,
-    } = eventProperties
-
     return (
         <div className={classNames('flex flex-wrap gap-2', className)}>
             {typeof latency === 'number' && (
@@ -34,7 +31,7 @@ export function MetadataHeader({
                 </MetadataTag>
             )}
             {model && (
-                <MetadataTag label="Model" copyable>
+                <MetadataTag label="Model" textToCopy={lowercaseFirstLetter(model)}>
                     {model}
                 </MetadataTag>
             )}
@@ -43,27 +40,4 @@ export function MetadataHeader({
             )}
         </div>
     )
-}
-
-function MetadataTag({
-    children,
-    label,
-    copyable = false,
-}: {
-    children: string
-    label: string
-    copyable?: boolean
-}): JSX.Element {
-    let wrappedChildren: React.ReactNode = children
-    if (copyable) {
-        wrappedChildren = (
-            <CopyToClipboardInline iconSize="xsmall" description={lowercaseFirstLetter(label)} tooltipMessage={label}>
-                {children}
-            </CopyToClipboardInline>
-        )
-    } else {
-        wrappedChildren = <Tooltip title={label}>{children}</Tooltip>
-    }
-
-    return <LemonTag className="bg-bg-light cursor-default">{wrappedChildren}</LemonTag>
 }

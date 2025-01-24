@@ -64,25 +64,9 @@ jobs:
         steps:
             - uses: actions/checkout@v4
 
-            - if: ${{ !endsWith(matrix.os, '-arm') }}
-              uses: actions/setup-python@v4
+            - uses: actions/setup-python@v4
               with:
                   python-version: '3.11'
-
-            # Compiling Python 3.11 from source on ARM. We tried using the "deadsnakes" ARM repo, but it was flakey.
-            - if: ${{ endsWith(matrix.os, '-arm') }}
-              name: Install Python 3.11 on ARM (compile from source)
-              run: |
-                  sudo apt-get update
-                  sudo apt-get install -y build-essential libssl-dev zlib1g-dev \
-                  libncurses5-dev libncursesw5-dev libreadline-dev libsqlite3-dev \
-                  libgdbm-dev libdb5.3-dev libbz2-dev libexpat1-dev liblzma-dev tk-dev
-                  wget https://www.python.org/ftp/python/3.11.0/Python-3.11.0.tar.xz
-                  tar -xf Python-3.11.0.tar.xz
-                  cd Python-3.11.0
-                  ./configure --enable-optimizations
-                  make -j 2
-                  sudo make altinstall
 
             - name: Build sdist
               if: matrix.os == 'ubuntu-22.04' # Only build the sdist once
