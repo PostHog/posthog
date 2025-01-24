@@ -75,7 +75,7 @@ export const llmObservabilityTraceDataLogic = kea<llmObservabilityTraceDataLogic
                 if (!showableEvents?.length) {
                     return null
                 }
-                return showableEvents.find((event) => event.id === eventId)
+                return showableEvents.find((event) => event.id === eventId) || null
             },
         ],
     }),
