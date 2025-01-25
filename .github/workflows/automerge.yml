@@ -29,6 +29,8 @@ jobs:
             IS_POSTHOG_BOT_AVAILABLE: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN != '' }}
         steps:
             - name: Automerge
+              # must have an id so subsequent steps can use the output
+              id: automerge
               if: env.IS_POSTHOG_BOT_AVAILABLE == 'true'
               uses: pascalgn/automerge-action@v0.16.3
               env:
