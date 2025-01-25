@@ -70,6 +70,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         matchingEventsMatchType,
         sessionRecordingData,
         autoPlay,
+        noInspector,
         playlistLogic,
         mode,
         playerRef,
