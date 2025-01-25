@@ -1223,6 +1223,17 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'Initial Person Info',
             description: 'posthog-js initial person information. used in the $set_once flow',
         },
+        revenue: {
+            label: 'Revenue',
+            description:
+                'The revenue associated with the event. By default, this is in USD, but the currency property can be used to specify a different currency.',
+            examples: [10.0],
+        },
+        currency: {
+            label: 'Currency',
+            description: 'The currency code associated with the event.',
+            examples: ['USD', 'EUR', 'GBP', 'CAD'],
+        },
         // web vitals properties
         $web_vitals_enabled_server_side: {
             label: 'Web vitals enabled server side',
