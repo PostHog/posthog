@@ -238,17 +238,19 @@ def _get_all_org_digest_reports(period_start: datetime, period_end: datetime) ->
                 organization_id=org_id,
                 organization_name=team.organization.name,
                 organization_created_at=team.organization.created_at.isoformat(),
-                teams={},
+                teams=[],
                 total_digest_items_with_data=0,
             )
 
         team_report = get_periodic_digest_report(all_digest_data, team)
         if count_non_zero_digest_items(team_report) > 0:  # Only include teams with data
-            org_reports[org_id].teams[str(team.id)] = TeamDigestReport(
-                team_id=team.id,
-                team_name=team.name,
-                report=dataclasses.asdict(team_report),
-                digest_items_with_data=count_non_zero_digest_items(team_report),
+            org_reports[org_id].teams.append(
+                TeamDigestReport(
+                    team_id=team.id,
+                    team_name=team.name,
+                    report=dataclasses.asdict(team_report),
+                    digest_items_with_data=count_non_zero_digest_items(team_report),
+                )
             )
 
     time_since = datetime.now() - time_now

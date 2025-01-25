@@ -140,8 +140,8 @@ class TestPeriodicDigestReport(APIBaseTest):
             "organization_id": str(self.team.organization_id),
             "organization_name": self.organization.name,
             "organization_created_at": self.organization.created_at.isoformat(),
-            "teams": {
-                str(self.team.id): {
+            "teams": [
+                {
                     "team_id": self.team.id,
                     "team_name": self.team.name,
                     "report": {
@@ -206,7 +206,7 @@ class TestPeriodicDigestReport(APIBaseTest):
                     },
                     "digest_items_with_data": 8,
                 }
-            },
+            ],
             "template_name": "periodic_digest_report",
             "users_who_logged_in": [],
             "users_who_logged_in_count": 0,
@@ -290,8 +290,8 @@ class TestPeriodicDigestReport(APIBaseTest):
             "deployment_infrastructure": "unknown",
             "helm": {},
             "instance_tag": "none",
-            "teams": {
-                str(self.team.id): {
+            "teams": [
+                {
                     "report": {
                         "new_dashboards": [
                             {
@@ -311,7 +311,7 @@ class TestPeriodicDigestReport(APIBaseTest):
                     "team_name": self.team.name,
                     "digest_items_with_data": 1,
                 }
-            },
+            ],
             "total_digest_items_with_data": 1,
         }
 
@@ -437,7 +437,8 @@ class TestPeriodicDigestReport(APIBaseTest):
         call_args = mock_capture.call_args
         self.assertIsNotNone(call_args)
         properties = call_args[1]["properties"]
-        playlists = properties["teams"][str(self.team.id)]["report"]["new_playlists"]
+        team_data = next(team for team in properties["teams"] if team["team_id"] == self.team.id)
+        playlists = team_data["report"]["new_playlists"]
 
         # Verify only the valid playlist is included
         assert len(playlists) == 1
@@ -515,15 +516,17 @@ class TestPeriodicDigestReport(APIBaseTest):
         teams_data = properties["teams"]
         assert len(teams_data) == 2
 
+        # Find teams by team_id in the array
+        team_1_data = next(team for team in teams_data if team["team_id"] == self.team.id)
+        team_2_data = next(team for team in teams_data if team["team_id"] == team_2.id)
+
         # Verify first team's data
-        team_1_data = teams_data[str(self.team.id)]
         assert team_1_data["team_name"] == self.team.name
         assert len(team_1_data["report"]["new_dashboards"]) == 1
         assert team_1_data["report"]["new_dashboards"][0]["name"] == "Team 1 Dashboard"
         assert len(team_1_data["report"]["new_feature_flags"]) == 0
 
         # Verify second team's data
-        team_2_data = teams_data[str(team_2.id)]
         assert team_2_data["team_name"] == team_2.name
         assert len(team_2_data["report"]["new_dashboards"]) == 1
         assert team_2_data["report"]["new_dashboards"][0]["name"] == "Team 2 Dashboard"
@@ -570,8 +573,8 @@ class TestPeriodicDigestReport(APIBaseTest):
             if distinct_id == str(self.user.distinct_id):
                 # First user should only see team 1 because they were not added to team 2
                 assert len(properties["teams"]) == 1
-                assert str(self.team.id) in properties["teams"]
+                assert any(team["team_id"] == self.team.id for team in properties["teams"])
             else:
                 # Second user should see team 1 and team 2
                 assert len(properties["teams"]) == 2
-                assert str(team_2.id) in properties["teams"]
+                assert any(team["team_id"] == team_2.id for team in properties["teams"])

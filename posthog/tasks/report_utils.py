@@ -97,24 +97,22 @@ class OrgDigestReport:
     organization_id: str
     organization_name: str
     organization_created_at: str
-    teams: dict[str, TeamDigestReport]  # team_id -> TeamDigestReport
+    teams: list[TeamDigestReport]
     total_digest_items_with_data: int
 
     def filter_for_user(self, user_teams: set[int], user_notification_teams: set[int]) -> "OrgDigestReport":
         """Returns a new OrgDigestReport with only the teams the user has access to and notifications enabled for"""
-        filtered_teams = {
-            team_id: team_report
-            for team_id, team_report in self.teams.items()
-            if int(team_id) in user_teams and int(team_id) in user_notification_teams
-        }
+        filtered_teams = [
+            team_report
+            for team_report in self.teams
+            if team_report.team_id in user_teams and team_report.team_id in user_notification_teams
+        ]
         return OrgDigestReport(
             organization_id=self.organization_id,
             organization_name=self.organization_name,
             organization_created_at=self.organization_created_at,
             teams=filtered_teams,
-            total_digest_items_with_data=sum(
-                team_report.digest_items_with_data for team_report in filtered_teams.values()
-            ),
+            total_digest_items_with_data=sum(team_report.digest_items_with_data for team_report in filtered_teams),
         )
 
 
