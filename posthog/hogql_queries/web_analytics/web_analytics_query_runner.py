@@ -259,7 +259,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
             else None
         )
 
-        exprs = [
+        exprs: ast.Expr = [
             ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$pageview")
             ),
