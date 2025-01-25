@@ -310,12 +310,11 @@ def send_all_periodic_digest_reports(
                 # Filter report to only include teams the user has access to
                 user_report = org_report.filter_for_user(user_team_ids, user_notif_team_ids)
 
-                if not user_report.teams:  # Skip if user has no accessible teams with data
+                if not user_report.teams or not user.distinct_id:
                     continue
 
                 report_dict = dataclasses.asdict(user_report)
                 send_digest_notifications(
-                    team_id=int(next(iter(user_report.teams.keys()))),  # Use first team for compatibility
                     organization_id=org_id,
                     event_name="transactional email",
                     properties={
@@ -341,7 +340,6 @@ def send_all_periodic_digest_reports(
 
 def send_digest_notifications(
     *,
-    team_id: int,
     organization_id: str,
     event_name: str,
     properties: dict[str, Any],
@@ -358,7 +356,7 @@ def send_digest_notifications(
         pha_client=pha_client,
         name=event_name,
         organization_id=organization_id,
-        team_id=team_id,
+        team_id=None,
         properties=properties,
         timestamp=timestamp,
         distinct_id=distinct_id,

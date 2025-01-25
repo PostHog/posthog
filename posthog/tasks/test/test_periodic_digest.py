@@ -234,7 +234,7 @@ class TestPeriodicDigestReport(APIBaseTest):
             distinct_id=str(self.user.distinct_id),
             organization_id=str(self.team.organization_id),
             name="transactional email",
-            team_id=self.team.id,
+            team_id=None,
             properties=expected_properties,
             timestamp=None,
         )
@@ -320,7 +320,7 @@ class TestPeriodicDigestReport(APIBaseTest):
             distinct_id=str(self.user.distinct_id),
             organization_id=str(self.team.organization_id),
             name="transactional email",
-            team_id=self.team.id,
+            team_id=None,
             properties=expected_properties,
             timestamp=None,
         )
