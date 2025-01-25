@@ -37,7 +37,7 @@ jobs:
                   GITHUB_TOKEN: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - name: Print Automerge Outputs as JSON
-                run: |
+              run: |
                 echo "Automerge Outputs:"
                 echo ${{ steps.automerge.outputs }} | jq .
                 env:
