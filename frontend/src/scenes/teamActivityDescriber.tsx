@@ -10,7 +10,7 @@ import {
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { Link } from 'lib/lemon-ui/Link'
-import { interleaveArray, isNotNil, isObject, pluralize } from 'lib/utils'
+import { isNotNil, isObject, pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { ActivityScope, RevenueTrackingEventItem, TeamSurveyConfigType, TeamType } from '~/types'
@@ -381,41 +381,39 @@ const teamActionsMapping: Record<
         const removedEvents = beforeEventNames?.filter((event) => !afterEventNames?.includes(event))
         const modifiedEvents = afterEventNames?.filter((event) => beforeEventNames?.includes(event))
 
+        const changes = [
+            addedEvents?.length
+                ? `added ${addedEvents.length} ${pluralize(
+                      addedEvents.length,
+                      'event',
+                      'events',
+                      true
+                  )} (${addedEvents.join(', ')})`
+                : null,
+            removedEvents?.length
+                ? `removed ${removedEvents.length} ${pluralize(
+                      removedEvents.length,
+                      'event',
+                      'events',
+                      true
+                  )} (${removedEvents.join(', ')})`
+                : null,
+            modifiedEvents?.length
+                ? `modified ${modifiedEvents.length} ${pluralize(
+                      modifiedEvents.length,
+                      'event',
+                      'events',
+                      true
+                  )} (${modifiedEvents.join(', ')})`
+                : null,
+        ].filter(isNotNil)
+
+        if (!changes.length) {
+            return null
+        }
+
         return {
-            description: [
-                <>
-                    {interleaveArray(
-                        [
-                            'Updated revenue tracking config: ',
-                            addedEvents?.length
-                                ? `added ${addedEvents.length} ${pluralize(
-                                      addedEvents.length,
-                                      'event',
-                                      'events',
-                                      true
-                                  )} (${addedEvents.join(', ')})`
-                                : null,
-                            removedEvents?.length
-                                ? `removed ${removedEvents.length} ${pluralize(
-                                      removedEvents.length,
-                                      'event',
-                                      'events',
-                                      true
-                                  )} (${removedEvents.join(', ')})`
-                                : null,
-                            modifiedEvents?.length
-                                ? `modified ${modifiedEvents.length} ${pluralize(
-                                      modifiedEvents.length,
-                                      'event',
-                                      'events',
-                                      true
-                                  )} (${modifiedEvents.join(', ')})`
-                                : null,
-                        ].filter(isNotNil),
-                        ', '
-                    )}
-                </>,
-            ],
+            description: [<>Updated revenue tracking config: {changes.join(', ')}</>],
         }
     },
 
