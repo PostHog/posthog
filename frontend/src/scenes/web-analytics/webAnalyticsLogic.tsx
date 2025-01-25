@@ -691,7 +691,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                 const includeRevenue = !!featureFlags[FEATURE_FLAGS.WEB_REVENUE_TRACKING]
 
-                const revenueEventsSeries: EventsNode[] | undefined =
+                const revenueEventsSeries: EventsNode[] =
                     includeRevenue && currentTeam?.revenue_tracking_config
                         ? currentTeam.revenue_tracking_config.events.map((e) => ({
                               math: PropertyMathType.Sum,
@@ -701,7 +701,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               custom_name: e.eventName,
                               math_property: e.revenueProperty,
                           }))
-                        : undefined
+                        : []
 
                 const createInsightProps = (tile: TileId, tab?: string): InsightLogicProps => {
                     return {
