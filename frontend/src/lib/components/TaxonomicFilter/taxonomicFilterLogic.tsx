@@ -195,7 +195,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getValue: (eventDefinition: Record<string, any>) =>
                             // Use the property's "name" when available, or "value" if a local option
                             'id' in eventDefinition ? eventDefinition.name : eventDefinition.value,
-                        excludedProperties: excludedProperties[TaxonomicFilterGroupType.Events],
                         ...eventTaxonomicGroupProps,
                     },
                     {
