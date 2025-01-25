@@ -340,11 +340,12 @@ def get_teams_with_billable_event_count_in_period(
     else:
         distinct_expression = "1"
 
+    # We are excluding $exception events during the beta
     result = sync_execute(
         f"""
         SELECT team_id, count({distinct_expression}) as count
         FROM events
-        WHERE timestamp between %(begin)s AND %(end)s AND event != '$feature_flag_called' AND event NOT IN ('survey sent', 'survey shown', 'survey dismissed')
+        WHERE timestamp between %(begin)s AND %(end)s AND event NOT IN ('$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception')
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},
@@ -374,7 +375,7 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
         f"""
         SELECT team_id, count({distinct_expression}) as count
         FROM events
-        WHERE timestamp between %(begin)s AND %(end)s AND event != '$feature_flag_called' AND event NOT IN ('survey sent', 'survey shown', 'survey dismissed') AND person_mode IN ('full', 'force_upgrade')
+        WHERE timestamp between %(begin)s AND %(end)s AND event NOT IN ('$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception') AND person_mode IN ('full', 'force_upgrade')
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},
@@ -605,8 +606,7 @@ def get_teams_with_survey_responses_count_in_period(
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list:
     return list(
-        ExternalDataJob.objects.filter(created_at__gte=begin, created_at__lte=end)
-        .exclude(pipeline_version=ExternalDataJob.PipelineVersion.V2)
+        ExternalDataJob.objects.filter(created_at__gte=begin, created_at__lte=end, billable=True)
         .values("team_id")
         .annotate(total=Sum("rows_synced"))
     )

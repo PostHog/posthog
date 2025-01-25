@@ -54,10 +54,10 @@ export class EventPipelineRunner {
     originalEvent: PipelineEvent
     eventsProcessor: EventsProcessor
 
-    constructor(hub: Hub, event: PipelineEvent, eventProcessor: EventsProcessor) {
+    constructor(hub: Hub, event: PipelineEvent) {
         this.hub = hub
         this.originalEvent = event
-        this.eventsProcessor = eventProcessor
+        this.eventsProcessor = new EventsProcessor(hub)
     }
 
     isEventDisallowed(event: PipelineEvent): boolean {
@@ -143,6 +143,7 @@ export class EventPipelineRunner {
         const kafkaAcks: Promise<void>[] = []
 
         let processPerson = true // The default.
+
         // Set either at capture time, or in the populateTeamData step, if team-level opt-out is enabled.
         if (event.properties && '$process_person_profile' in event.properties) {
             const propValue = event.properties.$process_person_profile
@@ -259,7 +260,7 @@ export class EventPipelineRunner {
             event.team_id
         )
 
-        if (event.event === '$exception' && !event.properties?.hasOwnProperty('$sentry_event_id')) {
+        if (event.event === '$exception') {
             const [exceptionAck] = await this.runStep(
                 produceExceptionSymbolificationEventStep,
                 [this, rawEvent],
@@ -352,7 +353,7 @@ export class EventPipelineRunner {
                     teamId,
                     `plugin_server_ingest_event:${currentStepName}`
                 )
-                await this.hub.db.kafkaProducer!.queueMessage({ kafkaMessage: message, waitForAck: true })
+                await this.hub.db.kafkaProducer.queueMessages(message)
             } catch (dlqError) {
                 status.info('🔔', `Errored trying to add event to dead letter queue. Error: ${dlqError}`)
                 Sentry.captureException(dlqError, {

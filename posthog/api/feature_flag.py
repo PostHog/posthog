@@ -154,6 +154,7 @@ class FeatureFlagSerializer(
             "has_enriched_analytics",
             "user_access_level",
             "creation_context",
+            "is_remote_configuration",
         ]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
@@ -174,7 +175,7 @@ class FeatureFlagSerializer(
         )
 
     def get_features(self, feature_flag: FeatureFlag) -> dict:
-        from posthog.api.early_access_feature import MinimalEarlyAccessFeatureSerializer
+        from products.early_access_features.backend.api import MinimalEarlyAccessFeatureSerializer
 
         return MinimalEarlyAccessFeatureSerializer(feature_flag.features, many=True).data
 

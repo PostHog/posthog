@@ -21,7 +21,7 @@
 #
 # ---------------------------------------------------------
 #
-FROM node:18.19.1-bullseye-slim AS frontend-build
+FROM node:18.19.1-bookworm-slim AS frontend-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -33,6 +33,7 @@ RUN corepack enable && pnpm --version && \
     rm -rf /tmp/pnpm-store
 
 COPY frontend/ frontend/
+COPY products/ products/
 COPY ee/frontend/ ee/frontend/
 COPY ./bin/ ./bin/
 COPY babel.config.js tsconfig.json webpack.config.js tailwind.config.js ./
@@ -41,10 +42,10 @@ RUN pnpm build
 #
 # ---------------------------------------------------------
 #
-FROM ghcr.io/posthog/rust-node-container:bullseye_rust_1.80.1-node_18.19.1 AS plugin-server-build
+FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.80.1-node_18.19.1 AS plugin-server-build
 WORKDIR /code
 COPY ./rust ./rust
-COPY ./plugin-transpiler/ ./plugin-transpiler/
+COPY ./common/plugin_transpiler/ ./common/plugin_transpiler/
 WORKDIR /code/plugin-server
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -64,7 +65,7 @@ RUN apt-get update && \
     corepack enable && \
     mkdir /tmp/pnpm-store && \
     pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
-    cd ../plugin-transpiler && \
+    cd ../common/plugin_transpiler && \
     pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
     pnpm build && \
     rm -rf /tmp/pnpm-store
@@ -74,6 +75,7 @@ RUN apt-get update && \
 # Note: we run the build as a separate action to increase
 # the cache hit ratio of the layers above.
 COPY ./plugin-server/src/ ./src/
+COPY ./plugin-server/tests/ ./tests/
 RUN pnpm build
 
 # As the plugin-server is now built, let’s keep
@@ -88,7 +90,7 @@ RUN corepack enable && \
 #
 # ---------------------------------------------------------
 #
-FROM python:3.11.9-slim-bullseye AS posthog-build
+FROM python:3.11.9-slim-bookworm AS posthog-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -115,8 +117,9 @@ ENV PATH=/python-runtime/bin:$PATH \
 
 # Add in Django deps and generate Django's static files.
 COPY manage.py manage.py
-COPY hogvm hogvm/
+COPY common/hogvm common/hogvm/
 COPY posthog posthog/
+COPY products/ products/
 COPY ee ee/
 COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
 RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
@@ -125,7 +128,7 @@ RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgr
 #
 # ---------------------------------------------------------
 #
-FROM debian:bullseye-slim AS fetch-geoip-db
+FROM debian:bookworm-slim AS fetch-geoip-db
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -145,8 +148,8 @@ RUN apt-get update && \
 #
 # ---------------------------------------------------------
 #
-# NOTE: newer images change the base image from bullseye to bookworm which makes compiled openssl versions have all sorts of issues
-FROM unit:1.32.0-python3.11 
+# NOTE: v1.32 is running bullseye, v1.33 is running bookworm
+FROM unit:1.33.0-python3.11 
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1
@@ -190,7 +193,7 @@ ARG COMMIT_HASH
 RUN echo $COMMIT_HASH > /code/commit.txt
 
 # Add in the compiled plugin-server & its runtime dependencies from the plugin-server-build stage.
-COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-transpiler/dist /code/plugin-transpiler/dist
+COPY --from=plugin-server-build --chown=posthog:posthog /code/common/plugin_transpiler/dist /code/common/plugin_transpiler/dist
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/dist /code/plugin-server/dist
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/node_modules /code/plugin-server/node_modules
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/package.json /code/plugin-server/package.json
@@ -214,8 +217,9 @@ COPY --chown=posthog:posthog ./bin ./bin/
 COPY --chown=posthog:posthog manage.py manage.py
 COPY --chown=posthog:posthog posthog posthog/
 COPY --chown=posthog:posthog ee ee/
-COPY --chown=posthog:posthog hogvm hogvm/
+COPY --chown=posthog:posthog common/hogvm common/hogvm/
 COPY --chown=posthog:posthog dags dags/
+COPY --chown=posthog:posthog products products/
 
 # Keep server command backwards compatible
 RUN cp ./bin/docker-server-unit ./bin/docker-server

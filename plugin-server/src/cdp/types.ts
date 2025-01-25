@@ -256,10 +256,6 @@ export type HogFunctionInvocationSerialized = Omit<HogFunctionInvocation, 'hogFu
     hogFunction?: HogFunctionType
 }
 
-export type HogFunctionInvocationSerializedCompressed = {
-    state: string // Serialized HogFunctionInvocation
-}
-
 // Mostly copied from frontend types
 export type HogFunctionInputSchemaType = {
     type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json' | 'integration' | 'integration_field' | 'email'
@@ -272,7 +268,8 @@ export type HogFunctionInputSchemaType = {
     description?: string
     integration?: string
     integration_key?: string
-    integration_field?: 'slack_channel'
+    requires_field?: string
+    integration_field?: string
     requiredScopes?: string
 }
 
@@ -336,11 +333,7 @@ export type HogFunctionAppMetric = Pick<
 
 export type HogFunctionMessageToProduce = {
     topic: string
-    value:
-        | HogFunctionLogEntrySerialized
-        | HogHooksFetchResponse
-        | AppMetric2Type
-        | HogFunctionInvocationSerializedCompressed
+    value: HogFunctionLogEntrySerialized | HogHooksFetchResponse | AppMetric2Type
     key: string
 }
 
