@@ -37,14 +37,15 @@ jobs:
                   GITHUB_TOKEN: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - name: Print Automerge Outputs as JSON
+              if: ${{ failure() }}
               run: |
-                echo "Automerge Outputs:"
-                echo ${{ steps.automerge.outputs }} | jq .
-                env:
-                AUTOMERGE_OUTPUT: ${{ toJSON(steps.automerge.outputs) }}
+                  echo "Automerge Outputs:"
+                  echo ${{ steps.automerge.outputs }} | jq .
+                  env:
+                  AUTOMERGE_OUTPUT: ${{ toJSON(steps.automerge.outputs) }}
 
             - name: Send automerge event to PostHog
-              if: ${{ steps.automerge.outputs.mergeResult != '' }}
+              if: ${{ failure() }}
               uses: PostHog/posthog-github-action@v0.1
               with:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
