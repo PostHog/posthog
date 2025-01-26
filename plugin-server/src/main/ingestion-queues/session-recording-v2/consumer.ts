@@ -28,7 +28,7 @@ import {
 } from './constants'
 import { KafkaMessageParser } from './kafka/message-parser'
 import { KafkaOffsetManager } from './kafka/offset-manager'
-import { SessionRecordingMetrics } from './metrics'
+import { SessionRecordingIngesterMetrics } from './metrics'
 import { PromiseScheduler } from './promise-scheduler'
 import { BlackholeSessionBatchWriter } from './sessions/blackhole-session-batch-writer'
 import { SessionBatchManager } from './sessions/session-batch-manager'
@@ -51,7 +51,6 @@ export class SessionRecordingIngester {
     isStopping = false
 
     private isDebugLoggingEnabled: ValueMatcher<number>
-    private readonly metrics: SessionRecordingMetrics
     private readonly promiseScheduler: PromiseScheduler
     private readonly batchConsumerFactory: BatchConsumerFactory
     private readonly sessionBatchManager: SessionBatchManager
@@ -83,8 +82,6 @@ export class SessionRecordingIngester {
             }
             this.libVersionMonitor = new LibVersionMonitor(captureWarning)
         }
-
-        this.metrics = SessionRecordingMetrics.getInstance()
 
         const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
         this.sessionBatchManager = new SessionBatchManager({
@@ -125,15 +122,14 @@ export class SessionRecordingIngester {
     }
 
     private async processBatchMessages(messages: Message[], context: { heartbeat: () => void }): Promise<void> {
-        // Increment message received counter for each message
         messages.forEach((message) => {
-            this.metrics.incrementMessageReceived(message.partition)
+            SessionRecordingIngesterMetrics.incrementMessageReceived(message.partition)
         })
 
         const batchSize = messages.length
         const batchSizeKb = messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024
-        this.metrics.observeKafkaBatchSize(batchSize)
-        this.metrics.observeKafkaBatchSizeKb(batchSizeKb)
+        SessionRecordingIngesterMetrics.observeKafkaBatchSize(batchSize)
+        SessionRecordingIngesterMetrics.observeKafkaBatchSizeKb(batchSizeKb)
 
         const processedMessages = await runInstrumentedFunction({
             statsKey: `recordingingesterv2.handleEachBatch.parseBatch`,
@@ -176,7 +172,7 @@ export class SessionRecordingIngester {
     private consume(message: MessageWithTeam, batch: SessionBatchRecorder) {
         // we have to reset this counter once we're consuming messages since then we know we're not re-balancing
         // otherwise the consumer continues to report however many sessions were revoked at the last re-balance forever
-        this.metrics.resetSessionsRevoked()
+        SessionRecordingIngesterMetrics.resetSessionsRevoked()
         const { team, message: parsedMessage } = message
         const debugEnabled = this.isDebugLoggingEnabled(parsedMessage.metadata.partition)
 
@@ -200,7 +196,7 @@ export class SessionRecordingIngester {
             })
         }
 
-        this.metrics.observeSessionInfo(parsedMessage.metadata.rawSize)
+        SessionRecordingIngesterMetrics.observeSessionInfo(parsedMessage.metadata.rawSize)
         batch.record(message)
     }
 
@@ -304,7 +300,7 @@ export class SessionRecordingIngester {
             return
         }
 
-        this.metrics.resetSessionsHandled()
+        SessionRecordingIngesterMetrics.resetSessionsHandled()
         await this.sessionBatchManager.discardPartitions(revokedPartitions)
     }
 
