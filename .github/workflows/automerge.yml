@@ -2,8 +2,9 @@ name: Automerge
 
 env:
     MERGE_METHOD: 'squash'
-    MERGE_RETRY_SLEEP: 300000
+    MERGE_RETRY_SLEEP: 30 # 300000
     MERGE_ERROR_FAIL: true
+    MERGE_RETRIES: 1
 
 on:
     pull_request:
@@ -40,9 +41,9 @@ jobs:
               if: ${{ failure() }}
               run: |
                   echo "Automerge Outputs:"
-                  echo ${{ steps.automerge.outputs }} | jq .
+                  echo "${{ steps.automerge.outputs }}" | jq .
                   env:
-                  AUTOMERGE_OUTPUT: ${{ toJSON(steps.automerge.outputs) }}
+                    AUTOMERGE_OUTPUT: ${{ toJSON(steps.automerge.outputs) }}
 
             - name: Send automerge event to PostHog
               if: ${{ failure() }}
