@@ -1,6 +1,6 @@
-import { MessageWithTeam } from '../../../../../src/main/ingestion-queues/session-recording-v2/teams/types'
-import { LibVersionMonitor } from '../../../../../src/main/ingestion-queues/session-recording-v2/versions/lib-version-monitor'
-import { VersionMetrics } from '../../../../../src/main/ingestion-queues/session-recording-v2/versions/version-metrics'
+import { MessageWithTeam } from '../teams/types'
+import { LibVersionMonitor } from './lib-version-monitor'
+import { VersionMetrics } from './version-metrics'
 
 jest.mock('../../../../../src/main/ingestion-queues/session-recording-v2/versions/version-metrics')
 

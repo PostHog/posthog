@@ -1,4 +1,4 @@
-import { KafkaOffsetManager } from '../../../../../src/main/ingestion-queues/session-recording-v2/kafka/offset-manager'
+import { KafkaOffsetManager } from './offset-manager'
 
 describe('KafkaOffsetManager', () => {
     let offsetManager: KafkaOffsetManager

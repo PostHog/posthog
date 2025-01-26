@@ -1,6 +1,6 @@
-import { KafkaOffsetManager } from '../../../../../src/main/ingestion-queues/session-recording-v2/kafka/offset-manager'
-import { SessionBatchManager } from '../../../../../src/main/ingestion-queues/session-recording-v2/sessions/session-batch-manager'
-import { SessionBatchRecorder } from '../../../../../src/main/ingestion-queues/session-recording-v2/sessions/session-batch-recorder'
+import { KafkaOffsetManager } from '../kafka/offset-manager'
+import { SessionBatchManager } from './session-batch-manager'
+import { SessionBatchRecorder } from './session-batch-recorder'
 
 jest.setTimeout(1000)
 jest.mock('../../../../../src/main/ingestion-queues/session-recording-v2/sessions/session-batch-recorder')

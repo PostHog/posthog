@@ -2,8 +2,8 @@ import { promisify } from 'node:util'
 import { Message } from 'node-rdkafka'
 import { gzip } from 'zlib'
 
-import { KafkaMessageParser } from '../../../../../src/main/ingestion-queues/session-recording-v2/kafka/message-parser'
-import { KafkaMetrics } from '../../../../../src/main/ingestion-queues/session-recording-v2/kafka/metrics'
+import { KafkaMessageParser } from './message-parser'
+import { KafkaMetrics } from './metrics'
 
 const compressWithGzip = promisify(gzip)
 

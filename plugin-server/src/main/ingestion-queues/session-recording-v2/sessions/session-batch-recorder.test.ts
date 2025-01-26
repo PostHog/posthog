@@ -1,10 +1,10 @@
 import { PassThrough } from 'stream'
 
-import { KafkaOffsetManager } from '../../../../../src/main/ingestion-queues/session-recording-v2/kafka/offset-manager'
-import { BlackholeSessionBatchWriter } from '../../../../../src/main/ingestion-queues/session-recording-v2/sessions/blackhole-session-batch-writer'
-import { SessionBatchMetrics } from '../../../../../src/main/ingestion-queues/session-recording-v2/sessions/metrics'
-import { SessionBatchRecorder } from '../../../../../src/main/ingestion-queues/session-recording-v2/sessions/session-batch-recorder'
-import { MessageWithTeam } from '../../../../../src/main/ingestion-queues/session-recording-v2/teams/types'
+import { KafkaOffsetManager } from '../kafka/offset-manager'
+import { MessageWithTeam } from '../teams/types'
+import { BlackholeSessionBatchWriter } from './blackhole-session-batch-writer'
+import { SessionBatchMetrics } from './metrics'
+import { SessionBatchRecorder } from './session-batch-recorder'
 
 // RRWeb event type constants
 const enum EventType {
