@@ -38,6 +38,12 @@ jobs:
               env:
                   GITHUB_TOKEN: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
+            - name: Print Workflow Context
+              if: ${{ failure() }}
+              run: |
+                  echo "Available GitHub Context:"
+                  echo "${{ toJSON(github) }}" | jq .
+
             - name: Dump GitHub Actions context
               if: ${{ failure() }}
               run: |
