@@ -39,6 +39,7 @@ jobs:
                   GITHUB_TOKEN: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - name: Dump GitHub Actions context
+              if: ${{ failure() }}
               run: |
                   echo "Dumping context for debugging"
                   env
