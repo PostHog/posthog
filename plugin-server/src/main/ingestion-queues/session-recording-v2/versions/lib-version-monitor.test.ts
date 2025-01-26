@@ -2,7 +2,7 @@ import { MessageWithTeam } from '../teams/types'
 import { LibVersionMonitor } from './lib-version-monitor'
 import { VersionMetrics } from './version-metrics'
 
-jest.mock('../../../../../src/main/ingestion-queues/session-recording-v2/versions/version-metrics')
+jest.mock('./version-metrics')
 
 describe('LibVersionMonitor', () => {
     let monitor: LibVersionMonitor

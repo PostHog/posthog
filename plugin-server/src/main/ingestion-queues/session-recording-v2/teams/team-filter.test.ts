@@ -3,7 +3,7 @@ import { TeamFilter } from './team-filter'
 import { TeamService } from './team-service'
 import { Team } from './types'
 
-jest.mock('../../../../../src/main/ingestion-queues/session-recording-v2/teams/team-service')
+jest.mock('./team-service')
 
 const validTeam: Team = {
     teamId: 1,

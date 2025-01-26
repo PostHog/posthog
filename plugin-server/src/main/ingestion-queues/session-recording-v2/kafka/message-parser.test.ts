@@ -7,7 +7,7 @@ import { KafkaMetrics } from './metrics'
 
 const compressWithGzip = promisify(gzip)
 
-jest.mock('../../../../../src/main/ingestion-queues/session-recording-v2/kafka/metrics')
+jest.mock('./metrics')
 
 describe('KafkaMessageParser', () => {
     let parser: KafkaMessageParser

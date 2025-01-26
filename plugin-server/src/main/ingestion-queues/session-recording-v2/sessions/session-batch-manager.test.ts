@@ -3,7 +3,7 @@ import { SessionBatchManager } from './session-batch-manager'
 import { SessionBatchRecorder } from './session-batch-recorder'
 
 jest.setTimeout(1000)
-jest.mock('../../../../../src/main/ingestion-queues/session-recording-v2/sessions/session-batch-recorder')
+jest.mock('./session-batch-recorder')
 
 describe('SessionBatchManager', () => {
     let manager: SessionBatchManager
@@ -22,7 +22,6 @@ describe('SessionBatchManager', () => {
         } as unknown as jest.Mocked<SessionBatchRecorder>)
 
     beforeEach(() => {
-        // Mock the constructor to return a new mock each time and store it
         jest.mocked(SessionBatchRecorder).mockImplementation(() => {
             currentBatch = createMockBatch()
             return currentBatch
@@ -79,7 +78,6 @@ describe('SessionBatchManager', () => {
 
         await Promise.all([promise1, promise2, promise3])
 
-        // Should execute in order despite different delays
         expect(executionOrder).toEqual([1, 2, 3, 4, 5, 6])
     })
 
@@ -109,7 +107,6 @@ describe('SessionBatchManager', () => {
         const results: number[] = []
         const promises: Promise<void>[] = []
 
-        // Queue up 10 immediate callbacks
         for (let i = 0; i < 10; i++) {
             promises.push(
                 manager.withBatch(async () => {
@@ -121,7 +118,6 @@ describe('SessionBatchManager', () => {
 
         await Promise.all(promises)
 
-        // Should execute in order 0-9
         expect(results).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
     })
 

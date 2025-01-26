@@ -32,7 +32,7 @@ interface MessageMetadata {
 
 jest.setTimeout(1000)
 
-jest.mock('../../../../../src/main/ingestion-queues/session-recording-v2/sessions/metrics', () => ({
+jest.mock('./metrics', () => ({
     SessionBatchMetrics: {
         incrementBatchesFlushed: jest.fn(),
         incrementSessionsFlushed: jest.fn(),
@@ -41,7 +41,7 @@ jest.mock('../../../../../src/main/ingestion-queues/session-recording-v2/session
     },
 }))
 
-jest.mock('../../../../../src/main/ingestion-queues/session-recording-v2/sessions/blackhole-session-batch-writer')
+jest.mock('./blackhole-session-batch-writer')
 
 describe('SessionBatchRecorder', () => {
     let recorder: SessionBatchRecorder
