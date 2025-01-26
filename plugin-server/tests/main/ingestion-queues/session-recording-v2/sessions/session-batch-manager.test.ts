@@ -1,10 +1,10 @@
 import { KafkaOffsetManager } from '../../../../../src/main/ingestion-queues/session-recording-v2/kafka/offset-manager'
 import { SessionBatchManager } from '../../../../../src/main/ingestion-queues/session-recording-v2/sessions/session-batch-manager'
-import { SessionBatchRecorderInterface } from '../../../../../src/main/ingestion-queues/session-recording-v2/sessions/session-batch-recorder'
+import { SessionBatchRecorder } from '../../../../../src/main/ingestion-queues/session-recording-v2/sessions/session-batch-recorder'
 
 jest.setTimeout(1000)
 
-const createMockBatch = (): jest.Mocked<SessionBatchRecorderInterface> => {
+const createMockBatch = (): jest.Mocked<SessionBatchRecorder> => {
     return {
         record: jest.fn(),
         flush: jest.fn().mockResolvedValue(undefined),
@@ -12,14 +12,14 @@ const createMockBatch = (): jest.Mocked<SessionBatchRecorderInterface> => {
             return 0
         },
         discardPartition: jest.fn(),
-    } as unknown as jest.Mocked<SessionBatchRecorderInterface>
+    } as unknown as jest.Mocked<SessionBatchRecorder>
 }
 
 describe('SessionBatchManager', () => {
     let manager: SessionBatchManager
     let executionOrder: number[]
-    let createBatchMock: jest.Mock<SessionBatchRecorderInterface>
-    let currentBatch: jest.Mocked<SessionBatchRecorderInterface>
+    let createBatchMock: jest.Mock<SessionBatchRecorder>
+    let currentBatch: jest.Mocked<SessionBatchRecorder>
     let mockOffsetManager: jest.Mocked<KafkaOffsetManager>
 
     beforeEach(() => {
@@ -150,7 +150,7 @@ describe('SessionBatchManager', () => {
     })
 
     it('should create new batch on flush', async () => {
-        let firstBatch: SessionBatchRecorderInterface | null = null
+        let firstBatch: SessionBatchRecorder | null = null
 
         await manager.withBatch(async (batch) => {
             firstBatch = batch
@@ -165,13 +165,12 @@ describe('SessionBatchManager', () => {
         })
     })
 
-    it('should create new batch and commit offsets on flush', async () => {
+    it('should create new batch on flush', async () => {
         const firstBatch = currentBatch
 
         await manager.flush()
 
         expect(firstBatch.flush).toHaveBeenCalled()
-        expect(mockOffsetManager.commit).toHaveBeenCalled()
         expect(createBatchMock).toHaveBeenCalledTimes(2)
     })
 
@@ -248,7 +247,6 @@ describe('SessionBatchManager', () => {
 
         expect(executionOrder).toEqual([1, 2])
         expect(firstBatch.flush).toHaveBeenCalled()
-        expect(mockOffsetManager.commit).toHaveBeenCalled()
     })
 
     describe('partition handling', () => {

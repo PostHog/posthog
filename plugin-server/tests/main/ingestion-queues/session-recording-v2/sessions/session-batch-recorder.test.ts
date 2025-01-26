@@ -1,9 +1,9 @@
 import { PassThrough } from 'stream'
 
+import { KafkaOffsetManager } from '../../../../../src/main/ingestion-queues/session-recording-v2/kafka/offset-manager'
 import { SessionBatchMetrics } from '../../../../../src/main/ingestion-queues/session-recording-v2/sessions/metrics'
 import {
     SessionBatchRecorder,
-    SessionBatchRecorderInterface,
     SessionBatchWriter,
 } from '../../../../../src/main/ingestion-queues/session-recording-v2/sessions/session-batch-recorder'
 import { MessageWithTeam } from '../../../../../src/main/ingestion-queues/session-recording-v2/teams/types'
@@ -43,8 +43,9 @@ jest.mock('../../../../../src/main/ingestion-queues/session-recording-v2/session
 }))
 
 describe('SessionBatchRecorder', () => {
-    let recorder: SessionBatchRecorderInterface
+    let recorder: SessionBatchRecorder
     let mockWriter: jest.Mocked<SessionBatchWriter>
+    let mockOffsetManager: jest.Mocked<KafkaOffsetManager>
     let mockStream: PassThrough
     let mockFinish: () => Promise<void>
 
@@ -59,7 +60,12 @@ describe('SessionBatchRecorder', () => {
                 })
             ),
         }
-        recorder = new SessionBatchRecorder(mockWriter)
+        mockOffsetManager = {
+            trackOffset: jest.fn(),
+            discardPartition: jest.fn(),
+            commit: jest.fn(),
+        } as unknown as jest.Mocked<KafkaOffsetManager>
+        recorder = new SessionBatchRecorder(mockWriter, mockOffsetManager)
 
         // Reset metrics mocks
         jest.mocked(SessionBatchMetrics.incrementBatchesFlushed).mockClear()
@@ -121,7 +127,7 @@ describe('SessionBatchRecorder', () => {
     }
 
     describe('recording and writing', () => {
-        it('should process and flush a single session', async () => {
+        it('should process and flush a single session and track offsets', async () => {
             const message = createMessage('session1', [
                 {
                     type: EventType.FullSnapshot,
@@ -131,6 +137,8 @@ describe('SessionBatchRecorder', () => {
             ])
 
             recorder.record(message)
+            expect(mockOffsetManager.trackOffset).toHaveBeenCalledWith(message.message.metadata)
+
             const outputPromise = captureOutput(mockStream)
             await recorder.flush()
 
@@ -161,7 +169,12 @@ describe('SessionBatchRecorder', () => {
                 ]),
             ]
 
-            messages.forEach((message) => recorder.record(message))
+            messages.forEach((message) => {
+                recorder.record(message)
+                expect(mockOffsetManager.trackOffset).toHaveBeenCalledWith(message.message.metadata)
+            })
+            expect(mockOffsetManager.trackOffset).toHaveBeenCalledTimes(2)
+
             const outputPromise = captureOutput(mockStream)
             await recorder.flush()
 
@@ -481,9 +494,11 @@ describe('SessionBatchRecorder', () => {
             expect(recorder.size).toBe(totalSize)
 
             recorder.discardPartition(1)
+            expect(mockOffsetManager.discardPartition).toHaveBeenCalledWith(1)
             expect(recorder.size).toBe(size2)
 
             recorder.discardPartition(2)
+            expect(mockOffsetManager.discardPartition).toHaveBeenCalledWith(2)
             expect(recorder.size).toBe(0)
         })
 
@@ -497,9 +512,9 @@ describe('SessionBatchRecorder', () => {
             ])
 
             const bytesWritten = recorder.record(message)
+            expect(mockOffsetManager.trackOffset).toHaveBeenCalledWith(message.message.metadata)
             expect(recorder.size).toBe(bytesWritten)
 
-            // Should not throw or change size
             recorder.discardPartition(999)
             expect(recorder.size).toBe(bytesWritten)
         })

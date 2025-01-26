@@ -1,20 +1,20 @@
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { PromiseQueue } from './promise-queue'
-import { SessionBatchRecorderInterface } from './session-batch-recorder'
+import { SessionBatchRecorder } from './session-batch-recorder'
 
 export interface SessionBatchManagerConfig {
     maxBatchSizeBytes: number
     maxBatchAgeMs: number
-    createBatch: () => SessionBatchRecorderInterface
+    createBatch: (offsetManager: KafkaOffsetManager) => SessionBatchRecorder
     offsetManager: KafkaOffsetManager
 }
 
 export class SessionBatchManager {
-    private currentBatch: SessionBatchRecorderInterface
+    private currentBatch: SessionBatchRecorder
     private queue: PromiseQueue<void>
     private readonly maxBatchSizeBytes: number
     private readonly maxBatchAgeMs: number
-    private readonly createBatch: () => SessionBatchRecorderInterface
+    private readonly createBatch: (offsetManager: KafkaOffsetManager) => SessionBatchRecorder
     private readonly offsetManager: KafkaOffsetManager
     private lastFlushTime: number
 
@@ -23,12 +23,12 @@ export class SessionBatchManager {
         this.maxBatchAgeMs = config.maxBatchAgeMs
         this.createBatch = config.createBatch
         this.offsetManager = config.offsetManager
-        this.currentBatch = this.offsetManager.wrapBatch(this.createBatch())
+        this.currentBatch = this.createBatch(this.offsetManager)
         this.queue = new PromiseQueue()
         this.lastFlushTime = Date.now()
     }
 
-    public async withBatch(callback: (batch: SessionBatchRecorderInterface) => Promise<void>): Promise<void> {
+    public async withBatch(callback: (batch: SessionBatchRecorder) => Promise<void>): Promise<void> {
         return this.queue.add(() => callback(this.currentBatch))
     }
 
@@ -55,8 +55,7 @@ export class SessionBatchManager {
 
     private async rotateBatch(): Promise<void> {
         await this.currentBatch.flush()
-        await this.offsetManager.commit()
-        this.currentBatch = this.offsetManager.wrapBatch(this.createBatch())
+        this.currentBatch = this.createBatch(this.offsetManager)
         this.lastFlushTime = Date.now()
     }
 }

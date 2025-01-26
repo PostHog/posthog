@@ -25,7 +25,7 @@ import { SessionRecordingMetrics } from './metrics'
 import { PromiseScheduler } from './promise-scheduler'
 import { BlackholeSessionBatchWriter } from './sessions/blackhole-session-batch-writer'
 import { SessionBatchManager } from './sessions/session-batch-manager'
-import { SessionBatchRecorder, SessionBatchRecorderInterface } from './sessions/session-batch-recorder'
+import { SessionBatchRecorder } from './sessions/session-batch-recorder'
 import { TeamFilter } from './teams/team-filter'
 import { TeamService } from './teams/team-service'
 import { MessageWithTeam } from './teams/types'
@@ -93,7 +93,7 @@ export class SessionRecordingIngester {
         this.sessionBatchManager = new SessionBatchManager({
             maxBatchSizeBytes: (config.SESSION_RECORDING_MAX_BATCH_SIZE_KB ?? 0) * 1024,
             maxBatchAgeMs: config.SESSION_RECORDING_MAX_BATCH_AGE_MS ?? 1000,
-            createBatch: () => new SessionBatchRecorder(new BlackholeSessionBatchWriter()),
+            createBatch: (offsetManager) => new SessionBatchRecorder(new BlackholeSessionBatchWriter(), offsetManager),
             offsetManager,
         })
 
@@ -176,7 +176,7 @@ export class SessionRecordingIngester {
         })
     }
 
-    private consume(message: MessageWithTeam, batch: SessionBatchRecorderInterface) {
+    private consume(message: MessageWithTeam, batch: SessionBatchRecorder) {
         // we have to reset this counter once we're consuming messages since then we know we're not re-balancing
         // otherwise the consumer continues to report however many sessions were revoked at the last re-balance forever
         this.metrics.resetSessionsRevoked()

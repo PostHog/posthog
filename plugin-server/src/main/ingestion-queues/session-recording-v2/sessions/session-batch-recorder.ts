@@ -1,5 +1,6 @@
 import { Writable } from 'stream'
 
+import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithTeam } from '../teams/types'
 import { SessionBatchMetrics } from './metrics'
 import { SessionRecorder } from './recorder'
@@ -13,19 +14,12 @@ export interface SessionBatchWriter {
     open(): Promise<StreamWithFinish>
 }
 
-export interface SessionBatchRecorderInterface {
-    record(message: MessageWithTeam): number
-    flush(): Promise<void>
-    discardPartition(partition: number): void
-    readonly size: number
-}
-
-export class SessionBatchRecorder implements SessionBatchRecorderInterface {
+export class SessionBatchRecorder {
     private readonly partitionSessions = new Map<number, Map<string, SessionRecorder>>()
     private readonly partitionSizes = new Map<number, number>()
     private _size: number = 0
 
-    constructor(private readonly writer: SessionBatchWriter) {}
+    constructor(private readonly writer: SessionBatchWriter, private readonly offsetManager: KafkaOffsetManager) {}
 
     public record(message: MessageWithTeam): number {
         const { partition } = message.message.metadata
@@ -49,6 +43,8 @@ export class SessionBatchRecorder implements SessionBatchRecorderInterface {
         this.partitionSizes.set(partition, currentPartitionSize + bytesWritten)
         this._size += bytesWritten
 
+        this.offsetManager.trackOffset(message.message.metadata)
+
         return bytesWritten
     }
 
@@ -58,6 +54,7 @@ export class SessionBatchRecorder implements SessionBatchRecorderInterface {
             this._size -= partitionSize
             this.partitionSizes.delete(partition)
             this.partitionSessions.delete(partition)
+            this.offsetManager.discardPartition(partition)
         }
     }
 
@@ -80,6 +77,7 @@ export class SessionBatchRecorder implements SessionBatchRecorderInterface {
 
         stream.end()
         await finish()
+        await this.offsetManager.commit()
 
         // Update metrics
         SessionBatchMetrics.incrementBatchesFlushed()
