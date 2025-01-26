@@ -27,7 +27,6 @@ import {
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
 } from './constants'
 import { KafkaMessageParser } from './kafka/message-parser'
-import { KafkaMetrics } from './kafka/metrics'
 import { KafkaOffsetManager } from './kafka/offset-manager'
 import { SessionRecordingMetrics } from './metrics'
 import { PromiseScheduler } from './promise-scheduler'
@@ -77,7 +76,7 @@ export class SessionRecordingIngester {
 
         this.promiseScheduler = new PromiseScheduler()
 
-        this.kafkaParser = new KafkaMessageParser(KafkaMetrics.getInstance())
+        this.kafkaParser = new KafkaMessageParser()
         this.teamFilter = new TeamFilter(new TeamService(postgres))
         if (ingestionWarningProducer) {
             const captureWarning: CaptureIngestionWarningFn = async (teamId, type, details, debounce) => {
