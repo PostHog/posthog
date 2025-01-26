@@ -297,6 +297,8 @@ $primitive-rose: (
 );
 
 :root {
+    --border-xxx: var(--border-color-test);
+
     // Primitive colors (mapped to css custom properties)
     // //////////////////////////////////////////////////////////
     --primitive-transparent: #{$primitive-transparent};

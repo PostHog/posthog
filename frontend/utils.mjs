@@ -1,5 +1,7 @@
 import fs from 'node:fs/promises'
 
+import postcssGamutMapping from '@csstools/postcss-gamut-mapping'
+import tailwindcss from '@tailwindcss/postcss'
 import autoprefixer from 'autoprefixer'
 import * as ps from 'child_process'
 import chokidar from 'chokidar'
@@ -14,7 +16,6 @@ import fse from 'fs-extra'
 import * as path from 'path'
 import postcss from 'postcss'
 import postcssPresetEnv from 'postcss-preset-env'
-import tailwindcss from 'tailwindcss'
 import ts from 'typescript'
 
 const defaultHost = process.argv.includes('--host') && process.argv.includes('0.0.0.0') ? '0.0.0.0' : 'localhost'
@@ -141,7 +142,7 @@ export const commonConfig = {
         sassPlugin({
             async transform(source, resolveDir, filePath) {
                 // Sync the plugins list with postcss.config.js
-                const plugins = [tailwindcss, autoprefixer, postcssPresetEnv({ stage: 0 })]
+                const plugins = [tailwindcss, autoprefixer, postcssPresetEnv({ stage: 0 }), postcssGamutMapping()]
                 if (!isDev) {
                     plugins.push(cssnano({ preset: 'default' }))
                 }

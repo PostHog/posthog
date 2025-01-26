@@ -49,6 +49,8 @@ module.exports = {
         'scss/operator-no-newline-after': null, // Doesn't always play well with prettier
         'scss/at-extend-no-missing-placeholder': null,
         'scss/comment-no-empty': null,
+        // Allow for tailwind custom @theme / @custom-variant
+        'scss/at-rule-no-unknown': null, 
         'order/order': ['dollar-variables', 'custom-properties', 'declarations', 'rules', 'at-rules'],
         'color-function-notation': ['modern', { ignore: ['with-var-inside'] }],
     },
