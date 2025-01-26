@@ -15,19 +15,38 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
 @import 'fonts';
 @import 'functions';
 @import 'mixins';
-@import 'tailwindcss/components'; // NOTE: The components layer must be before utilities for correct specificity
+
+// @import 'tailwindcss/components'; // NOTE: The components layer must be before utilities for correct specificity
+@import 'tailwindcss';
 @import 'utilities';
 @import 'utilities-legacy'; // TODO: Remove all legacy utilities
 @import 'design-system';
+
+// TODO: Check if this is needed for the above directories
+// @source ''
+// https://tailwindcss.com/docs/detecting-classes-in-source-files#explicitly-registering-sources
+// './frontend/src/**/*.{ts,tsx}',
+// './ee/frontend/**/*.{ts,tsx}',
+// './frontend/src/index.html',
+// './products/**/frontend/**/*.{ts,tsx}',
+// './common/**/src/**/*.{ts,tsx}',
+// './common/**/frontend/**/*.{ts,tsx}',
+
+// Variants
+@custom-variant dark (&:where([theme="dark"], [theme="dark"] * ));
 
 :root {
     @include root-variables;
 }
 
-*,
-*::before,
-*::after {
-    border-color: var(--border); // Tailwind's default is currentColor, but --border is more useful
+@layer base {
+    *,
+    ::after,
+    ::before,
+    ::backdrop,
+    ::file-selector-button {
+        border-color: var(--border, currentColor);
+    }
 }
 
 input[type='radio'] {
@@ -566,4 +585,61 @@ img {
 
 .system-ui {
     font-family: system-ui;
+}
+
+// https://tailwindcss.com/docs/theme#referencing-other-variables
+@theme inline {
+    --color-purple: #b62ad9; // TODO: Remove this once we have a proper color palette
+    --background-color-accent-primary: var(--accent-primary);
+    --background-color-accent-primary-hover: var(--accent-primary-hover);
+    --background-color-accent-primary-active: var(--accent-primary-active);
+    --background-color-accent-primary-highlight: var(--accent-primary-highlight);
+    --background-color-accent-secondary: var(--accent-secondary);
+    --background-color-accent-secondary-hover: var(--accent-secondary-hover);
+    --background-color-accent-secondary-active: var(--accent-secondary-active);
+    --background-color-accent-secondary-highlight: var(--accent-secondary-highlight);
+
+    // Backgrounds
+    // //////////////////////////////////////////////////////////
+    --background-color-primary: var(--bg-primary);
+
+    // Surfaces
+    // //////////////////////////////////////////////////////////
+    --background-color-surface-primary: var(--surface-primary);
+    --background-color-surface-secondary: var(--surface-secondary);
+    --background-color-surface-tertiary: var(--surface-tertiary);
+
+    // Content (text, icons)
+    // //////////////////////////////////////////////////////////
+    --background-color-fill-primary: var(--bg-fill-primary);
+    --background-color-fill-secondary: var(--bg-fill-secondary);
+    --background-color-fill-tertiary: var(--bg-fill-tertiary);
+    --background-color-fill-info-secondary: var(--bg-fill-info-secondary);
+    --background-color-fill-info-tertiary: var(--bg-fill-info-tertiary);
+    --background-color-fill-warning-secondary: var(--bg-fill-warning-secondary);
+    --background-color-fill-warning-tertiary: var(--bg-fill-warning-tertiary);
+    --background-color-fill-error-secondary: var(--bg-fill-error-secondary);
+    --background-color-fill-error-tertiary: var(--bg-fill-error-tertiary);
+    --background-color-fill-success-secondary: var(--bg-fill-success-secondary);
+    --background-color-fill-success-tertiary: var(--bg-fill-success-tertiary);
+    --border-color-primary: var(--border-primary);
+    --border-color-info: var(--border-info);
+    --border-color-warning: var(--border-warning);
+    --border-color-error: var(--border-error);
+    --border-color-success: var(--border-success);
+
+    // Text
+    // //////////////////////////////////////////////////////////
+    --text-color-accent-primary: var(--accent-primary);
+    --text-color-accent-primary-hover: var(--accent-primary-hover);
+    --text-color-accent-primary-active: var(--accent-primary-active);
+    --text-color-accent-primary-highlight: var(--accent-primary-highlight);
+    --text-color-accent-secondary: var(--accent-secondary);
+    --text-color-accent-secondary-hover: var(--accent-secondary-hover);
+    --text-color-accent-secondary-active: var(--accent-secondary-active);
+    --text-color-accent-secondary-highlight: var(--accent-secondary-highlight);
+    --text-color-primary: var(--text-primary);
+    --text-color-warning-on-bg-fill: var(--text-warning-on-bg-fill);
+    --text-color-error-on-bg-fill: var(--text-error-on-bg-fill);
+    --text-color-success-on-bg-fill: var(--text-success-on-bg-fill);
 }

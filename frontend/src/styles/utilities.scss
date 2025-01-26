@@ -1,7 +1,8 @@
 @use 'sass:string';
 @import 'vars';
-@import 'tailwindcss/base';
-@import 'tailwindcss/utilities';
+
+// @import 'tailwindcss/base';
+// @import 'tailwindcss/utilities';
 
 @each $name, $hex in $colors {
     .text-#{$name} {
