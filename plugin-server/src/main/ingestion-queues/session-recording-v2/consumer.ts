@@ -1,5 +1,13 @@
 import { captureException } from '@sentry/node'
-import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
+import {
+    CODES,
+    features,
+    KafkaConsumer,
+    librdkafkaVersion,
+    Message,
+    TopicPartition,
+    TopicPartitionOffset,
+} from 'node-rdkafka'
 
 import { KafkaProducerWrapper } from '~/src/kafka/producer'
 import { PostgresRouter } from '~/src/utils/db/postgres'
@@ -80,17 +88,7 @@ export class SessionRecordingIngester {
 
         this.metrics = SessionRecordingMetrics.getInstance()
 
-        const offsetManager = new KafkaOffsetManager(async (offsets) => {
-            await new Promise<void>((resolve, reject) => {
-                try {
-                    this.batchConsumer!.consumer.commitSync(offsets)
-                    resolve()
-                } catch (error) {
-                    reject(error)
-                }
-            })
-        }, this.topic)
-
+        const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
         this.sessionBatchManager = new SessionBatchManager({
             maxBatchSizeBytes: (config.SESSION_RECORDING_MAX_BATCH_SIZE_KB ?? 0) * 1024,
             maxBatchAgeMs: config.SESSION_RECORDING_MAX_BATCH_AGE_MS ?? 1000,
@@ -310,5 +308,16 @@ export class SessionRecordingIngester {
 
         this.metrics.resetSessionsHandled()
         await this.sessionBatchManager.discardPartitions(revokedPartitions)
+    }
+
+    private async commitOffsets(offsets: TopicPartitionOffset[]): Promise<void> {
+        await new Promise<void>((resolve, reject) => {
+            try {
+                this.batchConsumer!.consumer.commitSync(offsets)
+                resolve()
+            } catch (error) {
+                reject(error)
+            }
+        })
     }
 }
