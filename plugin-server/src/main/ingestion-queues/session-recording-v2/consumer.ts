@@ -39,7 +39,6 @@ import { MessageWithTeam } from './teams/types'
 import { CaptureIngestionWarningFn } from './types'
 import { getPartitionsForTopic } from './utils'
 import { LibVersionMonitor } from './versions/lib-version-monitor'
-import { VersionMetrics } from './versions/version-metrics'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -82,7 +81,7 @@ export class SessionRecordingIngester {
             const captureWarning: CaptureIngestionWarningFn = async (teamId, type, details, debounce) => {
                 await captureIngestionWarning(ingestionWarningProducer, teamId, type, details, debounce)
             }
-            this.libVersionMonitor = new LibVersionMonitor(captureWarning, VersionMetrics.getInstance())
+            this.libVersionMonitor = new LibVersionMonitor(captureWarning)
         }
 
         this.metrics = SessionRecordingMetrics.getInstance()
