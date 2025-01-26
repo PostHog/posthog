@@ -14160,6 +14160,9 @@
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
+                "includeRevenue": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "WebExternalClicksTableQuery",
                     "type": "string"
@@ -14277,6 +14280,9 @@
                     "type": "boolean"
                 },
                 "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "includeRevenue": {
                     "type": "boolean"
                 },
                 "kind": {
@@ -14564,6 +14570,9 @@
                 "includeBounceRate": {
                     "type": "boolean"
                 },
+                "includeRevenue": {
+                    "type": "boolean"
+                },
                 "includeScrollDepth": {
                     "type": "boolean"
                 },
@@ -14726,6 +14735,9 @@
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
+                "includeRevenue": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "WebVitalsPathBreakdownQuery",
                     "type": "string"
@@ -14878,6 +14890,9 @@
                     "type": "boolean"
                 },
                 "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "includeRevenue": {
                     "type": "boolean"
                 },
                 "kind": {

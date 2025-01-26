@@ -1450,13 +1450,13 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
         forceSamplingRate?: SamplingRate
     }
     filterTestAccounts?: boolean
+    includeRevenue?: boolean
     /** @deprecated ignored, always treated as enabled **/
     useSessionsTable?: boolean
 }
 
 export interface WebOverviewQuery extends WebAnalyticsQueryBase<WebOverviewQueryResponse> {
     kind: NodeKind.WebOverviewQuery
-    includeRevenue?: boolean
 }
 
 export type WebOverviewItemKind = 'unit' | 'duration_s' | 'percentage' | 'currency'

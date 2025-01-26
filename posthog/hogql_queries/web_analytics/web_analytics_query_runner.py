@@ -253,13 +253,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
 
     @cached_property
     def event_type_expr(self) -> ast.Expr:
-        config = (
-            RevenueTrackingConfig.model_validate(self.team.revenue_tracking_config)
-            if self.team.revenue_tracking_config
-            else None
-        )
-
-        exprs: ast.Expr = [
+        exprs: list[ast.Expr] = [
             ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["event"]), right=ast.Constant(value="$pageview")
             ),
@@ -268,22 +262,29 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
             ),
         ]
 
-        if config:
-            for eventItem in config.events:
-                exprs.append(
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["event"]),
-                        right=ast.Constant(value=eventItem.eventName),
-                    )
-                )
-
-        pageview_expr = ast.Or(exprs=exprs)
-
         if self.conversion_goal_expr:
-            return ast.Call(name="or", args=[pageview_expr, self.conversion_goal_expr])
-        else:
-            return pageview_expr
+            exprs.append(self.conversion_goal_expr)
+        elif self.query.includeRevenue:
+            # Use elif here, we don't need to include revenue events if we already included conversion events, because
+            # if there is a conversion goal set then we only show revenue from conversion events.
+
+            config = (
+                RevenueTrackingConfig.model_validate(self.team.revenue_tracking_config)
+                if self.team.revenue_tracking_config
+                else None
+            )
+
+            if config:
+                for eventItem in config.events:
+                    exprs.append(
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["event"]),
+                            right=ast.Constant(value=eventItem.eventName),
+                        )
+                    )
+
+        return ast.Or(exprs=exprs)
 
     def period_aggregate(self, function_name, column_name, start, end, alias=None, params=None):
         expr = ast.Call(
