@@ -41,8 +41,8 @@ jobs:
               if: ${{ failure() }}
               run: |
                   echo "Automerge Outputs:"
-                  if [[ "${{ automergeStep.outputs.mergeResult }}" != "" ]]; then
-                      echo '{"mergeResult": "${{ automergeStep.outputs.mergeResult }}", "pullRequestNumber": "${{ automergeStep.outputs.pullRequestNumber }}"}' | jq .
+                  if [[ "${{ steps.automergeStep.outputs.mergeResult }}" != "" ]]; then
+                      echo '{"mergeResult": "${{ steps.automergeStep.outputs.mergeResult }}", "pullRequestNumber": "${{ steps.automergeStep.outputs.pullRequestNumber }}"}' | jq .
                   else
                       echo "No outputs from Automerge action."
                   fi
@@ -59,6 +59,6 @@ jobs:
                         "jobStatus": "${{ job.status }}",
                         "prTitle": "${{ github.event.pull_request.title }}",
                         "prNumber": "${{ github.event.pull_request.number }}",
-                        "mergeResult": "${{ automergeStep.outputs.mergeResult }}",
-                        "pullRequestNumber": "${{ automergeStep.outputs.pullRequestNumber }}"
+                        "mergeResult": "${{ steps.automergeStep.outputs.mergeResult }}",
+                        "pullRequestNumber": "${{ steps.automergeStep.outputs.pullRequestNumber }}"
                       }
