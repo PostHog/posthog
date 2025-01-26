@@ -239,6 +239,7 @@ export const FEATURE_FLAGS = {
     WEB_REVENUE_TRACKING: 'web-revenue-tracking', // owner: @robbie-c #team-web-analytics
     LLM_OBSERVABILITY: 'llm-observability', // owner: #team-ai-product-manager
     ONBOARDING_SESSION_REPLAY_SEPERATE_STEP: 'onboarding-session-replay-separate-step', // owner: @joshsny #team-growth
+    REPLAY_TRIGGER_OPTIONS: 'replay-trigger-options', // owner: @pauldambra #team-replay
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
