@@ -38,6 +38,11 @@ jobs:
               env:
                   GITHUB_TOKEN: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
+            - name: Dump GitHub Actions context
+              run: |
+                  echo "Dumping context for debugging"
+                  env
+
             - name: Print Automerge Outputs as JSON
               if: ${{ failure() }}
               run: |
