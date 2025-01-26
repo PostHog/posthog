@@ -5,6 +5,7 @@ env:
     MERGE_RETRY_SLEEP: 30 # 300000
     MERGE_ERROR_FAIL: true
     MERGE_RETRIES: 1
+    LOG: 'TRACE'
 
 on:
     pull_request:
