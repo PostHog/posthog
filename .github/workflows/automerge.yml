@@ -41,10 +41,10 @@ jobs:
             - name: Print Workflow Context
               if: ${{ failure() }}
               run: |
-                  echo "Available GitHub Context:"
+                  echo "Available steps Context:"
                   echo "${GITHUB_CONTEXT}" | jq .
               env:
-                  GITHUB_CONTEXT: ${{ toJSON(github) }}
+                  GITHUB_CONTEXT: ${{ toJSON(steps) }}
 
             - name: Dump GitHub Actions context
               if: ${{ failure() }}
