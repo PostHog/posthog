@@ -14,12 +14,25 @@ function createEntry(entry) {
             loader: 'style-loader',
         },
         {
-            // This loader resolves url() and @imports inside CSS
             loader: 'css-loader',
+            options: {
+                importLoaders: 3, // Important: this tells css-loader how many loaders before it should apply
+            }
         },
         {
-            // Then we apply postCSS fixes like autoprefixer and minifying
             loader: 'postcss-loader',
+            options: {
+                postcssOptions: {
+                    plugins: [
+                        require('@tailwindcss/postcss'),
+                        require('autoprefixer'),
+                        require('postcss-preset-env')({
+                            stage: 0,
+                        }),
+                        require('@csstools/postcss-gamut-mapping')(),
+                    ],
+                },
+            },
         },
     ]
 
