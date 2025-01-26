@@ -2,10 +2,8 @@ name: Automerge
 
 env:
     MERGE_METHOD: 'squash'
-    MERGE_RETRY_SLEEP: 30 # 300000
+    MERGE_RETRY_SLEEP: 300000
     MERGE_ERROR_FAIL: true
-    MERGE_RETRIES: 1
-    LOG: 'TRACE'
 
 on:
     pull_request:
@@ -38,24 +36,10 @@ jobs:
               env:
                   GITHUB_TOKEN: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
-            - name: Print Workflow Context
-              if: ${{ failure() }}
-              run: |
-                  echo "Available steps Context:"
-                  echo "${GITHUB_CONTEXT}" | jq .
-              env:
-                  GITHUB_CONTEXT: ${{ toJSON(steps) }}
-
-            - name: Dump GitHub Actions context
-              if: ${{ failure() }}
-              run: |
-                  echo "Dumping context for debugging"
-                  env
-
             - name: Print Automerge Outputs as JSON
-              if: ${{ failure() }}
+              if: ${{ always() }}
               run: |
-                  echo "Automerge Outputs:"
+                  echo "For future debugging... the Automerge Outputs are:"
                   if [[ "${{ steps.automergeStep.outputs.mergeResult }}" != "" ]]; then
                       echo '{"mergeResult": "${{ steps.automergeStep.outputs.mergeResult }}", "pullRequestNumber": "${{ steps.automergeStep.outputs.pullRequestNumber }}"}' | jq .
                   else
@@ -63,7 +47,7 @@ jobs:
                   fi
 
             - name: Send Automerge Event to PostHog
-              if: ${{ failure() }}
+              if: ${{ always() }}
               uses: PostHog/posthog-github-action@v0.1
               with:
                   posthog-token: '${{ secrets.POSTHOG_API_TOKEN }}'
