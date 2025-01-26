@@ -76,6 +76,6 @@ jobs:
                         "prNumber": "${{ github.event.pull_request.number }}",
                         "prState": "${{ github.event.pull_request.mergeable_state }}",
                         "mergeResult": "${{ steps.automergeStep.outputs.mergeResult }}",
-                        "pullRequestNumber": "${{ steps.automergeStep.outputs.pullRequestNumber }}"
-                        "automergeOutcome": "${{ steps.automergeStep.outcome }}"
+                        "pullRequestNumber": "${{ steps.automergeStep.outputs.pullRequestNumber }}",
+                        "automergeOutcome": "${{ steps.automergeStep.outcome }}",
                       }
