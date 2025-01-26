@@ -42,7 +42,9 @@ jobs:
               if: ${{ failure() }}
               run: |
                   echo "Available GitHub Context:"
-                  echo "${{ toJSON(github) }}" | jq .
+                  echo "${GITHUB_CONTEXT}" | jq .
+              env:
+                  GITHUB_CONTEXT: ${{ toJSON(github) }}
 
             - name: Dump GitHub Actions context
               if: ${{ failure() }}
