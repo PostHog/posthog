@@ -1,11 +1,9 @@
 import { PassThrough } from 'stream'
 
 import { KafkaOffsetManager } from '../../../../../src/main/ingestion-queues/session-recording-v2/kafka/offset-manager'
+import { BlackholeSessionBatchWriter } from '../../../../../src/main/ingestion-queues/session-recording-v2/sessions/blackhole-session-batch-writer'
 import { SessionBatchMetrics } from '../../../../../src/main/ingestion-queues/session-recording-v2/sessions/metrics'
-import {
-    SessionBatchRecorder,
-    SessionBatchWriter,
-} from '../../../../../src/main/ingestion-queues/session-recording-v2/sessions/session-batch-recorder'
+import { SessionBatchRecorder } from '../../../../../src/main/ingestion-queues/session-recording-v2/sessions/session-batch-recorder'
 import { MessageWithTeam } from '../../../../../src/main/ingestion-queues/session-recording-v2/teams/types'
 
 // RRWeb event type constants
@@ -32,7 +30,8 @@ interface MessageMetadata {
     rawSize?: number
 }
 
-// Add to the top of the file, after other mocks
+jest.setTimeout(1000)
+
 jest.mock('../../../../../src/main/ingestion-queues/session-recording-v2/sessions/metrics', () => ({
     SessionBatchMetrics: {
         incrementBatchesFlushed: jest.fn(),
@@ -42,36 +41,41 @@ jest.mock('../../../../../src/main/ingestion-queues/session-recording-v2/session
     },
 }))
 
+jest.mock('../../../../../src/main/ingestion-queues/session-recording-v2/sessions/blackhole-session-batch-writer')
+
 describe('SessionBatchRecorder', () => {
     let recorder: SessionBatchRecorder
-    let mockWriter: jest.Mocked<SessionBatchWriter>
+    let mockWriter: jest.Mocked<BlackholeSessionBatchWriter>
     let mockOffsetManager: jest.Mocked<KafkaOffsetManager>
     let mockStream: PassThrough
-    let mockFinish: () => Promise<void>
+    let mockOpen: jest.Mock
+    let mockFinish: jest.Mock
+
+    const createOpenMock = () => {
+        const stream = new PassThrough()
+        const finishMock = jest.fn().mockResolvedValue(undefined)
+        const openMock = jest.fn().mockResolvedValue({ stream, finish: finishMock })
+        return { openMock, finishMock, stream }
+    }
 
     beforeEach(() => {
-        mockStream = new PassThrough()
-        mockFinish = jest.fn().mockResolvedValue(undefined)
+        const openMock = createOpenMock()
+        mockOpen = openMock.openMock
+        mockFinish = openMock.finishMock
+        mockStream = openMock.stream
         mockWriter = {
-            open: jest.fn().mockImplementation(() =>
-                Promise.resolve({
-                    stream: mockStream,
-                    finish: mockFinish,
-                })
-            ),
-        }
+            open: mockOpen,
+        } as unknown as jest.Mocked<BlackholeSessionBatchWriter>
+
+        jest.mocked(BlackholeSessionBatchWriter).mockImplementation(() => mockWriter)
+
         mockOffsetManager = {
             trackOffset: jest.fn(),
             discardPartition: jest.fn(),
             commit: jest.fn(),
         } as unknown as jest.Mocked<KafkaOffsetManager>
-        recorder = new SessionBatchRecorder(mockWriter, mockOffsetManager)
 
-        // Reset metrics mocks
-        jest.mocked(SessionBatchMetrics.incrementBatchesFlushed).mockClear()
-        jest.mocked(SessionBatchMetrics.incrementSessionsFlushed).mockClear()
-        jest.mocked(SessionBatchMetrics.incrementEventsFlushed).mockClear()
-        jest.mocked(SessionBatchMetrics.incrementBytesWritten).mockClear()
+        recorder = new SessionBatchRecorder(mockOffsetManager)
     })
 
     const createMessage = (
@@ -137,13 +141,16 @@ describe('SessionBatchRecorder', () => {
             ])
 
             recorder.record(message)
-            expect(mockOffsetManager.trackOffset).toHaveBeenCalledWith(message.message.metadata)
+            expect(mockOffsetManager.trackOffset).toHaveBeenCalledWith({
+                partition: message.message.metadata.partition,
+                offset: message.message.metadata.offset,
+            })
 
             const outputPromise = captureOutput(mockStream)
             await recorder.flush()
 
-            expect(mockWriter.open).toHaveBeenCalled()
-            expect(mockFinish).toHaveBeenCalled()
+            expect(mockOpen).toHaveBeenCalledTimes(1)
+            expect(mockFinish).toHaveBeenCalledTimes(1)
 
             const output = await outputPromise
             const lines = parseLines(output)
@@ -171,15 +178,18 @@ describe('SessionBatchRecorder', () => {
 
             messages.forEach((message) => {
                 recorder.record(message)
-                expect(mockOffsetManager.trackOffset).toHaveBeenCalledWith(message.message.metadata)
+                expect(mockOffsetManager.trackOffset).toHaveBeenCalledWith({
+                    partition: message.message.metadata.partition,
+                    offset: message.message.metadata.offset,
+                })
             })
             expect(mockOffsetManager.trackOffset).toHaveBeenCalledTimes(2)
 
             const outputPromise = captureOutput(mockStream)
             await recorder.flush()
 
-            expect(mockWriter.open).toHaveBeenCalled()
-            expect(mockFinish).toHaveBeenCalled()
+            expect(mockOpen).toHaveBeenCalledTimes(1)
+            expect(mockFinish).toHaveBeenCalledTimes(1)
 
             const output = await outputPromise
             const lines = parseLines(output)
@@ -212,8 +222,8 @@ describe('SessionBatchRecorder', () => {
             const outputPromise = captureOutput(mockStream)
             await recorder.flush()
 
-            expect(mockWriter.open).toHaveBeenCalled()
-            expect(mockFinish).toHaveBeenCalled()
+            expect(mockOpen).toHaveBeenCalledTimes(1)
+            expect(mockFinish).toHaveBeenCalledTimes(1)
 
             const output = await outputPromise
             const lines = parseLines(output)
@@ -231,8 +241,8 @@ describe('SessionBatchRecorder', () => {
             const outputPromise = captureOutput(mockStream)
             await recorder.flush()
 
-            expect(mockWriter.open).toHaveBeenCalled()
-            expect(mockFinish).toHaveBeenCalled()
+            expect(mockOpen).toHaveBeenCalledTimes(1)
+            expect(mockFinish).toHaveBeenCalledTimes(1)
 
             const output = await outputPromise
             expect(output).toBe('')
@@ -275,8 +285,8 @@ describe('SessionBatchRecorder', () => {
             const outputPromise = captureOutput(mockStream)
             await recorder.flush()
 
-            expect(mockWriter.open).toHaveBeenCalled()
-            expect(mockFinish).toHaveBeenCalled()
+            expect(mockOpen).toHaveBeenCalledTimes(1)
+            expect(mockFinish).toHaveBeenCalledTimes(1)
 
             const output = await outputPromise
             const lines = parseLines(output)
@@ -296,14 +306,8 @@ describe('SessionBatchRecorder', () => {
 
     describe('flushing behavior', () => {
         it('should clear sessions after flush', async () => {
-            const stream1 = new PassThrough()
-            const stream2 = new PassThrough()
-            const finish1 = jest.fn().mockResolvedValue(undefined)
-            const finish2 = jest.fn().mockResolvedValue(undefined)
-
-            mockWriter.open
-                .mockResolvedValueOnce({ stream: stream1, finish: finish1 })
-                .mockResolvedValueOnce({ stream: stream2, finish: finish2 })
+            const { openMock: firstOpen, finishMock: firstFinish, stream: firstStream } = createOpenMock()
+            mockWriter.open = firstOpen
 
             const message1 = createMessage('session1', [
                 {
@@ -322,25 +326,25 @@ describe('SessionBatchRecorder', () => {
             ])
 
             recorder.record(message1)
-            const outputPromise1 = captureOutput(stream1)
+            const outputPromise1 = captureOutput(firstStream)
             await recorder.flush()
 
-            expect(mockWriter.open).toHaveBeenCalledTimes(1)
-            expect(finish1).toHaveBeenCalledTimes(1)
-            expect(finish2).not.toHaveBeenCalled()
+            expect(firstOpen).toHaveBeenCalledTimes(1)
             const output1 = await outputPromise1
+            expect(firstFinish).toHaveBeenCalledTimes(1)
 
-            // Record another message after flush
+            const { openMock: secondOpen, finishMock: secondFinish, stream: secondStream } = createOpenMock()
+            mockWriter.open = secondOpen
+
             recorder.record(message2)
-            const outputPromise2 = captureOutput(stream2)
+            const outputPromise2 = captureOutput(secondStream)
             await recorder.flush()
 
-            expect(mockWriter.open).toHaveBeenCalledTimes(2)
-            expect(finish1).toHaveBeenCalledTimes(1)
-            expect(finish2).toHaveBeenCalledTimes(1)
+            expect(secondOpen).toHaveBeenCalledTimes(1)
+            expect(firstFinish).toHaveBeenCalledTimes(1)
+            expect(secondFinish).toHaveBeenCalledTimes(1)
             const output2 = await outputPromise2
 
-            // Each output should only contain the events from its own batch
             const lines1 = parseLines(output1)
             const lines2 = parseLines(output2)
             expect(lines1).toEqual([['window1', message1.message.eventsByWindowId.window1[0]]])
@@ -348,14 +352,8 @@ describe('SessionBatchRecorder', () => {
         })
 
         it('should not output anything on second flush if no new events', async () => {
-            const stream1 = new PassThrough()
-            const stream2 = new PassThrough()
-            const finish1 = jest.fn().mockResolvedValue(undefined)
-            const finish2 = jest.fn().mockResolvedValue(undefined)
-
-            mockWriter.open
-                .mockResolvedValueOnce({ stream: stream1, finish: finish1 })
-                .mockResolvedValueOnce({ stream: stream2, finish: finish2 })
+            const { openMock: firstOpen, finishMock: firstFinish } = createOpenMock()
+            mockWriter.open = firstOpen
 
             const message = createMessage('session1', [
                 {
@@ -367,18 +365,21 @@ describe('SessionBatchRecorder', () => {
 
             recorder.record(message)
             await recorder.flush()
-            expect(mockWriter.open).toHaveBeenCalledTimes(1)
-            expect(finish1).toHaveBeenCalledTimes(1)
-            expect(finish2).not.toHaveBeenCalled()
 
-            const outputPromise = captureOutput(stream2)
+            expect(firstOpen).toHaveBeenCalledTimes(1)
+            expect(firstFinish).toHaveBeenCalledTimes(1)
+
+            const { openMock: secondOpen, finishMock: secondFinish, stream: secondStream } = createOpenMock()
+            mockWriter.open = secondOpen
+
+            const outputPromise = captureOutput(secondStream)
             await recorder.flush()
             const output = await outputPromise
 
             expect(output).toBe('')
-            expect(mockWriter.open).toHaveBeenCalledTimes(2)
-            expect(finish1).toHaveBeenCalledTimes(1)
-            expect(finish2).toHaveBeenCalledTimes(1)
+            expect(secondOpen).toHaveBeenCalledTimes(1)
+            expect(firstFinish).toHaveBeenCalledTimes(1)
+            expect(secondFinish).toHaveBeenCalledTimes(1)
         })
     })
 
@@ -420,7 +421,7 @@ describe('SessionBatchRecorder', () => {
                 ['window1', messages[0].message.eventsByWindowId.window1[0]],
                 ['window1', messages[1].message.eventsByWindowId.window1[0]],
             ])
-            expect(mockWriter.open).toHaveBeenCalledTimes(1)
+            expect(mockOpen).toHaveBeenCalledTimes(1)
             expect(mockFinish).toHaveBeenCalledTimes(1)
         })
 
@@ -451,7 +452,7 @@ describe('SessionBatchRecorder', () => {
             ]
 
             messages.forEach((message) => recorder.record(message))
-            recorder.discardPartition(1) // Discard partition 1
+            recorder.discardPartition(1)
 
             const outputPromise = captureOutput(mockStream)
             await recorder.flush()
@@ -512,7 +513,10 @@ describe('SessionBatchRecorder', () => {
             ])
 
             const bytesWritten = recorder.record(message)
-            expect(mockOffsetManager.trackOffset).toHaveBeenCalledWith(message.message.metadata)
+            expect(mockOffsetManager.trackOffset).toHaveBeenCalledWith({
+                partition: message.message.metadata.partition,
+                offset: message.message.metadata.offset,
+            })
             expect(recorder.size).toBe(bytesWritten)
 
             recorder.discardPartition(999)
@@ -631,7 +635,6 @@ describe('SessionBatchRecorder', () => {
                 ]),
             ]
 
-            // First flush
             messages.forEach((message) => recorder.record(message))
             await recorder.flush()
 
@@ -641,7 +644,6 @@ describe('SessionBatchRecorder', () => {
             expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenLastCalledWith(2) // Two sessions
             expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenLastCalledWith(2) // Two events
 
-            // Second flush without new messages
             await recorder.flush()
 
             expect(SessionBatchMetrics.incrementBatchesFlushed).toHaveBeenCalledTimes(2)
@@ -650,7 +652,6 @@ describe('SessionBatchRecorder', () => {
             expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenLastCalledWith(0) // No sessions
             expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenLastCalledWith(0) // No events
 
-            // Add new message and flush again
             recorder.record(
                 createMessage('session3', [
                     {

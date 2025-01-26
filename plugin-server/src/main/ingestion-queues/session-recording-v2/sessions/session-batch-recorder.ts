@@ -2,6 +2,7 @@ import { Writable } from 'stream'
 
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithTeam } from '../teams/types'
+import { BlackholeSessionBatchWriter } from './blackhole-session-batch-writer'
 import { SessionBatchMetrics } from './metrics'
 import { SessionRecorder } from './recorder'
 
@@ -18,8 +19,11 @@ export class SessionBatchRecorder {
     private readonly partitionSessions = new Map<number, Map<string, SessionRecorder>>()
     private readonly partitionSizes = new Map<number, number>()
     private _size: number = 0
+    private readonly writer: BlackholeSessionBatchWriter
 
-    constructor(private readonly writer: SessionBatchWriter, private readonly offsetManager: KafkaOffsetManager) {}
+    constructor(private readonly offsetManager: KafkaOffsetManager) {
+        this.writer = new BlackholeSessionBatchWriter()
+    }
 
     public record(message: MessageWithTeam): number {
         const { partition } = message.message.metadata
@@ -43,7 +47,10 @@ export class SessionBatchRecorder {
         this.partitionSizes.set(partition, currentPartitionSize + bytesWritten)
         this._size += bytesWritten
 
-        this.offsetManager.trackOffset(message.message.metadata)
+        this.offsetManager.trackOffset({
+            partition: message.message.metadata.partition,
+            offset: message.message.metadata.offset,
+        })
 
         return bytesWritten
     }

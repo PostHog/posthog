@@ -1,9 +1,6 @@
 import { KafkaOffsetManager } from '../../../../../src/main/ingestion-queues/session-recording-v2/kafka/offset-manager'
 import { SessionBatchManager } from '../../../../../src/main/ingestion-queues/session-recording-v2/sessions/session-batch-manager'
-import {
-    SessionBatchRecorder,
-    SessionBatchWriter,
-} from '../../../../../src/main/ingestion-queues/session-recording-v2/sessions/session-batch-recorder'
+import { SessionBatchRecorder } from '../../../../../src/main/ingestion-queues/session-recording-v2/sessions/session-batch-recorder'
 
 jest.setTimeout(1000)
 jest.mock('../../../../../src/main/ingestion-queues/session-recording-v2/sessions/session-batch-recorder')
@@ -11,7 +8,6 @@ jest.mock('../../../../../src/main/ingestion-queues/session-recording-v2/session
 describe('SessionBatchManager', () => {
     let manager: SessionBatchManager
     let executionOrder: number[]
-    let mockWriter: jest.Mocked<SessionBatchWriter>
     let currentBatch: jest.Mocked<SessionBatchRecorder>
     let mockOffsetManager: jest.Mocked<KafkaOffsetManager>
 
@@ -32,10 +28,6 @@ describe('SessionBatchManager', () => {
             return currentBatch
         })
 
-        mockWriter = {
-            open: jest.fn().mockResolvedValue({ stream: jest.fn(), finish: jest.fn() }),
-        }
-
         mockOffsetManager = {
             commit: jest.fn().mockResolvedValue(undefined),
             trackOffset: jest.fn(),
@@ -45,7 +37,6 @@ describe('SessionBatchManager', () => {
         manager = new SessionBatchManager({
             maxBatchSizeBytes: 100,
             maxBatchAgeMs: 1000,
-            writer: mockWriter,
             offsetManager: mockOffsetManager,
         })
         executionOrder = []
@@ -187,7 +178,7 @@ describe('SessionBatchManager', () => {
         await manager.flush()
 
         expect(firstBatch!.flush).toHaveBeenCalled()
-        expect(SessionBatchRecorder).toHaveBeenCalledWith(mockWriter, mockOffsetManager)
+        expect(SessionBatchRecorder).toHaveBeenCalledWith(mockOffsetManager)
 
         await manager.withBatch(async (batch) => {
             expect(batch).not.toBe(firstBatch)
