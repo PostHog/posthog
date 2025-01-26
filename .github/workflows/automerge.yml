@@ -31,7 +31,7 @@ jobs:
         steps:
             - name: Automerge
               # must have an id so subsequent steps can use the output
-              id: automerge
+              id: automergeStep
               if: env.IS_POSTHOG_BOT_AVAILABLE == 'true'
               uses: pascalgn/automerge-action@v0.16.3
               env:
@@ -41,8 +41,8 @@ jobs:
               if: ${{ failure() }}
               run: |
                   echo "Automerge Outputs:"
-                  if [[ "${{ steps.automerge.outputs.mergeResult }}" != "" ]]; then
-                      echo '{"mergeResult": "${{ steps.automerge.outputs.mergeResult }}", "pullRequestNumber": "${{ steps.automerge.outputs.pullRequestNumber }}"}' | jq .
+                  if [[ "${{ automergeStep.outputs.mergeResult }}" != "" ]]; then
+                      echo '{"mergeResult": "${{ automergeStep.outputs.mergeResult }}", "pullRequestNumber": "${{ automergeStep.outputs.pullRequestNumber }}"}' | jq .
                   else
                       echo "No outputs from Automerge action."
                   fi
@@ -59,6 +59,6 @@ jobs:
                         "jobStatus": "${{ job.status }}",
                         "prTitle": "${{ github.event.pull_request.title }}",
                         "prNumber": "${{ github.event.pull_request.number }}",
-                        "mergeResult": "${{ steps.automerge.outputs.mergeResult }}",
-                        "pullRequestNumber": "${{ steps.automerge.outputs.pullRequestNumber }}"
+                        "mergeResult": "${{ automergeStep.outputs.mergeResult }}",
+                        "pullRequestNumber": "${{ automergeStep.outputs.pullRequestNumber }}"
                       }
