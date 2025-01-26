@@ -3,6 +3,8 @@ name: Automerge
 env:
     MERGE_METHOD: 'squash'
     MERGE_RETRY_SLEEP: 300000
+    # MERGE_ERROR_FAIL: Set this to "true" to have the action exit with error code 1
+    # when the pull request could not be merged successfully during a run.
     MERGE_ERROR_FAIL: true
 
 on:
@@ -36,6 +38,8 @@ jobs:
               env:
                   GITHUB_TOKEN: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
+            # the automerge documentation claims it adds these outputs but we don't get them
+            # maybe because it was a fake PR 🤷
             - name: Print Automerge Outputs as JSON
               if: ${{ always() }}
               run: |
@@ -47,7 +51,7 @@ jobs:
                   fi
 
             - name: Send Automerge Event to PostHog
-              if: ${{ always() }}
+              if: ${{ failure() }}
               uses: PostHog/posthog-github-action@v0.1
               with:
                   posthog-token: '${{ secrets.POSTHOG_API_TOKEN }}'
