@@ -41,14 +41,24 @@ jobs:
               if: ${{ failure() }}
               run: |
                   echo "Automerge Outputs:"
-                  echo "${{ steps.automerge.outputs }}" | jq .
-                  env:
-                    AUTOMERGE_OUTPUT: ${{ toJSON(steps.automerge.outputs) }}
+                  if [[ "${{ steps.automerge.outputs.mergeResult }}" != "" ]]; then
+                      echo '{"mergeResult": "${{ steps.automerge.outputs.mergeResult }}", "pullRequestNumber": "${{ steps.automerge.outputs.pullRequestNumber }}"}' | jq .
+                  else
+                      echo "No outputs from Automerge action."
+                  fi
 
-            - name: Send automerge event to PostHog
+            - name: Send Automerge Event to PostHog
               if: ${{ failure() }}
               uses: PostHog/posthog-github-action@v0.1
               with:
-                  posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
+                  posthog-token: '${{ secrets.POSTHOG_API_TOKEN }}'
                   event: 'posthog-github-automerge-pr-status'
-                  properties: '{"prUrl": "${{ github.event.pull_request.html_url }}", "jobStatus": "${{ job.status }}", "prTitle": "${{ github.event.pull_request.title}}", "prNumber": "${{ github.event.pull_request.number}}", "mergeResult": "${{ steps.automerge.outputs.mergeResult }}" }'
+                  properties: >-
+                      {
+                        "prUrl": "${{ github.event.pull_request.html_url }}",
+                        "jobStatus": "${{ job.status }}",
+                        "prTitle": "${{ github.event.pull_request.title }}",
+                        "prNumber": "${{ github.event.pull_request.number }}",
+                        "mergeResult": "${{ steps.automerge.outputs.mergeResult }}",
+                        "pullRequestNumber": "${{ steps.automerge.outputs.pullRequestNumber }}"
+                      }
