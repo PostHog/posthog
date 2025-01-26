@@ -90,10 +90,11 @@ export class SessionRecordingIngester {
                 }
             })
         }, this.topic)
+
         this.sessionBatchManager = new SessionBatchManager({
             maxBatchSizeBytes: (config.SESSION_RECORDING_MAX_BATCH_SIZE_KB ?? 0) * 1024,
             maxBatchAgeMs: config.SESSION_RECORDING_MAX_BATCH_AGE_MS ?? 1000,
-            createBatch: (offsetManager) => new SessionBatchRecorder(new BlackholeSessionBatchWriter(), offsetManager),
+            writer: new BlackholeSessionBatchWriter(),
             offsetManager,
         })
 
