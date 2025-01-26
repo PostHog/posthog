@@ -50,6 +50,7 @@ jobs:
                       echo "No outputs from Automerge action."
                   fi
 
+            # a CDP destination is setup to alert when we get this event
             - name: Send Automerge Event to PostHog
               if: ${{ failure() }}
               uses: PostHog/posthog-github-action@v0.1
