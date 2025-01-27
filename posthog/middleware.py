@@ -21,7 +21,6 @@ from django.utils.cache import add_never_cache_headers
 from django_prometheus.middleware import (
     Metrics,
     PrometheusAfterMiddleware,
-    PrometheusBeforeMiddleware,
 )
 from rest_framework import status
 from statshog.defaults.django import statsd
