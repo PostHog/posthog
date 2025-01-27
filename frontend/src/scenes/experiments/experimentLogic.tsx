@@ -641,7 +641,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         ...(!draft && { start_date: dayjs() }),
                     })
                     if (response) {
-                        actions.reportExperimentCreated(response)
+                        actions.reportExperimentCreated(response, 'experiment_form')
                         actions.addProductIntent({
                             product_type: ProductKey.EXPERIMENTS,
                             intent_context: ProductIntentContext.EXPERIMENT_CREATED,

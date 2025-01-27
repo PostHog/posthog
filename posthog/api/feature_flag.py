@@ -389,7 +389,7 @@ class FeatureFlagSerializer(
         report_user_action(request.user, "feature flag created", analytics_metadata)
 
         if create_experiment:
-            Experiment.objects.create(
+            experiment = Experiment.objects.create(
                 team_id=self.context["team_id"],
                 feature_flag=instance,
                 name=f"Experiment for {instance.key}",
@@ -401,6 +401,17 @@ class FeatureFlagSerializer(
                     "minimum_detectable_effect": 1,
                 },
                 stats_config={"version": 2},
+            )
+            report_user_action(
+                request.user,
+                "experiment created",
+                {
+                    "id": experiment.id,
+                    "name": experiment.name,
+                    "type": experiment.type,
+                    "parameters": experiment.parameters,
+                    "source": "feature_flag_form",
+                },
             )
 
         return instance

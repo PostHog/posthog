@@ -448,7 +448,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
 
-    def test_create_feature_flag_with_experiment_set(self):
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_create_feature_flag_with_experiment_set(self, mock_capture):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
@@ -480,6 +481,17 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(instance.experiment_set.count(), 1)
         experiment = Experiment.objects.get(id=instance.experiment_set.first().id)
         self.assertEqual(experiment.name, f"Experiment for {instance.key}")
+        mock_capture.assert_called_with(
+            self.user,
+            "experiment created",
+            {
+                "id": experiment.id,
+                "name": experiment.name,
+                "type": experiment.type,
+                "parameters": experiment.parameters,
+                "source": "feature_flag_form",
+            },
+        )
 
     def test_create_feature_flag_with_experiment_set_missing_multivariate(self):
         response = self.client.post(

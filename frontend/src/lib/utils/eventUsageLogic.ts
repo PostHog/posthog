@@ -380,7 +380,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportRecordingPlaylistCreated: (source: 'filters' | 'new' | 'pin' | 'duplicate') => ({ source }),
         reportExperimentArchived: (experiment: Experiment) => ({ experiment }),
         reportExperimentReset: (experiment: Experiment) => ({ experiment }),
-        reportExperimentCreated: (experiment: Experiment) => ({ experiment }),
+        reportExperimentCreated: (experiment: Experiment, source: string) => ({ experiment, source }),
         reportExperimentViewed: (experiment: Experiment, duration: number | null) => ({ experiment, duration }),
         reportExperimentLaunched: (experiment: Experiment, launchDate: Dayjs) => ({ experiment, launchDate }),
         reportExperimentStartDateChange: (experiment: Experiment, newStartDate: string) => ({
@@ -922,12 +922,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 ...getEventPropertiesForExperiment(experiment),
             })
         },
-        reportExperimentCreated: ({ experiment }) => {
+        reportExperimentCreated: ({ experiment, source }) => {
             posthog.capture('experiment created', {
                 id: experiment.id,
                 name: experiment.name,
                 type: experiment.type,
                 parameters: experiment.parameters,
+                source,
             })
         },
         reportExperimentViewed: ({ experiment, duration }) => {
