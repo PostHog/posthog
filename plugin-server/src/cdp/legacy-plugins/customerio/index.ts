@@ -42,7 +42,6 @@ const EVENTS_CONFIG_MAP = {
 
 interface Customer {
     status: Set<'seen' | 'identified' | 'with_email'>
-    existsAlready: boolean
     email: string | null
 }
 
@@ -127,7 +126,7 @@ export const onEvent = async (event: ProcessedPluginEvent, meta: CustomerIoMeta)
         return
     }
 
-    const customer: Customer = await syncCustomerMetadata(meta, event)
+    const customer: Customer = syncCustomerMetadata(meta, event)
     logger.debug(customer)
     logger.debug(shouldCustomerBeTracked(customer, global.eventsConfig))
     if (!shouldCustomerBeTracked(customer, global.eventsConfig)) {
@@ -144,14 +143,10 @@ export const onEvent = async (event: ProcessedPluginEvent, meta: CustomerIoMeta)
     )
 }
 
-async function syncCustomerMetadata(meta: CustomerIoMeta, event: ProcessedPluginEvent): Promise<Customer> {
+function syncCustomerMetadata(meta: CustomerIoMeta, event: ProcessedPluginEvent): Customer {
     const { logger } = meta
-    const customerStatusKey = `customer-status/${event.distinct_id}`
-    const customerStatusArray = [] as string[]
-    const customerStatus = new Set(customerStatusArray) as Customer['status']
-    const customerExistsAlready = customerStatus.has('seen')
     const email = getEmailFromEvent(event)
-
+    const customerStatus = new Set() as Customer['status']
     logger.debug(email)
 
     // Update customer status
@@ -163,14 +158,8 @@ async function syncCustomerMetadata(meta: CustomerIoMeta, event: ProcessedPlugin
         customerStatus.add('with_email')
     }
 
-    if (customerStatus.size > customerStatusArray.length) {
-        // TODO: Fix this
-        // await storage.set(customerStatusKey, Array.from(customerStatus))
-    }
-
     return {
         status: customerStatus,
-        existsAlready: customerExistsAlready,
         email,
     }
 }
@@ -204,7 +193,6 @@ async function exportSingleEvent(
 
     const customerPayload: Record<string, any> = {
         ...(event.$set || {}),
-        _update: customer.existsAlready,
         identifier: event.distinct_id,
     }
 
@@ -248,6 +236,9 @@ function isEmail(email: string): boolean {
 }
 
 function getEmailFromEvent(event: ProcessedPluginEvent): string | null {
+    if (event.person?.properties?.email) {
+        return event.person.properties.email
+    }
     const setAttribute = event.$set
     if (typeof setAttribute !== 'object' || !setAttribute['email']) {
         return null
