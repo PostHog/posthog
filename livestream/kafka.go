@@ -22,7 +22,7 @@ type PostHogEvent struct {
 	Token      string                 `json:"api_key,omitempty"`
 	Event      string                 `json:"event"`
 	Properties map[string]interface{} `json:"properties"`
-	Timestamp  string                 `json:"timestamp,omitempty"`
+	Timestamp  interface{}            `json:"timestamp,omitempty"`
 
 	Uuid       string
 	DistinctId string
@@ -96,65 +96,65 @@ func (c *PostHogKafkaConsumer) Consume() {
 		}
 
 		msgConsumed.Inc()
-
-		var wrapperMessage PostHogEventWrapper
-		err = json.Unmarshal(msg.Value, &wrapperMessage)
-		if err != nil {
-			log.Printf("Error decoding JSON: %v", err)
-			log.Printf("Data: %s", string(msg.Value))
-		}
-
-		phEvent := PostHogEvent{
-			Timestamp:  time.Now().UTC().Format("2006-01-02T15:04:05.000Z"),
-			Token:      "",
-			Event:      "",
-			Properties: make(map[string]interface{}),
-		}
-
-		data := []byte(wrapperMessage.Data)
-
-		err = json.Unmarshal(data, &phEvent)
-		if err != nil {
-			log.Printf("Error decoding JSON: %v", err)
-			log.Printf("Data: %s", string(data))
-		}
-
-		phEvent.Uuid = wrapperMessage.Uuid
-		phEvent.DistinctId = wrapperMessage.DistinctId
-
-		if wrapperMessage.Token != "" {
-			phEvent.Token = wrapperMessage.Token
-		} else if phEvent.Token == "" {
-			if tokenValue, ok := phEvent.Properties["token"].(string); ok {
-				phEvent.Token = tokenValue
-			} else {
-				log.Printf("No valid token found in event %s", string(msg.Value))
-			}
-		}
-
-		var ipStr string = ""
-		if ipValue, ok := phEvent.Properties["$ip"]; ok {
-			if ipProp, ok := ipValue.(string); ok {
-				if ipProp != "" {
-					ipStr = ipProp
-				}
-			}
-		} else {
-			if wrapperMessage.Ip != "" {
-				ipStr = wrapperMessage.Ip
-			}
-		}
-
-		if ipStr != "" {
-			phEvent.Lat, phEvent.Lng, err = c.geolocator.Lookup(ipStr)
-			if err != nil && err.Error() != "invalid IP address" { // An invalid IP address is not an error on our side
-				sentry.CaptureException(err)
-			}
-		}
+		phEvent := parse(c.geolocator, msg.Value)
 
 		c.outgoingChan <- phEvent
 		c.statsChan <- phEvent
 	}
+}
+
+func parse(geolocator GeoLocator, kafkaMessage []byte) PostHogEvent {
+	var wrapperMessage PostHogEventWrapper
+	if err := json.Unmarshal(kafkaMessage, &wrapperMessage); err != nil {
+		log.Printf("Error decoding JSON: %v", err)
+		log.Printf("Data: %s", string(kafkaMessage))
+	}
+
+	phEvent := PostHogEvent{
+		Timestamp:  time.Now().UTC().Format("2006-01-02T15:04:05.000Z"),
+		Token:      "",
+		Event:      "",
+		Properties: make(map[string]interface{}),
+	}
+
+	data := []byte(wrapperMessage.Data)
+
+	if err := json.Unmarshal(data, &phEvent); err != nil {
+		log.Printf("Error decoding JSON: %v", err)
+		log.Printf("Data: %s", string(data))
+	}
+
+	phEvent.Uuid = wrapperMessage.Uuid
+	phEvent.DistinctId = wrapperMessage.DistinctId
+
+	if wrapperMessage.Token != "" {
+		phEvent.Token = wrapperMessage.Token
+	} else if phEvent.Token == "" {
+		if tokenValue, ok := phEvent.Properties["token"].(string); ok {
+			phEvent.Token = tokenValue
+		} else {
+			log.Printf("No valid token found in event %s", string(kafkaMessage))
+		}
+	}
+
+	var ipStr = ""
+	if ipValue, ok := phEvent.Properties["$ip"]; ok {
+		if ipProp, ok := ipValue.(string); ok && ipProp != "" {
+			ipStr = ipProp
+		}
+	} else if wrapperMessage.Ip != "" {
+		ipStr = wrapperMessage.Ip
+	}
+
+	if ipStr != "" {
+		var err error
+		phEvent.Lat, phEvent.Lng, err = geolocator.Lookup(ipStr)
+		if err != nil && err.Error() != "invalid IP address" { // An invalid IP address is not an error on our side
+			sentry.CaptureException(err)
+		}
+	}
+
+	return phEvent
 }
 
 func (c *PostHogKafkaConsumer) Close() {

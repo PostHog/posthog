@@ -101,6 +101,7 @@ func main() {
 		AllowOrigins: []string{"*"},
 		AllowMethods: []string{http.MethodGet, http.MethodHead},
 	}))
+	e.File("/", "./index.html")
 
 	// Routes
 	e.GET("/", index)

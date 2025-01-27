@@ -28,7 +28,7 @@ type Subscription struct {
 
 type ResponsePostHogEvent struct {
 	Uuid       string                 `json:"uuid"`
-	Timestamp  string                 `json:"timestamp"`
+	Timestamp  interface{}            `json:"timestamp"`
 	DistinctId string                 `json:"distinct_id"`
 	PersonId   string                 `json:"person_id"`
 	Event      string                 `json:"event"`
