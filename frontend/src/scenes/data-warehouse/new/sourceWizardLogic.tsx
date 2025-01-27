@@ -3,6 +3,7 @@ import { actions, connect, kea, listeners, path, props, reducers, selectors } fr
 import { forms } from 'kea-forms'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -1235,7 +1236,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             actions.onNext()
         },
         selectConnector: () => {
-            actions.addProductIntent({ product_type: ProductKey.DATA_WAREHOUSE, intent_context: 'selected connector' })
+            actions.addProductIntent({
+                product_type: ProductKey.DATA_WAREHOUSE,
+                intent_context: ProductIntentContext.SELECTED_CONNECTOR,
+            })
         },
     })),
     urlToAction(({ actions }) => ({

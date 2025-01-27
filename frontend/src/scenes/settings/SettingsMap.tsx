@@ -8,6 +8,7 @@ import { DeadClicksAutocaptureSettings } from 'scenes/settings/environment/DeadC
 import { PersonsJoinMode } from 'scenes/settings/environment/PersonsJoinMode'
 import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
 import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
+import { RevenueEventsSettings } from 'scenes/settings/environment/RevenueEventsSettings'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
 
 import { Realm } from '~/types'
@@ -247,6 +248,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Bounce rate page view mode',
                 component: <BounceRatePageViewModeSetting />,
                 flag: 'SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE',
+            },
+            {
+                id: 'web-revenue-events',
+                title: 'Revenue tracking',
+                component: <RevenueEventsSettings />,
+                flag: 'WEB_REVENUE_TRACKING',
             },
         ],
     },
