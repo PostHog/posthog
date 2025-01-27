@@ -32,7 +32,7 @@ COPY patches/ patches/
 RUN corepack enable && pnpm --version && \
     mkdir /tmp/pnpm-store && \
     pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
-    PNPM_HOME=/tmp/pnpm-store npx nx prepare:deps frontend --verbose && \
+    PNPM_HOME=/tmp/pnpm-store npx nx deps:prepare frontend --verbose && \
     rm -rf /tmp/pnpm-store
 
 # Build the frontend.

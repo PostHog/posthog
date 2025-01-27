@@ -5,14 +5,14 @@
     "root": ".",
     "projectType": "application",
     "targets": {
-        "prepare:deps": {
+        "deps:prepare": {
             "executor": "nx:run-commands",
             "options": {
                 "commands": ["echo 'Preparing frontend dependencies'"]
             },
             "dependsOn": ["^prepare"]
         },
-        "build:deps": {
+        "deps:build": {
             "executor": "nx:run-commands",
             "options": {
                 "commands": ["echo 'Building frontend dependencies'"]
@@ -24,7 +24,7 @@
             "options": {
                 "commands": ["pnpm run build"]
             },
-            "dependsOn": ["build:deps"],
+            "dependsOn": ["deps:build"],
             "inputs": ["{projectRoot}/frontend/src/**/*"],
             "outputs": ["{projectRoot}/frontend/dist"]
         },
