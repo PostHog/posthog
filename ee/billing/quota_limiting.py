@@ -51,10 +51,21 @@ OVERAGE_BUFFER = {
     QuotaResource.ROWS_SYNCED: 0,
 }
 
+# -------------------------------------------------------------------------------------------------
+# REDIS FUNCTIONS
+# -------------------------------------------------------------------------------------------------
+
+# In redis, we store the tokens in a sorted set with the timestamp as the score.
+# E.g. key: @posthog/quota-limits/recordings, value: {"phc_PWDYpjHUGMyJOmLhQXB4il4So2lWh1BMjgdXi9FIXYK": 1737867600}
+# E.g. key: @posthog/quota-limiting-suspended/recordings, value: {"phc_PWDYpjHUGMyJOmLhQXB4il4So2lWh1BMjgdXi9FIXYK": 1737867600}
+
 
 def replace_limited_team_tokens(
     resource: QuotaResource, tokens: Mapping[str, int], cache_key: QuotaLimitingCaches
 ) -> None:
+    """
+    Replaces the all tokens in the cache with the new ones.
+    """
     pipe = get_client().pipeline()
     pipe.delete(f"{cache_key.value}{resource.value}")
     if tokens:
@@ -80,6 +91,11 @@ def remove_limited_team_tokens(resource: QuotaResource, tokens: list[str], cache
 
 @cache_for(timedelta(seconds=30), background_refresh=True)
 def list_limited_team_attributes(resource: QuotaResource, cache_key: QuotaLimitingCaches) -> list[str]:
+    """
+    Returns a list of team attributes that are still under quota limits. Uses Redis sorted set
+    where scores are expiration timestamps. Only returns attributes whose limits haven't expired yet.
+    Note: this is cached for 30 seconds so it's not always up to date.
+    """
     now = timezone.now()
     redis_client = get_client()
     results = redis_client.zrangebyscore(f"{cache_key.value}{resource.value}", min=now.timestamp(), max="+inf")
