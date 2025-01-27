@@ -50,7 +50,6 @@ const Filters = (): JSX.Element => {
     } = useValues(webAnalyticsLogic)
     const { setWebAnalyticsFilters, setDates, setCompareFilter, setWebVitalsPercentile } = useActions(webAnalyticsLogic)
     const { mobileLayout } = useValues(navigationLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div
@@ -64,9 +63,7 @@ const Filters = (): JSX.Element => {
 
                 {productTab === ProductTab.ANALYTICS ? (
                     <>
-                        {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PERIOD_COMPARISON] ? (
-                            <CompareFilter compareFilter={compareFilter} updateCompareFilter={setCompareFilter} />
-                        ) : null}
+                        <CompareFilter compareFilter={compareFilter} updateCompareFilter={setCompareFilter} />
                         <WebConversionGoal />
                     </>
                 ) : (
