@@ -26,7 +26,7 @@ WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # Copy everything we need to `pnpm install` && `nx run prepare`
-COPY package.json pnpm-lock.yaml nx.json project.json ./
+COPY package.json pnpm-lock.yaml nx.json pnpm-workspace.yaml .npmrc project.json ./
 COPY common/ common/
 COPY patches/ patches/
 ENV PNPM_HOME /tmp/pnpm-store 

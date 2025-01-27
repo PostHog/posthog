@@ -1,6 +1,7 @@
 *
 !.devcontainer
 !.kearc
+!.npmrc
 !.storybook
 !babel.config.js
 !bin
