@@ -20,7 +20,7 @@ import { ConversationMessagesDisplay } from './ConversationDisplay/ConversationM
 import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
 import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
 import { LLMInputOutput } from './LLMInputOutput'
-import { llmObservabilityTraceDataLogic } from './llmObservabilityTraceDataLogic'
+import { llmObservabilityTraceDataLogic, TraceTreeNode } from './llmObservabilityTraceDataLogic'
 import { llmObservabilityTraceLogic } from './llmObservabilityTraceLogic'
 import { formatLLMCost, formatLLMLatency, formatLLMUsage, isLLMTraceEvent, removeMilliseconds } from './utils'
 
@@ -44,7 +44,7 @@ export function LLMObservabilityTraceScene(): JSX.Element {
 
 function TraceSceneWrapper(): JSX.Element {
     const { eventId } = useValues(llmObservabilityTraceLogic)
-    const { trace, showableEvents, event, responseLoading, responseError, feedbackEvents, metricEvents } =
+    const { tree, trace, event, responseLoading, responseError, feedbackEvents, metricEvents } =
         useValues(llmObservabilityTraceDataLogic)
 
     return (
@@ -63,7 +63,7 @@ function TraceSceneWrapper(): JSX.Element {
                         feedbackEvents={feedbackEvents as LLMTraceEvent[]}
                     />
                     <div className="flex flex-1 min-h-0 gap-4 flex-col md:flex-row">
-                        <TraceSidebar trace={trace} eventId={eventId} events={showableEvents} />
+                        <TraceSidebar trace={trace} eventId={eventId} tree={tree} />
                         <EventContent event={event} />
                     </div>
                 </div>
@@ -145,35 +145,28 @@ function TraceMetadata({
 function TraceSidebar({
     trace,
     eventId,
-    events,
+    tree,
 }: {
     trace: LLMTrace
     eventId?: string | null
-    events: LLMTraceEvent[]
+    tree: TraceTreeNode[]
 }): JSX.Element {
     return (
-        <aside className="border-border max-h-fit bg-bg-light border rounded overflow-hidden md:w-72">
+        <aside className="border-border max-h-full bg-bg-light border rounded overflow-hidden md:w-72">
             <h3 className="font-medium text-sm px-2 my-2">Tree</h3>
             <LemonDivider className="m-0" />
             <NestingGroup>
                 <TraceNode topLevelTrace={trace} item={trace} isSelected={!eventId || eventId === trace.id} />
-                <NestingGroup level={1}>
-                    {events.map((event) => (
-                        <TraceNode
-                            topLevelTrace={trace}
-                            key={event.id}
-                            item={event}
-                            isSelected={!!eventId && eventId === event.id}
-                        />
-                    ))}
-                </NestingGroup>
+                <RecursiveTreeDisplay tree={tree} trace={trace} selectedEventId={eventId} />
             </NestingGroup>
         </aside>
     )
 }
 
 function NestingGroup({ level = 0, children }: { level?: number; children: React.ReactNode }): JSX.Element {
-    const listEl = <ul className={!level ? 'overflow-y-auto p-1 first:*:mt-0' : 'flex-1'}>{children}</ul>
+    const listEl = (
+        <ul className={!level ? 'overflow-y-auto overflow-x-hidden p-1 first:*:mt-0 h-full' : 'flex-1'}>{children}</ul>
+    )
 
     if (!level) {
         return listEl
@@ -202,6 +195,16 @@ function TraceNode({
     const latency = 'properties' in item ? item.properties.$ai_latency : item.totalLatency
     const usage = formatLLMUsage(item)
 
+    let title = ''
+    if (isLLMTraceEvent(item)) {
+        title =
+            item.event === '$ai_generation'
+                ? `${item.properties.$ai_model} (${item.properties.$ai_provider})`
+                : item.properties.$ai_span_name
+    } else {
+        title = item.traceName ?? 'Trace'
+    }
+
     return (
         <li key={item.id} className="mt-0.5">
             <Link
@@ -214,13 +217,9 @@ function TraceNode({
                     isSelected && 'bg-accent-primary-highlight'
                 )}
             >
-                <div className="flex flex-row flex-wrap items-center gap-1.5">
+                <div className="flex flex-row items-center gap-1.5">
                     <EventTypeTag event={item} size="small" />
-                    <span>
-                        {'properties' in item
-                            ? `${item.properties.$ai_model} (${item.properties.$ai_provider})`
-                            : item.traceName}
-                    </span>
+                    <span className="flex-1 truncate">{title}</span>
                 </div>
                 <div className="flex flex-row flex-wrap text-muted items-center gap-1.5">
                     <LemonTag type="muted">{formatLLMLatency(latency)}</LemonTag>
@@ -234,6 +233,35 @@ function TraceNode({
                 </div>
             </Link>
         </li>
+    )
+}
+
+function RecursiveTreeDisplay({
+    tree,
+    trace,
+    selectedEventId,
+}: {
+    tree: TraceTreeNode[]
+    trace: LLMTrace
+    selectedEventId?: string | null
+}): JSX.Element {
+    return (
+        <NestingGroup level={1}>
+            {tree.map(({ event, children }) => (
+                <React.Fragment key={event.id}>
+                    <TraceNode
+                        topLevelTrace={trace}
+                        item={event}
+                        isSelected={!!selectedEventId && selectedEventId === event.id}
+                    />
+                    <li>
+                        {children && (
+                            <RecursiveTreeDisplay tree={children} trace={trace} selectedEventId={selectedEventId} />
+                        )}
+                    </li>
+                </React.Fragment>
+            ))}
+        </NestingGroup>
     )
 }
 
@@ -310,7 +338,10 @@ function EventContent({ event }: { event: LLMTrace | LLMTraceEvent | null }): JS
 }
 
 function EventTypeTag({ event, size }: { event: LLMTrace | LLMTraceEvent; size?: LemonTagProps['size'] }): JSX.Element {
-    const eventType = isLLMTraceEvent(event) && event.properties.$ai_model ? 'generation' : 'trace'
+    let eventType = 'trace'
+    if (isLLMTraceEvent(event)) {
+        eventType = event.event === '$ai_generation' ? 'generation' : 'span'
+    }
     return (
         <LemonTag className="uppercase" type={eventType === 'trace' ? 'completion' : 'default'} size={size}>
             {eventType}
