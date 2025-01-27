@@ -1,12 +1,16 @@
 import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { dayjs } from 'lib/dayjs'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
 import { DataTableNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { QueryContext } from '~/queries/types'
 import {
     AnyPropertyFilter,
     BaseMathType,
@@ -27,6 +31,7 @@ export interface QueryTile {
     title: string
     description?: string
     query: TrendsQuery
+    context?: QueryContext
     layout?: {
         className?: string
     }
@@ -83,7 +88,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
             },
         },
     }),
-    selectors({
+    selectors(({ actions }) => ({
         activeTab: [
             (s) => [s.sceneKey],
             (sceneKey) => {
@@ -114,6 +119,20 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
                         properties: propertyFilters,
                         filterTestAccounts: shouldFilterTestAccounts,
+                    },
+                    context: {
+                        groupTypeLabel: 'traces',
+                        onDataPointClick: (series) => {
+                            router.actions.push(urls.llmObservability('traces'))
+                            if (typeof series.day === 'string') {
+                                // NOTE: This assumes the chart is day-by-day
+                                const dayStart = dayjs(series.day).startOf('day')
+                                actions.setDates(
+                                    dayStart.format('YYYY-MM-DD[T]HH:mm:ss'),
+                                    dayStart.add(1, 'day').subtract(1, 'second').format('YYYY-MM-DD[T]HH:mm:ss')
+                                )
+                            }
+                        },
                     },
                 },
                 {
@@ -360,7 +379,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 showExport: true,
             }),
         ],
-    }),
+    })),
 
     afterMount(({ actions }) => {
         actions.loadAIEventDefinition()

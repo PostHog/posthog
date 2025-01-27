@@ -50,12 +50,13 @@ const Tiles = (): JSX.Element => {
 
     return (
         <div className="mt-2 grid grid-cols-1 @xl/dashboard:grid-cols-2 @4xl/dashboard:grid-cols-6 gap-4">
-            {tiles.map(({ title, description, query }, i) => (
+            {tiles.map(({ title, description, query, context }, i) => (
                 <QueryCard
                     key={i}
                     title={title}
                     description={description}
                     query={{ kind: NodeKind.InsightVizNode, source: query } as InsightVizNode}
+                    context={context}
                     className={clsx(
                         'h-96',
                         /* Second row is the only one to have 2 tiles in the xl layout */

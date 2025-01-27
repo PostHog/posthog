@@ -31,7 +31,6 @@ import {
 } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import {
-    ChartDisplayType,
     FilterLogicalOperator,
     InsightLogicProps,
     ProductKey,
@@ -421,17 +420,10 @@ export const WebStatsTrendTile = ({
     const context = useMemo((): QueryContext => {
         return {
             ...webAnalyticsDataTableQueryContext,
-            chartRenderingMetadata: {
-                [ChartDisplayType.WorldMap]: {
-                    countryProps: (countryCode, values) => {
-                        return {
-                            onClick:
-                                values && (values.count > 0 || values.aggregated_value > 0)
-                                    ? () => onWorldMapClick(countryCode)
-                                    : undefined,
-                        }
-                    },
-                },
+            onDataPointClick({ breakdown }, data) {
+                if (breakdown === 'string' && data && (data.count > 0 || data.aggregated_value > 0)) {
+                    onWorldMapClick(breakdown)
+                }
             },
             insightProps: {
                 ...insightProps,
