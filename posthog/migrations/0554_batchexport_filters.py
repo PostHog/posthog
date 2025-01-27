@@ -4,9 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("posthog", "0552_turn_off_all_action_webhooks"),
-    ]
+    dependencies = [("posthog", "0553_feature_flag_config")]
 
     operations = [
         migrations.AddField(
