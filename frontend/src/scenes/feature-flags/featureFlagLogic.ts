@@ -403,12 +403,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             experiment_set: null,
                         }
                     }
+
                     return {
                         ...state,
                         experiment_set,
+                        is_remote_configuration: false,
                         filters: {
                             ...state.filters,
-                            is_remote_configuration: false,
                             multivariate: experiment_set ? EXPERIMENT_DEFAULT_MULTIVARIATE_OPTIONS : null,
                         },
                     }
