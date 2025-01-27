@@ -1,4 +1,4 @@
-import { Meta, PluginInput, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
 import { Response, trackedFetch } from '~/src/utils/fetch'
 
@@ -9,13 +9,17 @@ export type LegacyPluginLogger = {
     error: (...args: any[]) => void
 }
 
-export type LegacyPluginMeta<Input extends PluginInput> = Meta<Input> & {
+export type LegacyPluginMeta = {
+    // storage: StorageExtension
+    config: Record<string, any>
+    global: Record<string, any>
+
     logger: LegacyPluginLogger
     fetch: (...args: Parameters<typeof trackedFetch>) => Promise<Response>
 }
 
 export type LegacyPlugin = {
     id: string
-    onEvent<Input extends PluginInput>(event: ProcessedPluginEvent, meta: LegacyPluginMeta<Input>): Promise<void>
-    setupPlugin?: (meta: LegacyPluginMeta<any>) => Promise<void>
+    onEvent(event: ProcessedPluginEvent, meta: LegacyPluginMeta): Promise<void>
+    setupPlugin?: (meta: LegacyPluginMeta) => Promise<void>
 }

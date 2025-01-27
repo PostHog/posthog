@@ -1,4 +1,4 @@
-import { PluginInput, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { RetryError } from '@posthog/plugin-scaffold'
 
 import { Response } from '~/src/utils/fetch'
@@ -8,7 +8,7 @@ import { LegacyPlugin, LegacyPluginMeta } from '../types'
 const DEFAULT_HOST = 'track.customer.io'
 const DEFAULT_SEND_EVENTS_FROM_ANONYMOUS_USERS = 'Send all events'
 
-interface CustomerIoPluginInput extends PluginInput {
+type CustomerIoMeta = LegacyPluginMeta & {
     config: {
         customerioSiteId: string
         customerioToken: string
@@ -28,7 +28,6 @@ interface CustomerIoPluginInput extends PluginInput {
     }
 }
 
-type CustomerIoMeta = LegacyPluginMeta<CustomerIoPluginInput>
 enum EventsConfig {
     SEND_ALL = '1',
     SEND_EMAILS = '2',
@@ -94,7 +93,7 @@ async function callCustomerIoApi(
 }
 
 export const setupPlugin = async (meta: CustomerIoMeta) => {
-    const { config, global, storage, logger } = meta
+    const { config, global, logger } = meta
     const customerioBase64AuthToken = Buffer.from(`${config.customerioSiteId}:${config.customerioToken}`).toString(
         'base64'
     )
@@ -109,16 +108,8 @@ export const setupPlugin = async (meta: CustomerIoMeta) => {
         EVENTS_CONFIG_MAP[config.sendEventsFromAnonymousUsers || DEFAULT_SEND_EVENTS_FROM_ANONYMOUS_USERS]
     global.identifyByEmail = config.identifyByEmail === 'Yes'
 
-    const credentialsVerifiedPreviously = await storage.get(global.authorizationHeader, false)
-
-    if (credentialsVerifiedPreviously) {
-        logger.log('Customer.io credentials verified previously. Completing setupPlugin.')
-        return
-    }
-
     // See https://www.customer.io/docs/api/#operation/getCioAllowlist
     await callCustomerIoApi(meta, 'GET', 'api.customer.io', '/v1/api/info/ip_addresses', global.authorizationHeader)
-    await storage.set(global.authorizationHeader, true)
     logger.log('Successfully authenticated with Customer.io. Completing setupPlugin.')
 }
 
@@ -154,9 +145,9 @@ export const onEvent = async (event: ProcessedPluginEvent, meta: CustomerIoMeta)
 }
 
 async function syncCustomerMetadata(meta: CustomerIoMeta, event: ProcessedPluginEvent): Promise<Customer> {
-    const { storage, logger } = meta
+    const { logger } = meta
     const customerStatusKey = `customer-status/${event.distinct_id}`
-    const customerStatusArray = (await storage.get(customerStatusKey, [])) as string[]
+    const customerStatusArray = [] as string[]
     const customerStatus = new Set(customerStatusArray) as Customer['status']
     const customerExistsAlready = customerStatus.has('seen')
     const email = getEmailFromEvent(event)
@@ -173,7 +164,8 @@ async function syncCustomerMetadata(meta: CustomerIoMeta, event: ProcessedPlugin
     }
 
     if (customerStatus.size > customerStatusArray.length) {
-        await storage.set(customerStatusKey, Array.from(customerStatus))
+        // TODO: Fix this
+        // await storage.set(customerStatusKey, Array.from(customerStatus))
     }
 
     return {

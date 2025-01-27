@@ -1,10 +1,10 @@
-import { Plugin, ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
+import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 
 import { Response } from '~/src/utils/fetch'
 
 import { LegacyPlugin, LegacyPluginMeta } from '../types'
 
-type IntercomPlugin = Plugin<{
+type IntercomMeta = LegacyPluginMeta & {
     global: {
         intercomUrl: string
     }
@@ -14,9 +14,7 @@ type IntercomPlugin = Plugin<{
         ignoredEmailDomains: string
         useEuropeanDataStorage: string
     }
-}>
-
-type IntercomMeta = LegacyPluginMeta<IntercomPlugin>
+}
 
 async function onEvent(event: ProcessedPluginEvent, meta: IntercomMeta): Promise<void> {
     if (!isTriggeringEvent(meta.config.triggeringEvents, event.event)) {
