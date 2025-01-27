@@ -26,6 +26,7 @@ export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
 
         await this.processInvocationResults(results)
         await this.updateJobs(results)
+        await this.produceQueuedMessages()
 
         return results
     }

@@ -5,6 +5,7 @@ import {
     createInvocation,
     insertHogFunction as _insertHogFunction,
 } from '~/tests/cdp/fixtures'
+import { getProducedKafkaMessages } from '~/tests/helpers/mocks/producer.mock'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
@@ -55,10 +56,12 @@ describe('CdpCyclotronWorkerPlugins', () => {
         hub = await createHub()
 
         team = await getFirstTeam(hub)
-
         processor = new CdpCyclotronWorkerPlugins(hub)
 
         await processor.start()
+
+        jest.spyOn(processor['cyclotronWorker']!, 'updateJob').mockImplementation(() => {})
+        jest.spyOn(processor['cyclotronWorker']!, 'releaseJob').mockImplementation(() => Promise.resolve())
 
         mockFetch.mockClear()
 
@@ -110,17 +113,13 @@ describe('CdpCyclotronWorkerPlugins', () => {
         it('should setup a plugin on first call', async () => {
             jest.spyOn(PLUGINS_BY_ID['intercom'] as any, 'setupPlugin')
 
-            const results = []
-
-            results.push(processor.executePluginInvocation(createInvocation(fn, globals)))
-            results.push(processor.executePluginInvocation(createInvocation(fn, globals)))
-            results.push(processor.executePluginInvocation(createInvocation(fn, globals)))
-
-            expect(await Promise.all(results)).toMatchObject([
-                { finished: true },
-                { finished: true },
-                { finished: true },
+            const results = processor.processInvocations([
+                createInvocation(fn, globals),
+                createInvocation(fn, globals),
+                createInvocation(fn, globals),
             ])
+
+            expect(await results).toMatchObject([{ finished: true }, { finished: true }, { finished: true }])
 
             expect(PLUGINS_BY_ID['intercom'].setupPlugin).toHaveBeenCalledTimes(1)
             expect(jest.mocked(PLUGINS_BY_ID['intercom'].setupPlugin!).mock.calls[0][0]).toMatchInlineSnapshot(`
@@ -159,7 +158,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
                 json: () => Promise.resolve({ total_count: 1 }),
             })
 
-            await processor.executePluginInvocation(invocation)
+            await processor.processInvocations([invocation])
 
             expect(PLUGINS_BY_ID['intercom'].onEvent).toHaveBeenCalledTimes(1)
             expect(forSnapshot(jest.mocked(PLUGINS_BY_ID['intercom'].onEvent!).mock.calls[0][0]))
@@ -214,6 +213,15 @@ describe('CdpCyclotronWorkerPlugins', () => {
                   },
                 ]
             `)
+
+            expect(forSnapshot(jest.mocked(processor['cyclotronWorker']!.updateJob).mock.calls)).toMatchInlineSnapshot(`
+                [
+                  [
+                    "<REPLACED-UUID-0>",
+                    "completed",
+                  ],
+                ]
+            `)
         })
 
         it('should handle and collect errors', async () => {
@@ -227,25 +235,23 @@ describe('CdpCyclotronWorkerPlugins', () => {
 
             mockFetch.mockRejectedValue(new Error('Test error'))
 
-            const res = await processor.executePluginInvocation(invocation)
+            const res = await processor.processInvocations([invocation])
 
             expect(PLUGINS_BY_ID['intercom'].onEvent).toHaveBeenCalledTimes(1)
 
-            expect(res.error).toBeInstanceOf(Error)
-            expect(forSnapshot(res.logs)).toMatchInlineSnapshot(`
+            expect(res[0].error).toBeInstanceOf(Error)
+            expect(forSnapshot(res[0].logs)).toMatchInlineSnapshot(`[]`)
+
+            expect(forSnapshot(jest.mocked(processor['cyclotronWorker']!.updateJob).mock.calls)).toMatchInlineSnapshot(`
                 [
-                  {
-                    "level": "debug",
-                    "message": "Executing plugin intercom",
-                    "timestamp": "2025-01-01T01:00:00.000+01:00",
-                  },
-                  {
-                    "level": "error",
-                    "message": "Plugin intercom execution failed",
-                    "timestamp": "2025-01-01T01:00:00.000+01:00",
-                  },
+                  [
+                    "<REPLACED-UUID-0>",
+                    "failed",
+                  ],
                 ]
             `)
+
+            expect(forSnapshot(getProducedKafkaMessages())).toMatchSnapshot()
         })
     })
 })
