@@ -224,6 +224,7 @@ export const FEATURE_FLAGS = {
     HOG_TRANSFORMATIONS: 'hog-transformations', // owner: #team-cdp
     REPLAY_HOGQL_FILTERS: 'replay-hogql-filters', // owner: @pauldambra #team-replay
     SUPPORT_MESSAGE_OVERRIDE: 'support-message-override', // owner: @abigail
+    SUPPORT_SIDEBAR_MAX: 'support-sidebar-max', // owner: @steven #team-max
     BILLING_SKIP_FORECASTING: 'billing-skip-forecasting', // owner: @zach
     EXPERIMENT_STATS_V2: 'experiment-stats-v2', // owner: @danielbachhuber #team-experiments
     WEB_ANALYTICS_PERIOD_COMPARISON: 'web-analytics-period-comparison', // owner: @rafaeelaudibert #team-web-analytics
@@ -236,6 +237,7 @@ export const FEATURE_FLAGS = {
     REPLAY_FLAGS_FILTERS: 'replay-flags-filters', // owner: @pauldambra #team-replay
     REPLAY_LANDING_PAGE: 'replay-landing-page', // owner :#team-replay
     WEB_VITALS: 'web-vitals', // owner: @rafaeelaudibert #team-web-analytics
+    WEB_REVENUE_TRACKING: 'web-revenue-tracking', // owner: @robbie-c #team-web-analytics
     LLM_OBSERVABILITY: 'llm-observability', // owner: #team-ai-product-manager
     ONBOARDING_SESSION_REPLAY_SEPERATE_STEP: 'onboarding-session-replay-separate-step', // owner: @joshsny #team-growth
 } as const

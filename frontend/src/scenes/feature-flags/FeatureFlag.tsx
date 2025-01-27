@@ -712,7 +712,7 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
                             ...defaultDataTableColumns(NodeKind.EventsQuery),
                             featureFlag.filters.multivariate
                                 ? 'properties.$feature_flag_response'
-                                : "if(toString(properties.$feature_flag_response) IN ['1', 'true'], 'true', 'false') -- Feature Flag Response",
+                                : "if(toString(properties.$feature_flag_response) IN ['1', 'true'], 'true', properties.$feature_flag_response) -- Feature Flag Response",
                         ],
                         event: '$feature_flag_called',
                         properties: propertyFilter,

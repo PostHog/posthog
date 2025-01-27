@@ -10,6 +10,8 @@ import typing
 
 import pyarrow as pa
 import snowflake.connector
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import serialization
 from django.conf import settings
 from snowflake.connector.connection import SnowflakeConnection
 from snowflake.connector.cursor import ResultMetadata
@@ -66,6 +68,10 @@ NON_RETRYABLE_ERROR_TYPES = [
     "SnowflakeConnectionError",
     # Raised when a table is not found in Snowflake.
     "SnowflakeTableNotFoundError",
+    # Raised when a using key-pair auth and the private key or passphrase is not valid.
+    "InvalidPrivateKeyError",
+    # Raised when a valid authentication method is not provided.
+    "SnowflakeAuthenticationError",
 ]
 
 
@@ -106,6 +112,20 @@ class SnowflakeTableNotFoundError(Exception):
         super().__init__(f"Table '{table_name}' not found in Snowflake")
 
 
+class SnowflakeAuthenticationError(Exception):
+    """Raised when a valid authentication method is not provided."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
+
+
+class InvalidPrivateKeyError(Exception):
+    """Raised when a private key is not valid."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
+
+
 @dataclasses.dataclass
 class SnowflakeHeartbeatDetails(BatchExportRangeHeartbeatDetails):
     """The Snowflake batch export details included in every heartbeat."""
@@ -123,7 +143,6 @@ class SnowflakeInsertInputs:
 
     team_id: int
     user: str
-    password: str
     account: str
     database: str
     warehouse: str
@@ -131,6 +150,10 @@ class SnowflakeInsertInputs:
     table_name: str
     data_interval_start: str | None
     data_interval_end: str
+    authentication_type: str = "password"
+    password: str | None = None
+    private_key: str | None = None
+    private_key_passphrase: str | None = None
     role: str | None = None
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
@@ -143,32 +166,86 @@ class SnowflakeInsertInputs:
 SnowflakeField = tuple[str, str]
 
 
+def load_private_key(private_key: str, passphrase: str | None) -> bytes:
+    try:
+        p_key = serialization.load_pem_private_key(
+            private_key.encode("utf-8"),
+            password=passphrase.encode() if passphrase is not None else None,
+            backend=default_backend(),
+        )
+    except (ValueError, TypeError) as e:
+        msg = "Invalid private key"
+        if passphrase is not None and "Incorrect password?" in str(e):
+            msg = "Could not load private key: incorrect passphrase?"
+        elif "Password was not given but private key is encrypted" in str(e):
+            msg = "Could not load private key: passphrase was not given but private key is encrypted"
+        raise InvalidPrivateKeyError(msg)
+
+    return p_key.private_bytes(
+        encoding=serialization.Encoding.DER,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+
+
 class SnowflakeClient:
     """Snowflake connection client used in batch exports."""
 
     def __init__(
-        self, user: str, password: str, account: str, warehouse: str, database: str, schema: str, role: str | None
+        self,
+        user: str,
+        account: str,
+        warehouse: str,
+        database: str,
+        schema: str,
+        role: str | None = None,
+        password: str | None = None,
+        private_key: bytes | None = None,
     ):
+        if password is None and private_key is None:
+            raise SnowflakeAuthenticationError("Either password or private key must be provided")
+
+        self.role = role
         self.user = user
         self.password = password
+        self.private_key = private_key
         self.account = account
         self.warehouse = warehouse
         self.database = database
         self.schema = schema
-        self.role = role
         self._connection: SnowflakeConnection | None = None
 
     @classmethod
     def from_inputs(cls, inputs: SnowflakeInsertInputs) -> typing.Self:
         """Initialize `SnowflakeClient` from `SnowflakeInsertInputs`."""
+
+        # User could have specified both password and private key in their batch export config.
+        # (for example, if they've already created a batch export with password auth and are now switching to keypair auth)
+        # Therefore we decide which one to use based on the authentication_type.
+        password = None
+        private_key = None
+        if inputs.authentication_type == "password":
+            password = inputs.password
+            if password is None:
+                raise SnowflakeAuthenticationError("Password is required for password authentication")
+        elif inputs.authentication_type == "keypair":
+            if inputs.private_key is None:
+                raise SnowflakeAuthenticationError("Private key is required for keypair authentication")
+
+            private_key = load_private_key(inputs.private_key, inputs.private_key_passphrase)
+
+        else:
+            raise SnowflakeAuthenticationError(f"Invalid authentication type: {inputs.authentication_type}")
+
         return cls(
             user=inputs.user,
-            password=inputs.password,
             account=inputs.account,
             warehouse=inputs.warehouse,
             database=inputs.database,
             schema=inputs.schema,
             role=inputs.role,
+            password=password,
+            private_key=private_key,
         )
 
     @property
@@ -194,6 +271,7 @@ class SnowflakeClient:
                 database=self.database,
                 schema=self.schema,
                 role=self.role,
+                private_key=self.private_key,
             )
 
         except OperationalError as err:
@@ -850,8 +928,11 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
         insert_inputs = SnowflakeInsertInputs(
             team_id=inputs.team_id,
             user=inputs.user,
-            password=inputs.password,
             account=inputs.account,
+            authentication_type=inputs.authentication_type,
+            password=inputs.password,
+            private_key=inputs.private_key,
+            private_key_passphrase=inputs.private_key_passphrase,
             warehouse=inputs.warehouse,
             database=inputs.database,
             schema=inputs.schema,
