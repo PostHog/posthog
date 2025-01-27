@@ -1,47 +1,48 @@
-import { KafkaOffsetManager } from '../../../../../src/main/ingestion-queues/session-recording-v2/kafka/offset-manager'
-import { SessionBatchManager } from '../../../../../src/main/ingestion-queues/session-recording-v2/sessions/session-batch-manager'
-import { SessionBatchRecorderInterface } from '../../../../../src/main/ingestion-queues/session-recording-v2/sessions/session-batch-recorder'
+import { KafkaOffsetManager } from '../kafka/offset-manager'
+import { SessionBatchManager } from './session-batch-manager'
+import { SessionBatchRecorder } from './session-batch-recorder'
 
 jest.setTimeout(1000)
-
-const createMockBatch = (): jest.Mocked<SessionBatchRecorderInterface> => {
-    return {
-        record: jest.fn(),
-        flush: jest.fn().mockResolvedValue(undefined),
-        get size() {
-            return 0
-        },
-        discardPartition: jest.fn(),
-    } as unknown as jest.Mocked<SessionBatchRecorderInterface>
-}
+jest.mock('./session-batch-recorder')
 
 describe('SessionBatchManager', () => {
     let manager: SessionBatchManager
     let executionOrder: number[]
-    let createBatchMock: jest.Mock<SessionBatchRecorderInterface>
-    let currentBatch: jest.Mocked<SessionBatchRecorderInterface>
+    let currentBatch: jest.Mocked<SessionBatchRecorder>
     let mockOffsetManager: jest.Mocked<KafkaOffsetManager>
 
+    const createMockBatch = (): jest.Mocked<SessionBatchRecorder> =>
+        ({
+            record: jest.fn(),
+            flush: jest.fn().mockResolvedValue(undefined),
+            get size() {
+                return 0
+            },
+            discardPartition: jest.fn(),
+        } as unknown as jest.Mocked<SessionBatchRecorder>)
+
     beforeEach(() => {
-        currentBatch = createMockBatch()
-        createBatchMock = jest.fn().mockImplementation(() => {
+        jest.mocked(SessionBatchRecorder).mockImplementation(() => {
             currentBatch = createMockBatch()
             return currentBatch
         })
 
         mockOffsetManager = {
-            wrapBatch: jest.fn().mockImplementation((batch) => batch),
             commit: jest.fn().mockResolvedValue(undefined),
             trackOffset: jest.fn(),
+            discardPartition: jest.fn(),
         } as unknown as jest.Mocked<KafkaOffsetManager>
 
         manager = new SessionBatchManager({
             maxBatchSizeBytes: 100,
             maxBatchAgeMs: 1000,
-            createBatch: createBatchMock,
             offsetManager: mockOffsetManager,
         })
         executionOrder = []
+    })
+
+    afterEach(() => {
+        jest.clearAllMocks()
     })
 
     const waitForNextTick = () => new Promise((resolve) => process.nextTick(resolve))
@@ -77,7 +78,6 @@ describe('SessionBatchManager', () => {
 
         await Promise.all([promise1, promise2, promise3])
 
-        // Should execute in order despite different delays
         expect(executionOrder).toEqual([1, 2, 3, 4, 5, 6])
     })
 
@@ -107,7 +107,6 @@ describe('SessionBatchManager', () => {
         const results: number[] = []
         const promises: Promise<void>[] = []
 
-        // Queue up 10 immediate callbacks
         for (let i = 0; i < 10; i++) {
             promises.push(
                 manager.withBatch(async () => {
@@ -119,7 +118,6 @@ describe('SessionBatchManager', () => {
 
         await Promise.all(promises)
 
-        // Should execute in order 0-9
         expect(results).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
     })
 
@@ -150,7 +148,7 @@ describe('SessionBatchManager', () => {
     })
 
     it('should create new batch on flush', async () => {
-        let firstBatch: SessionBatchRecorderInterface | null = null
+        let firstBatch: SessionBatchRecorder | null = null
 
         await manager.withBatch(async (batch) => {
             firstBatch = batch
@@ -165,14 +163,24 @@ describe('SessionBatchManager', () => {
         })
     })
 
-    it('should create new batch and commit offsets on flush', async () => {
-        const firstBatch = currentBatch
+    it('should create new batch with correct params on flush', async () => {
+        let firstBatch: SessionBatchRecorder | null = null
+        await manager.withBatch(async (batch) => {
+            firstBatch = batch
+            expect(batch).toBeDefined()
+            return Promise.resolve()
+        })
 
         await manager.flush()
 
-        expect(firstBatch.flush).toHaveBeenCalled()
-        expect(mockOffsetManager.commit).toHaveBeenCalled()
-        expect(createBatchMock).toHaveBeenCalledTimes(2)
+        expect(firstBatch!.flush).toHaveBeenCalled()
+        expect(SessionBatchRecorder).toHaveBeenCalledWith(mockOffsetManager)
+
+        await manager.withBatch(async (batch) => {
+            expect(batch).not.toBe(firstBatch)
+            expect(batch.size).toBe(0)
+            return Promise.resolve()
+        })
     })
 
     describe('size-based flushing', () => {
@@ -214,32 +222,45 @@ describe('SessionBatchManager', () => {
         })
 
         it('should not indicate flush needed immediately after flushing', async () => {
-            const firstBatch = currentBatch
-            jest.spyOn(firstBatch, 'size', 'get').mockReturnValue(50)
+            let firstBatch: SessionBatchRecorder | null = null
+            const promise1 = manager.withBatch(async (batch) => {
+                firstBatch = batch
+                jest.spyOn(batch, 'size', 'get').mockReturnValue(50)
+                return Promise.resolve()
+            })
 
             // First flush due to timeout
             jest.advanceTimersByTime(1500)
+            await promise1
             expect(manager.shouldFlush()).toBe(true)
+
             const firstFlushPromise = manager.flush()
             jest.runAllTimers()
             await firstFlushPromise
-            expect(firstBatch.flush).toHaveBeenCalled()
+            expect(firstBatch!.flush).toHaveBeenCalled()
 
-            expect(manager.shouldFlush()).toBe(false)
+            const promise2 = manager.withBatch(async (batch) => {
+                expect(batch).not.toBe(firstBatch)
+                expect(manager.shouldFlush()).toBe(false)
+                return Promise.resolve()
+            })
+            jest.runAllTimers()
+            await promise2
         })
     })
 
     it('should execute callbacks sequentially including flushes', async () => {
-        const firstBatch = currentBatch
-
-        const promise1 = manager.withBatch(async () => {
+        let firstBatch: SessionBatchRecorder | null = null
+        const promise1 = await manager.withBatch(async (batch) => {
+            firstBatch = batch
             executionOrder.push(1)
             return Promise.resolve()
         })
 
         const flushPromise = manager.flush()
 
-        const promise2 = manager.withBatch(async () => {
+        const promise2 = await manager.withBatch(async (batch) => {
+            expect(batch).not.toBe(firstBatch)
             executionOrder.push(2)
             return Promise.resolve()
         })
@@ -247,45 +268,56 @@ describe('SessionBatchManager', () => {
         await Promise.all([promise1, flushPromise, promise2])
 
         expect(executionOrder).toEqual([1, 2])
-        expect(firstBatch.flush).toHaveBeenCalled()
-        expect(mockOffsetManager.commit).toHaveBeenCalled()
+        expect(firstBatch!.flush).toHaveBeenCalled()
     })
 
     describe('partition handling', () => {
         it('should discard partitions on new batch after flush', async () => {
-            const firstBatch = currentBatch
+            let firstBatch: SessionBatchRecorder | null = null
+            let secondBatch: SessionBatchRecorder | null = null
 
-            // Flush to create a new batch
+            await manager.withBatch(async (batch) => {
+                firstBatch = batch
+                await Promise.resolve()
+            })
+
             await manager.flush()
-            const secondBatch = currentBatch
 
-            // Verify we have a new batch
-            expect(secondBatch).not.toBe(firstBatch)
+            await manager.withBatch(async (batch) => {
+                secondBatch = batch
+                expect(batch).not.toBe(firstBatch)
+                await Promise.resolve()
+            })
 
-            // Discard partitions
             await manager.discardPartitions([1, 2])
 
-            // Verify discards happened on the new batch only
-            expect(firstBatch.discardPartition).not.toHaveBeenCalled()
-            expect(secondBatch.discardPartition).toHaveBeenCalledWith(1)
-            expect(secondBatch.discardPartition).toHaveBeenCalledWith(2)
+            expect(firstBatch!.discardPartition).not.toHaveBeenCalled()
+            expect(secondBatch!.discardPartition).toHaveBeenCalledWith(1)
+            expect(secondBatch!.discardPartition).toHaveBeenCalledWith(2)
         })
 
         it('should discard multiple partitions on current batch', async () => {
+            let currentBatch: SessionBatchRecorder | null = null
+            await manager.withBatch(async (batch) => {
+                currentBatch = batch
+                await Promise.resolve()
+            })
+
             await manager.discardPartitions([1, 2])
-            expect(currentBatch.discardPartition).toHaveBeenCalledWith(1)
-            expect(currentBatch.discardPartition).toHaveBeenCalledWith(2)
-            expect(currentBatch.discardPartition).toHaveBeenCalledTimes(2)
+            expect(currentBatch!.discardPartition).toHaveBeenCalledWith(1)
+            expect(currentBatch!.discardPartition).toHaveBeenCalledWith(2)
+            expect(currentBatch!.discardPartition).toHaveBeenCalledTimes(2)
         })
 
         it('should maintain operation order when discarding partitions', async () => {
             const executionOrder: number[] = []
+            let currentBatch: SessionBatchRecorder | null = null
 
             // Start a long-running batch operation
-            const batchPromise = manager.withBatch(async () => {
+            const batchPromise = manager.withBatch(async (batch) => {
+                currentBatch = batch
                 await new Promise((resolve) => setTimeout(resolve, 100))
                 executionOrder.push(1)
-                return Promise.resolve()
             })
 
             // Queue up a partition discard
@@ -298,12 +330,18 @@ describe('SessionBatchManager', () => {
 
             // Verify operations happened in the correct order
             expect(executionOrder).toEqual([1, 2])
-            expect(currentBatch.discardPartition).toHaveBeenCalledWith(1)
+            expect(currentBatch!.discardPartition).toHaveBeenCalledWith(1)
         })
 
         it('should handle empty partition array', async () => {
+            let currentBatch: SessionBatchRecorder | null = null
+            await manager.withBatch(async (batch) => {
+                currentBatch = batch
+                await Promise.resolve()
+            })
+
             await manager.discardPartitions([])
-            expect(currentBatch.discardPartition).not.toHaveBeenCalled()
+            expect(currentBatch!.discardPartition).not.toHaveBeenCalled()
         })
     })
 })

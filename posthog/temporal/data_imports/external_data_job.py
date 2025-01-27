@@ -239,6 +239,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 team_id=inputs.team_id,
                 schema_id=inputs.external_data_schema_id,
                 source_id=inputs.external_data_source_id,
+                billable=inputs.billable,
             )
 
             job_id, incremental, source_type = await workflow.execute_activity(
@@ -286,6 +287,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 run_id=job_id,
                 schema_id=inputs.external_data_schema_id,
                 source_id=inputs.external_data_source_id,
+                reset_pipeline=inputs.reset_pipeline,
             )
 
             timeout_params = (

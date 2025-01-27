@@ -6,7 +6,7 @@ import { CaptureIngestionWarningFn } from '../types'
 import { VersionMetrics } from './version-metrics'
 
 export class LibVersionMonitor {
-    constructor(private readonly captureWarning: CaptureIngestionWarningFn, private readonly metrics: VersionMetrics) {}
+    constructor(private readonly captureWarning: CaptureIngestionWarningFn) {}
 
     public async processBatch(messages: MessageWithTeam[]): Promise<MessageWithTeam[]> {
         await Promise.all(messages.map((message) => this.checkLibVersion(message)))
@@ -18,7 +18,7 @@ export class LibVersionMonitor {
         const parsedVersion = this.parseVersion(libVersion)
 
         if (parsedVersion && parsedVersion.major === 1 && parsedVersion.minor < 75) {
-            this.metrics.incrementLibVersionWarning()
+            VersionMetrics.incrementLibVersionWarning()
 
             await this.captureWarning(
                 message.team.teamId,

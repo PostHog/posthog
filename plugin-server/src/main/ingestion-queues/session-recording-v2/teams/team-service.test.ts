@@ -1,8 +1,8 @@
-import { TeamService } from '../../../../../src/main/ingestion-queues/session-recording-v2/teams/team-service'
-import { PostgresRouter } from '../../../../../src/utils/db/postgres'
-import { fetchTeamTokensWithRecordings } from '../../../../../src/worker/ingestion/team-manager'
+import { PostgresRouter } from '../../../../utils/db/postgres'
+import { fetchTeamTokensWithRecordings } from '../../../../worker/ingestion/team-manager'
+import { TeamService } from './team-service'
 
-jest.mock('../../../../../src/worker/ingestion/team-manager')
+jest.mock('~/src/worker/ingestion/team-manager')
 const mockFetchTeamTokens = fetchTeamTokensWithRecordings as jest.MockedFunction<typeof fetchTeamTokensWithRecordings>
 
 describe('TeamService', () => {
