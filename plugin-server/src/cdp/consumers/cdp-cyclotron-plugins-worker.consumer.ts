@@ -1,4 +1,4 @@
-import { Meta, ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
+import { Meta, ProcessedPluginEvent, RetryError, StorageExtension } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
 import { PLUGINS_BY_ID } from '../legacy-plugins'
@@ -9,6 +9,21 @@ type PluginState = {
     setupPromise: Promise<any>
     errored: boolean
     meta: Meta
+}
+
+const createStorage = (): StorageExtension => {
+    const storage: Record<string, any> = {}
+    return {
+        get: (key: string) => Promise.resolve(storage[key]),
+        set: (key: string, value: any) => {
+            storage[key] = value
+            return Promise.resolve()
+        },
+        del: (key: string) => {
+            delete storage[key]
+            return Promise.resolve()
+        },
+    }
 }
 
 /**
@@ -70,7 +85,7 @@ export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
                 jobs: {},
                 metrics: {},
                 cache: {} as any,
-                storage: {} as any, // NOTE: Figuree out what to do about storage as that is used...
+                storage: createStorage(),
                 geoip: {} as any,
                 utils: {} as any,
             }
@@ -122,7 +137,7 @@ export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
             result.logs.push({
                 level: 'debug',
                 timestamp: DateTime.now(),
-                message: `Plugin ${pluginId} execution successful`,
+                message: `Execution successful`,
             })
         } catch (e) {
             if (e instanceof RetryError) {
@@ -132,7 +147,7 @@ export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
             result.logs.push({
                 level: 'error',
                 timestamp: DateTime.now(),
-                message: `Plugin ${pluginId} execution failed`,
+                message: `Plugin errored: ${e.message}`,
             })
         }
 

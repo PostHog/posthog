@@ -136,7 +136,11 @@ describe('CdpCyclotronWorkerPlugins', () => {
                   "global": {},
                   "jobs": {},
                   "metrics": {},
-                  "storage": {},
+                  "storage": {
+                    "del": [Function],
+                    "get": [Function],
+                    "set": [Function],
+                  },
                   "utils": {},
                 }
             `)
