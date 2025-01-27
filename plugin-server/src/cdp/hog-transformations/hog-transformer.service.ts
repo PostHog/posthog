@@ -8,11 +8,11 @@ import {
     HogFunctionInvocationGlobalsWithInputs,
     HogFunctionType,
     HogFunctionTypeType,
-} from '../../../../cdp/types'
-import { createInvocation } from '../../../../cdp/utils'
-import { runInstrumentedFunction } from '../../../../main/utils'
-import { Hub } from '../../../../types'
-import { status } from '../../../../utils/status'
+} from '../../cdp/types'
+import { createInvocation } from '../../cdp/utils'
+import { runInstrumentedFunction } from '../../main/utils'
+import { Hub } from '../../types'
+import { status } from '../../utils/status'
 
 export class HogTransformerService {
     private hogExecutor: HogExecutorService

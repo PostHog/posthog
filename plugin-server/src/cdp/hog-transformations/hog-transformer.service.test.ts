@@ -8,13 +8,13 @@ import { template as geoipTemplate } from '~/src/cdp/templates/_transformations/
 import { compileHog } from '~/src/cdp/templates/compiler'
 import { createHogFunction } from '~/tests/cdp/fixtures'
 
-import { Hub } from '../../../../types'
-import { createHub } from '../../../../utils/db/hub'
+import { Hub } from '../../types'
+import { createHub } from '../../utils/db/hub'
 import { HogTransformerService } from './hog-transformer.service'
 
 let mockGetTeamHogFunctions: jest.Mock
 
-jest.mock('../../../../utils/status', () => ({
+jest.mock('../../utils/status', () => ({
     status: {
         warn: jest.fn(),
         info: jest.fn(),
@@ -23,7 +23,7 @@ jest.mock('../../../../utils/status', () => ({
     },
 }))
 
-jest.mock('../../../../cdp/services/hog-function-manager.service', () => ({
+jest.mock('../../cdp/services/hog-function-manager.service', () => ({
     HogFunctionManagerService: jest.fn().mockImplementation(() => ({
         getTeamHogFunctions: (mockGetTeamHogFunctions = jest.fn().mockReturnValue([])),
     })),
@@ -33,7 +33,7 @@ describe('HogTransformer', () => {
     let hub: Hub
     let hogTransformer: HogTransformerService
 
-    const mmdbBrotliContents = readFileSync(join(__dirname, '../../../../../tests/assets/GeoLite2-City-Test.mmdb.br'))
+    const mmdbBrotliContents = readFileSync(join(__dirname, '../../../tests/assets/GeoLite2-City-Test.mmdb.br'))
 
     beforeEach(async () => {
         hub = await createHub()
