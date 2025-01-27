@@ -173,7 +173,7 @@ const sourceFieldToElement = (field: SourceFieldConfig, sourceConfig: SourceConf
                     placeholder={field.placeholder}
                     type={field.type as 'text'}
                     defaultValue={lastValue}
-                    value={lastValue ?? value}
+                    value={value}
                     onChange={onChange}
                 />
             )}
