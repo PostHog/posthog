@@ -33,7 +33,6 @@ from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import generate_exception_response
-from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Notebook, User, Team
 from posthog.rate_limit import DecideRateThrottle
 from posthog.settings import SITE_URL, DEBUG, PROJECT_SWITCHING_TOKEN_ALLOWLIST
