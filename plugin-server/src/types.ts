@@ -28,6 +28,7 @@ import { UUID } from './utils/utils'
 import { ActionManager } from './worker/ingestion/action-manager'
 import { ActionMatcher } from './worker/ingestion/action-matcher'
 import { AppMetrics } from './worker/ingestion/app-metrics'
+import type { CookielessSaltManager } from './worker/ingestion/event-pipeline/cookielessServerHashStep'
 import { GroupTypeManager } from './worker/ingestion/group-type-manager'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
 import { TeamManager } from './worker/ingestion/team-manager'
@@ -324,6 +325,15 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
 
     SESSION_RECORDING_MAX_BATCH_SIZE_KB: number | undefined
     SESSION_RECORDING_MAX_BATCH_AGE_MS: number | undefined
+
+    // cookieless
+    COOKIELESS_DISABLED: boolean
+    COOKIELESS_FORCE_STATELESS_MODE: boolean
+    COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS: number
+    COOKIELESS_SESSION_TTL_SECONDS: number
+    COOKIELESS_SALT_TTL_SECONDS: number
+    COOKIELESS_SESSION_INACTIVITY_MS: number
+    COOKIELESS_IDENTIFIES_TTL_SECONDS: number
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -367,6 +377,10 @@ export interface Hub extends PluginsServerConfig {
     eventsToDropByToken: Map<string, string[]>
     eventsToSkipPersonsProcessingByToken: Map<string, string[]>
     encryptedFields: EncryptedFields
+
+    // cookieless
+    cookielessConfig: CookielessConfig
+    cookielessSaltManager: CookielessSaltManager
 }
 
 export interface PluginServerCapabilities {
@@ -1349,4 +1363,14 @@ export interface ModelRow {
         start: string
         end: string
     }
+}
+
+export interface CookielessConfig {
+    disabled: boolean
+    forceStatelessMode: boolean
+    deleteExpiredLocalSaltsIntervalMs: number
+    identifiesTtlSeconds: number
+    sessionTtlSeconds: number
+    saltTtlSeconds: number
+    sessionInactivityMs: number
 }

@@ -12,6 +12,7 @@ import { normalizeProcessPerson } from '../../../utils/event'
 import { status } from '../../../utils/status'
 import { EventsProcessor } from '../process-event'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
+import { cookielessServerHashStep } from './cookielessServerHashStep'
 import { createEventStep } from './createEventStep'
 import { emitEventStep } from './emitEventStep'
 import { extractHeatmapDataStep } from './extractHeatmapDataStep'
@@ -221,10 +222,15 @@ export class EventPipelineRunner {
             return this.runHeatmapPipelineSteps(event, kafkaAcks)
         }
 
-        const processedEvent = await this.runStep(pluginsProcessEventStep, [this, event], event.team_id)
+        const [postCookielessEvent] = await this.runStep(cookielessServerHashStep, [this.hub, event], event.team_id)
+        if (postCookielessEvent == null) {
+            return this.registerLastStep('cookielessServerHashStep', [event], kafkaAcks)
+        }
+
+        const processedEvent = await this.runStep(pluginsProcessEventStep, [this, postCookielessEvent], event.team_id)
         if (processedEvent == null) {
             // A plugin dropped the event.
-            return this.registerLastStep('pluginsProcessEventStep', [event], kafkaAcks)
+            return this.registerLastStep('pluginsProcessEventStep', [postCookielessEvent], kafkaAcks)
         }
 
         const transformedEvent = await this.runStep(
