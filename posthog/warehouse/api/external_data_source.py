@@ -185,9 +185,37 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "schemas",
             "prefix",
         ]
-        extra_kwargs = {
-            "job_inputs": {"write_only": True},
+
+    """
+    This method is used to remove sensitive fields from the response.
+    IMPORTANT: This method should be updated when a new source type is added with sensitive fields.
+    """
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+
+        sensitive_keys = {
+            "password",
+            "client_secret",
+            "api_key",
+            "zendesk_api_key",
+            "salesforce_integration_id",
+            "hubspot_secret_key",
+            "hubspot_refresh_token",
+            "ssh_tunnel_auth_type_password",
+            "ssh_tunnel_auth_type_passphrase",
+            "ssh_tunnel_auth_type_private_key",
+            "passphrase",
+            "private_key",
+            "private_key_id",
+            "secret_token",
         }
+        job_inputs = representation.get("job_inputs", {})
+        if isinstance(job_inputs, dict):
+            for key in sensitive_keys:
+                job_inputs.pop(key, None)
+
+        return representation
 
     def get_last_run_at(self, instance: ExternalDataSource) -> str:
         latest_completed_run = instance.ordered_jobs[0] if instance.ordered_jobs else None  # type: ignore
@@ -956,7 +984,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ExternalDataSource.Type.MSSQL,
         ]:
             # Importing pymssql requires mssql drivers to be installed locally - see posthog/warehouse/README.md
-            from pymssql import OperationalError as MSSQLOperationalError
+            # from pymssql import OperationalError as MSSQLOperationalError
 
             host = request.data.get("host", None)
             port = request.data.get("port", None)
@@ -1054,17 +1082,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": exposed_error or get_generic_sql_error(source_type)},
                 )
-            except MSSQLOperationalError as e:
-                error_msg = " ".join(str(n) for n in e.args)
-                exposed_error = self._expose_mssql_error(error_msg)
-
-                if exposed_error is None:
-                    capture_exception(e)
-
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": exposed_error or get_generic_sql_error(source_type)},
-                )
+            # except MSSQLOperationalError as e:
+            #     error_msg = " ".join(str(n) for n in e.args)
+            #     exposed_error = self._expose_mssql_error(error_msg)
+            #
+            #     if exposed_error is None:
+            #         capture_exception(e)
+            #
+            #     return Response(
+            #         status=status.HTTP_400_BAD_REQUEST,
+            #         data={"message": exposed_error or get_generic_sql_error(source_type)},
+            #     )
             except BaseSSHTunnelForwarderError as e:
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
