@@ -1,5 +1,6 @@
 import { Writable } from 'stream'
 
+import { status } from '../../../../utils/status'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithTeam } from '../teams/types'
 import { BlackholeSessionBatchWriter } from './blackhole-session-batch-writer'
@@ -23,6 +24,7 @@ export class SessionBatchRecorder {
 
     constructor(private readonly offsetManager: KafkaOffsetManager) {
         this.writer = new BlackholeSessionBatchWriter()
+        status.debug('🔁', 'session_batch_recorder_created')
     }
 
     public record(message: MessageWithTeam): number {
@@ -52,12 +54,23 @@ export class SessionBatchRecorder {
             offset: message.message.metadata.offset,
         })
 
+        status.debug('🔁', 'session_batch_recorder_recorded_message', {
+            partition,
+            sessionId,
+            bytesWritten,
+            totalSize: this._size,
+        })
+
         return bytesWritten
     }
 
     public discardPartition(partition: number): void {
         const partitionSize = this.partitionSizes.get(partition)
         if (partitionSize) {
+            status.info('🔁', 'session_batch_recorder_discarding_partition', {
+                partition,
+                partitionSize,
+            })
             this._size -= partitionSize
             this.partitionSizes.delete(partition)
             this.partitionSessions.delete(partition)
@@ -66,6 +79,11 @@ export class SessionBatchRecorder {
     }
 
     public async flush(): Promise<void> {
+        status.info('🔁', 'session_batch_recorder_flushing', {
+            totalSessions: this.partitionSessions.size,
+            totalSize: this._size,
+        })
+
         const { stream, finish } = await this.writer.open()
 
         let totalEvents = 0
@@ -96,6 +114,12 @@ export class SessionBatchRecorder {
         this.partitionSessions.clear()
         this.partitionSizes.clear()
         this._size = 0
+
+        status.info('🔁', 'session_batch_recorder_flushed', {
+            totalEvents,
+            totalSessions,
+            totalBytes,
+        })
     }
 
     public get size(): number {
