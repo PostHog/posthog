@@ -1,3 +1,4 @@
+import uuid
 from unittest.mock import patch
 
 from rest_framework import status
@@ -27,7 +28,7 @@ class TestConversation(APIBaseTest):
         with patch.object(Assistant, "_stream", return_value=["test response"]) as stream_mock:
             response = self.client.post(
                 f"/api/environments/{self.team.id}/conversations/",
-                {"content": "test query"},
+                {"content": "test query", "trace_id": str(uuid.uuid4())},
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(self._get_streaming_content(response), b"test response")
@@ -45,6 +46,7 @@ class TestConversation(APIBaseTest):
                 {
                     "conversation": str(conversation.id),
                     "content": "test query",
+                    "trace_id": str(uuid.uuid4()),
                 },
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -58,7 +60,7 @@ class TestConversation(APIBaseTest):
         self.client.force_login(self.user)
         response = self.client.post(
             f"/api/environments/{self.team.id}/conversations/",
-            {"conversation": conversation.id, "content": "test query"},
+            {"conversation": conversation.id, "content": "test query", "trace_id": str(uuid.uuid4())},
         )
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -67,7 +69,7 @@ class TestConversation(APIBaseTest):
         conversation = Conversation.objects.create(user=self.user, team=self.other_team)
         response = self.client.post(
             f"/api/environments/{self.team.id}/conversations/",
-            {"conversation": conversation.id, "content": "test query"},
+            {"conversation": conversation.id, "content": "test query", "trace_id": str(uuid.uuid4())},
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
@@ -81,21 +83,21 @@ class TestConversation(APIBaseTest):
             for _ in range(11):  # Assuming burst limit is less than this
                 response = self.client.post(
                     f"/api/environments/{self.team.id}/conversations/",
-                    {"content": "test query"},
+                    {"content": "test query", "trace_id": str(uuid.uuid4())},
                 )
             self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
     def test_empty_content(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/conversations/",
-            {"content": ""},
+            {"content": "", "trace_id": str(uuid.uuid4())},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_content_too_long(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/conversations/",
-            {"content": "x" * 1001},  # Very long message
+            {"content": "x" * 1001, "trace_id": str(uuid.uuid4())},  # Very long message
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
@@ -104,6 +106,16 @@ class TestConversation(APIBaseTest):
             f"/api/environments/{self.team.id}/conversations/",
             {
                 "conversation": "not-a-valid-uuid",
+                "content": "test query",
+                "trace_id": str(uuid.uuid4()),
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_missing_trace_id(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/conversations/",
+            {
                 "content": "test query",
             },
         )
@@ -115,6 +127,7 @@ class TestConversation(APIBaseTest):
             {
                 "conversation": "12345678-1234-5678-1234-567812345678",
                 "content": "test query",
+                "trace_id": str(uuid.uuid4()),
             },
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -130,6 +143,7 @@ class TestConversation(APIBaseTest):
             {
                 "conversation": str(conversation_id),
                 "content": "test query",
+                "trace_id": str(uuid.uuid4()),
             },
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -138,7 +152,7 @@ class TestConversation(APIBaseTest):
         self.client.logout()
         response = self.client.post(
             f"/api/environments/{self.team.id}/conversations/",
-            {"content": "test query"},
+            {"content": "test query", "trace_id": str(uuid.uuid4())},
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
@@ -150,7 +164,7 @@ class TestConversation(APIBaseTest):
         with patch.object(Assistant, "_stream", side_effect=raise_error):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/conversations/",
-                {"content": "test query"},
+                {"content": "test query", "trace_id": str(uuid.uuid4())},
             )
             with self.assertRaises(Exception) as context:
                 b"".join(response.streaming_content)

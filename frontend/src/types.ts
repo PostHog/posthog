@@ -563,6 +563,7 @@ export interface TeamType extends TeamBasicType {
     live_events_token: string
     cookieless_server_hash_mode?: CookielessServerHashMode
     human_friendly_comparison_periods: boolean
+    revenue_tracking_config: RevenueTrackingConfig
 
     /** Effective access level of the user in this specific team. Null if user has no access. */
     effective_membership_level: OrganizationMembershipLevel | null
@@ -2990,6 +2991,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     usage_dashboard?: number
     analytics_dashboards?: number[] | null
     has_enriched_analytics?: boolean
+    is_remote_configuration: boolean
 }
 
 export interface OrganizationFeatureFlag {
@@ -4844,6 +4846,15 @@ export enum CookielessServerHashMode {
     Disabled = 0,
     Stateless = 1,
     Stateful = 2,
+}
+
+export interface RevenueTrackingEventItem {
+    eventName: string
+    revenueProperty: string
+}
+
+export interface RevenueTrackingConfig {
+    events: RevenueTrackingEventItem[]
 }
 
 /**

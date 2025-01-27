@@ -39,6 +39,7 @@ export interface CodeInstructionsProps {
     selectedLanguage?: string
     featureFlag?: FeatureFlagType
     dataAttr?: string
+    showFlagValue?: boolean
     showLocalEval?: boolean
     showBootstrap?: boolean
     showAdvancedOptions?: boolean
@@ -58,9 +59,13 @@ export function CodeInstructions({
     const [defaultSelectedOption] = options
     const [selectedOption, setSelectedOption] = useState(defaultSelectedOption)
     const [bootstrapOption, setBootstrapOption] = useState(BOOTSTRAPPING_OPTIONS[0])
-    const [showPayloadCode, setShowPayloadCode] = useState(Object.keys(featureFlag?.filters.payloads || {}).length > 0)
+    const [showPayloadCode, setShowPayloadCode] = useState(
+        featureFlag?.is_remote_configuration || Object.keys(featureFlag?.filters.payloads || {}).length > 0
+    )
     const [showLocalEvalCode, setShowLocalEvalCode] = useState(showLocalEval)
     const [showBootstrapCode, setShowBootstrapCode] = useState(showBootstrap)
+
+    const showFlagValueCode = !featureFlag?.is_remote_configuration
 
     const multivariantFlag = !!featureFlag?.filters.multivariate?.variants
 
@@ -124,8 +129,9 @@ export function CodeInstructions({
         }
 
         if (
-            Object.keys(featureFlag?.filters.payloads || {}).length > 0 &&
-            Object.values(featureFlag?.filters.payloads || {}).some((value) => value)
+            featureFlag?.is_remote_configuration ||
+            (Object.keys(featureFlag?.filters.payloads || {}).length > 0 &&
+                Object.values(featureFlag?.filters.payloads || {}).some((value) => value))
         ) {
             setShowPayloadCode(true)
         } else {
@@ -270,15 +276,17 @@ export function CodeInstructions({
                         <h4 className="l4">Local evaluation</h4>
                     </>
                 )}
-                <selectedOption.Snippet
-                    data-attr="feature-flag-instructions-snippet"
-                    flagKey={featureFlagKey}
-                    multivariant={multivariantFlag}
-                    groupType={groupType}
-                    localEvaluation={showLocalEvalCode}
-                    instantlyAvailableProperties={!firstNonInstantProperty}
-                    samplePropertyName={firstNonInstantProperty || randomProperty}
-                />
+                {showFlagValueCode && (
+                    <selectedOption.Snippet
+                        data-attr="feature-flag-instructions-snippet"
+                        flagKey={featureFlagKey}
+                        multivariant={multivariantFlag}
+                        groupType={groupType}
+                        localEvaluation={showLocalEvalCode}
+                        instantlyAvailableProperties={!firstNonInstantProperty}
+                        samplePropertyName={firstNonInstantProperty || randomProperty}
+                    />
+                )}
                 {showPayloadCode && (
                     <>
                         <h4 className="l4">Payload</h4>

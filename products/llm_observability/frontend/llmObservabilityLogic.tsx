@@ -13,6 +13,7 @@ import {
     ChartDisplayType,
     EventDefinitionType,
     HogQLMathType,
+    PropertyFilterType,
     PropertyMathType,
 } from '~/types'
 
@@ -130,7 +131,10 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                             },
                         ],
                         dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
-                        properties: propertyFilters,
+                        properties: propertyFilters.concat({
+                            type: PropertyFilterType.HogQL,
+                            key: 'distinct_id != properties.$ai_trace_id',
+                        }),
                         filterTestAccounts: shouldFilterTestAccounts,
                     },
                 },
@@ -183,7 +187,10 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                             decimalPlaces: 2,
                         },
                         dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
-                        properties: propertyFilters,
+                        properties: propertyFilters.concat({
+                            type: PropertyFilterType.HogQL,
+                            key: 'distinct_id != properties.$ai_trace_id',
+                        }),
                         filterTestAccounts: shouldFilterTestAccounts,
                     },
                 },
@@ -249,8 +256,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         },
                         trendsFilter: {
                             aggregationAxisPostfix: ' s',
-                            decimalPlaces: 3,
-                            yAxisScaleType: 'log10',
+                            decimalPlaces: 2,
                         },
                         dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
                         properties: propertyFilters,
@@ -328,14 +334,17 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     kind: NodeKind.EventsQuery,
                     select: [
                         '*',
+                        `<strong><a href=f'/llm-observability/traces/{properties.$ai_trace_id}?event={uuid}'>
+                            {f'{left(toString(uuid), 4)}...{right(toString(uuid), 4)}'}
+                        </a></strong> -- ID`,
+                        `<a href=f'/llm-observability/traces/{properties.$ai_trace_id}'>
+                            {f'{left(properties.$ai_trace_id, 4)}...{right(properties.$ai_trace_id, 4)}'}
+                        </a> -- Trace ID`,
                         'person',
-                        // The f-string wrapping below seems pointless, but it actually disables special rendering
-                        // of the property keys, which would otherwise show property names overly verbose here
-                        "f'{properties.$ai_trace_id}' -- Trace ID",
                         "f'{properties.$ai_model}' -- Model",
-                        "f'${round(toFloat(properties.$ai_total_cost_usd), 6)}' -- Total cost",
+                        "f'{round(properties.$ai_latency, 2)} s' -- Latency",
                         "f'{properties.$ai_input_tokens} → {properties.$ai_output_tokens} (∑ {properties.$ai_input_tokens + properties.$ai_output_tokens})' -- Token usage",
-                        "f'{properties.$ai_latency} s' -- Latency",
+                        "f'${round(toFloat(properties.$ai_total_cost_usd), 6)}' -- Total cost",
                         'timestamp',
                     ],
                     orderBy: ['timestamp DESC'],
@@ -358,6 +367,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     TaxonomicFilterGroupType.HogQLExpression,
                 ],
                 showExport: true,
+                showActions: false,
             }),
         ],
     }),

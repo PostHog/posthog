@@ -14,6 +14,7 @@ import { getDefaultInterval, isNotNil, objectsEqual, updateDatesWithInterval } f
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { errorTrackingQuery } from 'scenes/error-tracking/queries'
 import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { hogqlQuery } from '~/queries/query'
@@ -178,6 +179,8 @@ export enum GraphsTab {
     UNIQUE_CONVERSIONS = 'UNIQUE_CONVERSIONS',
     TOTAL_CONVERSIONS = 'TOTAL_CONVERSIONS',
     CONVERSION_RATE = 'CONVERSION_RATE',
+    REVENUE_EVENTS = 'REVENUE_EVENTS',
+    REVENUE_CONVERSION = 'REVENUE_CONVERSION',
 }
 
 export enum SourceTab {
@@ -263,7 +266,7 @@ const persistConfig = { persist: true, prefix: `${teamId}__` }
 export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     path(['scenes', 'webAnalytics', 'webAnalyticsSceneLogic']),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeam']],
     })),
     actions({
         setWebAnalyticsFilters: (webAnalyticsFilters: WebAnalyticsPropertyFilters) => ({ webAnalyticsFilters }),
@@ -618,6 +621,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.filters,
                 () => values.featureFlags,
                 () => values.isGreaterThanMd,
+                () => values.currentTeam,
             ],
             (
                 productTab,
@@ -633,7 +637,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     webVitalsTab,
                 },
                 featureFlags,
-                isGreaterThanMd
+                isGreaterThanMd,
+                currentTeam
             ): WebAnalyticsTile[] => {
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
                 const sampling = { enabled: false, forceSamplingRate: { numerator: 1, denominator: 10 } }
@@ -684,6 +689,20 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                       }
                     : undefined
 
+                const includeRevenue = !!featureFlags[FEATURE_FLAGS.WEB_REVENUE_TRACKING]
+
+                const revenueEventsSeries: EventsNode[] =
+                    includeRevenue && currentTeam?.revenue_tracking_config
+                        ? currentTeam.revenue_tracking_config.events.map((e) => ({
+                              math: PropertyMathType.Sum,
+                              name: e.eventName,
+                              event: e.eventName,
+                              kind: NodeKind.EventsNode,
+                              custom_name: e.eventName,
+                              math_property: e.revenueProperty,
+                          }))
+                        : []
+
                 const createInsightProps = (tile: TileId, tab?: string): InsightLogicProps => {
                     return {
                         dashboardItemId: getDashboardItemId(tile, tab, false),
@@ -697,7 +716,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     title: string,
                     linkText: string,
                     series: AnyEntityNode[],
-                    trendsFilter?: Partial<TrendsFilter>
+                    trendsFilter?: Partial<TrendsFilter>,
+                    trendsQueryProperties?: Partial<TrendsQuery>
                 ): TabsTileTab => ({
                     id,
                     title,
@@ -719,6 +739,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 ? conversionGoal
                                 : undefined,
                             properties: webAnalyticsFilters,
+                            ...trendsQueryProperties,
                         },
                         hidePersonsModal: true,
                         embedded: true,
@@ -927,6 +948,23 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           sessionsSeries,
                                       ])
                                     : null,
+                                !conversionGoal &&
+                                    revenueEventsSeries?.length &&
+                                    createGraphsTrendsTab(
+                                        GraphsTab.REVENUE_EVENTS,
+                                        'Revenue',
+                                        'Revenue',
+                                        revenueEventsSeries,
+                                        {
+                                            display:
+                                                revenueEventsSeries.length > 1
+                                                    ? ChartDisplayType.ActionsAreaGraph
+                                                    : ChartDisplayType.ActionsLineGraph,
+                                        },
+                                        {
+                                            compareFilter: revenueEventsSeries.length > 1 ? undefined : compareFilter,
+                                        }
+                                    ),
                                 conversionGoal && uniqueConversionsSeries
                                     ? createGraphsTrendsTab(
                                           GraphsTab.UNIQUE_CONVERSIONS,
