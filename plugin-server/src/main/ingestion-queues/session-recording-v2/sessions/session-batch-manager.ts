@@ -1,3 +1,4 @@
+import { status } from '../../../../utils/status'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { PromiseQueue } from './promise-queue'
 import { SessionBatchRecorder } from './session-batch-recorder'
@@ -26,10 +27,12 @@ export class SessionBatchManager {
     }
 
     public async withBatch(callback: (batch: SessionBatchRecorder) => Promise<void>): Promise<void> {
+        status.debug('🔁', 'session_batch_manager_processing_batch')
         return this.queue.add(() => callback(this.currentBatch))
     }
 
     public async flush(): Promise<void> {
+        status.info('🔁', 'session_batch_manager_flushing', { batchSize: this.currentBatch.size })
         return this.queue.add(async () => {
             await this.rotateBatch()
         })
@@ -42,6 +45,7 @@ export class SessionBatchManager {
     }
 
     public async discardPartitions(partitions: number[]): Promise<void> {
+        status.info('🔁', 'session_batch_manager_discarding_partitions', { partitions })
         return this.queue.add(async () => {
             for (const partition of partitions) {
                 this.currentBatch.discardPartition(partition)
