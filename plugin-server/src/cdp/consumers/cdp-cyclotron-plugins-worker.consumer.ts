@@ -90,7 +90,7 @@ export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
             result.logs.push({
                 level: 'error',
                 timestamp: DateTime.now(),
-                message: `Plugin ${pluginId} setup failed`,
+                message: `Plugin ${pluginId} setup failed: ${e.message}`,
             })
             return result
         }
