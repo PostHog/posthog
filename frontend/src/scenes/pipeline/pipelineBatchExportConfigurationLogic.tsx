@@ -27,6 +27,7 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
         paused: batchExportConfig.paused,
         interval: batchExportConfig.interval,
         model: batchExportConfig.model,
+        filters: batchExportConfig.filters,
         ...batchExportConfig.destination.config,
     }
 }
