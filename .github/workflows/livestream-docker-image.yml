@@ -15,6 +15,7 @@ jobs:
         permissions:
             contents: read
             packages: write
+            id-token: write
 
         outputs:
             sha: ${{ steps.push.outputs.digest }}
