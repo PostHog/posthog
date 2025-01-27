@@ -19,6 +19,7 @@ class CreateExternalDataJobModelActivityInputs:
     team_id: int
     schema_id: uuid.UUID
     source_id: uuid.UUID
+    billable: bool
 
 
 @activity.defn
@@ -46,7 +47,7 @@ def create_external_data_job_model_activity(
             workflow_id=activity.info().workflow_id,
             workflow_run_id=activity.info().workflow_run_id,
             pipeline_version=ExternalDataJob.PipelineVersion.V2,
-            billable=True,
+            billable=inputs.billable,
         )
 
         schema = ExternalDataSchema.objects.get(team_id=inputs.team_id, id=inputs.schema_id)

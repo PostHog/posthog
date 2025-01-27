@@ -75,6 +75,8 @@ export type SettingId =
     | 'surveys-interface'
     | 'feature-flags-interface'
     | 'error-tracking-user-groups'
+    | 'error-tracking-symbol-sets'
+    | 'error-tracking-alerting'
     | 'authorized-toolbar-urls'
     | 'integration-webhooks'
     | 'integration-slack'
@@ -113,6 +115,7 @@ export type SettingId =
     | 'channel-type'
     | 'cookieless-server-hash-mode'
     | 'user-groups'
+    | 'web-revenue-events'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

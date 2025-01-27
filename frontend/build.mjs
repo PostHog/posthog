@@ -7,6 +7,7 @@ import {
     copyIndexHtml,
     copyPublicFolder,
     createHashlessEntrypoints,
+    gatherProductManifests,
     isDev,
     startDevServer,
 } from './utils.mjs'
@@ -17,6 +18,7 @@ startDevServer(__dirname)
 copyPublicFolder(path.resolve(__dirname, 'public'), path.resolve(__dirname, 'dist'))
 writeIndexHtml()
 writeExporterHtml()
+gatherProductManifests()
 
 const common = {
     absWorkingDir: __dirname,

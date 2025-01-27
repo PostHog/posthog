@@ -1,15 +1,18 @@
 from django.test import override_settings
 from ee.clickhouse.materialized_columns.columns import get_enabled_materialized_columns, materialize
 from posthog.hogql_queries.experiments.experiment_trends_query_runner import ExperimentTrendsQueryRunner
+from posthog.hogql_queries.experiments.types import ExperimentMetricType
 from posthog.models.experiment import Experiment, ExperimentHoldout
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.schema import (
+    BaseMathType,
     DataWarehouseNode,
     EventsNode,
     ExperimentSignificanceCode,
     ExperimentTrendsQuery,
     ExperimentTrendsQueryResponse,
     PersonsOnEventsMode,
+    PropertyMathType,
     TrendsQuery,
 )
 from posthog.settings import (
@@ -27,7 +30,7 @@ from posthog.test.base import (
     flush_persons_and_events,
 )
 from freezegun import freeze_time
-from typing import cast
+from typing import cast, Any
 from django.utils import timezone
 from datetime import datetime, timedelta
 from posthog.test.test_journeys import journeys_for
@@ -2147,33 +2150,6 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(test_variant.exposure, 1.0)
 
     @freeze_time("2020-01-01T12:00:00Z")
-    def test_validate_event_variants_no_events(self):
-        feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag)
-
-        count_query = TrendsQuery(series=[EventsNode(event="$pageview")])
-        experiment_query = ExperimentTrendsQuery(
-            experiment_id=experiment.id,
-            kind="ExperimentTrendsQuery",
-            count_query=count_query,
-        )
-
-        query_runner = ExperimentTrendsQueryRunner(query=experiment_query, team=self.team)
-        with self.assertRaises(ValidationError) as context:
-            query_runner.calculate()
-
-        expected_errors = json.dumps(
-            {
-                ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
-                ExperimentNoResultsErrorKeys.NO_EVENTS: True,
-                ExperimentNoResultsErrorKeys.NO_FLAG_INFO: True,
-                ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
-                ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
-            }
-        )
-        self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
-
-    @freeze_time("2020-01-01T12:00:00Z")
     def test_validate_event_variants_no_control(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
@@ -2204,8 +2180,6 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         expected_errors = json.dumps(
             {
                 ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
-                ExperimentNoResultsErrorKeys.NO_EVENTS: False,
-                ExperimentNoResultsErrorKeys.NO_FLAG_INFO: False,
                 ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
                 ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: False,
             }
@@ -2251,66 +2225,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         expected_errors = json.dumps(
             {
                 ExperimentNoResultsErrorKeys.NO_EXPOSURES: False,
-                ExperimentNoResultsErrorKeys.NO_EVENTS: False,
-                ExperimentNoResultsErrorKeys.NO_FLAG_INFO: False,
                 ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: False,
-                ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
-            }
-        )
-        self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
-
-    @freeze_time("2020-01-01T12:00:00Z")
-    def test_validate_event_variants_no_flag_info(self):
-        feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag)
-
-        journeys_for(
-            {
-                "user_no_flag_1": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-02",
-                        "properties": {
-                            "$feature_flag": feature_flag.key,
-                            "$feature_flag_response": "control",
-                        },
-                    },
-                    {"event": "$pageview", "timestamp": "2020-01-02"},
-                ],
-                "user_no_flag_2": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-02",
-                        "properties": {
-                            "$feature_flag": feature_flag.key,
-                            "$feature_flag_response": "control",
-                        },
-                    },
-                    {"event": "$pageview", "timestamp": "2020-01-03"},
-                ],
-            },
-            self.team,
-        )
-
-        flush_persons_and_events()
-
-        count_query = TrendsQuery(series=[EventsNode(event="$pageview")])
-        experiment_query = ExperimentTrendsQuery(
-            experiment_id=experiment.id,
-            kind="ExperimentTrendsQuery",
-            count_query=count_query,
-        )
-
-        query_runner = ExperimentTrendsQueryRunner(query=experiment_query, team=self.team)
-        with self.assertRaises(ValidationError) as context:
-            query_runner.calculate()
-
-        expected_errors = json.dumps(
-            {
-                ExperimentNoResultsErrorKeys.NO_EXPOSURES: False,
-                ExperimentNoResultsErrorKeys.NO_EVENTS: True,
-                ExperimentNoResultsErrorKeys.NO_FLAG_INFO: True,
-                ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
                 ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
             }
         )
@@ -2356,10 +2271,52 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         expected_errors = json.dumps(
             {
                 ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
-                ExperimentNoResultsErrorKeys.NO_EVENTS: False,
-                ExperimentNoResultsErrorKeys.NO_FLAG_INFO: False,
                 ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: False,
                 ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: False,
             }
         )
         self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+
+    def test_get_metric_type(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+
+        # Test allowed count math types
+        allowed_count_math_types = [BaseMathType.TOTAL, BaseMathType.DAU, BaseMathType.UNIQUE_SESSION, None]
+        for math_type in allowed_count_math_types:
+            count_query = TrendsQuery(series=[EventsNode(event="$pageview", math=math_type)])
+            experiment_query = ExperimentTrendsQuery(
+                experiment_id=experiment.id,
+                kind="ExperimentTrendsQuery",
+                count_query=count_query,
+            )
+            query_runner = ExperimentTrendsQueryRunner(query=experiment_query, team=self.team)
+            self.assertEqual(query_runner._get_metric_type(), ExperimentMetricType.COUNT)
+
+        # Test allowed sum math types
+        allowed_sum_math_types: list[Any] = [PropertyMathType.SUM, "hogql"]
+        for math_type in allowed_sum_math_types:
+            count_query = TrendsQuery(
+                series=[EventsNode(event="checkout completed", math=math_type, math_property="revenue")]
+            )
+            experiment_query = ExperimentTrendsQuery(
+                experiment_id=experiment.id,
+                kind="ExperimentTrendsQuery",
+                count_query=count_query,
+            )
+            query_runner = ExperimentTrendsQueryRunner(query=experiment_query, team=self.team)
+            self.assertEqual(query_runner._get_metric_type(), ExperimentMetricType.CONTINUOUS)
+
+        # Test that AVG math gets converted to SUM and returns CONTINUOUS
+        count_query = TrendsQuery(
+            series=[EventsNode(event="checkout completed", math=PropertyMathType.AVG, math_property="revenue")]
+        )
+        experiment_query = ExperimentTrendsQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentTrendsQuery",
+            count_query=count_query,
+        )
+        query_runner = ExperimentTrendsQueryRunner(query=experiment_query, team=self.team)
+        self.assertEqual(query_runner._get_metric_type(), ExperimentMetricType.CONTINUOUS)
+        # Verify the math type was converted to sum
+        self.assertEqual(query_runner.query.count_query.series[0].math, PropertyMathType.SUM)

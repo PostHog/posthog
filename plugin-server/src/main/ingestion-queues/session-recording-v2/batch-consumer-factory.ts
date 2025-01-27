@@ -27,7 +27,7 @@ export class DefaultBatchConsumerFactory implements BatchConsumerFactory {
         topic: string,
         eachBatch: EachBatchHandler
     ): Promise<BatchConsumer> {
-        const connectionConfig = createRdConnectionConfigFromEnvVars(this.kafkaConfig)
+        const connectionConfig = createRdConnectionConfigFromEnvVars(this.kafkaConfig, 'consumer')
         // Create a node-rdkafka consumer that fetches batches of messages, runs
         // eachBatch with context, then commits offsets for the batch.
         // the batch consumer reads from the session replay kafka cluster
@@ -36,9 +36,9 @@ export class DefaultBatchConsumerFactory implements BatchConsumerFactory {
             groupId,
             topic,
             eachBatch,
-            callEachBatchWhenEmpty: true, // Useful as we will still want to account for flushing sessions
-            autoCommit: true,
-            autoOffsetStore: true, // TODO: remove this once we implement our own offset store logic
+            callEachBatchWhenEmpty: true, // Required, as we want to flush session batches periodically
+            autoCommit: false,
+            autoOffsetStore: false,
             sessionTimeout: KAFKA_CONSUMER_SESSION_TIMEOUT_MS,
             maxPollIntervalMs: this.serverConfig.KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS,
             // the largest size of a message that can be fetched by the consumer.

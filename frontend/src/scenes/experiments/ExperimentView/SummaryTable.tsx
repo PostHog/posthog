@@ -12,15 +12,13 @@ import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema'
 import {
     FilterLogicalOperator,
     InsightType,
-    PropertyFilterType,
-    PropertyOperator,
     RecordingUniversalFilters,
     ReplayTabs,
     TrendExperimentVariant,
-    UniversalFiltersGroupValue,
 } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
+import { getViewRecordingFilters } from '../utils'
 import { VariantTag } from './components'
 
 export function SummaryTable({
@@ -38,7 +36,7 @@ export function SummaryTable({
         metricResults,
         secondaryMetricResults,
         tabularExperimentResults,
-        _getMetricType,
+        getMetricType,
         exposureCountDataForVariant,
         conversionRateForVariant,
         experimentMathAggregationForTrends,
@@ -46,7 +44,7 @@ export function SummaryTable({
         getHighestProbabilityVariant,
         credibleIntervalForVariant,
     } = useValues(experimentLogic)
-    const metricType = _getMetricType(metric)
+    const metricType = getMetricType(metric)
     const result = isSecondary ? secondaryMetricResults?.[metricIndex] : metricResults?.[metricIndex]
     if (!result) {
         return <></>
@@ -309,47 +307,16 @@ export function SummaryTable({
         title: '',
         render: function Key(_, item): JSX.Element {
             const variantKey = item.key
+
+            const filters = getViewRecordingFilters(metric, experiment.feature_flag_key, variantKey)
             return (
                 <LemonButton
                     size="xsmall"
                     icon={<IconRewindPlay />}
                     tooltip="Watch recordings of people who were exposed to this variant."
+                    disabledReason={filters.length === 0 ? 'Unable to identify recordings for this metric' : undefined}
                     type="secondary"
                     onClick={() => {
-                        const filters: UniversalFiltersGroupValue[] = [
-                            {
-                                id: '$feature_flag_called',
-                                name: '$feature_flag_called',
-                                type: 'events',
-                                properties: [
-                                    {
-                                        key: `$feature/${experiment.feature_flag_key}`,
-                                        type: PropertyFilterType.Event,
-                                        value: [variantKey],
-                                        operator: PropertyOperator.Exact,
-                                    },
-                                    {
-                                        key: `$feature/${experiment.feature_flag_key}`,
-                                        type: PropertyFilterType.Event,
-                                        value: 'is_set',
-                                        operator: PropertyOperator.IsSet,
-                                    },
-                                    {
-                                        key: '$feature_flag',
-                                        type: PropertyFilterType.Event,
-                                        value: experiment.feature_flag_key,
-                                        operator: PropertyOperator.Exact,
-                                    },
-                                ],
-                            },
-                        ]
-                        if (experiment.filters.insight === InsightType.FUNNELS) {
-                            if (experiment.filters?.events?.[0]) {
-                                filters.push(experiment.filters.events[0])
-                            } else if (experiment.filters?.actions?.[0]) {
-                                filters.push(experiment.filters.actions[0])
-                            }
-                        }
                         const filterGroup: Partial<RecordingUniversalFilters> = {
                             filter_group: {
                                 type: FilterLogicalOperator.And,

@@ -1,4 +1,4 @@
-lockfileVersion: '6.0'
+lockfileVersion: '6.1'
 
 settings:
   autoInstallPeers: true
@@ -52,6 +52,9 @@ dependencies:
   '@posthog/plugin-scaffold':
     specifier: 1.4.4
     version: 1.4.4
+  '@posthog/siphash':
+    specifier: 1.1.1
+    version: 1.1.1
   '@sentry/node':
     specifier: ^7.49.0
     version: 7.49.0
@@ -109,6 +112,9 @@ dependencies:
   ipaddr.js:
     specifier: ^2.1.0
     version: 2.1.0
+  js-big-decimal:
+    specifier: ^2.2.0
+    version: 2.2.0
   kafkajs:
     specifier: ^2.2.0
     version: 2.2.4
@@ -157,6 +163,9 @@ dependencies:
   tail:
     specifier: ^2.2.6
     version: 2.2.6
+  tldts:
+    specifier: ^6.1.57
+    version: 6.1.57
   uuid:
     specifier: ^9.0.1
     version: 9.0.1
@@ -2976,6 +2985,10 @@ packages:
     resolution: {integrity: sha512-3z1ENm1Ys5lEQil0H7TVOqHvD24+ydiZFk5hggpbHRx1iOxAK+Eu5qFyAROwPUcCo7NOYjmH2xL1C4B1vaHilg==}
     dependencies:
       '@maxmind/geoip2-node': 3.5.0
+    dev: false
+
+  /@posthog/siphash@1.1.1:
+    resolution: {integrity: sha512-JUFk57H89fOnHpF62FDyFGw4uXeHAX20OPfkLL8/iqg/xrVp5Q21LvJUDijmS5wt0avgUwXF2bxYgaZ5iWRmAg==}
     dev: false
 
   /@protobufjs/aspromise@1.1.2:
@@ -8039,6 +8052,10 @@ packages:
     engines: {node: '>=10'}
     dev: true
 
+  /js-big-decimal@2.2.0:
+    resolution: {integrity: sha512-qJFDTcgBGvuPzsck0jNm1puKvJQ3AL8J3bIyrvF1KfsbljOVj8N/o9Kbr8RXlBx1J8aapcRpMCiG6h1l6QgYhQ==}
+    dev: false
+
   /js-tokens@4.0.0:
     resolution: {integrity: sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==}
 
@@ -10489,6 +10506,17 @@ packages:
     engines: {node: '>=12'}
     dev: false
 
+  /tldts-core@6.1.57:
+    resolution: {integrity: sha512-lXnRhuQpx3zU9EONF9F7HfcRLvN1uRYUBIiKL+C/gehC/77XTU+Jye6ui86GA3rU6FjlJ0triD1Tkjt2F/2lEg==}
+    dev: false
+
+  /tldts@6.1.57:
+    resolution: {integrity: sha512-Oy7yDXK8meJl8vPMOldzA+MtueAJ5BrH4l4HXwZuj2AtfoQbLjmTJmjNWPUcAo+E/ibHn7QlqMS0BOcXJFJyHQ==}
+    hasBin: true
+    dependencies:
+      tldts-core: 6.1.57
+    dev: false
+
   /tmp@0.2.1:
     resolution: {integrity: sha512-76SUhtfqR2Ijn+xllcI5P1oyannHNHByD80W1q447gU3mp9G9PSpGdWmjUOHRDPiHYacIk66W7ubDTuPF3BEtQ==}
     engines: {node: '>=8.17.0'}
@@ -11162,4 +11190,5 @@ packages:
   file:../rust/cyclotron-node:
     resolution: {directory: ../rust/cyclotron-node, type: directory}
     name: '@posthog/cyclotron'
+    version: 0.1.7
     dev: false

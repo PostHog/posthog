@@ -1,9 +1,13 @@
 from dataclasses import dataclass
+from functools import cache
 from typing import Optional, Union
+
 
 from posthog.hogql import ast
 from posthog.hogql.database.models import ExpressionField
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.placeholders import replace_placeholders
+from posthog.hogql.timings import HogQLTimings
 from posthog.schema import (
     CustomChannelRule,
     CustomChannelOperator,
@@ -36,21 +40,22 @@ class ChannelTypeExprs:
     url: ast.Expr
     hostname: ast.Expr
     pathname: ast.Expr
-    gclid: ast.Expr
+    has_gclid: ast.Expr
+    has_fbclid: ast.Expr
     gad_source: ast.Expr
 
 
-def create_initial_domain_type(name: str):
+def create_initial_domain_type(name: str, timings: Optional[HogQLTimings] = None):
+    if timings is None:
+        timings = HogQLTimings()
+
+    with timings.measure("initial_domain_type_expr"):
+        expr = _initial_domain_type_expr()
+
     return ExpressionField(
         name=name,
-        expr=parse_expr(
-            """
-if(
-    {referring_domain} = '$direct',
-    '$direct',
-    hogql_lookupDomainType({referring_domain})
-)
-""",
+        expr=replace_placeholders(
+            expr,
             {
                 "referring_domain": ast.Call(
                     name="toString", args=[ast.Field(chain=["properties", "$initial_referring_domain"])]
@@ -60,7 +65,22 @@ if(
     )
 
 
-def create_initial_channel_type(name: str, custom_rules: Optional[list[CustomChannelRule]] = None):
+@cache
+def _initial_domain_type_expr():
+    return parse_expr(
+        """
+if(
+    {referring_domain} = '$direct',
+    '$direct',
+    hogql_lookupDomainType({referring_domain})
+)
+"""
+    )
+
+
+def create_initial_channel_type(
+    name: str, custom_rules: Optional[list[CustomChannelRule]] = None, timings: Optional[HogQLTimings] = None
+):
     return ExpressionField(
         name=name,
         expr=create_channel_type_expr(
@@ -77,10 +97,18 @@ def create_initial_channel_type(name: str, custom_rules: Optional[list[CustomCha
                     args=[ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_hostname"])])],
                 ),
                 pathname=ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_pathname"])]),
-                gclid=ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_gclid"])]),
+                has_gclid=ast.Call(
+                    name="isNotNull",
+                    args=[wrap_with_null_if_empty(ast.Field(chain=["properties", "$initial_gclid"]))],
+                ),
+                has_fbclid=ast.Call(
+                    name="isNotNull",
+                    args=[wrap_with_null_if_empty(ast.Field(chain=["properties", "$initial_fbclid"]))],
+                ),
                 gad_source=ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_gad_source"])]),
             ),
             custom_rules=custom_rules,
+            timings=timings,
         ),
     )
 
@@ -195,106 +223,38 @@ def custom_rule_to_expr(custom_rule: CustomChannelRule, source_exprs: ChannelTyp
 
 
 def create_channel_type_expr(
-    custom_rules: Optional[list[CustomChannelRule]], source_exprs: ChannelTypeExprs
+    custom_rules: Optional[list[CustomChannelRule]],
+    source_exprs: ChannelTypeExprs,
+    timings: Optional[HogQLTimings] = None,
 ) -> ast.Expr:
-    def wrap_with_null_if_empty(expr: ast.Expr) -> ast.Expr:
-        return ast.Call(
-            name="nullIf",
-            args=[ast.Call(name="nullIf", args=[expr, ast.Constant(value="")]), ast.Constant(value="null")],
+    if timings is None:
+        timings = HogQLTimings()
+
+    with timings.measure("custom_channel_rules"):
+        custom_rule_expr: Optional[ast.Expr] = None
+        if custom_rules:
+            if_args = []
+            for rule in custom_rules:
+                if_args.append(custom_rule_to_expr(rule, source_exprs))
+                if_args.append(ast.Constant(value=rule.channel_type))
+            if_args.append(ast.Constant(value=None))
+            custom_rule_expr = ast.Call(name="multiIf", args=if_args)
+
+    with timings.measure("default_channel_rules_parse"):
+        builtin_rules_expr = _initial_default_channel_rules_expr()
+    with timings.measure("default_channel_rules_replace"):
+        builtin_rules = replace_placeholders(
+            builtin_rules_expr,
+            placeholders={
+                "campaign": wrap_with_lower(wrap_with_null_if_empty(source_exprs.campaign)),
+                "medium": wrap_with_lower(wrap_with_null_if_empty(source_exprs.medium)),
+                "source": wrap_with_lower(wrap_with_null_if_empty(source_exprs.source)),
+                "referring_domain": source_exprs.referring_domain,
+                "has_gclid": source_exprs.has_gclid,
+                "has_fbclid": source_exprs.has_fbclid,
+                "gad_source": wrap_with_null_if_empty(source_exprs.gad_source),
+            },
         )
-
-    def wrap_with_lower(expr: ast.Expr) -> ast.Expr:
-        return ast.Call(
-            name="lower",
-            args=[expr],
-        )
-
-    custom_rule_expr: Optional[ast.Expr] = None
-    if custom_rules:
-        if_args = []
-        for rule in custom_rules:
-            if_args.append(custom_rule_to_expr(rule, source_exprs))
-            if_args.append(ast.Constant(value=rule.channel_type))
-        if_args.append(ast.Constant(value=None))
-        custom_rule_expr = ast.Call(name="multiIf", args=if_args)
-
-    # This logic is referenced in our docs https://posthog.com/docs/data/channel-type, be sure to update both if you
-    # update either.
-    builtin_rules = parse_expr(
-        """
-multiIf(
-    match({campaign}, 'cross-network'),
-    'Cross Network',
-
-    (
-        {medium} IN ('cpc', 'cpm', 'cpv', 'cpa', 'ppc', 'retargeting') OR
-        startsWith({medium}, 'paid') OR
-        {gclid} IS NOT NULL OR
-        {gad_source} IS NOT NULL
-    ),
-    coalesce(
-        hogql_lookupPaidSourceType({source}),
-        if(
-            match({campaign}, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
-            'Paid Shopping',
-            NULL
-        ),
-        hogql_lookupPaidMediumType({medium}),
-        hogql_lookupPaidSourceType({referring_domain}),
-        multiIf (
-            {gad_source} = '1',
-            'Paid Search',
-
-            match({campaign}, '^(.*video.*)$'),
-            'Paid Video',
-
-            'Paid Unknown'
-        )
-    ),
-
-    (
-        {referring_domain} = '$direct'
-        AND ({medium} IS NULL)
-        AND ({source} IS NULL OR {source} IN ('(direct)', 'direct', '$direct'))
-    ),
-    'Direct',
-
-    coalesce(
-        hogql_lookupOrganicSourceType({source}),
-        if(
-            match({campaign}, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
-            'Organic Shopping',
-            NULL
-        ),
-        hogql_lookupOrganicMediumType({medium}),
-        hogql_lookupOrganicSourceType({referring_domain}),
-        multiIf(
-            match({campaign}, '^(.*video.*)$'),
-            'Organic Video',
-
-            match({medium}, 'push$'),
-            'Push',
-
-            {referring_domain} == '$direct',
-            'Direct',
-
-            {referring_domain} IS NOT NULL,
-            'Referral',
-
-            'Unknown'
-        )
-    )
-)""",
-        start=None,
-        placeholders={
-            "campaign": wrap_with_lower(wrap_with_null_if_empty(source_exprs.campaign)),
-            "medium": wrap_with_lower(wrap_with_null_if_empty(source_exprs.medium)),
-            "source": wrap_with_lower(wrap_with_null_if_empty(source_exprs.source)),
-            "referring_domain": source_exprs.referring_domain,
-            "gclid": wrap_with_null_if_empty(source_exprs.gclid),
-            "gad_source": wrap_with_null_if_empty(source_exprs.gad_source),
-        },
-    )
     if custom_rule_expr:
         return ast.Call(
             name="coalesce",
@@ -302,6 +262,99 @@ multiIf(
         )
     else:
         return builtin_rules
+
+
+@cache
+def _initial_default_channel_rules_expr():
+    # This logic is referenced in our docs https://posthog.com/docs/data/channel-type, be sure to update both if you
+    # update either.
+    return parse_expr(
+        """
+        multiIf(
+            match({campaign}, 'cross-network'),
+            'Cross Network',
+
+            (
+                {medium} IN ('cpc', 'cpm', 'cpv', 'cpa', 'ppc', 'retargeting') OR
+                startsWith({medium}, 'paid') OR
+                {has_gclid} OR
+                {gad_source} IS NOT NULL
+            ),
+            coalesce(
+                hogql_lookupPaidSourceType({source}),
+                if(
+                    match({campaign}, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
+                    'Paid Shopping',
+                    NULL
+                ),
+                hogql_lookupPaidMediumType({medium}),
+                hogql_lookupPaidSourceType({referring_domain}),
+                multiIf (
+                    {gad_source} = '1',
+                    'Paid Search',
+
+                    match({campaign}, '^(.*video.*)$'),
+                    'Paid Video',
+
+                    {has_fbclid},
+                    'Paid Social',
+
+                    'Paid Unknown'
+                )
+            ),
+
+            (
+                {referring_domain} = '$direct'
+                AND ({medium} IS NULL)
+                AND ({source} IS NULL OR {source} IN ('(direct)', 'direct', '$direct'))
+                AND NOT {has_fbclid}
+            ),
+            'Direct',
+
+            coalesce(
+                hogql_lookupOrganicSourceType({source}),
+                if(
+                    match({campaign}, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
+                    'Organic Shopping',
+                    NULL
+                ),
+                hogql_lookupOrganicMediumType({medium}),
+                hogql_lookupOrganicSourceType({referring_domain}),
+                multiIf(
+                    match({campaign}, '^(.*video.*)$'),
+                    'Organic Video',
+
+                    match({medium}, 'push$'),
+                    'Push',
+
+                    {has_fbclid},
+                    'Organic Social',
+
+                    {referring_domain} == '$direct',
+                    'Direct',
+
+                    {referring_domain} IS NOT NULL,
+                    'Referral',
+
+                    'Unknown'
+                )
+            )
+        )"""
+    )
+
+
+def wrap_with_null_if_empty(expr: ast.Expr) -> ast.Expr:
+    return ast.Call(
+        name="nullIf",
+        args=[ast.Call(name="nullIf", args=[expr, ast.Constant(value="")]), ast.Constant(value="null")],
+    )
+
+
+def wrap_with_lower(expr: ast.Expr) -> ast.Expr:
+    return ast.Call(
+        name="lower",
+        args=[expr],
+    )
 
 
 DEFAULT_CHANNEL_TYPES = [entry.value for entry in DefaultChannelTypes]

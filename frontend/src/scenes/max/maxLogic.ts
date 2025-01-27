@@ -21,6 +21,7 @@ import {
 import { NodeKind, RefreshType, SuggestedQuestionsQuery } from '~/queries/schema/schema-general'
 import { Conversation } from '~/types'
 
+import { maxGlobalLogic } from './maxGlobalLogic'
 import type { maxLogicType } from './maxLogicType'
 
 export interface MaxLogicProps {
@@ -44,7 +45,7 @@ export const maxLogic = kea<maxLogicType>([
     props({} as MaxLogicProps),
     key(({ conversationId }) => conversationId || 'new-conversation'),
     connect({
-        values: [projectLogic, ['currentProject']],
+        values: [projectLogic, ['currentProject'], maxGlobalLogic, ['dataProcessingAccepted']],
     }),
     actions({
         askMax: (prompt: string) => ({ prompt }),
@@ -58,6 +59,7 @@ export const maxLogic = kea<maxLogicType>([
         retryLastMessage: true,
         scrollThreadToBottom: true,
         setConversation: (conversation: Conversation) => ({ conversation }),
+        setTraceId: (traceId: string) => ({ traceId }),
     }),
     reducers({
         question: [
@@ -106,6 +108,7 @@ export const maxLogic = kea<maxLogicType>([
                 setVisibleSuggestions: (_, { suggestions }) => suggestions,
             },
         ],
+        traceId: [null as string | null, { setTraceId: (_, { traceId }) => traceId }],
     }),
     loaders({
         // TODO: Move question suggestions to `maxGlobalLogic`, which will make this logic `maxThreadLogic`
@@ -164,9 +167,14 @@ export const maxLogic = kea<maxLogicType>([
         askMax: async ({ prompt }) => {
             actions.addMessage({ type: AssistantMessageType.Human, content: prompt, status: 'completed' })
             try {
+                // Generate a trace ID for the conversation run
+                const traceId = uuid()
+                actions.setTraceId(traceId)
+
                 const response = await api.conversations.create({
                     content: prompt,
                     conversation: values.conversation?.id,
+                    trace_id: traceId,
                 })
                 const reader = response.body?.getReader()
 
@@ -326,9 +334,19 @@ export const maxLogic = kea<maxLogicType>([
                 return false
             },
         ],
-        inputDisabled: [
-            (s) => [s.threadLoading, s.formPending],
-            (threadLoading, formPending) => threadLoading || formPending,
+        inputDisabled: [(s) => [s.formPending], (formPending) => formPending],
+        submissionDisabledReason: [
+            (s) => [s.formPending, s.dataProcessingAccepted, s.question, s.threadLoading],
+            (formPending, dataProcessingAccepted, question, threadLoading): string | undefined =>
+                !dataProcessingAccepted
+                    ? 'Please accept OpenAI processing data'
+                    : formPending
+                    ? 'Please choose one of the options above'
+                    : !question
+                    ? 'I need some input first'
+                    : threadLoading
+                    ? 'Thinking…'
+                    : undefined,
         ],
     }),
     afterMount(({ actions, values }) => {

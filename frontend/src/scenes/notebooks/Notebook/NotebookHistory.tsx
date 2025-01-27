@@ -1,4 +1,3 @@
-import { TZLabel } from '@posthog/apps-common'
 import {
     LemonBanner,
     LemonButton,
@@ -13,6 +12,7 @@ import { JSONContent } from '@tiptap/core'
 import { useActions, useValues } from 'kea'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityLogItem, userNameForLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import { TZLabel } from 'lib/components/TZLabel'
 import { useMemo } from 'react'
 
 import { ActivityScope } from '~/types'

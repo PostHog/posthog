@@ -19,10 +19,11 @@
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
   WHERE timestamp between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
-    AND event != '$feature_flag_called'
-    AND event NOT IN ('survey sent',
+    AND event NOT IN ('$feature_flag_called',
+                      'survey sent',
                       'survey shown',
-                      'survey dismissed')
+                      'survey dismissed',
+                      '$exception')
   GROUP BY team_id
   '''
 # ---
@@ -199,10 +200,11 @@
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
   WHERE timestamp between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
-    AND event != '$feature_flag_called'
-    AND event NOT IN ('survey sent',
+    AND event NOT IN ('$feature_flag_called',
+                      'survey sent',
                       'survey shown',
-                      'survey dismissed')
+                      'survey dismissed',
+                      '$exception')
     AND person_mode IN ('full',
                         'force_upgrade')
   GROUP BY team_id

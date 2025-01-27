@@ -38,6 +38,7 @@ class AvailableFeature(StrEnum):
     MANAGED_REVERSE_PROXY = "managed_reverse_proxy"
     DATA_PIPELINES = "data_pipelines"
     ALERTS = "alerts"
+    DATA_COLOR_THEMES = "data_color_themes"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"

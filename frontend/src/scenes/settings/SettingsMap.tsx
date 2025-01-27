@@ -1,3 +1,5 @@
+import { ErrorTrackingAlerting } from 'scenes/error-tracking/configuration/alerting/ErrorTrackingAlerting'
+import { ErrorTrackingSymbolSets } from 'scenes/error-tracking/configuration/symbol-sets/ErrorTrackingSymbolSets'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
@@ -6,6 +8,7 @@ import { DeadClicksAutocaptureSettings } from 'scenes/settings/environment/DeadC
 import { PersonsJoinMode } from 'scenes/settings/environment/PersonsJoinMode'
 import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
 import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
+import { RevenueEventsSettings } from 'scenes/settings/environment/RevenueEventsSettings'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
 
 import { Realm } from '~/types'
@@ -246,6 +249,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <BounceRatePageViewModeSetting />,
                 flag: 'SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE',
             },
+            {
+                id: 'web-revenue-events',
+                title: 'Revenue tracking',
+                component: <RevenueEventsSettings />,
+                flag: 'WEB_REVENUE_TRACKING',
+            },
         ],
     },
 
@@ -323,6 +332,17 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'User groups',
                 description: 'Allow collections of users to be assigned to issues',
                 component: <UserGroups />,
+            },
+            {
+                id: 'error-tracking-symbol-sets',
+                title: 'Symbol sets',
+                component: <ErrorTrackingSymbolSets />,
+            },
+            {
+                id: 'error-tracking-alerting',
+                title: 'Alerting',
+                flag: 'ERROR_TRACKING_ALERTING',
+                component: <ErrorTrackingAlerting />,
             },
         ],
     },

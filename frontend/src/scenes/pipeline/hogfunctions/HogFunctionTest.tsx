@@ -1,4 +1,3 @@
-import { TZLabel } from '@posthog/apps-common'
 import { IconInfo, IconX } from '@posthog/icons'
 import {
     LemonButton,
@@ -13,6 +12,7 @@ import {
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'

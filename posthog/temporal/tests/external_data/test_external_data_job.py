@@ -16,6 +16,7 @@ from posthog.temporal.data_imports.external_data_job import (
 from posthog.temporal.data_imports.external_data_job import (
     ExternalDataJobWorkflow,
     ExternalDataWorkflowInputs,
+    Any_Source_Errors,
 )
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
 from posthog.temporal.data_imports.workflow_activities.check_billing_limits import check_billing_limits_activity
@@ -173,7 +174,7 @@ def test_create_external_job_activity(activity_environment, team, **kwargs):
     test_1_schema = _create_schema("test-1", new_source, team)
 
     inputs = CreateExternalDataJobModelActivityInputs(
-        team_id=team.id, source_id=new_source.pk, schema_id=test_1_schema.id
+        team_id=team.id, source_id=new_source.pk, schema_id=test_1_schema.id, billable=True
     )
 
     run_id, _, __ = activity_environment.run(create_external_data_job_model_activity, inputs)
@@ -199,7 +200,9 @@ def test_create_external_job_activity_schemas_exist(activity_environment, team, 
         source_id=new_source.pk,
     )
 
-    inputs = CreateExternalDataJobModelActivityInputs(team_id=team.id, source_id=new_source.pk, schema_id=schema.id)
+    inputs = CreateExternalDataJobModelActivityInputs(
+        team_id=team.id, source_id=new_source.pk, schema_id=schema.id, billable=True
+    )
 
     run_id, _, __ = activity_environment.run(create_external_data_job_model_activity, inputs)
 
@@ -357,6 +360,54 @@ def test_update_external_job_activity_with_non_retryable_error(activity_environm
         status=ExternalDataJob.Status.COMPLETED,
         latest_error=None,
         internal_error="NoSuchTableError: TableA",
+        schema_id=str(schema.pk),
+        source_id=str(new_source.pk),
+        team_id=team.id,
+    )
+    with mock.patch("posthog.warehouse.models.external_data_schema.external_data_workflow_exists", return_value=False):
+        activity_environment.run(update_external_data_job_model, inputs)
+
+    new_job.refresh_from_db()
+    schema.refresh_from_db()
+
+    assert new_job.status == ExternalDataJob.Status.COMPLETED
+    assert schema.status == ExternalDataJob.Status.COMPLETED
+    assert schema.should_sync is False
+
+
+@pytest.mark.django_db(transaction=True)
+def test_update_external_job_activity_with_not_source_sepecific_non_retryable_error(
+    activity_environment, team, **kwargs
+):
+    new_source = ExternalDataSource.objects.create(
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
+        team=team,
+        status="running",
+        source_type="Postgres",
+    )
+
+    schema = ExternalDataSchema.objects.create(
+        name="test_123",
+        team_id=team.id,
+        source_id=new_source.pk,
+        should_sync=True,
+    )
+
+    new_job = _create_external_data_job(
+        team_id=team.id,
+        external_data_source_id=new_source.pk,
+        workflow_id=activity_environment.info.workflow_id,
+        workflow_run_id=activity_environment.info.workflow_run_id,
+        external_data_schema_id=schema.id,
+    )
+
+    inputs = UpdateExternalDataJobStatusInputs(
+        job_id=str(new_job.id),
+        status=ExternalDataJob.Status.COMPLETED,
+        latest_error=None,
+        internal_error=Any_Source_Errors[0],
         schema_id=str(schema.pk),
         source_id=str(new_source.pk),
         team_id=team.id,

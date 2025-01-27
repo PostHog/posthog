@@ -1,8 +1,10 @@
+import '../helpers/mocks/producer.mock'
+
 import express from 'express'
 import supertest from 'supertest'
 
 import { CdpApi } from '../../src/cdp/cdp-api'
-import { CdpFunctionCallbackConsumer } from '../../src/cdp/cdp-consumers'
+import { CdpInternalEventsConsumer } from '../../src/cdp/consumers/cdp-internal-event.consumer'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
 import { Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
@@ -47,25 +49,12 @@ jest.mock('../../src/utils/fetch', () => {
     }
 })
 
-jest.mock('../../src/utils/db/kafka-producer-wrapper', () => {
-    const mockKafkaProducer = {
-        producer: {
-            connect: jest.fn(),
-        },
-        disconnect: jest.fn(),
-        produce: jest.fn(),
-    }
-    return {
-        KafkaProducerWrapper: jest.fn(() => mockKafkaProducer),
-    }
-})
-
 const mockFetch: jest.Mock = require('../../src/utils/fetch').trackedFetch
 
 jest.setTimeout(1000)
 
 describe('CDP API', () => {
-    let processor: CdpFunctionCallbackConsumer
+    let processor: CdpInternalEventsConsumer
     let hub: Hub
     let team: Team
 
@@ -83,7 +72,7 @@ describe('CDP API', () => {
 
         hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN = 'ADWORDS_TOKEN'
 
-        processor = new CdpFunctionCallbackConsumer(hub)
+        processor = new CdpInternalEventsConsumer(hub)
 
         await processor.start()
 
