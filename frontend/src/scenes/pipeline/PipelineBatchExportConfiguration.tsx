@@ -250,31 +250,31 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
                                                 }
                                             />
                                         </div>
+                                        <div className="flex gap-2 min-h-16">
+                                            <LemonField name="filters" label="Filters" className="flex flex-1">
+                                                <PropertyFilters
+                                                    propertyFilters={
+                                                        (configuration.filters
+                                                            ? configuration.filters
+                                                            : []) as AnyPropertyFilter[]
+                                                    }
+                                                    taxonomicGroupTypes={
+                                                        selectedModel === 'events'
+                                                            ? [TaxonomicFilterGroupType.EventProperties]
+                                                            : [TaxonomicFilterGroupType.PersonProperties]
+                                                    }
+                                                    onChange={(filters: AnyPropertyFilter[]) => {
+                                                        setConfigurationValue('filters', filters)
+                                                    }}
+                                                    pageKey={`BatchExportsPropertyFilters.${
+                                                        batchExportConfig ? batchExportConfig.id : 'New'
+                                                    }`}
+                                                    metadataSource={{ kind: NodeKind.ActorsQuery }}
+                                                />
+                                            </LemonField>
+                                        </div>
                                     </>
                                 ) : null}
-                                <div className="flex gap-2 min-h-16">
-                                    <LemonField name="filters" label="Filters" className="flex flex-1">
-                                        <PropertyFilters
-                                            propertyFilters={
-                                                (configuration.property_filters
-                                                    ? configuration.property_filters
-                                                    : []) as AnyPropertyFilter[]
-                                            }
-                                            taxonomicGroupTypes={
-                                                selectedModel === 'events'
-                                                    ? [TaxonomicFilterGroupType.EventProperties]
-                                                    : [TaxonomicFilterGroupType.PersonProperties]
-                                            }
-                                            onChange={(filters: AnyPropertyFilter[]) => {
-                                                setConfigurationValue('filters', filters)
-                                            }}
-                                            pageKey={`BatchExportsPropertyFilters.${
-                                                batchExportConfig ? batchExportConfig.id : 'New'
-                                            }`}
-                                            metadataSource={{ kind: NodeKind.ActorsQuery }}
-                                        />
-                                    </LemonField>
-                                </div>
                             </div>
                         </div>
 
