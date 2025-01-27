@@ -56,9 +56,10 @@ export class EventPipelineRunner {
     hub: Hub
     originalEvent: PipelineEvent
     eventsProcessor: EventsProcessor
-    hogTransformer: HogTransformerService
+    // TODO: remove HogTransformerService being nullable once we have the new ingestion flow rolled out
+    hogTransformer: HogTransformerService | null
 
-    constructor(hub: Hub, event: PipelineEvent, hogTransformer: HogTransformerService) {
+    constructor(hub: Hub, event: PipelineEvent, hogTransformer: HogTransformerService | null) {
         this.hub = hub
         this.originalEvent = event
         this.eventsProcessor = new EventsProcessor(hub)
@@ -227,7 +228,6 @@ export class EventPipelineRunner {
             return this.registerLastStep('pluginsProcessEventStep', [event], kafkaAcks)
         }
 
-        // Pass the hogTransformer to transformEventStep
         const transformedEvent = await this.runStep(
             transformEventStep,
             [processedEvent, this.hogTransformer, this.hub],

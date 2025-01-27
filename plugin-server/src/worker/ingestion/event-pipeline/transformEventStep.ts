@@ -11,9 +11,13 @@ import { Hub } from '../../../types'
 
 export async function transformEventStep(
     event: PluginEvent,
-    hogTransformer: HogTransformerService,
+    // TODO: remove HogTransformerService being nullable once we have the new ingestion flow rolled out
+    hogTransformer: HogTransformerService | null,
     hub: Hub
 ): Promise<PluginEvent> {
+    if (!hogTransformer) {
+        return event
+    }
     // return unmodified event if hog transformations are not enabled
     if (!hub.HOG_TRANSFORMATIONS_ENABLED) {
         return event

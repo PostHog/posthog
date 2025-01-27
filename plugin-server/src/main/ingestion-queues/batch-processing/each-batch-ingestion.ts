@@ -167,9 +167,11 @@ export async function eachBatchParallelIngestion(
                 // Process every message sequentially, stash promises to await on later
                 for (const { message, pluginEvent } of currentBatch) {
                     try {
-                        const runner = new EventPipelineRunner(queue.pluginsServer, pluginEvent, queue.hogTransformer)
+                        // TODO: this is the old way of doing it, we don't need to pass the hogTransformer down
+                        // TODO: as we will switch to the new ingestion flow and this will be removed
+                        const runner = new EventPipelineRunner(queue.pluginsServer, pluginEvent, null)
                         const result = (await retryIfRetriable(async () => {
-                            return await runner.runEventPipeline(pluginEvent) // TODO: pass it all the way down boy
+                            return await runner.runEventPipeline(pluginEvent)
                         })) as IngestResult
 
                         result.ackPromises?.forEach((promise) =>

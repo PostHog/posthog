@@ -3,8 +3,6 @@ import { Consumer, EachBatchPayload, Kafka } from 'kafkajs'
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
-import { HogTransformerService } from '~/src/worker/ingestion/event-pipeline/hog-transformations/hog-transformer.service'
-
 import { BatchConsumer, startBatchConsumer } from '../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
 import { Hub } from '../../types'
@@ -173,7 +171,6 @@ export class IngestionConsumer {
     public eachBatch: EachBatchFunction
     public consumer?: BatchConsumer
     public eventsProcessor: EventsProcessor
-    public hogTransformer: HogTransformerService
 
     constructor(pluginsServer: Hub, topic: string, consumerGroupId: string, batchHandler: EachBatchFunction) {
         this.pluginsServer = pluginsServer
@@ -181,12 +178,9 @@ export class IngestionConsumer {
         this.consumerGroupId = consumerGroupId
         this.eachBatch = batchHandler
         this.eventsProcessor = new EventsProcessor(pluginsServer)
-        this.hogTransformer = new HogTransformerService(pluginsServer)
     }
 
     async start(): Promise<BatchConsumer> {
-        await this.hogTransformer.start()
-
         this.consumer = await startBatchConsumer({
             batchingTimeoutMs: this.pluginsServer.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
             consumerErrorBackoffMs: this.pluginsServer.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
