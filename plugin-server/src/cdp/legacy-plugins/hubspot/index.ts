@@ -1,4 +1,6 @@
-import { RetryError } from '@posthog/plugin-scaffold'
+import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
+
+import { LegacyPlugin, LegacyPluginMeta } from '../types'
 
 const hubspotPropsMap = {
     companyName: 'company',
@@ -16,10 +18,10 @@ const hubspotPropsMap = {
     website: 'website',
     domain: 'website',
     company_website: 'website',
-    companyWebsite: 'website'
+    companyWebsite: 'website',
 }
 
-export async function setupPlugin({ config, global }) {
+export async function setupPlugin({ config, global, fetch }: LegacyPluginMeta) {
     try {
         global.hubspotAccessToken = config.hubspotAccessToken
 
@@ -28,8 +30,8 @@ export async function setupPlugin({ config, global }) {
             {
                 headers: {
                     Authorization: `Bearer ${config.hubspotAccessToken}`,
-                    'Content-Type': 'application/json'
-                }
+                    'Content-Type': 'application/json',
+                },
             }
         )
 
@@ -41,7 +43,8 @@ export async function setupPlugin({ config, global }) {
     }
 }
 
-export async function onEvent(event, { config, global }) {
+export async function onEvent(event: ProcessedPluginEvent, meta: LegacyPluginMeta) {
+    const { config, global } = meta
     const triggeringEvents = (config.triggeringEvents || '').split(',')
 
     if (triggeringEvents.indexOf(event.event) >= 0) {
@@ -53,10 +56,11 @@ export async function onEvent(event, { config, global }) {
                 return
             }
             await createHubspotContact(
+                meta,
                 email,
                 {
                     ...(event['$set'] ?? {}),
-                    ...(event['properties'] ?? {})
+                    ...(event['properties'] ?? {}),
                 },
                 global.hubspotAccessToken,
                 config.additionalPropertyMappings,
@@ -66,8 +70,15 @@ export async function onEvent(event, { config, global }) {
     }
 }
 
-async function createHubspotContact(email, properties, accessToken, additionalPropertyMappings, eventSendTime) {
-    let hubspotFilteredProps = {}
+async function createHubspotContact(
+    meta: LegacyPluginMeta,
+    email,
+    properties,
+    accessToken,
+    additionalPropertyMappings,
+    eventSendTime
+) {
+    const hubspotFilteredProps = {}
     for (const [key, val] of Object.entries(properties)) {
         if (hubspotPropsMap[key]) {
             hubspotFilteredProps[hubspotPropsMap[key]] = val
@@ -75,7 +86,7 @@ async function createHubspotContact(email, properties, accessToken, additionalPr
     }
 
     if (additionalPropertyMappings) {
-        for (let mapping of additionalPropertyMappings.split(',')) {
+        for (const mapping of additionalPropertyMappings.split(',')) {
             const [postHogProperty, hubSpotProperty] = mapping.split(':')
             if (postHogProperty && hubSpotProperty) {
                 // special case to convert an event's timestamp to the format Hubspot uses them
@@ -90,52 +101,52 @@ async function createHubspotContact(email, properties, accessToken, additionalPr
         }
     }
 
-    const addContactResponse = await fetch(`https://api.hubapi.com/crm/v3/objects/contacts`, {
+    const addContactResponse = await meta.fetch(`https://api.hubapi.com/crm/v3/objects/contacts`, {
         method: 'POST',
         headers: {
             Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ properties: { email: email, ...hubspotFilteredProps } })
+        body: JSON.stringify({ properties: { email: email, ...hubspotFilteredProps } }),
     })
 
     const addContactResponseJson = await addContactResponse.json()
 
     if (!statusOk(addContactResponse) || addContactResponseJson.status === 'error') {
         const errorMessage = addContactResponseJson.message ?? ''
-        console.log(
+        meta.logger.log(
             `Unable to add contact ${email} to Hubspot. Status Code: ${addContactResponse.status}. Error message: ${errorMessage}`
         )
 
         if (addContactResponse.status === 409) {
             const existingIdRegex = /Existing ID: ([0-9]+)/
             const existingId = addContactResponseJson.message.match(existingIdRegex)
-            console.log(`Attempting to update contact ${email} instead...`)
+            meta.logger.log(`Attempting to update contact ${email} instead...`)
 
-            const updateContactResponse = await fetch(
+            const updateContactResponse = await meta.fetch(
                 `https://api.hubapi.com/crm/v3/objects/contacts/${existingId[1]}`,
                 {
                     method: 'PATCH',
                     headers: {
                         Authorization: `Bearer ${accessToken}`,
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ properties: { email: email, ...hubspotFilteredProps } })
+                    body: JSON.stringify({ properties: { email: email, ...hubspotFilteredProps } }),
                 }
             )
 
             const updateResponseJson = await updateContactResponse.json()
             if (!statusOk(updateContactResponse)) {
                 const errorMessage = updateResponseJson.message ?? ''
-                console.log(
+                meta.logger.log(
                     `Unable to update contact ${email} to Hubspot. Status Code: ${updateContactResponse.status}. Error message: ${errorMessage}`
                 )
             } else {
-                console.log(`Successfully updated Hubspot Contact for ${email}`)
+                meta.logger.log(`Successfully updated Hubspot Contact for ${email}`)
             }
         }
     } else {
-        console.log(`Created Hubspot Contact for ${email}`)
+        meta.logger.log(`Created Hubspot Contact for ${email}`)
     }
 }
 
@@ -144,7 +155,8 @@ function statusOk(res) {
 }
 
 function isEmail(email) {
-    const re = /^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/
+    const re =
+        /^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/
     return re.test(String(email).toLowerCase())
 }
 
@@ -162,4 +174,10 @@ function getEmailFromEvent(event) {
     }
 
     return null
+}
+
+export const hubspotPlugin: LegacyPlugin = {
+    id: 'hubspot',
+    onEvent,
+    setupPlugin,
 }
