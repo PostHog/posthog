@@ -92,7 +92,6 @@ INSTALLED_APPS = [
 
 
 MIDDLEWARE = [
-    "posthog.middleware.PrometheusBeforeMiddlewareWithTeamIds",
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     "posthog.middleware.per_request_logging_context_middleware",
     "django_structlog.middlewares.RequestMiddleware",
@@ -122,7 +121,6 @@ MIDDLEWARE = [
     "axes.middleware.AxesMiddleware",
     "posthog.middleware.AutoProjectMiddleware",
     "posthog.middleware.CHQueries",
-    "posthog.middleware.PrometheusAfterMiddlewareWithTeamIds",
     "posthog.middleware.PostHogTokenCookieMiddleware",
 ]
 

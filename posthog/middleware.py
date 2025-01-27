@@ -571,31 +571,6 @@ class CustomPrometheusMetrics(Metrics):
         return super().register_metric(metric_cls, name, documentation, labelnames=labelnames, **kwargs)
 
 
-class PrometheusBeforeMiddlewareWithTeamIds(PrometheusBeforeMiddleware):
-    metrics_cls = CustomPrometheusMetrics
-
-
-class PrometheusAfterMiddlewareWithTeamIds(PrometheusAfterMiddleware):
-    metrics_cls = CustomPrometheusMetrics
-
-    def label_metric(self, metric, request, response=None, **labels):
-        new_labels = labels
-        if metric._name in PROMETHEUS_EXTENDED_METRICS:
-            team_id = None
-            if request and getattr(request, "user", None) and request.user.is_authenticated:
-                if request.resolver_match.kwargs.get("parent_lookup_team_id"):
-                    team_id = request.resolver_match.kwargs["parent_lookup_team_id"]
-                    if team_id == "@current":
-                        if hasattr(request.user, "current_team_id"):
-                            team_id = request.user.current_team_id
-                        else:
-                            team_id = None
-
-            new_labels = {LABEL_TEAM_ID: team_id}
-            new_labels.update(labels)
-        return super().label_metric(metric, request, response=response, **new_labels)
-
-
 class PostHogTokenCookieMiddleware(SessionMiddleware):
     """
     Adds two secure cookies to enable auto-filling the current project token on the docs.
