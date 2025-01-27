@@ -361,8 +361,8 @@ def snowflake_config(database, schema) -> dict[str, str]:
     warehouse = os.getenv("SNOWFLAKE_WAREHOUSE", "warehouse")
     account = os.getenv("SNOWFLAKE_ACCOUNT", "account")
     role = os.getenv("SNOWFLAKE_ROLE", "role")
-    username = os.getenv("SNOWFLAKE_USERNAME")
-    password = os.getenv("SNOWFLAKE_PASSWORD")
+    username = os.getenv("SNOWFLAKE_USERNAME", "username")
+    password = os.getenv("SNOWFLAKE_PASSWORD", "password")
     private_key = os.getenv("SNOWFLAKE_PRIVATE_KEY")
     private_key_passphrase = os.getenv("SNOWFLAKE_PRIVATE_KEY_PASSPHRASE")
 
@@ -374,13 +374,13 @@ def snowflake_config(database, schema) -> dict[str, str]:
         "schema": schema,
         "role": role,
     }
-    if password:
-        config["password"] = password
-        config["authentication_type"] = "password"
-    elif private_key:
+    if private_key:
         config["private_key"] = private_key
         config["private_key_passphrase"] = private_key_passphrase
         config["authentication_type"] = "keypair"
+    elif password:
+        config["password"] = password
+        config["authentication_type"] = "password"
     else:
         raise ValueError("Either password or private key must be set")
     return config
