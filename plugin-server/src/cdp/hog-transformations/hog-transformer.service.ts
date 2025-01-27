@@ -1,8 +1,5 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { HogExecutorService } from '~/src/cdp/services/hog-executor.service'
-import { HogFunctionManagerService } from '~/src/cdp/services/hog-function-manager.service'
-
 import {
     HogFunctionInvocation,
     HogFunctionInvocationGlobalsWithInputs,
@@ -13,6 +10,8 @@ import { createInvocation } from '../../cdp/utils'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub } from '../../types'
 import { status } from '../../utils/status'
+import { HogExecutorService } from '../services/hog-executor.service'
+import { HogFunctionManagerService } from '../services/hog-function-manager.service'
 
 export class HogTransformerService {
     private hogExecutor: HogExecutorService
