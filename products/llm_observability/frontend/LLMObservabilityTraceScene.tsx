@@ -6,6 +6,7 @@ import { JSONViewer } from 'lib/components/JSONViewer'
 import { NotFound } from 'lib/components/NotFound'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { isObject, range } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import React from 'react'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -269,7 +270,15 @@ function RecursiveTreeDisplay({
     )
 }
 
-function EventContentDisplay({ input, output }: { input: unknown; output: unknown }): JSX.Element {
+function EventContentDisplay({
+    input,
+    output,
+    raisedError,
+}: {
+    input: unknown
+    output: unknown
+    raisedError?: boolean
+}): JSX.Element {
     return (
         <LLMInputOutput
             inputDisplay={
@@ -282,7 +291,12 @@ function EventContentDisplay({ input, output }: { input: unknown; output: unknow
                 </div>
             }
             outputDisplay={
-                <div className="p-2 text-xs border rounded bg-[var(--bg-fill-success-tertiary)]">
+                <div
+                    className={cn(
+                        'p-2 text-xs border rounded',
+                        !raisedError ? 'bg-[var(--bg-fill-success-tertiary)]' : 'bg-[var(--bg-fill-warning-tertiary)]'
+                    )}
+                >
                     {isObject(output) ? (
                         <JSONViewer src={output} collapsed={4} />
                     ) : (
@@ -337,6 +351,7 @@ function EventContent({ event }: { event: LLMTrace | LLMTraceEvent | null }): JS
                             <EventContentDisplay
                                 input={event.properties.$ai_input_state}
                                 output={event.properties.$ai_output_state ?? event.properties.$ai_error}
+                                raisedError={event.properties.$ai_is_error}
                             />
                         )
                     ) : (
