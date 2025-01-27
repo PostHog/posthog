@@ -185,7 +185,9 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
             return ast.Constant(value=None)
         if isinstance(self.query.conversionGoal, CustomEventConversionGoal):
             event_name = self.query.conversionGoal.customEventName
-            revenue_property = next((event_item.revenueProperty for event_item in config.events), None)
+            revenue_property = next(
+                (event_item.revenueProperty for event_item in config.events if event_item.eventName == event_name), None
+            )
 
             if not revenue_property:
                 return ast.Constant(value=None)
