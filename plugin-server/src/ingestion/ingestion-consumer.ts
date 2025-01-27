@@ -181,7 +181,7 @@ export class IngestionConsumer {
                         continue
                     }
 
-                    const result = await this.runEventPipeline(event) // TODO: pass it all the way down boy
+                    const result = await this.runEventPipeline(event)
 
                     status.debug('🔁', `Processed event`, {
                         event,
