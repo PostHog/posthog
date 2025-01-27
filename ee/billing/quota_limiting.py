@@ -28,7 +28,8 @@ QUOTA_LIMIT_DATA_RETENTION_FLAG = "retain-data-past-quota-limit"
 QUOTA_LIMIT_MEDIUM_TRUST_GRACE_PERIOD_DAYS = 1
 QUOTA_LIMIT_MEDIUM_HIGH_TRUST_GRACE_PERIOD_DAYS = 3
 
-GRACE_PERIOD_DAYS = {
+# Lookup table for trust scores to grace period days
+GRACE_PERIOD_DAYS: dict[int, int] = {
     3: 0,
     7: QUOTA_LIMIT_MEDIUM_TRUST_GRACE_PERIOD_DAYS,
     10: QUOTA_LIMIT_MEDIUM_HIGH_TRUST_GRACE_PERIOD_DAYS,
@@ -615,21 +616,21 @@ def report_quota_limiting_event(event_type: str, properties: dict) -> None:
     posthoganalytics.capture("internal_billing_events", event_type, properties=properties)
 
 
-def get_quote_resource_list() -> list[str]:
+def get_quote_resource_list() -> list[QuotaResource]:
     """
     Returns a list of the quota resources. E.g. ["events", "recordings", "rows_synced"]
     """
     return [x.value for x in QuotaResource]
 
 
-def get_quota_resource_dict_dict() -> dict[str, dict[str, int]]:
+def get_quota_resource_dict_dict() -> dict[QuotaResource, dict[str, int]]:
     """
     Returns a dict of the quota resources. E.g. {"events": {}, "recordings": {}, "rows_synced": {}}
     """
     return {x.value: {} for x in QuotaResource}
 
 
-def get_quota_resource_dict_list() -> dict[str, list[str]]:
+def get_quota_resource_dict_list() -> dict[QuotaResource, list[str]]:
     """
     Returns a dict of the quota resources. E.g. {"events": [], "recordings": [], "rows_synced": []}
     """
