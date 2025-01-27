@@ -266,18 +266,22 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "created_by",
                 Prefetch(
                     "jobs",
-                    queryset=ExternalDataJob.objects.filter(status="Completed").order_by("-created_at"),
+                    queryset=ExternalDataJob.objects.filter(status="Completed", team_id=self.team_id).order_by(
+                        "-created_at"
+                    )[:1],
                     to_attr="ordered_jobs",
                 ),
                 Prefetch(
                     "schemas",
-                    queryset=ExternalDataSchema.objects.exclude(deleted=True)
+                    queryset=ExternalDataSchema.objects.filter(team_id=self.team_id)
+                    .exclude(deleted=True)
                     .select_related("table__credential", "table__external_data_source")
                     .order_by("name"),
                 ),
                 Prefetch(
                     "schemas",
-                    queryset=ExternalDataSchema.objects.exclude(deleted=True)
+                    queryset=ExternalDataSchema.objects.filter(team_id=self.team_id)
+                    .exclude(deleted=True)
                     .filter(should_sync=True)
                     .select_related("source", "table__credential", "table__external_data_source"),
                     to_attr="active_schemas",

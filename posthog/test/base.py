@@ -162,7 +162,18 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query,
     )
     # replace explicit timestamps in cohort queries
-    query = re.sub(r"timestamp > '20\d\d-\d\d-\d\d \d\d:\d\d:\d\d'", r"timestamp > 'explicit_timestamp'", query)
+    query = re.sub(
+        r"timestamp > '20\d\d-\d\d-\d\d \d\d:\d\d:\d\d'", r"timestamp > 'explicit_redacted_timestamp'", query
+    )
+    # and where the HogQL doesn't match the above
+    # KLUDGE we tend not to replace dates in tests so trying to avoid replacing every date here
+    if "equals(argMax(person_distinct_id_overrides.is_deleted" in query or "INSERT INTO cohortpeople" in query:
+        # those tests have multiple varying dates like toDateTime64('2025-01-08 00:00:00.000000', 6, 'UTC')
+        query = re.sub(
+            r"toDateTime64\('20\d\d-\d\d-\d\d \d\d:\d\d:\d\d(.\d+)', 6, 'UTC'\)",
+            r"toDateTime64('explicit_redacted_timestamp\1', 6, 'UTC')",
+            query,
+        )
     # replace cohort generated conditions
     query = re.sub(
         r"_condition_\d+_level",

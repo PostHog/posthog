@@ -31,6 +31,8 @@ pub enum CaptureError {
     MissingEventName,
     #[error("event submitted without a distinct_id")]
     MissingDistinctId,
+    #[error("event submitted with invalid cookieless mode")]
+    InvalidCookielessMode,
     #[error("replay event submitted without snapshot data")]
     MissingSnapshotData,
     #[error("replay event submitted without session id")]
@@ -69,6 +71,7 @@ impl IntoResponse for CaptureError {
             | CaptureError::EmptyBatch
             | CaptureError::MissingEventName
             | CaptureError::MissingDistinctId
+            | CaptureError::InvalidCookielessMode
             | CaptureError::EventTooBig
             | CaptureError::NonRetryableSinkError
             | CaptureError::MissingSessionId

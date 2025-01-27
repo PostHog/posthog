@@ -64,7 +64,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
             const response = await api.create(`api/projects/@current/experiment_saved_metrics/`, values.sharedMetric)
             if (response.id) {
                 lemonToast.success('Shared metric created successfully')
-                actions.reportExperimentSharedMetricCreated(response)
+                actions.reportExperimentSharedMetricCreated(response as SharedMetric)
                 actions.loadSharedMetrics()
                 router.actions.push('/experiments/shared-metrics')
             }
