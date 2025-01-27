@@ -17,6 +17,7 @@ from posthog.schema import (
     CustomEventConversionGoal,
     ActionConversionGoal,
     BounceRatePageViewMode,
+    WebOverviewQueryResponse,
 )
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import (
@@ -24,6 +25,7 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    snapshot_clickhouse_queries,
 )
 
 
@@ -46,12 +48,15 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 url = None
                 elements = None
                 lcp_score = None
+                revenue = None
                 if event == "$pageview":
                     url = extra[0] if extra else None
                 elif event == "$autocapture":
                     elements = extra[0] if extra else None
                 elif event == "$web_vitals":
                     lcp_score = extra[0] if extra else None
+                elif event.startswith("purchase"):
+                    revenue = extra[0] if extra else None
                 properties = extra[1] if extra and len(extra) > 1 else {}
 
                 _create_event(
@@ -63,6 +68,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "$session_id": session_id,
                         "$current_url": url,
                         "$web_vitals_LCP_value": lcp_score,
+                        "revenue": revenue,
                         **properties,
                     },
                     elements=elements,
@@ -80,6 +86,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         action: Optional[Action] = None,
         custom_event: Optional[str] = None,
         bounce_rate_mode: Optional[BounceRatePageViewMode] = BounceRatePageViewMode.COUNT_PAGEVIEWS,
+        include_revenue: Optional[bool] = False,
     ):
         modifiers = HogQLQueryModifiers(
             sessionTableVersion=session_table_version, bounceRatePageViewMode=bounce_rate_mode
@@ -90,6 +97,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             compareFilter=CompareFilter(compare=compare) if compare else None,
             modifiers=modifiers,
             filterTestAccounts=filter_test_accounts,
+            includeRevenue=include_revenue,
             conversionGoal=ActionConversionGoal(actionId=action.id)
             if action
             else CustomEventConversionGoal(customEventName=custom_event)
@@ -97,8 +105,11 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             else None,
         )
         runner = WebOverviewQueryRunner(team=self.team, query=query, limit_context=limit_context)
-        return runner.calculate()
+        response = runner.calculate()
+        WebOverviewQueryResponse.model_validate(response)
+        return response
 
+    @snapshot_clickhouse_queries
     def test_no_crash_when_no_data(self):
         results = self._run_web_overview_query(
             "2023-12-08",
@@ -141,6 +152,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "conversion rate",
         ]
 
+    @snapshot_clickhouse_queries
     def test_increase_in_users(self):
         s1a = str(uuid7("2023-12-02"))
         s1b = str(uuid7("2023-12-12"))
@@ -188,6 +200,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(0, bounce.previous)
         self.assertEqual(None, bounce.changeFromPreviousPct)
 
+    @snapshot_clickhouse_queries
     def test_increase_in_users_using_mobile(self):
         s1a = str(uuid7("2023-12-02"))
         s1b = str(uuid7("2023-12-12"))
@@ -237,6 +250,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(0, bounce.previous)
         self.assertEqual(None, bounce.changeFromPreviousPct)
 
+    @snapshot_clickhouse_queries
     def test_all_time(self):
         s1a = str(uuid7("2023-12-02"))
         s1b = str(uuid7("2023-12-12"))
@@ -284,6 +298,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(None, bounce.previous)
         self.assertEqual(None, bounce.changeFromPreviousPct)
 
+    @snapshot_clickhouse_queries
     def test_comparison(self):
         s1a = str(uuid7("2023-12-02"))
         s1b = str(uuid7("2023-12-12"))
@@ -331,6 +346,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(0, bounce.previous)
         self.assertEqual(None, bounce.changeFromPreviousPct)
 
+    @snapshot_clickhouse_queries
     def test_filter_test_accounts(self):
         s1 = str(uuid7("2023-12-02"))
         # Create 1 test account
@@ -354,6 +370,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual("bounce rate", bounce.key)
         self.assertEqual(None, bounce.value)
 
+    @snapshot_clickhouse_queries
     def test_dont_filter_test_accounts(self):
         s1 = str(uuid7("2023-12-02"))
         # Create 1 test account
@@ -364,6 +381,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         visitors = results[0]
         self.assertEqual(1, visitors.value)
 
+    @snapshot_clickhouse_queries
     def test_correctly_counts_pageviews_in_long_running_session(self):
         # this test is important when using the v1 sessions table as the raw sessions table will have 3 entries, one per day
         s1 = str(uuid7("2023-12-01"))
@@ -387,6 +405,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         sessions = results[2]
         self.assertEqual(1, sessions.value)
 
+    @snapshot_clickhouse_queries
     def test_conversion_goal_no_conversions(self):
         s1 = str(uuid7("2023-12-01"))
         self._create_events(
@@ -421,6 +440,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         conversion_rate = results[3]
         assert conversion_rate.value == 0
 
+    @snapshot_clickhouse_queries
     def test_conversion_goal_one_pageview_conversion(self):
         s1 = str(uuid7("2023-12-01"))
         self._create_events(
@@ -455,6 +475,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         conversion_rate = results[3]
         assert conversion_rate.value == 100
 
+    @snapshot_clickhouse_queries
     def test_conversion_goal_one_custom_event_conversion(self):
         s1 = str(uuid7("2023-12-01"))
         self._create_events(
@@ -478,6 +499,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         conversion_rate = results[3]
         assert conversion_rate.value == 100
 
+    @snapshot_clickhouse_queries
     def test_conversion_goal_one_custom_action_conversion(self):
         s1 = str(uuid7("2023-12-01"))
         self._create_events(
@@ -511,6 +533,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         conversion_rate = results[3]
         assert conversion_rate.value == 100
 
+    @snapshot_clickhouse_queries
     def test_conversion_goal_one_autocapture_conversion(self):
         s1 = str(uuid7("2023-12-01"))
         self._create_events(
@@ -546,6 +569,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         conversion_rate = results[3]
         assert conversion_rate.value == 100
 
+    @snapshot_clickhouse_queries
     def test_conversion_rate(self):
         s1 = str(uuid7("2023-12-01"))
         s2 = str(uuid7("2023-12-01"))
@@ -596,6 +620,234 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         conversion_rate = results[3]
         self.assertAlmostEqual(conversion_rate.value, 100 * 2 / 3)
+
+    @snapshot_clickhouse_queries
+    def test_revenue(self):
+        s1 = str(uuid7("2023-12-02"))
+
+        self.team.revenue_tracking_config = {"events": [{"eventName": "purchase", "revenueProperty": "revenue"}]}
+        self.team.save()
+
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1, 100)]),
+            ],
+            event="purchase",
+        )
+        results = self._run_web_overview_query("2023-12-01", "2023-12-03", include_revenue=True).results
+
+        visitors = results[0]
+        assert visitors.value == 1
+
+        views = results[1]
+        assert views.value == 0
+
+        sessions = results[2]
+        assert sessions.value == 1
+
+        duration = results[3]
+        assert duration.value == 0
+
+        bounce = results[4]
+        assert bounce.value is None
+
+        revenue = results[5]
+        assert revenue.kind == "currency"
+        assert revenue.value == 100
+
+    @snapshot_clickhouse_queries
+    def test_revenue_multiple_events(self):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-02"))
+
+        self.team.revenue_tracking_config = {
+            "events": [
+                {"eventName": "purchase1", "revenueProperty": "revenue"},
+                {"eventName": "purchase2", "revenueProperty": "revenue"},
+            ]
+        }
+        self.team.save()
+
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1, 100)]),
+            ],
+            event="purchase1",
+        )
+        self._create_events(
+            [
+                ("p2", [("2023-12-02", s2, 50)]),
+            ],
+            event="purchase2",
+        )
+        results = self._run_web_overview_query("2023-12-01", "2023-12-03", include_revenue=True).results
+
+        visitors = results[0]
+        assert visitors.value == 2
+
+        views = results[1]
+        assert views.value == 0
+
+        sessions = results[2]
+        assert sessions.value == 2
+
+        duration = results[3]
+        assert duration.value == 0
+
+        bounce = results[4]
+        assert bounce.value is None
+
+        revenue = results[5]
+        assert revenue.kind == "currency"
+        assert revenue.value == 150
+
+    @snapshot_clickhouse_queries
+    def test_revenue_no_config(self):
+        s1 = str(uuid7("2023-12-02"))
+
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1, 100)]),
+            ],
+            event="purchase",
+        )
+        results = self._run_web_overview_query("2023-12-01", "2023-12-03", include_revenue=True).results
+
+        revenue = results[5]
+        assert revenue.kind == "currency"
+        assert revenue.value is None
+
+    @snapshot_clickhouse_queries
+    def test_revenue_conversion_event(self):
+        s1 = str(uuid7("2023-12-02"))
+
+        self.team.revenue_tracking_config = {"events": [{"eventName": "purchase", "revenueProperty": "revenue"}]}
+        self.team.save()
+
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1, 100)]),
+            ],
+            event="purchase",
+        )
+        results = self._run_web_overview_query(
+            "2023-12-01", "2023-12-03", include_revenue=True, custom_event="purchase"
+        ).results
+
+        visitors = results[0]
+        assert visitors.value == 1
+
+        conversion = results[1]
+        assert conversion.value == 1
+
+        unique_conversions = results[2]
+        assert unique_conversions.value == 1
+
+        conversion_rate = results[3]
+        assert conversion_rate.value == 100
+
+        revenue = results[4]
+        assert revenue.kind == "currency"
+        assert revenue.value == 100
+
+    @snapshot_clickhouse_queries
+    def test_revenue_conversion_event_with_multiple_revenue_events(self):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-02"))
+
+        self.team.revenue_tracking_config = {
+            "events": [
+                {"eventName": "purchase1", "revenueProperty": "revenue"},
+                {"eventName": "purchase2", "revenueProperty": "revenue"},
+            ]
+        }
+        self.team.save()
+
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1, 100)]),
+            ],
+            event="purchase1",
+        )
+        self._create_events(
+            [
+                ("p2", [("2023-12-02", s2, 50)]),
+            ],
+            event="purchase2",
+        )
+        results = self._run_web_overview_query(
+            "2023-12-01", "2023-12-03", include_revenue=True, custom_event="purchase1"
+        ).results
+
+        revenue = results[4]
+        assert revenue.kind == "currency"
+        assert revenue.value == 100
+
+    @snapshot_clickhouse_queries
+    def test_revenue_conversion_no_config(self):
+        s1 = str(uuid7("2023-12-02"))
+
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1, 100)]),
+            ],
+            event="purchase",
+        )
+        results = self._run_web_overview_query(
+            "2023-12-01", "2023-12-03", include_revenue=True, custom_event="purchase"
+        ).results
+
+        revenue = results[4]
+        assert revenue.kind == "currency"
+        assert revenue.value is None
+
+    @snapshot_clickhouse_queries
+    def test_no_revenue_when_event_conversion_goal_set_but_include_revenue_disabled(self):
+        s1 = str(uuid7("2023-12-01"))
+
+        self.team.revenue_tracking_config = {"events": [{"eventName": "purchase", "revenueProperty": "revenue"}]}
+        self.team.save()
+
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1, 100)]),
+            ],
+            event="purchase",
+        )
+
+        results = self._run_web_overview_query(
+            "2023-12-01", "2023-12-03", custom_event="purchase", include_revenue=False
+        ).results
+
+        assert len(results) == 4
+
+    @snapshot_clickhouse_queries
+    def test_no_revenue_when_action_conversion_goal_set_but_include_revenue_disabled(self):
+        s1 = str(uuid7("2023-12-01"))
+
+        self.team.revenue_tracking_config = {"events": [{"eventName": "purchase", "revenueProperty": "revenue"}]}
+        self.team.save()
+
+        action = Action.objects.create(
+            team=self.team,
+            name="Did Custom Event",
+            steps_json=[
+                {
+                    "event": "custom_event",
+                }
+            ],
+        )
+
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1, 100)]),
+            ],
+            event="custom_event",
+        )
+
+        results = self._run_web_overview_query("2023-12-01", "2023-12-03", action=action, include_revenue=False).results
+
+        assert len(results) == 4
 
     @patch("posthog.hogql.query.sync_execute", wraps=sync_execute)
     def test_limit_is_context_aware(self, mock_sync_execute: MagicMock):

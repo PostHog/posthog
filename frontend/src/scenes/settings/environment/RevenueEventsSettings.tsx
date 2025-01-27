@@ -7,7 +7,7 @@ import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { useCallback } from 'react'
 import { revenueEventsSettingsLogic } from 'scenes/settings/environment/revenueEventsSettingsLogic'
 
-import { RevenueTrackingEventItem } from '~/types'
+import { RevenueTrackingEventItem } from '~/queries/schema'
 
 export function RevenueEventsSettings(): JSX.Element {
     const { saveDisabledReason, events } = useValues(revenueEventsSettingsLogic)
