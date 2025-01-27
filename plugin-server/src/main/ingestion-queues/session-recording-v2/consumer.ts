@@ -306,7 +306,7 @@ export class SessionRecordingIngester {
         await runInstrumentedFunction({
             statsKey: `recordingingesterv2.handleEachBatch.flush.commitOffsets`,
             func: async () => {
-                this.batchConsumer!.consumer.commitSync(offsets)
+                this.batchConsumer!.consumer.offsetsStore(offsets)
                 return Promise.resolve()
             },
         })
