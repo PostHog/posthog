@@ -56,7 +56,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 dateTo: INITIAL_DATE_TO as string | null,
             },
             {
-                setDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
+                setDates: (_, { dateFrom, dateTo }) => ({ dateFrom: dateFrom || INITIAL_DATE_FROM, dateTo }),
             },
         ],
         shouldFilterTestAccounts: [
@@ -480,7 +480,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 (date_from || INITIAL_DATE_FROM) !== values.dateFilter.dateFrom ||
                 (date_to || INITIAL_DATE_TO) !== values.dateFilter.dateTo
             ) {
-                actions.setDates(date_from || INITIAL_DATE_FROM, date_to || INITIAL_DATE_TO)
+                actions.setDates(date_from, date_to)
             }
             const filterTestAccountsValue = [true, 'true', 1, '1'].includes(filter_test_accounts)
             if (filterTestAccountsValue !== values.shouldFilterTestAccounts) {

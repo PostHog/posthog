@@ -4,7 +4,6 @@ import { IconTrending } from '@posthog/icons'
 import { LemonRow, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { dayjs } from 'lib/dayjs'
 import { IconFlare, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { percentage } from 'lib/utils'
 import { useLayoutEffect, useRef, useState } from 'react'
@@ -104,14 +103,7 @@ export function BoldNumber({ showPersonsModal = true, context }: ChartParams): J
                 className={clsx('BoldNumber__value', showPersonsModal ? 'cursor-pointer' : 'cursor-default')}
                 onClick={
                     context?.onDataPointClick
-                        ? () =>
-                              context?.onDataPointClick?.(
-                                  {
-                                      breakdown: resultSeries.breakdown_value,
-                                      compare: resultSeries.compare_label,
-                                  },
-                                  resultSeries
-                              )
+                        ? () => context?.onDataPointClick?.({ compare: 'current' }, resultSeries)
                         : showPersonsModal && resultSeries.aggregated_value != null && !isDataWarehouseSeries // != is intentional to catch undefined too
                         ? () => {
                               openPersonsModal({
@@ -202,11 +194,7 @@ function BoldNumberComparison({
                     <Link
                         onClick={() => {
                             if (context?.onDataPointClick) {
-                                context.onDataPointClick({
-                                    day: dayjs(new Date(), 'UTC').subtract(1, 'day').format('YYYY-MM-DD'),
-                                    label: previousPeriodSeries.label,
-                                    count: previousValue ?? 0,
-                                })
+                                context.onDataPointClick({ compare: 'previous' }, currentPeriodSeries)
                             } else {
                                 openPersonsModal({
                                     title: previousPeriodSeries.label,
