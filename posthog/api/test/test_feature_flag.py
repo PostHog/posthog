@@ -429,6 +429,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         instance = FeatureFlag.objects.get(id=response.json()["id"])
         self.assertEqual(instance.key, "multivariate-feature")
+        self.assertEqual(instance.experiment_set.count(), 0)
 
         # Assert analytics are sent
         mock_capture.assert_called_once_with(
