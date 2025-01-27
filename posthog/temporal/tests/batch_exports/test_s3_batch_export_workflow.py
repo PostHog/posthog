@@ -251,6 +251,14 @@ async def assert_clickhouse_records_in_s3(
     if batch_export_model is not None:
         if isinstance(batch_export_model, BatchExportModel):
             batch_export_schema = batch_export_model.schema
+            if batch_export_model.filters is not None:
+                exclude_without_properties = [f"test-no-prop-{i}" for i in range(5)]
+
+                if not exclude_events:
+                    exclude_events = exclude_without_properties
+                else:
+                    exclude_events.extend(exclude_without_properties)
+
         else:
             batch_export_schema = batch_export_model
 
@@ -319,6 +327,14 @@ TEST_S3_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
         },
     ),
     BatchExportModel(name="events", schema=None),
+    BatchExportModel(
+        name="events",
+        schema=None,
+        filters=[
+            {"key": "$browser", "operator": "exact", "type": "event", "value": ["Chrome"]},
+            {"key": "$os", "operator": "exact", "type": "event", "value": ["Mac OS X"]},
+        ],
+    ),
     BatchExportModel(name="persons", schema=None),
     {
         "fields": [
@@ -399,7 +415,11 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
         records_exported = await activity_environment.run(insert_into_s3_activity, insert_inputs)
 
     events_to_export_created, persons_to_export_created = generate_test_data
-    assert records_exported == len(events_to_export_created) or records_exported == len(persons_to_export_created)
+    assert (
+        records_exported == len(events_to_export_created)
+        or records_exported == len(persons_to_export_created)
+        or records_exported == len([event for event in events_to_export_created if event["properties"] is not None])
+    )
 
     await assert_clickhouse_records_in_s3(
         s3_compatible_client=minio_client,
@@ -747,7 +767,11 @@ async def test_insert_into_s3_activity_puts_data_into_s3_using_async(
         records_exported = await activity_environment.run(insert_into_s3_activity, insert_inputs)
 
     events_to_export_created, persons_to_export_created = generate_test_data
-    assert records_exported == len(events_to_export_created) or records_exported == len(persons_to_export_created)
+    assert (
+        records_exported == len(events_to_export_created)
+        or records_exported == len(persons_to_export_created)
+        or records_exported == len([event for event in events_to_export_created if event["properties"] is not None])
+    )
 
     await assert_clickhouse_records_in_s3(
         s3_compatible_client=minio_client,
