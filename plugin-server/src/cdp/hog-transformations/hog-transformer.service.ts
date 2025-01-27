@@ -3,6 +3,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import {
     HogFunctionInvocation,
     HogFunctionInvocationGlobalsWithInputs,
+    HogFunctionInvocationResult,
     HogFunctionType,
     HogFunctionTypeType,
 } from '../../cdp/types'
@@ -12,6 +13,12 @@ import { Hub } from '../../types'
 import { status } from '../../utils/status'
 import { HogExecutorService } from '../services/hog-executor.service'
 import { HogFunctionManagerService } from '../services/hog-function-manager.service'
+
+// Add return type to include both event and results
+export interface TransformationResult {
+    event: PluginEvent
+    invocationResults: HogFunctionInvocationResult[]
+}
 
 export class HogTransformerService {
     private hogExecutor: HogExecutorService
@@ -74,19 +81,30 @@ export class HogTransformerService {
         await this.hogFunctionManager.start(hogTypes)
     }
 
-    public transformEvent(event: PluginEvent): Promise<PluginEvent> {
+    public async transformEvent(event: PluginEvent): Promise<TransformationResult> {
         return runInstrumentedFunction({
             statsKey: `hogTransformer`,
-            // there is no await as all operations are sync
             // eslint-disable-next-line @typescript-eslint/require-await
             func: async () => {
                 const teamHogFunctions = this.hogFunctionManager.getTeamHogFunctions(event.team_id)
                 const transformationFunctions = this.getTransformationFunctions()
+                const invocationResults: HogFunctionInvocationResult[] = []
+
                 // For now, execute each transformation function in sequence
                 // Later we can add support for chaining/ordering
                 for (const hogFunction of teamHogFunctions) {
                     const invocation = this.createHogFunctionInvocation(event, hogFunction)
                     const result = this.hogExecutor.execute(invocation, { functions: transformationFunctions })
+
+                    // Store the HogFunctionInvocationResult to show logs and errors in the UI
+                    invocationResults.push({
+                        invocation,
+                        logs: result.logs,
+                        error: result.error,
+                        execResult: result.execResult,
+                        finished: true,
+                    })
+
                     if (result.error) {
                         status.warn('⚠️', 'Error in transformation', {
                             error: result.error,
@@ -99,7 +117,7 @@ export class HogTransformerService {
                     // Type check execResult before accessing result
                     if (!result.execResult) {
                         status.warn('⚠️', 'Missing execution result - no transformation applied')
-                        return event
+                        continue
                     }
 
                     const transformedEvent: unknown = result.execResult
@@ -135,7 +153,11 @@ export class HogTransformerService {
                         event.event = transformedEvent.event
                     }
                 }
-                return event
+
+                return {
+                    event,
+                    invocationResults,
+                }
             },
         })
     }

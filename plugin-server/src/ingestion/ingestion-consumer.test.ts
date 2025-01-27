@@ -1,7 +1,14 @@
+import { Reader } from '@maxmind/geoip2-node'
+import { readFileSync } from 'fs'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
+import { join } from 'path'
+import { brotliDecompressSync } from 'zlib'
 
+import { template as geoipTemplate } from '~/src/cdp/templates/_transformations/geoip/geoip.template'
+import { compileHog } from '~/src/cdp/templates/compiler'
 import { UUIDT } from '~/src/utils/utils'
+import { insertHogFunction as _insertHogFunction } from '~/tests/cdp/fixtures'
 import {
     getProducedKafkaMessages,
     getProducedKafkaMessagesForTopic,
@@ -12,6 +19,7 @@ import { createTeam, getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql
 
 import { Hub, PipelineEvent, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
+import { HogFunctionType } from '../cdp/types'
 import { status } from '../utils/status'
 import { IngestionConsumer } from './ingestion-consumer'
 
@@ -66,6 +74,15 @@ const createKafkaMessages: (events: PipelineEvent[]) => Message[] = (events) => 
     })
 }
 
+// Add mock for CyclotronManager
+const mockBulkCreateJobs = jest.fn()
+jest.mock('@posthog/cyclotron', () => ({
+    CyclotronManager: jest.fn().mockImplementation(() => ({
+        connect: jest.fn(),
+        bulkCreateJobs: mockBulkCreateJobs,
+    })),
+}))
+
 describe('IngestionConsumer', () => {
     let ingester: IngestionConsumer
     let hub: Hub
@@ -94,6 +111,10 @@ describe('IngestionConsumer', () => {
         offsetIncrementer = 0
         await resetTestDatabase()
         hub = await createHub()
+
+        // Set up GeoIP database
+        const mmdbBrotliContents = readFileSync(join(__dirname, '../../tests/assets/GeoLite2-City-Test.mmdb.br'))
+        hub.mmdb = Reader.openBuffer(brotliDecompressSync(mmdbBrotliContents))
 
         hub.kafkaProducer = mockProducer
         team = await getFirstTeam(hub)
@@ -479,5 +500,187 @@ describe('IngestionConsumer', () => {
 
             expect(forSnapshot(getProducedKafkaMessages())).toMatchSnapshot()
         })
+    })
+
+    describe('transformations', () => {
+        let transformationFunction: HogFunctionType
+
+        const insertHogFunction = async (hogFunction: Partial<HogFunctionType>) => {
+            const { hog, bytecode, name } = hogFunction
+            const item = await _insertHogFunction(hub.postgres, team.id, {
+                hog,
+                bytecode,
+                name: name || 'Test Function',
+                type: 'transformation',
+            })
+            return item
+        }
+
+        beforeEach(async () => {
+            // Enable HOG transformations
+            hub.HOG_TRANSFORMATIONS_ENABLED = true
+
+            // Create a transformation function using the geoip template as an example
+            const hogByteCode = await compileHog(geoipTemplate.hog)
+            transformationFunction = await insertHogFunction({
+                name: 'GeoIP Transformation',
+                hog: geoipTemplate.hog,
+                bytecode: hogByteCode,
+            })
+
+            ingester = new IngestionConsumer(hub)
+            await ingester.start()
+        })
+
+        it('should invoke transformation for matching team with error case', async () => {
+            // make the geoip lookup fail
+            const event = createEvent({
+                ip: '1.1.1.1',
+                properties: { $ip: '1.1.1.1' },
+            })
+            const messages = createKafkaMessages([event])
+
+            await ingester.handleKafkaBatch(messages)
+
+            // Verify metrics were published
+            const metricsMessages = getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+            expect(metricsMessages).toEqual([
+                {
+                    key: expect.any(String),
+                    topic: 'clickhouse_app_metrics2_test',
+                    value: {
+                        app_source: 'hog_function',
+                        app_source_id: transformationFunction.id,
+                        count: 1,
+                        metric_kind: 'success',
+                        metric_name: 'succeeded',
+                        team_id: team.id,
+                        timestamp: '2025-01-01 00:00:00.000',
+                    },
+                },
+            ])
+
+            // Verify log entries were published
+            const logMessages = getProducedKafkaMessagesForTopic('log_entries_test')
+            expect(logMessages).toEqual([
+                {
+                    key: expect.any(String),
+                    topic: 'log_entries_test',
+                    value: {
+                        instance_id: expect.any(String),
+                        level: 'debug',
+                        log_source: 'hog_function',
+                        log_source_id: transformationFunction.id,
+                        message: 'Executing function',
+                        team_id: team.id,
+                        timestamp: expect.stringMatching(/2025-01-01 00:00:00\.\d{3}/),
+                    },
+                },
+                {
+                    key: expect.any(String),
+                    topic: 'log_entries_test',
+                    value: {
+                        instance_id: expect.any(String),
+                        level: 'info',
+                        log_source: 'hog_function',
+                        log_source_id: transformationFunction.id,
+                        message: 'geoip lookup failed for ip, 1.1.1.1',
+                        team_id: team.id,
+                        timestamp: expect.stringMatching(/2025-01-01 00:00:00\.\d{3}/),
+                    },
+                },
+                {
+                    key: expect.any(String),
+                    topic: 'log_entries_test',
+                    value: {
+                        instance_id: expect.any(String),
+                        level: 'debug',
+                        log_source: 'hog_function',
+                        log_source_id: transformationFunction.id,
+                        message: expect.stringMatching(
+                            /^Function completed in \d+\.?\d*ms\. Sync: \d+ms\. Mem: \d+ bytes\. Ops: \d+\. Event: ''$/
+                        ),
+                        team_id: team.id,
+                        timestamp: expect.stringMatching(/2025-01-01 00:00:00\.\d{3}/),
+                    },
+                },
+            ])
+        })
+
+        it('should invoke transformation for matching team with success case', async () => {
+            const event = createEvent({
+                ip: '89.160.20.129',
+                properties: { $ip: '89.160.20.129' },
+            })
+            const messages = createKafkaMessages([event])
+
+            await ingester.handleKafkaBatch(messages)
+
+            // Verify metrics were published
+            const metricsMessages = getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+            expect(metricsMessages).toEqual([
+                {
+                    key: expect.any(String),
+                    topic: 'clickhouse_app_metrics2_test',
+                    value: {
+                        app_source: 'hog_function',
+                        app_source_id: transformationFunction.id,
+                        count: 1,
+                        metric_kind: 'success',
+                        metric_name: 'succeeded',
+                        team_id: team.id,
+                        timestamp: '2025-01-01 00:00:00.000',
+                    },
+                },
+            ])
+
+            // Verify log entries were published
+            const logMessages = getProducedKafkaMessagesForTopic('log_entries_test')
+            expect(logMessages).toEqual([
+                {
+                    key: expect.any(String),
+                    topic: 'log_entries_test',
+                    value: {
+                        instance_id: expect.any(String),
+                        level: 'debug',
+                        log_source: 'hog_function',
+                        log_source_id: transformationFunction.id,
+                        message: 'Executing function',
+                        team_id: team.id,
+                        timestamp: expect.stringMatching(/2025-01-01 00:00:00\.\d{3}/),
+                    },
+                },
+                {
+                    key: expect.any(String),
+                    topic: 'log_entries_test',
+                    value: {
+                        instance_id: expect.any(String),
+                        level: 'info',
+                        log_source: 'hog_function',
+                        log_source_id: transformationFunction.id,
+                        message: expect.stringContaining('geoip location data for ip:'),
+                        team_id: team.id,
+                        timestamp: expect.stringMatching(/2025-01-01 00:00:00\.\d{3}/),
+                    },
+                },
+                {
+                    key: expect.any(String),
+                    topic: 'log_entries_test',
+                    value: {
+                        instance_id: expect.any(String),
+                        level: 'debug',
+                        log_source: 'hog_function',
+                        log_source_id: transformationFunction.id,
+                        message: expect.stringMatching(
+                            /^Function completed in \d+\.?\d*ms\. Sync: \d+ms\. Mem: \d+ bytes\. Ops: \d+\. Event: ''$/
+                        ),
+                        team_id: team.id,
+                        timestamp: expect.stringMatching(/2025-01-01 00:00:00\.\d{3}/),
+                    },
+                },
+            ])
+        })
+
+        xit('should handle transformation errors gracefully', async () => {})
     })
 })

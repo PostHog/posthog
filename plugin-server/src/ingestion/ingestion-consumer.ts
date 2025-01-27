@@ -3,6 +3,9 @@ import { Message, MessageHeader } from 'node-rdkafka'
 import { Histogram } from 'prom-client'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
+import { HogFunctionAppMetric, HogFunctionInvocationResult } from '../cdp/types'
+import { fixLogDeduplication } from '../cdp/utils'
+import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../kafka/config'
 import { KafkaProducerWrapper } from '../kafka/producer'
@@ -17,9 +20,12 @@ import {
 } from '../main/ingestion-queues/metrics'
 import { runInstrumentedFunction } from '../main/utils'
 import { Hub, PipelineEvent, PluginServerService } from '../types'
+import { AppMetric2Type, TimestampFormat } from '../types'
+import { safeClickhouseString } from '../utils/db/utils'
 import { normalizeEvent } from '../utils/event'
 import { retryIfRetriable } from '../utils/retries'
 import { status } from '../utils/status'
+import { castTimestampOrNow } from '../utils/utils'
 import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 
@@ -68,6 +74,8 @@ export class IngestionConsumer {
     private ingestionWarningLimiter: MemoryRateLimiter
     private tokensToDrop: string[] = []
     private tokenDistinctIdsToDrop: string[] = []
+
+    private messagesToProduce: { topic: string; value: any; key: string | null }[] = []
 
     constructor(private hub: Hub) {
         // The group and topic are configurable allowing for multiple ingestion consumers to be run in parallel
@@ -194,6 +202,12 @@ export class IngestionConsumer {
                             })
                         )
                     })
+
+                    // Process invocation results if present
+                    if (result.invocationResults) {
+                        this.processInvocationResults(result.invocationResults)
+                        await this.produceQueuedMessages()
+                    }
                 } catch (error) {
                     await this.handleProcessingError(error, message, event)
                 }
@@ -439,5 +453,76 @@ export class IngestionConsumer {
                 })
             )
         )
+    }
+
+    // TODO: We might want to DRY this up in the future as its duplicated from CdpConsumerBase
+    private async produceQueuedMessages() {
+        const messages = [...this.messagesToProduce]
+        this.messagesToProduce = []
+
+        await this.kafkaProducer!.queueMessages(
+            messages.map((x) => ({
+                topic: x.topic,
+                messages: [
+                    {
+                        value: safeClickhouseString(JSON.stringify(x.value)),
+                        key: x.key,
+                    },
+                ],
+            }))
+        ).catch((reason) => {
+            status.error('⚠️', `failed to produce message: ${reason}`)
+        })
+    }
+
+    private produceAppMetric(metric: HogFunctionAppMetric) {
+        const appMetric: AppMetric2Type = {
+            app_source: 'hog_function',
+            ...metric,
+            timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
+        }
+
+        this.messagesToProduce.push({
+            topic: KAFKA_APP_METRICS_2,
+            value: appMetric,
+            key: appMetric.app_source_id,
+        })
+    }
+
+    private produceLogs(result: HogFunctionInvocationResult) {
+        const logs = fixLogDeduplication(
+            result.logs.map((logEntry) => ({
+                ...logEntry,
+                team_id: result.invocation.hogFunction.team_id,
+                log_source: 'hog_function',
+                log_source_id: result.invocation.hogFunction.id,
+                instance_id: result.invocation.id,
+            }))
+        )
+
+        logs.forEach((logEntry) => {
+            this.messagesToProduce.push({
+                topic: KAFKA_LOG_ENTRIES,
+                value: logEntry,
+                key: logEntry.instance_id,
+            })
+        })
+    }
+
+    private processInvocationResults(results: HogFunctionInvocationResult[]): void {
+        results.map((result) => {
+            if (result.finished || result.error) {
+                this.produceAppMetric({
+                    team_id: result.invocation.teamId,
+                    app_source_id: result.invocation.hogFunction.id,
+                    metric_kind: result.error ? 'failure' : 'success',
+                    metric_name: result.error ? 'failed' : 'succeeded',
+                    count: 1,
+                })
+            }
+            this.produceLogs(result)
+            // Clear the logs so we don't pass them on to the next invocation
+            result.logs = []
+        })
     }
 }

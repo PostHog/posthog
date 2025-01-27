@@ -2,6 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 
 import { HogTransformerService } from '~/src/cdp/hog-transformations/hog-transformer.service'
+import { HogFunctionInvocationResult } from '~/src/cdp/types'
 
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { runInSpan } from '../../../sentry'
@@ -41,6 +42,7 @@ export type EventPipelineResult = {
     lastStep: string
     args: any[]
     error?: string
+    invocationResults?: HogFunctionInvocationResult[]
 }
 
 class StepErrorNoRetry extends Error {
@@ -57,6 +59,7 @@ export class EventPipelineRunner {
     originalEvent: PipelineEvent
     eventsProcessor: EventsProcessor
     hogTransformer: HogTransformerService | null
+    invocationResults?: HogFunctionInvocationResult[]
 
     constructor(hub: Hub, event: PipelineEvent, hogTransformer: HogTransformerService | null = null) {
         this.hub = hub
@@ -132,7 +135,12 @@ export class EventPipelineRunner {
         } catch (error) {
             if (error instanceof StepErrorNoRetry) {
                 // At the step level we have chosen to drop these events and send them to DLQ
-                return { lastStep: error.step, args: [], error: error.message }
+                return {
+                    lastStep: error.step,
+                    args: [],
+                    error: error.message,
+                    invocationResults: this.invocationResults,
+                }
             } else {
                 // Otherwise rethrow, which leads to Kafka offsets not getting committed and retries
                 Sentry.captureException(error, {
@@ -227,11 +235,16 @@ export class EventPipelineRunner {
             return this.registerLastStep('pluginsProcessEventStep', [event], kafkaAcks)
         }
 
-        const transformedEvent = await this.runStep(
+        const { event: transformedEvent, invocationResults } = await this.runStep(
             transformEventStep,
             [processedEvent, this.hogTransformer],
             event.team_id
         )
+
+        // Collect invocation results from the transformation step
+        if (invocationResults) {
+            this.invocationResults = [...(this.invocationResults || []), ...invocationResults]
+        }
 
         const [normalizedEvent, timestamp] = await this.runStep(
             normalizeEventStep,
@@ -288,7 +301,12 @@ export class EventPipelineRunner {
 
     registerLastStep(stepName: string, args: any[], ackPromises?: Array<Promise<void>>): EventPipelineResult {
         pipelineLastStepCounter.labels(stepName).inc()
-        return { ackPromises, lastStep: stepName, args }
+        return {
+            ackPromises,
+            lastStep: stepName,
+            args,
+            invocationResults: this.invocationResults,
+        }
     }
 
     protected runStep<Step extends (...args: any[]) => any>(
