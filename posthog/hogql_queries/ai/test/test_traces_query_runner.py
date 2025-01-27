@@ -123,6 +123,41 @@ def _create_ai_trace_event(
     )
 
 
+def _create_ai_span_event(
+    *,
+    trace_id: str,
+    input_state: Any,
+    output_state: Any,
+    span_id: str | None = None,
+    parent_id: str | None = None,
+    span_name: str | None = None,
+    team: Team | None = None,
+    distinct_id: str | None = None,
+    properties: dict[str, Any] | None = None,
+    timestamp: datetime | None = None,
+    event_uuid: str | UUID | None = None,
+):
+    props = {
+        "$ai_trace_id": trace_id,
+        "$ai_span_name": span_name,
+        "$ai_input_state": input_state,
+        "$ai_output_state": output_state,
+        "$ai_span_id": span_id or str(uuid.uuid4()),
+        "$ai_parent_id": parent_id or trace_id,
+    }
+    if properties:
+        props.update(properties)
+
+    _create_event(
+        event="$ai_span",
+        distinct_id=distinct_id,
+        properties=props,
+        team=team,
+        timestamp=timestamp,
+        event_uuid=str(event_uuid) if event_uuid else None,
+    )
+
+
 class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
@@ -556,11 +591,19 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
 
     def test_full_trace(self):
         _create_person(distinct_ids=["person1"], team=self.team, properties={"foo": "bar"})
+        _create_ai_span_event(
+            trace_id="trace1",
+            span_name="runnable",
+            input_state={"messages": [{"role": "user", "content": "Foo"}]},
+            output_state={"messages": [{"role": "user", "content": "Foo"}, {"role": "assistant", "content": "Bar"}]},
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 9),
+        )
         _create_ai_generation_event(
             distinct_id="person1",
             trace_id="trace1",
             team=self.team,
-            timestamp=datetime(2024, 12, 1, 0, 0),
+            timestamp=datetime(2024, 12, 1, 0, 9, 30),
         )
         _create_ai_generation_event(
             distinct_id="person1",
@@ -591,9 +634,17 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             response.results[0].outputState,
             {"messages": [{"role": "user", "content": "Foo"}, {"role": "assistant", "content": "Bar"}]},
         )
-        self.assertEqual(len(response.results[0].events), 2)
+        self.assertEqual(len(response.results[0].events), 3)
+
+        self.assertEqual(response.results[0].events[0].event, "$ai_span")
         self.assertEqual(response.results[0].events[0].properties["$ai_trace_id"], "trace1")
+        self.assertEqual(response.results[0].events[0].properties["$ai_span_name"], "runnable")
+
+        self.assertEqual(response.results[0].events[1].event, "$ai_generation")
         self.assertEqual(response.results[0].events[1].properties["$ai_trace_id"], "trace1")
+
+        self.assertEqual(response.results[0].events[2].event, "$ai_generation")
+        self.assertEqual(response.results[0].events[2].properties["$ai_trace_id"], "trace1")
 
     @snapshot_clickhouse_queries
     def test_properties_filter_with_multiple_events_in_group(self):
