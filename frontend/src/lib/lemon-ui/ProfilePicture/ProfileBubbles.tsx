@@ -7,6 +7,7 @@ export interface ProfileBubblesProps extends React.HTMLProps<HTMLDivElement> {
     people: { email: string; name?: string; title?: string }[]
     tooltip?: string
     limit?: number
+    className?: string
 }
 
 /** Bubbles are a compact way of listing PostHog users – usually in a collaborative context, such as dashboard collaborators. */
