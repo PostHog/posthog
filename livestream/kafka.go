@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"time"
 
@@ -79,8 +80,12 @@ func (c *PostHogKafkaConsumer) Consume() {
 	}
 
 	for {
-		msg, err := c.consumer.ReadMessage(-1)
+		msg, err := c.consumer.ReadMessage(15 * time.Second)
 		if err != nil {
+			var inErr kafka.Error
+			if errors.As(err, &inErr) && inErr.IsTimeout() {
+				continue
+			}
 			log.Printf("Error consuming message: %v", err)
 			sentry.CaptureException(err)
 			continue

@@ -14,6 +14,7 @@ import (
 	"github.com/getsentry/sentry-go"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/viper"
 )
 
@@ -105,6 +106,8 @@ func main() {
 
 	// Routes
 	e.GET("/", index)
+
+	e.GET("/metrics", echo.WrapHandler(promhttp.Handler()))
 
 	e.GET("/served", servedHandler(stats))
 
