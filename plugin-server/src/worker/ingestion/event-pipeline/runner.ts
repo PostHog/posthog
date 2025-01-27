@@ -1,6 +1,8 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 
+import { HogTransformerService } from '~/src/cdp/hog-transformations/hog-transformer.service'
+
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { runInSpan } from '../../../sentry'
 import { Hub, PipelineEvent } from '../../../types'
@@ -27,6 +29,7 @@ import { populateTeamDataStep } from './populateTeamDataStep'
 import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
 import { produceExceptionSymbolificationEventStep } from './produceExceptionSymbolificationEventStep'
+import { transformEventStep } from './transformEventStep'
 
 export type EventPipelineResult = {
     // Promises that the batch handler should await on before committing offsets,
@@ -53,11 +56,13 @@ export class EventPipelineRunner {
     hub: Hub
     originalEvent: PipelineEvent
     eventsProcessor: EventsProcessor
+    hogTransformer: HogTransformerService | null
 
-    constructor(hub: Hub, event: PipelineEvent) {
+    constructor(hub: Hub, event: PipelineEvent, hogTransformer: HogTransformerService | null = null) {
         this.hub = hub
         this.originalEvent = event
         this.eventsProcessor = new EventsProcessor(hub)
+        this.hogTransformer = hub.HOG_TRANSFORMATIONS_ENABLED ? hogTransformer : null
     }
 
     isEventDisallowed(event: PipelineEvent): boolean {
@@ -222,9 +227,15 @@ export class EventPipelineRunner {
             return this.registerLastStep('pluginsProcessEventStep', [event], kafkaAcks)
         }
 
+        const transformedEvent = await this.runStep(
+            transformEventStep,
+            [processedEvent, this.hogTransformer],
+            event.team_id
+        )
+
         const [normalizedEvent, timestamp] = await this.runStep(
             normalizeEventStep,
-            [processedEvent, processPerson],
+            [transformedEvent, processPerson],
             event.team_id
         )
 
