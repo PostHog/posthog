@@ -2,7 +2,7 @@ import copy
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Optional, TypedDict, cast
+from typing import Optional, TypedDict, cast, Any
 
 import dateutil.parser
 import posthoganalytics
@@ -28,6 +28,12 @@ QUOTA_LIMIT_DATA_RETENTION_FLAG = "retain-data-past-quota-limit"
 QUOTA_LIMIT_MEDIUM_TRUST_GRACE_PERIOD_DAYS = 1
 QUOTA_LIMIT_MEDIUM_HIGH_TRUST_GRACE_PERIOD_DAYS = 3
 
+GRACE_PERIOD_DAYS = {
+    3: 0,
+    7: QUOTA_LIMIT_MEDIUM_TRUST_GRACE_PERIOD_DAYS,
+    10: QUOTA_LIMIT_MEDIUM_HIGH_TRUST_GRACE_PERIOD_DAYS,
+}
+
 
 class OrgQuotaLimitingInformation(TypedDict):
     quota_limited_until: Optional[int]
@@ -50,6 +56,13 @@ OVERAGE_BUFFER = {
     QuotaResource.RECORDINGS: 1000,
     QuotaResource.ROWS_SYNCED: 0,
 }
+
+
+class UsageCounters(TypedDict):
+    events: int
+    recordings: int
+    rows_synced: int
+
 
 # -------------------------------------------------------------------------------------------------
 # REDIS FUNCTIONS
@@ -102,15 +115,16 @@ def list_limited_team_attributes(resource: QuotaResource, cache_key: QuotaLimiti
     return [x.decode("utf-8") for x in results]
 
 
-class UsageCounters(TypedDict):
-    events: int
-    recordings: int
-    rows_synced: int
+# -------------------------------------------------------------------------------------------------
+# MAIN FUNCTIONS
+# -------------------------------------------------------------------------------------------------
 
 
 def org_quota_limited_until(
     organization: Organization, resource: QuotaResource, previously_quota_limited_team_tokens: list[str]
 ) -> Optional[OrgQuotaLimitingInformation]:
+    report_organization_action(organization, "quota limiting check started", properties={"resource": resource.value})
+
     if not organization.usage:
         return None
 
@@ -132,122 +146,172 @@ def org_quota_limited_until(
     # should be removed once all existing customers have this field set.
     trust_score = organization.customer_trust_scores.get(resource.value) if organization.customer_trust_scores else 0
 
+    # Flow for checking quota limits:
+    # 1. ignore the limits
+    #       a. not over limit
+    #       b. 'never_drop_data' set or a high trust score (15)
+    #       c. feature flag to retain data past quota limit
+    # 2. limit the org
+    #       a. already being limited
+    #       b. no trust score
+    #       b. low trust (3)
+    # 3. add quote suspension
+    #       a. medium / medium high trust (7, 10)
+
+    # 1a. not over limit
     if not is_over_limit:
         if quota_limiting_suspended_until:
-            quota_limiting_suspended_until = None
-            del summary["quota_limiting_suspended_until"]
-            organization.save(update_fields=["usage"])
-
-            return {"quota_limited_until": None, "quota_limiting_suspended_until": None}
+            # If they are not over limit, we want to remove the suspension if it exists
+            update_organization_usage_field(organization, resource, "quota_limiting_suspended_until", None)
+            report_organization_action(
+                organization,
+                "quota limiting suspension removed",
+                properties={
+                    "quota_limiting_suspended_until": quota_limiting_suspended_until,
+                    "resource": resource.value,
+                },
+            )
         return None
 
+    # 1b. never drop or high trust
     if organization.never_drop_data or trust_score == 15:
+        report_organization_action(
+            organization,
+            "quota limiting ignored",
+            properties={
+                "never_drop_data": organization.never_drop_data,
+                "trust_score": trust_score,
+                "resource": resource.value,
+            },
+        )
+        return None
+
+    # 1c. feature flag to retain data past quota limit
+    # Note: this is rarely used but we want to keep it around for now
+    if posthoganalytics.feature_enabled(
+        QUOTA_LIMIT_DATA_RETENTION_FLAG,
+        str(organization.id),
+        groups={"organization": str(organization.id)},
+        group_properties={
+            "organization": {"id": str(organization.id)},
+            "feature_flag": QUOTA_LIMIT_DATA_RETENTION_FLAG,
+            "resource": resource.value,
+        },
+    ):
+        # Don't drop data for this org but record that they would have been limited.
+        report_organization_action(
+            organization, "quota limiting ignored", properties={"feature_flag": QUOTA_LIMIT_DATA_RETENTION_FLAG}
+        )
         return None
 
     team_tokens = get_team_attribute_by_quota_resource(organization)
     team_being_limited = any(x in previously_quota_limited_team_tokens for x in team_tokens)
 
+    # 2a. already being limited
     if team_being_limited:
         # They are already being limited, do not update their status.
+        report_organization_action(
+            organization, "quota limiting already limited", properties={"resource": resource.value}
+        )
         return {
             "quota_limited_until": billing_period_end,
             "quota_limiting_suspended_until": None,
         }
 
-    if posthoganalytics.feature_enabled(
-        QUOTA_LIMIT_DATA_RETENTION_FLAG,
-        str(organization.id),
-        groups={"organization": str(organization.id)},
-        group_properties={"organization": {"id": str(organization.id)}},
-    ):
-        # Don't drop data for this org but record that they would have been limited.
-        report_organization_action(
-            organization, "quota limiting suspended", properties={"current_usage": usage + todays_usage}
-        )
-        return None
-
     _, today_end = get_current_day()
 
+    # Now we check the trust score
     # These trust score levels are defined in billing::customer::TrustScores.
     # Please keep the logic and levels in sync with what is defined in billing.
+
+    # 2b. no trust score
     if not trust_score:
         # Set them to the default trust score and immediately limit
         if trust_score is None:
             organization.customer_trust_scores[resource.value] = 0
-            organization.save(update_fields=["customer_trust_scores", "usage"])
+            organization.save(update_fields=["customer_trust_scores"])
+        report_organization_action(
+            organization,
+            "quota limiting suspended",
+            properties={"resource": resource.value, "trust_score": trust_score},
+        )
         return {
             "quota_limited_until": billing_period_end,
             "quota_limiting_suspended_until": None,
         }
+
+    # 2c. low trust
     elif trust_score == 3:
         # Low trust, immediately limit
+        report_organization_action(
+            organization,
+            "quota limiting suspended",
+            properties={"trust_score": trust_score, "resource": resource.value},
+        )
+        update_organization_usage_field(organization, resource, "quota_limiting_suspended_until", None)
         return {
             "quota_limited_until": billing_period_end,
             "quota_limiting_suspended_until": None,
         }
-    elif trust_score == 7:
-        # If limiting suspended was set in the previous period or was never set, update it.
-        if (
-            not quota_limiting_suspended_until
-            or (
-                datetime.fromtimestamp(quota_limiting_suspended_until)
-                - timedelta(QUOTA_LIMIT_MEDIUM_TRUST_GRACE_PERIOD_DAYS)
-            ).timestamp()
-            < billing_period_start
-        ):
-            # Medium trust, retain data for one day
-            report_organization_action(
-                organization, "quota limiting suspended", properties={"current_usage": usage + todays_usage}
-            )
-            quota_limiting_suspended_until = round(
-                (today_end + timedelta(days=QUOTA_LIMIT_MEDIUM_TRUST_GRACE_PERIOD_DAYS)).timestamp()
-            )
 
-            summary["quota_limiting_suspended_until"] = quota_limiting_suspended_until
-            organization.save(update_fields=["usage"])
-            return {
-                "quota_limited_until": None,
-                "quota_limiting_suspended_until": quota_limiting_suspended_until,
-            }
-        elif today_end.timestamp() <= quota_limiting_suspended_until:
-            # Return existing quota limiting date
-            return {
-                "quota_limited_until": None,
-                "quota_limiting_suspended_until": quota_limiting_suspended_until,
-            }
-    elif trust_score == 10:
-        # If limitng suspended was set in the previous period or was never set, update it.
+    # 3. medium / medium high trust
+    elif trust_score in [7, 10]:
+        grace_period_days = GRACE_PERIOD_DAYS[trust_score]
+
+        # If the suspension is expired or never set, we want to suspend the limit for a grace period
         if (
             not quota_limiting_suspended_until
-            or (
-                datetime.fromtimestamp(quota_limiting_suspended_until)
-                - timedelta(QUOTA_LIMIT_MEDIUM_HIGH_TRUST_GRACE_PERIOD_DAYS)
-            ).timestamp()
+            or (datetime.fromtimestamp(quota_limiting_suspended_until) - timedelta(grace_period_days)).timestamp()
             < billing_period_start
         ):
-            # Medium high trust, retain data for three days
             report_organization_action(
-                organization, "quota limiting suspended", properties={"current_usage": usage + todays_usage}
+                organization,
+                "quota limiting suspended",
+                properties={
+                    "current_usage": usage + todays_usage,
+                    "grace_period_days": grace_period_days,
+                    "resource": resource.value,
+                },
             )
-            quota_limiting_suspended_until = round(
-                (today_end + timedelta(days=QUOTA_LIMIT_MEDIUM_HIGH_TRUST_GRACE_PERIOD_DAYS)).timestamp()
+            quota_limiting_suspended_until = round((today_end + timedelta(days=grace_period_days)).timestamp())
+            update_organization_usage_field(
+                organization, resource, "quota_limiting_suspended_until", quota_limiting_suspended_until
             )
-            summary["quota_limiting_suspended_until"] = quota_limiting_suspended_until
-            organization.save(update_fields=["usage"])
             return {
                 "quota_limited_until": None,
                 "quota_limiting_suspended_until": quota_limiting_suspended_until,
             }
+
         elif today_end.timestamp() <= quota_limiting_suspended_until:
-            # Return existing quota limiting date
+            # If the suspension is still active (after today's end), we want to return the existing suspension date
+            report_organization_action(
+                organization,
+                "quota limiting suspension not expired",
+                properties={"current_usage": usage + todays_usage, "resource": resource.value},
+            )
             return {
                 "quota_limited_until": None,
                 "quota_limiting_suspended_until": quota_limiting_suspended_until,
             }
-    return {
-        "quota_limited_until": billing_period_end,
-        "quota_limiting_suspended_until": None,
-    }
+        else:
+            # If the suspension is expired, we want to limit the org
+            report_organization_action(
+                organization,
+                "quota limiting suspended expired",
+                properties={"current_usage": usage + todays_usage, "resource": resource.value},
+            )
+            update_organization_usage_field(organization, resource, "quota_limiting_suspended_until", None)
+            return {
+                "quota_limited_until": billing_period_end,
+                "quota_limiting_suspended_until": None,
+            }
+    else:
+        # Should never reach here - return the default behavior just to be safe
+        report_quota_limiting_event("org_quota_limited_until unexpected trust score", {"trust_score": trust_score})
+        return {
+            "quota_limited_until": billing_period_end,
+            "quota_limiting_suspended_until": None,
+        }
 
 
 def update_org_billing_quotas(organization: Organization):
@@ -490,6 +554,7 @@ def update_all_orgs_billing_quotas(
                 # If the team was previously quota limited, we add it to the list of orgs that were removed
                 if team.api_token in previously_quota_limited_team_tokens[field]:
                     orgs_with_changes.add(org_id)
+
     # Now we have the teams that are currently under quota limits
     # quota_limited_teams is a dict of resources to team tokens (e.g. {"events": {"phc_123": 1737867600}, "recordings": {"phc_123": 1737867600}, "rows_synced": {"phc_123": 1737867600}})
     # quota_limiting_suspended_teams is a dict of resources to team tokens (e.g. {"events": {"phc_123": 1737867600}, "recordings": {"phc_123": 1737867600}, "rows_synced": {"phc_123": 1737867600}})
@@ -569,3 +634,28 @@ def get_quota_resource_dict_list() -> dict[str, list[str]]:
     Returns a dict of the quota resources. E.g. {"events": [], "recordings": [], "rows_synced": []}
     """
     return {x.value: [] for x in QuotaResource}
+
+
+def update_organization_usage_field(organization: Organization, resource: QuotaResource, key: str, value: Any) -> None:
+    """
+    Helper function to safely update a field within organization.usage[resource][key]
+    If value is None, the key will be deleted.
+    """
+    if not organization.usage:
+        capture_exception(Exception(f"quota_limiting: No usage found for organization: {organization.id}"))
+        return
+    if resource.value not in organization.usage:
+        capture_exception(
+            Exception(
+                f"quota_limiting: No usage found for resource: {resource.value} for organization: {organization.id}"
+            )
+        )
+        return
+
+    if value is None:
+        if key in organization.usage[resource.value]:
+            del organization.usage[resource.value][key]
+    else:
+        organization.usage[resource.value][key] = value
+
+    organization.save(update_fields=["usage"])
