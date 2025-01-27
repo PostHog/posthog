@@ -308,6 +308,7 @@ function EventContent({ event }: { event: LLMTrace | LLMTraceEvent | null }): JS
                         </div>
                         {isLLMTraceEvent(event) ? (
                             <MetadataHeader
+                                hasError={event.properties.$ai_is_error}
                                 inputTokens={event.properties.$ai_input_tokens}
                                 outputTokens={event.properties.$ai_output_tokens}
                                 totalCostUsd={event.properties.$ai_total_cost_usd}
@@ -329,13 +330,13 @@ function EventContent({ event }: { event: LLMTrace | LLMTraceEvent | null }): JS
                         event.event === '$ai_generation' ? (
                             <ConversationMessagesDisplay
                                 input={event.properties.$ai_input}
-                                output={event.properties.$ai_output_choices || event.properties.$ai_output}
+                                output={event.properties.$ai_output_choices ?? event.properties.$ai_output}
                                 httpStatus={event.properties.$ai_http_status}
                             />
                         ) : (
                             <EventContentDisplay
                                 input={event.properties.$ai_input_state}
-                                output={event.properties.$ai_output_state}
+                                output={event.properties.$ai_output_state ?? event.properties.$ai_error}
                             />
                         )
                     ) : (
