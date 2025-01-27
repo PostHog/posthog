@@ -16,7 +16,7 @@ type PluginState = {
  */
 export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
     protected name = 'CdpCyclotronWorkerPlugins'
-    protected queue = 'plugins' as const
+    protected queue = 'plugin' as const
     protected hogTypes: HogFunctionTypeType[] = ['destination']
 
     private pluginState: Record<string, PluginState> = {}

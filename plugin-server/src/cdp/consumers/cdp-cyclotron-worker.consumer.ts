@@ -13,7 +13,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     protected name = 'CdpCyclotronWorker'
     private cyclotronWorker?: CyclotronWorker
     private runningWorker: Promise<void> | undefined
-    protected queue: 'hog' | 'fetch' | 'plugins' = 'hog'
+    protected queue: 'hog' | 'fetch' | 'plugin' = 'hog'
     protected hogTypes: HogFunctionTypeType[] = ['destination', 'internal_destination']
 
     public async processInvocations(invocations: HogFunctionInvocation[]): Promise<HogFunctionInvocationResult[]> {
