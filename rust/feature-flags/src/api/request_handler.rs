@@ -236,10 +236,6 @@ pub fn decode_request(
     body: Bytes,
     query: &FlagsQueryParams,
 ) -> Result<FlagRequest, FlagError> {
-    let content_type = headers
-        .get("content-type")
-        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
-
     let decoded_body = match query.compression {
         Some(Compression::Gzip) => decompress_gzip(body)?,
         Some(Compression::Base64) => {
@@ -248,8 +244,17 @@ pub fn decode_request(
             })?;
             Bytes::from(decoded)
         }
-        _ => body,
+        Some(Compression::Unsupported) => {
+            return Err(FlagError::RequestDecodingError(
+                "Unsupported compression type".to_string(),
+            ))
+        }
+        None => body,
     };
+
+    let content_type = headers
+        .get("content-type")
+        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
 
     match content_type {
         "application/json" => FlagRequest::from_bytes(decoded_body),
