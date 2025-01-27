@@ -26,6 +26,8 @@ use std::{io::Read, sync::Arc};
 pub enum Compression {
     #[serde(rename = "gzip", alias = "gzip-js")]
     Gzip,
+    #[serde(rename = "base64")]
+    Base64,
     #[default]
     #[serde(other)]
     Unsupported,
@@ -35,12 +37,13 @@ impl Compression {
     pub fn as_str(&self) -> &'static str {
         match self {
             Compression::Gzip => "gzip",
+            Compression::Base64 => "base64",
             Compression::Unsupported => "unsupported",
         }
     }
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Clone, Deserialize, Default)]
 pub struct FlagsQueryParams {
     #[serde(alias = "v")]
     pub version: Option<String>,
@@ -58,6 +61,7 @@ pub struct RequestContext {
     pub state: State<router::State>,
     pub ip: IpAddr,
     pub headers: HeaderMap,
+    pub meta: FlagsQueryParams,
     pub body: Bytes,
 }
 
@@ -100,6 +104,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         state,
         ip,
         headers,
+        meta,
         body,
     } = context;
 
@@ -107,7 +112,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
     let flag_service = FlagService::new(state.redis.clone(), state.reader.clone());
 
     // Process request and authentication
-    let request = decode_request(&headers, body)?;
+    let request = decode_request(&headers, body, &meta)?;
     let distinct_id = request.extract_distinct_id()?;
     // NB: this method will fail before hitting any of the services if the token is not correctly set in the request,
     // saving us from hitting the services with an invalid token
@@ -226,24 +231,24 @@ fn process_group_property_overrides(
 }
 
 /// Decode a request into a `FlagRequest`
-pub fn decode_request(headers: &HeaderMap, body: Bytes) -> Result<FlagRequest, FlagError> {
+pub fn decode_request(
+    headers: &HeaderMap,
+    body: Bytes,
+    query: &FlagsQueryParams,
+) -> Result<FlagRequest, FlagError> {
     let content_type = headers
         .get("content-type")
         .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
 
-    let content_encoding = headers
-        .get("content-encoding")
-        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
-
-    let decoded_body = match content_encoding {
-        "gzip" => decompress_gzip(body)?,
-        "unknown" => body,
-        encoding => {
-            return Err(FlagError::RequestDecodingError(format!(
-                "unsupported content encoding: {}",
-                encoding
-            )))
+    let decoded_body = match query.compression {
+        Some(Compression::Gzip) => decompress_gzip(body)?,
+        Some(Compression::Base64) => {
+            let decoded = general_purpose::STANDARD.decode(body).map_err(|e| {
+                FlagError::RequestDecodingError(format!("Base64 decoding error: {}", e))
+            })?;
+            Bytes::from(decoded)
         }
+        _ => body,
     };
 
     match content_type {
@@ -497,10 +502,10 @@ mod tests {
     fn test_decode_request() {
         let mut headers = HeaderMap::new();
         headers.insert("content-type", "application/json".parse().unwrap());
-
         let body = Bytes::from(r#"{"token": "test_token", "distinct_id": "user123"}"#);
+        let meta = FlagsQueryParams::default();
 
-        let result = decode_request(&headers, body);
+        let result = decode_request(&headers, body, &meta);
 
         assert!(result.is_ok());
         let request = result.unwrap();
@@ -512,21 +517,27 @@ mod tests {
     fn test_decode_request_unsupported_content_encoding() {
         let mut headers = HeaderMap::new();
         headers.insert("content-type", "application/json".parse().unwrap());
-        headers.insert("content-encoding", "deflate".parse().unwrap());
         let body = Bytes::from_static(b"{\"token\": \"test_token\", \"distinct_id\": \"user123\"}");
-        let result = decode_request(&headers, body);
+        let meta = FlagsQueryParams {
+            compression: Some(Compression::Unsupported),
+            ..Default::default()
+        };
+
+        let result = decode_request(&headers, body, &meta);
         assert!(matches!(result, Err(FlagError::RequestDecodingError(_))));
     }
 
     #[test]
     fn test_decode_request_invalid_base64() {
         let mut headers = HeaderMap::new();
-        headers.insert(
-            "content-type",
-            "application/json; encoding=base64".parse().unwrap(),
-        );
+        headers.insert("content-type", "application/json".parse().unwrap());
         let body = Bytes::from_static(b"invalid_base64==");
-        let result = decode_request(&headers, body);
+        let meta = FlagsQueryParams {
+            compression: Some(Compression::Base64),
+            ..Default::default()
+        };
+
+        let result = decode_request(&headers, body, &meta);
         assert!(matches!(result, Err(FlagError::RequestDecodingError(_))));
     }
 
@@ -569,7 +580,9 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("content-type", "text/plain".parse().unwrap());
         let body = Bytes::from_static(b"test");
-        let result = decode_request(&headers, body);
+        let meta = FlagsQueryParams::default();
+
+        let result = decode_request(&headers, body, &meta);
         assert!(matches!(result, Err(FlagError::RequestDecodingError(_))));
     }
 
@@ -578,12 +591,10 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("content-type", "application/json".parse().unwrap());
         let body = Bytes::from_static(b"{invalid json}");
-        let result = decode_request(&headers, body);
-        // If the actual implementation doesn't return a RequestDecodingError,
-        // we should adjust our expectation. Let's check if it's an error at all:
+        let meta = FlagsQueryParams::default();
+
+        let result = decode_request(&headers, body, &meta);
         assert!(result.is_err(), "Expected an error, but got Ok");
-        // If you want to check for a specific error type, you might need to adjust
-        // the FlagError enum or the decode_request function.
     }
 
     #[test]
@@ -593,14 +604,12 @@ mod tests {
             "content-type",
             "application/x-www-form-urlencoded".parse().unwrap(),
         );
-
-        // URL-encoded form data with base64 JSON in the 'data' field
         let body = Bytes::from(
             "data=eyJ0b2tlbiI6InRlc3RfdG9rZW4iLCJkaXN0aW5jdF9pZCI6InVzZXIxMjMifQ%3D%3D",
         );
+        let meta = FlagsQueryParams::default();
 
-        let result = decode_request(&headers, body);
-
+        let result = decode_request(&headers, body, &meta);
         assert!(result.is_ok());
         let request = result.unwrap();
         assert_eq!(request.token, Some("test_token".to_string()));
