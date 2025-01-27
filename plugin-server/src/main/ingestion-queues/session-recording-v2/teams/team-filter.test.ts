@@ -1,9 +1,9 @@
-import { ParsedMessageData } from '../../../../../src/main/ingestion-queues/session-recording-v2/kafka/types'
-import { TeamFilter } from '../../../../../src/main/ingestion-queues/session-recording-v2/teams/team-filter'
-import { TeamService } from '../../../../../src/main/ingestion-queues/session-recording-v2/teams/team-service'
-import { Team } from '../../../../../src/main/ingestion-queues/session-recording-v2/teams/types'
+import { ParsedMessageData } from '../kafka/types'
+import { TeamFilter } from './team-filter'
+import { TeamService } from './team-service'
+import { Team } from './types'
 
-jest.mock('../../../../../src/main/ingestion-queues/session-recording-v2/teams/team-service')
+jest.mock('./team-service')
 
 const validTeam: Team = {
     teamId: 1,
@@ -34,7 +34,7 @@ describe('TeamFilter', () => {
         jest.clearAllMocks()
         mockTeamService = {
             getTeamByToken: jest.fn(),
-        } as jest.Mocked<TeamService>
+        } as unknown as jest.Mocked<TeamService>
         teamFilter = new TeamFilter(mockTeamService)
     })
 

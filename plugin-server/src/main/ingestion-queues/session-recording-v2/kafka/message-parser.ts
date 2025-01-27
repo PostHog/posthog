@@ -11,8 +11,6 @@ const GZIP_HEADER = Uint8Array.from([0x1f, 0x8b, 0x08, 0x00])
 const decompressWithGzip = promisify(gunzip)
 
 export class KafkaMessageParser {
-    constructor(private readonly metrics: KafkaMetrics) {}
-
     public async parseBatch(messages: Message[]): Promise<ParsedMessageData[]> {
         const parsedMessages = await Promise.all(messages.map((message) => this.parseMessage(message)))
         return parsedMessages.filter((msg) => msg !== null) as ParsedMessageData[]
@@ -20,7 +18,7 @@ export class KafkaMessageParser {
 
     private async parseMessage(message: Message): Promise<ParsedMessageData | null> {
         const dropMessage = (reason: string, extra?: Record<string, any>) => {
-            this.metrics.incrementMessageDropped('session_recordings_blob_ingestion', reason)
+            KafkaMetrics.incrementMessageDropped('session_recordings_blob_ingestion', reason)
 
             status.warn('⚠️', 'invalid_message', {
                 reason,

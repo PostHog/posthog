@@ -1,4 +1,11 @@
-import { LogLevel, PluginLogLevel, PluginsServerConfig, stringToPluginServerMode, ValueMatcher } from '../types'
+import {
+    CookielessConfig,
+    LogLevel,
+    PluginLogLevel,
+    PluginsServerConfig,
+    stringToPluginServerMode,
+    ValueMatcher,
+} from '../types'
 import { isDevEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from './constants'
 import {
@@ -216,6 +223,24 @@ export function getDefaultConfig(): PluginsServerConfig {
         // Session recording V2
         SESSION_RECORDING_MAX_BATCH_SIZE_KB: 100 * 1024, // 100MB
         SESSION_RECORDING_MAX_BATCH_AGE_MS: 10 * 1000, // 10 seconds
+
+        // Hog Transformations (Alpha)
+        HOG_TRANSFORMATIONS_ENABLED: true,
+
+        // Cookieless
+        COOKIELESS_FORCE_STATELESS_MODE: false,
+        COOKIELESS_DISABLED: false,
+        COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS: 60 * 60 * 1000, // 1 hour
+        COOKIELESS_SESSION_TTL_SECONDS: 60 * 60 * 24, // 24 hours
+        COOKIELESS_SALT_TTL_SECONDS: 60 * 60 * 24, // 24 hours
+        COOKIELESS_SESSION_INACTIVITY_MS: 30 * 60 * 1000, // 30 minutes
+        COOKIELESS_IDENTIFIES_TTL_SECONDS:
+            (24 + // max supported ingestion lag
+                12 + // max negative timezone in the world*/
+                14 + // max positive timezone in the world */
+                24) * // amount of time salt is valid in one timezone
+            60 *
+            60,
     }
 }
 
@@ -304,5 +329,17 @@ export function buildStringMatcher(config: string | undefined, allowStar: boolea
         return (v: string) => {
             return values.has(v)
         }
+    }
+}
+
+export const createCookielessConfig = (config: PluginsServerConfig): CookielessConfig => {
+    return {
+        disabled: config.COOKIELESS_DISABLED,
+        forceStatelessMode: config.COOKIELESS_FORCE_STATELESS_MODE,
+        deleteExpiredLocalSaltsIntervalMs: config.COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS,
+        sessionTtlSeconds: config.COOKIELESS_SESSION_TTL_SECONDS,
+        saltTtlSeconds: config.COOKIELESS_SALT_TTL_SECONDS,
+        sessionInactivityMs: config.COOKIELESS_SESSION_INACTIVITY_MS,
+        identifiesTtlSeconds: config.COOKIELESS_IDENTIFIES_TTL_SECONDS,
     }
 }

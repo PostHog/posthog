@@ -586,7 +586,7 @@ def serialize_database(
     warehouse_schemas = (
         list(
             ExternalDataSchema.objects.exclude(deleted=True)
-            .filter(table_id__in=[table.id for table in warehouse_tables])
+            .filter(team_id=context.team_id, table_id__in=[table.id for table in warehouse_tables])
             .all()
         )
         if len(warehouse_tables) > 0

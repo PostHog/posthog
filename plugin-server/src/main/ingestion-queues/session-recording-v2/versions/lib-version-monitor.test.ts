@@ -1,18 +1,17 @@
-import { MessageWithTeam } from '../../../../../src/main/ingestion-queues/session-recording-v2/teams/types'
-import { LibVersionMonitor } from '../../../../../src/main/ingestion-queues/session-recording-v2/versions/lib-version-monitor'
-import { VersionMetrics } from '../../../../../src/main/ingestion-queues/session-recording-v2/versions/version-metrics'
+import { MessageWithTeam } from '../teams/types'
+import { LibVersionMonitor } from './lib-version-monitor'
+import { VersionMetrics } from './version-metrics'
+
+jest.mock('./version-metrics')
 
 describe('LibVersionMonitor', () => {
     let monitor: LibVersionMonitor
     let mockCaptureWarning: jest.Mock
-    let mockVersionMetrics: jest.Mocked<VersionMetrics>
 
     beforeEach(() => {
+        jest.clearAllMocks()
         mockCaptureWarning = jest.fn()
-        mockVersionMetrics = {
-            incrementLibVersionWarning: jest.fn(),
-        } as unknown as jest.Mocked<VersionMetrics>
-        monitor = new LibVersionMonitor(mockCaptureWarning, mockVersionMetrics)
+        monitor = new LibVersionMonitor(mockCaptureWarning)
     })
 
     const createMessage = (headers: any[] = []): MessageWithTeam => ({
@@ -38,7 +37,7 @@ describe('LibVersionMonitor', () => {
         const result = await monitor.processBatch([message])
 
         expect(result).toEqual([message])
-        expect(mockVersionMetrics.incrementLibVersionWarning).toHaveBeenCalled()
+        expect(VersionMetrics.incrementLibVersionWarning).toHaveBeenCalled()
         expect(mockCaptureWarning).toHaveBeenCalledWith(
             1,
             'replay_lib_version_too_old',
@@ -55,7 +54,7 @@ describe('LibVersionMonitor', () => {
         const result = await monitor.processBatch([message])
 
         expect(result).toEqual([message])
-        expect(mockVersionMetrics.incrementLibVersionWarning).not.toHaveBeenCalled()
+        expect(VersionMetrics.incrementLibVersionWarning).not.toHaveBeenCalled()
         expect(mockCaptureWarning).not.toHaveBeenCalled()
     })
 
@@ -64,7 +63,7 @@ describe('LibVersionMonitor', () => {
         const result = await monitor.processBatch([message])
 
         expect(result).toEqual([message])
-        expect(mockVersionMetrics.incrementLibVersionWarning).not.toHaveBeenCalled()
+        expect(VersionMetrics.incrementLibVersionWarning).not.toHaveBeenCalled()
         expect(mockCaptureWarning).not.toHaveBeenCalled()
     })
 
@@ -73,7 +72,7 @@ describe('LibVersionMonitor', () => {
         const result = await monitor.processBatch([message])
 
         expect(result).toEqual([message])
-        expect(mockVersionMetrics.incrementLibVersionWarning).not.toHaveBeenCalled()
+        expect(VersionMetrics.incrementLibVersionWarning).not.toHaveBeenCalled()
         expect(mockCaptureWarning).not.toHaveBeenCalled()
     })
 })
