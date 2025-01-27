@@ -150,6 +150,7 @@
   '''
   SELECT "ee_accesscontrol"."id",
          "ee_accesscontrol"."team_id",
+         "ee_accesscontrol"."project_id",
          "ee_accesscontrol"."access_level",
          "ee_accesscontrol"."resource",
          "ee_accesscontrol"."resource_id",
@@ -472,6 +473,7 @@
   '''
   SELECT "ee_accesscontrol"."id",
          "ee_accesscontrol"."team_id",
+         "ee_accesscontrol"."project_id",
          "ee_accesscontrol"."access_level",
          "ee_accesscontrol"."resource",
          "ee_accesscontrol"."resource_id",
@@ -669,6 +671,7 @@
   '''
   SELECT "ee_accesscontrol"."id",
          "ee_accesscontrol"."team_id",
+         "ee_accesscontrol"."project_id",
          "ee_accesscontrol"."access_level",
          "ee_accesscontrol"."resource",
          "ee_accesscontrol"."resource_id",
