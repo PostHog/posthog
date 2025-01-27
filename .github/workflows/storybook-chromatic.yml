@@ -38,7 +38,11 @@ jobs:
                   cache: pnpm
 
             - name: Install dependencies and Chromatic
-              run: pnpm i -D chromatic
+              run: |
+                  pnpm install --frozen-lockfile
+                  npx nx deps:prepare frontend --verbose
+                  npx nx deps:build frontend --verbose
+                  pnpm i -D chromatic
 
             - name: Publish to Chromatic
               uses: chromaui/action@v11
