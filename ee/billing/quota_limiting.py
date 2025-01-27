@@ -234,7 +234,11 @@ def org_quota_limited_until(
     }
 
 
-def sync_org_quota_limits(organization: Organization):
+def update_org_billing_quotas(organization: Organization):
+    """
+    This method is basically update_all_orgs_billing_quotas but for a single org. It's called more often
+    when the user loads the billing page and when usage reports are run.
+    """
     _, today_end = get_current_day()
     if not organization.usage:
         return None
@@ -319,9 +323,14 @@ def set_org_usage_summary(
     return has_changed
 
 
-def update_all_org_billing_quotas(
+def update_all_orgs_billing_quotas(
     dry_run: bool = False,
 ) -> tuple[dict[str, dict[str, int]], dict[str, dict[str, int]]]:
+    """
+    This is called on a cron job every 30 minutes to update all orgs with their quotas.
+    Specifically it's update quota_limited_until and quota_limiting_suspended_until in their usage
+    field on the Organization model.
+    """
     period = get_current_day()
     period_start, period_end = period
 
