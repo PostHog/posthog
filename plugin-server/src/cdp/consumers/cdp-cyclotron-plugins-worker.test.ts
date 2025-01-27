@@ -15,20 +15,6 @@ import { PLUGINS_BY_ID } from '../legacy-plugins'
 import { HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { CdpCyclotronWorkerPlugins } from './cdp-cyclotron-plugins-worker.consumer'
 
-// jest.mock('../../../src/utils/fetch', () => {
-//     return {
-//         trackedFetch: jest.fn(() =>
-//             Promise.resolve({
-//                 status: 200,
-//                 text: () => Promise.resolve(JSON.stringify({ success: true })),
-//                 json: () => Promise.resolve({ success: true }),
-//             })
-//         ),
-//     }
-// })
-
-// const mockFetch: jest.Mock = require('../../../src/utils/fetch').trackedFetch
-
 jest.setTimeout(1000)
 
 /**
