@@ -1,5 +1,5 @@
 import requests
-from bs4 import BeautifulSoup  # type: ignore
+from bs4 import BeautifulSoup
 import logging
 
 logging.basicConfig(level=logging.INFO)

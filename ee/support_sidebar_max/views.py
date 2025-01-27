@@ -77,6 +77,7 @@ class MaxChatViewSet(viewsets.ViewSet):
             if not session_id:
                 request.session.create()
                 session_id = request.session.session_key
+            assert isinstance(session_id, str)  # Type narrowing for mypy
 
             history = ConversationHistory.get_from_cache(session_id)
             system_prompt = self._format_system_prompt(get_system_prompt())
@@ -215,7 +216,7 @@ class MaxChatViewSet(viewsets.ViewSet):
         try:
             django_logger.info("✨🦔 Preparing to send message to Anthropic API")
             try:
-                headers = {}
+                headers: dict[str, str] = {}
                 django_logger.debug("✨🦔 API headers prepared successfully")
             except Exception as e:
                 django_logger.error(f"✨🦔 Error preparing API headers: {str(e)}", exc_info=True)
