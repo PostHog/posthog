@@ -17,6 +17,7 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    snapshot_clickhouse_queries,
 )
 
 
@@ -126,10 +127,12 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = WebGoalsQueryRunner(team=self.team, query=query, modifiers=modifiers)
         return runner.calculate()
 
+    @snapshot_clickhouse_queries
     def test_no_crash_when_no_data_or_actions(self):
         results = self._run_web_goals_query("2024-11-01", None).results
         assert results == []
 
+    @snapshot_clickhouse_queries
     def test_no_crash_when_no_data_and_some_actions(self):
         self._create_actions()
         results = self._run_web_goals_query("2024-11-01", None).results
@@ -139,6 +142,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["Clicked Pay", (0, 0), (0, 0), (0, 0)],
         ]
 
+    @snapshot_clickhouse_queries
     def test_no_comparison(self):
         self._create_actions()
         p1, s1 = self._create_person()
@@ -151,6 +155,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["Clicked Pay", (0, None), (0, None), (0, None)],
         ]
 
+    @snapshot_clickhouse_queries
     def test_one_user_one_action(self):
         self._create_actions()
         p1, s1 = self._create_person()
@@ -162,6 +167,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["Clicked Pay", (0, 0), (0, 0), (0, 0)],
         ]
 
+    @snapshot_clickhouse_queries
     def test_one_user_two_similar_actions_across_sessions(self):
         self._create_actions()
         p1, s1 = self._create_person()
@@ -175,6 +181,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["Clicked Pay", (0, 0), (0, 0), (0, 0)],
         ]
 
+    @snapshot_clickhouse_queries
     def test_one_user_two_different_actions(self):
         self._create_actions()
         p1, s1 = self._create_person()
@@ -187,6 +194,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["Clicked Pay", (1, 0), (1, 0), (1, 0)],
         ]
 
+    @snapshot_clickhouse_queries
     def test_one_users_one_action_each(self):
         self._create_actions()
         p1, s1 = self._create_person()
@@ -200,6 +208,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["Clicked Pay", (1, 0), (1, 0), (0.5, 0)],
         ]
 
+    @snapshot_clickhouse_queries
     def test_many_users_and_actions(self):
         self._create_actions()
         # create some users who visited web analytics
@@ -230,6 +239,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["Clicked Pay", (7, 0), (8, 0), (7 / 15, 0)],
         ]
 
+    @snapshot_clickhouse_queries
     def test_dont_show_deleted_actions(self):
         actions = self._create_actions()
         p1, s1 = self._create_person()

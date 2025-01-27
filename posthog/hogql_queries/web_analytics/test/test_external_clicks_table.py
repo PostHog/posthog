@@ -15,6 +15,7 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    snapshot_clickhouse_queries,
 )
 
 
@@ -73,10 +74,12 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = WebExternalClicksTableQueryRunner(team=self.team, query=query, modifiers=modifiers)
         return runner.calculate()
 
+    @snapshot_clickhouse_queries
     def test_no_crash_when_no_data(self):
         results = self._run_external_clicks_table_query("2023-12-08", "2023-12-15").results
         self.assertEqual([], results)
 
+    @snapshot_clickhouse_queries
     def test_increase_in_users(
         self,
     ):
@@ -107,6 +110,7 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results,
         )
 
+    @snapshot_clickhouse_queries
     def test_all_time(self):
         s1a = str(uuid7("2023-12-02"))
         s1b = str(uuid7("2023-12-13"))
@@ -136,6 +140,7 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results,
         )
 
+    @snapshot_clickhouse_queries
     def test_filter_test_accounts(self):
         s1 = str(uuid7("2023-12-02"))
         # Create 1 test account
@@ -158,6 +163,7 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results,
         )
 
+    @snapshot_clickhouse_queries
     def test_dont_filter_test_accounts(self):
         s1 = str(uuid7("2023-12-02"))
         # Create 1 test account
@@ -180,6 +186,7 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results,
         )
 
+    @snapshot_clickhouse_queries
     def test_strip_query_params(self):
         s1 = str(uuid7("2023-12-02"))
         # Create 1 test account
@@ -216,6 +223,7 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results_no_strip,
         )
 
+    @snapshot_clickhouse_queries
     def test_should_exclude_subdomain_under_root(self):
         s1 = str(uuid7("2023-12-02"))
         # Create 1 test account
@@ -241,6 +249,7 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results,
         )
 
+    @snapshot_clickhouse_queries
     def test_should_exclude_subdomain_with_shared_root(self):
         s1 = str(uuid7("2023-12-02"))
         # Create 1 test account

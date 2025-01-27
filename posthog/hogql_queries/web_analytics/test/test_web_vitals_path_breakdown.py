@@ -14,6 +14,7 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     flush_persons_and_events,
+    snapshot_clickhouse_queries,
 )
 
 
@@ -54,6 +55,7 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = WebVitalsPathBreakdownQueryRunner(team=self.team, query=query)
         return runner.calculate()
 
+    @snapshot_clickhouse_queries
     def test_no_crash_when_no_data(self):
         results = self._run_web_vitals_path_breakdown_query(
             "2025-01-08",
@@ -65,6 +67,7 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual([WebVitalsPathBreakdownResult(good=[], needs_improvements=[], poor=[])], results)
 
+    @snapshot_clickhouse_queries
     def test_no_data_for_different_metric(self):
         self._create_events(
             [
@@ -89,6 +92,7 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual([WebVitalsPathBreakdownResult(good=[], needs_improvements=[], poor=[])], results)
 
+    @snapshot_clickhouse_queries
     def test_no_data_for_different_period(self):
         self._create_events(
             [
@@ -113,6 +117,7 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual([WebVitalsPathBreakdownResult(good=[], needs_improvements=[], poor=[])], results)
 
+    @snapshot_clickhouse_queries
     def test_data_correctly_split_between_bands(self):
         self._create_events(
             [
@@ -161,6 +166,7 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results,
         )
 
+    @snapshot_clickhouse_queries
     def test_limit_of_20_paths(self):
         self._create_events(
             [
@@ -201,6 +207,7 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(20, len(results[0].needs_improvements))
         self.assertEqual(5, len(results[0].poor))
 
+    @snapshot_clickhouse_queries
     def test_percentile_is_applied(self):
         self._create_events(
             [
@@ -243,6 +250,7 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 results,
             )
 
+    @snapshot_clickhouse_queries
     def test_properties_are_applied(self):
         self._create_events(
             [

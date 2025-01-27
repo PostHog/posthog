@@ -24,6 +24,7 @@ from posthog.test.base import (
     _create_event,
     _create_person,
     flush_persons_and_events,
+    snapshot_clickhouse_queries,
 )
 
 
@@ -159,6 +160,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = WebStatsTableQueryRunner(team=self.team, query=query, modifiers=modifiers)
         return runner.calculate()
 
+    @snapshot_clickhouse_queries
     def test_no_crash_when_no_data(self):
         results = self._run_web_stats_table_query(
             "2023-12-08",
@@ -166,6 +168,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ).results
         assert [] == results
 
+    @snapshot_clickhouse_queries
     def test_increase_in_users(self):
         s1a = str(uuid7("2023-12-02"))
         s1b = str(uuid7("2023-12-13"))
@@ -184,6 +187,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["/login", (1, None), (1, None), ""],
         ] == results
 
+    @snapshot_clickhouse_queries
     def test_increase_in_users_on_mobile(self):
         s1a = str(uuid7("2023-12-02"))
         s1b = str(uuid7("2023-12-13"))
@@ -205,6 +209,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["Login", (1, None), (1, None), ""],
         ] == results
 
+    @snapshot_clickhouse_queries
     def test_all_time(self):
         s1a = str(uuid7("2023-12-02"))
         s1b = str(uuid7("2023-12-13"))
@@ -224,6 +229,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["/login", (1, None), (1, None), ""],
         ] == results
 
+    @snapshot_clickhouse_queries
     def test_comparison(self):
         s1a = str(uuid7("2023-12-02"))
         s1b = str(uuid7("2023-12-13"))
@@ -245,6 +251,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["/login", (0, 1), (0, 1), ""],
         ] == results
 
+    @snapshot_clickhouse_queries
     def test_filter_test_accounts(self):
         s1 = str(uuid7("2023-12-02"))
         # Create 1 test account
@@ -254,6 +261,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert [] == results
 
+    @snapshot_clickhouse_queries
     def test_dont_filter_test_accounts(self):
         s1 = str(uuid7("2023-12-02"))
         # Create 1 test account
@@ -263,6 +271,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert [["/", (1.0, None), (1.0, None), ""], ["/login", (1.0, None), (1.0, None), ""]] == results
 
+    @snapshot_clickhouse_queries
     def test_breakdown_channel_type_doesnt_throw(self):
         s1a = str(uuid7("2023-12-02"))
         s1b = str(uuid7("2023-12-13"))
@@ -283,6 +292,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert 1 == len(results)
 
+    @snapshot_clickhouse_queries
     def test_limit(self):
         s1 = str(uuid7("2023-12-02"))
         s2 = str(uuid7("2023-12-10"))
@@ -306,6 +316,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ] == response_2.results
         assert response_2.hasMore is False
 
+    @snapshot_clickhouse_queries
     def test_path_filters(self):
         s1 = str(uuid7("2023-12-02"))
         s2 = str(uuid7("2023-12-10"))
@@ -340,6 +351,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["/thing_c", (1, None), (1, None), ""],
         ] == results
 
+    @snapshot_clickhouse_queries
     def test_scroll_depth_bounce_rate_one_user(self):
         self._create_pageviews(
             "p1",
@@ -364,6 +376,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["/c", (1, 0), (1, 0), (None, None), (0.9, None), (1, None), ""],
         ] == results
 
+    @snapshot_clickhouse_queries
     def test_scroll_depth_bounce_rate(self):
         self._create_pageviews(
             "p1",
@@ -403,6 +416,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["/c", (2, 0), (2, 0), (None, None), (0.9, None), (1, None), ""],
         ] == results
 
+    @snapshot_clickhouse_queries
     def test_scroll_depth_bounce_rate_with_filter(self):
         self._create_pageviews(
             "p1",
@@ -441,6 +455,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["/a", (3, 0), (4, 0), (1 / 3, None), (0.5, None), (0.5, None), ""],
         ] == results
 
+    @snapshot_clickhouse_queries
     def test_scroll_depth_bounce_rate_path_cleaning(self):
         self._create_pageviews(
             "p1",
@@ -470,6 +485,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["/c/:id", (1, 0), (1, 0), (None, None), (0.9, None), (1, None), ""],
         ] == results
 
+    @snapshot_clickhouse_queries
     def test_bounce_rate_one_user(self):
         self._create_pageviews(
             "p1",
@@ -493,6 +509,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["/c", (1, 0), (1, 0), (None, None), ""],
         ] == results
 
+    @snapshot_clickhouse_queries
     def test_bounce_rate(self):
         self._create_pageviews(
             "p1",
@@ -531,6 +548,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["/c", (2, 0), (2, 0), (None, None), ""],
         ] == results
 
+    @snapshot_clickhouse_queries
     def test_bounce_rate_with_property(self):
         self._create_pageviews(
             "p1",
@@ -568,6 +586,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["/a", (3, 0), (4, 0), (1 / 3, None), ""],
         ] == results
 
+    @snapshot_clickhouse_queries
     def test_bounce_rate_path_cleaning(self):
         self._create_pageviews(
             "p1",
@@ -596,6 +615,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["/c/:id", (1, 0), (1, 0), (None, None), ""],
         ] == results
 
+    @snapshot_clickhouse_queries
     def test_entry_bounce_rate_one_user(self):
         self._create_pageviews(
             "p1",
@@ -617,6 +637,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["/a", (1, None), (3, None), (0, None), ""],
         ] == results
 
+    @snapshot_clickhouse_queries
     def test_entry_bounce_rate(self):
         self._create_pageviews(
             "p1",
@@ -653,6 +674,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["/a", (3, None), (8, None), (1 / 3, None), ""],
         ] == results
 
+    @snapshot_clickhouse_queries
     def test_entry_bounce_rate_with_property(self):
         self._create_pageviews(
             "p1",
@@ -690,6 +712,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["/a", (3, None), (4, None), (1 / 3, None), ""],
         ] == results
 
+    @snapshot_clickhouse_queries
     def test_entry_bounce_rate_path_cleaning(self):
         self._create_pageviews(
             "p1",
@@ -716,6 +739,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["/a/:id", (1, None), (3, None), (0, None), ""],
         ] == results
 
+    @snapshot_clickhouse_queries
     def test_source_medium_campaign(self):
         d1 = "d1"
         s1 = str(uuid7("2024-06-26"))
@@ -763,6 +787,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["news.ycombinator.com / referral / (none)", (1, None), (1, None), ""],
         ] == results
 
+    @snapshot_clickhouse_queries
     def test_null_in_utm_tags(self):
         d1 = "d1"
         s1 = str(uuid7("2024-06-26"))
@@ -809,6 +834,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert [["google", (1, None), (1, None), ""], [None, (1, None), (1, None), ""]] == results
 
+    @snapshot_clickhouse_queries
     def test_is_not_set_filter(self):
         d1 = "d1"
         s1 = str(uuid7("2024-06-26"))
@@ -856,6 +882,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert [[None, (1, None), (1, None), ""]] == results
 
+    @snapshot_clickhouse_queries
     def test_same_user_multiple_sessions(self):
         d1 = "d1"
         s1 = str(uuid7("2024-07-30"))
@@ -914,6 +941,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ).results
         assert [["/path", (1, 0), (2, 0), (None, None), (None, None), (None, None), ""]] == results_event
 
+    @snapshot_clickhouse_queries
     def test_no_session_id(self):
         d1 = "d1"
         _create_person(
@@ -954,6 +982,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert [["/path", (1, None), (1, None), ""]] == results
 
+    @snapshot_clickhouse_queries
     def test_cohort_test_filters(self):
         d1 = "d1"
         s1 = str(uuid7("2024-07-30"))
@@ -1016,6 +1045,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert results == [["/path1", (1, None), (1, None), ""]]
 
+    @snapshot_clickhouse_queries
     def test_language_filter(self):
         d1, s1 = "d1", str(uuid7("2024-07-30"))
         d2, s2 = "d2", str(uuid7("2024-07-30"))
@@ -1095,6 +1125,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         country_results = [result[0].split("-")[0] for result in results]
         assert country_results == ["en", "pt", "nl"]
 
+    @snapshot_clickhouse_queries
     def test_timezone_filter_general(self):
         before_date = "2024-07-14"
         after_date = "2024-07-16"
@@ -1146,6 +1177,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [0, (1, None), (1, None), ""],
         ]
 
+    @snapshot_clickhouse_queries
     def test_timezone_filter_dst_change(self):
         did = "id"
         sid = str(uuid7("2019-02-17"))
@@ -1178,6 +1210,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [-2.0, (1.0, None), (2.0, None), ""],
         ]
 
+    @snapshot_clickhouse_queries
     def test_timezone_filter_with_invalid_timezone(self):
         date = "2024-07-30"
 
@@ -1209,6 +1242,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 breakdown_by=WebStatsBreakdown.TIMEZONE,
             )
 
+    @snapshot_clickhouse_queries
     def test_timezone_filter_with_empty_timezone(self):
         did = "id"
         sid = str(uuid7("2019-02-17"))
@@ -1264,6 +1298,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Don't crash, treat all of them null
         assert results == []
 
+    @snapshot_clickhouse_queries
     def test_conversion_goal_no_conversions(self):
         s1 = str(uuid7("2023-12-01"))
         self._create_events(
@@ -1292,6 +1327,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "context.columns.replay_url",
         ] == response.columns
 
+    @snapshot_clickhouse_queries
     def test_conversion_goal_one_pageview_conversion(self):
         s1 = str(uuid7("2023-12-01"))
         self._create_events(
@@ -1330,6 +1366,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "context.columns.replay_url",
         ] == response.columns
 
+    @snapshot_clickhouse_queries
     def test_conversion_goal_one_custom_event_conversion(self):
         s1 = str(uuid7("2023-12-01"))
         self._create_events(
@@ -1356,6 +1393,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "context.columns.replay_url",
         ] == response.columns
 
+    @snapshot_clickhouse_queries
     def test_conversion_goal_one_custom_action_conversion(self):
         s1 = str(uuid7("2023-12-01"))
         self._create_events(
@@ -1392,6 +1430,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "context.columns.replay_url",
         ] == response.columns
 
+    @snapshot_clickhouse_queries
     def test_conversion_goal_one_autocapture_conversion(self):
         s1 = str(uuid7("2023-12-01"))
         self._create_events(
@@ -1430,6 +1469,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "context.columns.replay_url",
         ] == response.columns
 
+    @snapshot_clickhouse_queries
     def test_conversion_rate(self):
         s1 = str(uuid7("2023-12-01"))
         s2 = str(uuid7("2023-12-01"))

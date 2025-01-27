@@ -20,6 +20,7 @@ from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     _create_event,
+    snapshot_clickhouse_queries,
 )
 
 
@@ -93,10 +94,12 @@ class TestSessionAttributionQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = SessionAttributionExplorerQueryRunner(team=self.team, query=query, limit_context=limit_context)
         return runner.calculate()
 
+    @snapshot_clickhouse_queries
     def test_no_crash_when_no_data(self):
         results = self._run_session_attribution_query().results
         assert results == [(0, [], [], [], [], [], [], [])]
 
+    @snapshot_clickhouse_queries
     def test_group_by_nothing(self):
         self._create_data()
 
@@ -115,6 +118,7 @@ class TestSessionAttributionQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         ]
 
+    @snapshot_clickhouse_queries
     def test_group_by_initial_url(self):
         self._create_data()
 
@@ -155,6 +159,7 @@ class TestSessionAttributionQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ),
         ]
 
+    @snapshot_clickhouse_queries
     def test_group_channel_medium_source(self):
         self._create_data()
 
@@ -180,6 +185,7 @@ class TestSessionAttributionQueryRunner(ClickhouseTestMixin, APIBaseTest):
             (1, "Referral", ["referring_domain2"], "source2", "medium2", ["campaign2"], [], ["http://example.com/2"]),
         ]
 
+    @snapshot_clickhouse_queries
     def test_filters(self):
         self._create_data()
 
