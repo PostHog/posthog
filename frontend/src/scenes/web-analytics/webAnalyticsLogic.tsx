@@ -689,7 +689,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                       }
                     : undefined
 
-                const includeRevenue = !!featureFlags[FEATURE_FLAGS.WEB_REVENUE_TRACKING]
+                // the queries don't currently revenue when the conversion goal is an action
+                const includeRevenue =
+                    !!featureFlags[FEATURE_FLAGS.WEB_REVENUE_TRACKING] &&
+                    !(conversionGoal && 'actionId' in conversionGoal)
 
                 const revenueEventsSeries: EventsNode[] =
                     includeRevenue && currentTeam?.revenue_tracking_config
@@ -921,6 +924,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             compareFilter,
                             filterTestAccounts,
                             conversionGoal,
+                            includeRevenue,
                         },
                         insightProps: createInsightProps(TileId.OVERVIEW),
                     },

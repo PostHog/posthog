@@ -148,13 +148,21 @@ const formatUnit = (x: number, options?: { precise?: boolean }): string => {
     return humanFriendlyLargeNumber(x)
 }
 
-const formatItem = (value: number | undefined, kind: WebOverviewItemKind, options?: { precise?: boolean }): string => {
+const formatItem = (
+    value: number | undefined,
+    kind: WebOverviewItemKind,
+    options?: { precise?: boolean; currency?: string }
+): string => {
     if (value == null) {
         return '-'
     } else if (kind === 'percentage') {
-        return formatPercentage(value, options)
+        return formatPercentage(value, { precise: options?.precise })
     } else if (kind === 'duration_s') {
         return humanFriendlyDuration(value, { secondsPrecision: 3 })
+    } else if (kind === 'currency') {
+        return new Intl.NumberFormat(undefined, { style: 'currency', currency: options?.currency ?? 'USD' }).format(
+            value
+        )
     }
     return formatUnit(value, options)
 }
