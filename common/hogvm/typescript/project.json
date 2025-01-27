@@ -7,7 +7,8 @@
         "prepare": {
             "executor": "nx:run-commands",
             "options": {
-                "commands": ["pnpm install --frozen-lockfile"]
+                "commands": ["pnpm install --frozen-lockfile"],
+                "cwd": "{projectRoot}"
             }
         },
         "build": {
@@ -22,7 +23,8 @@
         "test": {
             "executor": "nx:run-commands",
             "options": {
-                "commands": ["pnpm run test"]
+                "commands": ["pnpm run test"],
+                "cwd": "{projectRoot}"
             }
         }
     }
