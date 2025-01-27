@@ -120,6 +120,21 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
     ],
 }
 
+const EXPERIMENT_DEFAULT_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
+    variants: [
+        {
+            key: 'control',
+            name: '',
+            rollout_percentage: 50,
+        },
+        {
+            key: 'test',
+            name: '',
+            rollout_percentage: 50,
+        },
+    ],
+}
+
 /** Check whether a string is a valid feature flag key. If not, a reason string is returned - otherwise undefined. */
 export function validateFeatureFlagKey(key: string): string | undefined {
     return !key
@@ -278,6 +293,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         deleteFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
         restoreFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
         setRemoteConfigEnabled: (enabled: boolean) => ({ enabled }),
+        setExperimentSet: (experiment_set: 'new' | null) => ({ experiment_set }),
         setMultivariateEnabled: (enabled: boolean) => ({ enabled }),
         setMultivariateOptions: (multivariateOptions: MultivariateFlagOptions | null) => ({ multivariateOptions }),
         addVariant: true,
@@ -375,6 +391,26 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     return {
                         ...state,
                         is_remote_configuration: enabled,
+                    }
+                },
+                setExperimentSet: (state, { experiment_set }) => {
+                    if (!state) {
+                        return state
+                    }
+                    if (!experiment_set) {
+                        return {
+                            ...state,
+                            experiment_set: null,
+                        }
+                    }
+                    return {
+                        ...state,
+                        experiment_set,
+                        filters: {
+                            ...state.filters,
+                            is_remote_configuration: false,
+                            multivariate: experiment_set ? EXPERIMENT_DEFAULT_MULTIVARIATE_OPTIONS : null,
+                        },
                     }
                 },
                 addVariant: (state) => {

@@ -19,6 +19,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from sentry_sdk import capture_exception
 from posthog.api.cohort import CohortSerializer
+from posthog.models.experiment import Experiment
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
@@ -333,6 +334,14 @@ class FeatureFlagSerializer(
         except Exception:
             raise serializers.ValidationError("Can't evaluate flag - please check release conditions")
 
+    def check_experiment_variant_validity(self, validated_data: dict):
+        variants = (validated_data.get("filters", {}).get("multivariate", {}) or {}).get("variants", [])
+        if len(variants) == 0:
+            raise serializers.ValidationError("Experiment feature flags must have multiple variants")
+
+        if variants[0].get("key") != "control":
+            raise serializers.ValidationError("Experiment feature flags must have control as the first variant")
+
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
         validated_data["created_by"] = request.user
@@ -343,6 +352,10 @@ class FeatureFlagSerializer(
         )  # default to "feature_flags" if an alternative value is not provided
 
         self._update_filters(validated_data)
+
+        create_experiment = request.data.get("experiment_set") == "new"
+        if create_experiment:
+            self.check_experiment_variant_validity(validated_data)
 
         variants = (validated_data.get("filters", {}).get("multivariate", {}) or {}).get("variants", [])
         variant_rollout_sum = 0
@@ -374,6 +387,14 @@ class FeatureFlagSerializer(
         analytics_metadata = instance.get_analytics_metadata()
         analytics_metadata["creation_context"] = creation_context
         report_user_action(request.user, "feature flag created", analytics_metadata)
+
+        if create_experiment:
+            Experiment.objects.create(
+                team_id=self.context["team_id"],
+                feature_flag=instance,
+                name=f"Experiment for {instance.key}",
+                created_by=validated_data["created_by"],
+            )
 
         return instance
 

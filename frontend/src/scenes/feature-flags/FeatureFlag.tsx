@@ -110,6 +110,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         createStaticCohort,
         setFeatureFlagFilters,
         setActiveTab,
+        setExperimentSet,
     } = useActions(featureFlagLogic)
 
     const { tags } = useValues(tagsModel)
@@ -280,7 +281,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </div>
                             }
                         />
-                        {featureFlag.experiment_set && featureFlag.experiment_set?.length > 0 && (
+                        {Array.isArray(featureFlag.experiment_set) && featureFlag.experiment_set.length > 0 && (
                             <LemonBanner type="warning">
                                 This feature flag is linked to an experiment. Edit settings here only for advanced
                                 functionality. If unsure, go back to{' '}
@@ -394,6 +395,26 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     >
                                                         Learn more
                                                     </Link>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </LemonField>
+                                )}
+                                {!Array.isArray(featureFlag.experiment_set) && (
+                                    <LemonField name="experiment_set">
+                                        {({ value }) => (
+                                            <div className="border rounded p-4">
+                                                <LemonCheckbox
+                                                    id="experiment-set-checkbox"
+                                                    label="Create draft experiment"
+                                                    onChange={() => setExperimentSet(value ? null : 'new')}
+                                                    fullWidth
+                                                    checked={value}
+                                                />
+                                                <div className="text-muted text-sm pl-7">
+                                                    Create a new draft experiment and attach it to this feature flag.
+                                                    Feature flag must have at least two variants and the first must be
+                                                    named 'control'.
                                                 </div>
                                             </div>
                                         )}
@@ -565,7 +586,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                                 ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
                                                                 : (featureFlag.features?.length || 0) > 0
                                                                 ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
-                                                                : (featureFlag.experiment_set?.length || 0) > 0
+                                                                : (Array.isArray(featureFlag.experiment_set) &&
+                                                                      featureFlag.experiment_set?.length > 0) ||
+                                                                  featureFlag.experiment_set === 'new'
                                                                 ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
                                                                 : null
                                                         }
@@ -960,7 +983,9 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                     label: 'Release toggle (boolean)',
                                     value: 'boolean',
                                     disabledReason:
-                                        featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
+                                        featureFlag.experiment_set === 'new' ||
+                                        (Array.isArray(featureFlag.experiment_set) &&
+                                            featureFlag.experiment_set?.length > 0)
                                             ? 'This feature flag is associated with an experiment.'
                                             : undefined,
                                 },
@@ -972,7 +997,9 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                     label: <span>Remote config (single payload)</span>,
                                     value: 'remote_config',
                                     disabledReason:
-                                        featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
+                                        featureFlag.experiment_set === 'new' ||
+                                        (Array.isArray(featureFlag.experiment_set) &&
+                                            featureFlag.experiment_set.length > 0)
                                             ? 'This feature flag is associated with an experiment.'
                                             : undefined,
                                 },
@@ -1128,9 +1155,10 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                 spellCheck={false}
                                                 disabled={
                                                     !!(
-                                                        featureFlag.experiment_set &&
+                                                        Array.isArray(featureFlag.experiment_set) &&
                                                         featureFlag.experiment_set?.length > 0
-                                                    )
+                                                    ) ||
+                                                    (featureFlag.experiment_set === 'new' && index === 0)
                                                 }
                                             />
                                         </LemonField>
@@ -1207,20 +1235,22 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                         </LemonField>
                                     </div>
                                     <div className="flex items-center justify-center">
-                                        {variants.length > 1 && (
-                                            <LemonButton
-                                                icon={<IconTrash />}
-                                                data-attr={`delete-prop-filter-${index}`}
-                                                noPadding
-                                                onClick={() => removeVariant(index)}
-                                                disabledReason={
-                                                    featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
-                                                        ? 'Cannot delete variants from a feature flag that is part of an experiment'
-                                                        : undefined
-                                                }
-                                                tooltipPlacement="top-end"
-                                            />
-                                        )}
+                                        {variants.length > 1 &&
+                                            !(featureFlag.experiment_set === 'new' && index <= 1) && (
+                                                <LemonButton
+                                                    icon={<IconTrash />}
+                                                    data-attr={`delete-prop-filter-${index}`}
+                                                    noPadding
+                                                    onClick={() => removeVariant(index)}
+                                                    disabledReason={
+                                                        Array.isArray(featureFlag.experiment_set) &&
+                                                        featureFlag.experiment_set?.length > 0
+                                                            ? 'Cannot delete variants from a feature flag that is part of an experiment'
+                                                            : undefined
+                                                    }
+                                                    tooltipPlacement="top-end"
+                                                />
+                                            )}
                                     </div>
                                 </div>
                             </Group>
@@ -1240,7 +1270,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             }}
                             icon={<IconPlus />}
                             disabledReason={
-                                featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
+                                Array.isArray(featureFlag.experiment_set) && featureFlag.experiment_set.length > 0
                                     ? 'Cannot add variants to a feature flag that is part of an experiment. To update variants, create a new experiment.'
                                     : undefined
                             }

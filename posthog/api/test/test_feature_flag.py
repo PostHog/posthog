@@ -448,6 +448,82 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
 
+    def test_create_feature_flag_with_experiment_set(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Experiment feature",
+                "key": "experiment-feature",
+                "experiment_set": "new",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": None}],
+                    "multivariate": {
+                        "variants": [
+                            {
+                                "key": "control",
+                                "name": "",
+                                "rollout_percentage": 50,
+                            },
+                            {
+                                "key": "test",
+                                "name": "",
+                                "rollout_percentage": 50,
+                            },
+                        ]
+                    },
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        instance = FeatureFlag.objects.get(id=response.json()["id"])
+        self.assertEqual(instance.key, "experiment-feature")
+        self.assertEqual(instance.experiment_set.count(), 1)
+        experiment = Experiment.objects.get(id=instance.experiment_set.first().id)
+        self.assertEqual(experiment.name, f"Experiment for {instance.key}")
+
+    def test_create_feature_flag_with_experiment_set_missing_multivariate(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Experiment feature",
+                "key": "experiment-feature",
+                "experiment_set": "new",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": None}],
+                    "multivariate": {"variants": []},
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_create_feature_flag_with_experiment_set_invalid_multivariate(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Experiment feature",
+                "key": "experiment-feature",
+                "experiment_set": "new",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": None}],
+                    "multivariate": {
+                        "variants": [
+                            {
+                                "key": "invalid",
+                                "name": "",
+                                "rollout_percentage": 50,
+                            },
+                            {
+                                "key": "control",
+                                "name": "",
+                                "rollout_percentage": 50,
+                            },
+                        ]
+                    },
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_cant_create_multivariate_feature_flag_with_variant_rollout_lt_100(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
