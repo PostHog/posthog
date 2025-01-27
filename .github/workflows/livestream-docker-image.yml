@@ -13,9 +13,9 @@ jobs:
         runs-on: depot-ubuntu-24.04
 
         permissions:
-            contents: read
-            packages: write
-            id-token: write
+            id-token: write # allow issuing OIDC tokens for this workflow run
+            contents: read # allow reading the repo contents
+            packages: write # allow push to ghcr.io
 
         outputs:
             sha: ${{ steps.push.outputs.digest }}
@@ -27,7 +27,13 @@ jobs:
                   sparse-checkout: 'livestream/'
                   sparse-checkout-cone-mode: false
 
-            - name: Log in to the Container registry
+            - name: Set up Depot CLI
+              uses: depot/setup-action@v1
+
+            - name: Set up QEMU
+              uses: docker/setup-qemu-action@v2
+
+            - name: Login to ghcr.io
               uses: docker/login-action@v3
               with:
                   registry: ghcr.io
@@ -41,11 +47,12 @@ jobs:
               with:
                   images: ghcr.io/posthog/posthog/livestream
 
-            - name: Set up Depot CLI
-              uses: depot/setup-action@v1
+            - name: Set up Docker Buildx
+              id: buildx
+              uses: docker/setup-buildx-action@v2
 
             - name: Build and push Docker image
-              id: push
+              id: build_and_push
               if: github.ref == 'refs/heads/master'
               uses: depot/build-push-action@v1
               with:
