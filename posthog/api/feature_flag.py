@@ -353,7 +353,7 @@ class FeatureFlagSerializer(
 
         self._update_filters(validated_data)
 
-        create_experiment = request.data.get("experiment_set") == "new"
+        create_experiment = request.data.get("experiment_set") == "new" if hasattr(request, "data") else False
         if create_experiment:
             self.check_experiment_variant_validity(validated_data)
 
