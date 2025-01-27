@@ -328,7 +328,7 @@ def update_org_billing_quotas(organization: Organization):
         "update_org_billing_quotas started", {"today_end": today_end, "organization_id": organization.id}
     )
 
-    for resource in get_quote_resource_list():
+    for resource in ["events", "recordings", "rows_synced"]:
         previously_quota_limited_team_tokens = list_limited_team_attributes(
             resource,
             QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
@@ -482,12 +482,12 @@ def update_all_orgs_billing_quotas(
         {"orgs_by_id_count": len(orgs_by_id), "todays_usage_report_count": len(todays_usage_report)},
     )
 
-    quota_limited_orgs: dict[str, dict[str, int]] = get_quota_resource_dict_dict()
-    quota_limiting_suspended_orgs: dict[str, dict[str, int]] = get_quota_resource_dict_dict()
+    quota_limited_orgs: dict[str, dict[str, int]] = {x.value: {} for x in QuotaResource}
+    quota_limiting_suspended_orgs: dict[str, dict[str, int]] = {x.value: {} for x in QuotaResource}
 
     # Get the current quota limits so we can track to PostHog if it changes
     orgs_with_changes = set()
-    previously_quota_limited_team_tokens: dict[str, list[str]] = get_quota_resource_dict_list()
+    previously_quota_limited_team_tokens: dict[str, list[str]] = {x.value: [] for x in QuotaResource}
 
     # All teams that are currently under quota limits
     for field in quota_limited_orgs:
@@ -514,7 +514,7 @@ def update_all_orgs_billing_quotas(
             if set_org_usage_summary(org, todays_usage=todays_report):
                 org.save(update_fields=["usage"])
 
-            for field in get_quote_resource_list():
+            for field in ["events", "recordings", "rows_synced"]:
                 # for each organization, we check if the current usage + today's unreported usage is over the limit
                 result = org_quota_limited_until(org, QuotaResource(field), previously_quota_limited_team_tokens[field])
                 if result:
@@ -536,8 +536,8 @@ def update_all_orgs_billing_quotas(
         },
     )
 
-    quota_limited_teams: dict[str, dict[str, int]] = get_quota_resource_dict_dict()
-    quota_limiting_suspended_teams: dict[str, dict[str, int]] = get_quota_resource_dict_dict()
+    quota_limited_teams: dict[str, dict[str, int]] = {x.value: {} for x in QuotaResource}
+    quota_limiting_suspended_teams: dict[str, dict[str, int]] = {x.value: {} for x in QuotaResource}
 
     # Convert the org ids to team tokens
     for team in teams:
@@ -614,27 +614,6 @@ def get_team_attribute_by_quota_resource(organization: Organization) -> list[str
 
 def report_quota_limiting_event(event_type: str, properties: dict) -> None:
     posthoganalytics.capture("internal_billing_events", event_type, properties=properties)
-
-
-def get_quote_resource_list() -> list[QuotaResource]:
-    """
-    Returns a list of the quota resources. E.g. ["events", "recordings", "rows_synced"]
-    """
-    return [x.value for x in QuotaResource]
-
-
-def get_quota_resource_dict_dict() -> dict[QuotaResource, dict[str, int]]:
-    """
-    Returns a dict of the quota resources. E.g. {"events": {}, "recordings": {}, "rows_synced": {}}
-    """
-    return {x.value: {} for x in QuotaResource}
-
-
-def get_quota_resource_dict_list() -> dict[QuotaResource, list[str]]:
-    """
-    Returns a dict of the quota resources. E.g. {"events": [], "recordings": [], "rows_synced": []}
-    """
-    return {x.value: [] for x in QuotaResource}
 
 
 def update_organization_usage_field(organization: Organization, resource: QuotaResource, key: str, value: Any) -> None:
