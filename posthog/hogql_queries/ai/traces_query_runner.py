@@ -63,13 +63,21 @@ class TracesQueryRunner(QueryRunner):
         )
 
     def to_query(self) -> ast.SelectQuery:
-        return self._get_event_query()
+        query = self._get_event_query()
+        if self.query.properties:
+            query.having = ast.CompareOperation(
+                left=ast.Field(chain=["filter_match"]), op=ast.CompareOperationOp.Eq, right=ast.Constant(value=1)
+            )
+        return query
 
     def calculate(self):
         with self.timings.measure("traces_query_hogql_execute"):
             query_result = self.paginator.execute_hogql_query(
                 query=self.to_query(),
-                placeholders={"common_conditions": self._get_where_clause()},
+                placeholders={
+                    "common_conditions": self._get_where_clause(),
+                    "filter_conditions": self._get_properties_filter(),
+                },
                 team=self.team,
                 query_type=NodeKind.TRACES_QUERY,
                 timings=self.timings,
@@ -195,7 +203,8 @@ class TracesQueryRunner(QueryRunner):
                 generations.events AS events,
                 traces.input_state AS input_state,
                 traces.output_state AS output_state,
-                traces.trace_name AS trace_name
+                traces.trace_name AS trace_name,
+                generations.filter_match OR traces.filter_match AS filter_match
             FROM (
                 SELECT
                     properties.$ai_trace_id as id,
@@ -210,7 +219,8 @@ class TracesQueryRunner(QueryRunner):
                     round(toFloat(sum(properties.$ai_input_cost_usd)), 4) as input_cost,
                     round(toFloat(sum(properties.$ai_output_cost_usd)), 4) as output_cost,
                     round(toFloat(sum(properties.$ai_total_cost_usd)), 4) as total_cost,
-                    arraySort(x -> x.3, groupArray(tuple(uuid, event, timestamp, properties))) as events
+                    arraySort(x -> x.3, groupArray(tuple(uuid, event, timestamp, properties))) as events,
+                    {filter_conditions}
                 FROM events
                 WHERE event IN ('$ai_generation', '$ai_metric', '$ai_feedback') AND {common_conditions}
                 GROUP BY id
@@ -221,15 +231,24 @@ class TracesQueryRunner(QueryRunner):
                     argMin(properties.$ai_input_state, timestamp) as input_state,
                     argMin(properties.$ai_output_state, timestamp) as output_state,
                     argMin(properties.$ai_trace_name, timestamp) as trace_name,
+                    {filter_conditions}
                 FROM events
                 WHERE event = '$ai_trace' AND {common_conditions}
                 GROUP BY id -- In case there are multiple trace events for the same trace ID, an unexpected but possible case
             ) AS traces
             ON traces.id = generations.id
             ORDER BY first_timestamp DESC
-            """
+            """,
         )
         return cast(ast.SelectQuery, query)
+
+    def _get_properties_filter(self):
+        expr: ast.Expr = ast.Constant(value=1)
+        if self.query.properties:
+            with self.timings.measure("property_filters"):
+                filter = ast.And(exprs=[property_to_expr(property, self.team) for property in self.query.properties])
+                expr = ast.Call(name="max", args=[filter])
+        return ast.Alias(alias="filter_match", expr=expr)
 
     def _get_where_clause(self):
         where_exprs: list[ast.Expr] = [
@@ -244,10 +263,6 @@ class TracesQueryRunner(QueryRunner):
                 right=self._date_range.date_to_as_hogql(),
             ),
         ]
-
-        if self.query.properties:
-            with self.timings.measure("property_filters"):
-                where_exprs.extend(property_to_expr(property, self.team) for property in self.query.properties)
 
         if self.query.filterTestAccounts:
             with self.timings.measure("test_account_filters"):

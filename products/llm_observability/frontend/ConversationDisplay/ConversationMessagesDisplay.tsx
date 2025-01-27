@@ -67,11 +67,11 @@ export function LLMMessageDisplay({ message, isOutput }: { message: CompatMessag
                 'rounded border text-default',
                 isOutput
                     ? 'bg-[var(--bg-fill-success-tertiary)]'
-                    : role === 'system'
-                    ? 'bg-[var(--bg-fill-tertiary)]'
                     : role === 'user'
-                    ? 'bg-[var(--bg-fill-primary)]'
-                    : 'bg-[var(--bg-fill-info-tertiary)]'
+                    ? 'bg-[var(--bg-fill-tertiary)]'
+                    : role === 'assistant'
+                    ? 'bg-[var(--bg-fill-info-tertiary)]'
+                    : null // e.g. system
             )}
         >
             <div className="flex items-center gap-1 w-full px-2 h-6 text-xs font-medium">
