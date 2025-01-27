@@ -148,6 +148,19 @@ const formatUnit = (x: number, options?: { precise?: boolean }): string => {
     return humanFriendlyLargeNumber(x)
 }
 
+const getCurrencySymbol = (currency: string): { symbol: string; isPrefix: boolean } => {
+    const formatter = new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: currency,
+    })
+    const parts = formatter.formatToParts(0)
+    const symbol = parts.find((part) => part.type === 'currency')?.value
+
+    const isPrefix = symbol ? parts[0].type === 'currency' : true
+
+    return { symbol: symbol ?? currency, isPrefix }
+}
+
 const formatItem = (
     value: number | undefined,
     kind: WebOverviewItemKind,
@@ -160,9 +173,10 @@ const formatItem = (
     } else if (kind === 'duration_s') {
         return humanFriendlyDuration(value, { secondsPrecision: 3 })
     } else if (kind === 'currency') {
-        return new Intl.NumberFormat(undefined, { style: 'currency', currency: options?.currency ?? 'USD' }).format(
-            value
-        )
+        const { symbol, isPrefix } = getCurrencySymbol(options?.currency ?? 'USD')
+        return `${isPrefix ? symbol : ''}${formatUnit(value, { precise: options?.precise })}${
+            isPrefix ? '' : ' ' + symbol
+        }`
     }
     return formatUnit(value, options)
 }
