@@ -1,7 +1,9 @@
 import time
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import partial, reduce
+from typing import Any
 
 import dagster
 import pydantic
@@ -114,6 +116,60 @@ class Mutation:
 
 
 @dataclass
+class MutationRunner:
+    table: str
+    command: str  # i.e. ALTER, DELETE, MATERIALIZE, etc.
+    parameters: Mapping[str, Any]
+
+    def find(self, client: Client) -> Mutation | None:
+        """Find the running mutation task, if one exists."""
+        results = client.execute(
+            f"""
+            SELECT mutation_id
+            FROM system.mutations
+            WHERE
+                database = %(_database_{id(self)})s
+                AND table = %(_table_{id(self)})s
+                -- only one command per mutation is currently supported, so throw if the mutation contains more than we expect to find
+                -- throwIf always returns 0 if it does not throw, so negation turns this condition into effectively a noop if the test passes
+                AND NOT throwIf(
+                    length(splitByChar('\n', formatQuery($_sql_{id(self)}$ALTER TABLE {settings.CLICKHOUSE_DATABASE}{self.table} {self.command}$_sql_{id(self)}$)) as lines) != 2,
+                    'unexpected number of lines, expected 2 (ALTER TABLE prefix, followed by single command)'
+                )
+                AND command = trim(lines[2])
+                AND NOT is_killed  -- ok to restart a killed mutation
+            ORDER BY create_time DESC
+            """,
+            {
+                f"_database_{id(self)}": settings.CLICKHOUSE_DATABASE,
+                f"_table_{id(self)}": self.table,
+                **self.parameters,
+            },
+        )
+        if not results:
+            return None
+        else:
+            assert len(results) == 1
+            [[mutation_id]] = results
+            return Mutation(self.table, mutation_id)
+
+    def enqueue(self, client: Client) -> Mutation:
+        """Enqueue the mutation (or return the existing mutation if it is already running.)"""
+        if task := self.find(client):
+            return task
+
+        client.execute(
+            f"ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} {self.command}",
+            self.parameters,
+        )
+
+        task = self.find(client)
+        assert task is not None
+
+        return task
+
+
+@dataclass
 class PersonOverridesSnapshotDictionary:
     source: PersonOverridesSnapshotTable
 
@@ -194,75 +250,28 @@ class PersonOverridesSnapshotDictionary:
         [[checksum]] = results
         return checksum
 
-    def __find_existing_mutation(self, client: Client, table: str, command_kind: str) -> Mutation | None:
-        results = client.execute(
+    @property
+    def person_id_update_mutation_runner(self) -> MutationRunner:
+        return MutationRunner(
+            EVENTS_DATA_TABLE(),
             f"""
-            SELECT mutation_id
-            FROM system.mutations
-            WHERE
-                database = %(database)s
-                AND table = %(table)s
-                AND startsWith(command, %(command_kind)s)
-                AND command like concat('%%', %(name)s, '%%')
-                AND NOT is_killed  -- ok to restart a killed mutation
-            ORDER BY create_time DESC
-            """,
-            {
-                "database": settings.CLICKHOUSE_DATABASE,
-                "table": table,
-                "command_kind": command_kind,
-                "name": self.qualified_name,
-            },
-        )
-        if not results:
-            return None
-        else:
-            assert len(results) == 1
-            [[mutation_id]] = results
-            return Mutation(table, mutation_id)
-
-    def enqueue_person_id_update_mutation(self, client: Client) -> Mutation:
-        table = EVENTS_DATA_TABLE()
-
-        # if this mutation already exists, don't start it again
-        # NOTE: this is theoretically subject to replication lag and accuracy of this result is not a guarantee
-        if mutation := self.__find_existing_mutation(client, table, "UPDATE"):
-            return mutation
-
-        client.execute(
-            f"""
-            ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{table}
             UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id))
             WHERE dictHas(%(name)s, (team_id, distinct_id))
             """,
             {"name": self.qualified_name},
         )
 
-        mutation = self.__find_existing_mutation(client, table, "UPDATE")
-        assert mutation is not None
-        return mutation
-
-    def enqueue_overrides_delete_mutation(self, client: Client) -> Mutation:
-        table = PERSON_DISTINCT_ID_OVERRIDES_TABLE
-
-        # if this mutation already exists, don't start it again
-        # NOTE: this is theoretically subject to replication lag and accuracy of this result is not a guarantee
-        if mutation := self.__find_existing_mutation(client, table, "DELETE"):
-            return mutation
-
-        client.execute(
+    @property
+    def overrides_delete_mutation_runner(self) -> MutationRunner:
+        return MutationRunner(
+            PERSON_DISTINCT_ID_OVERRIDES_TABLE,
             f"""
-            ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{table}
             DELETE WHERE
                 isNotNull(dictGetOrNull(%(name)s, 'version', (team_id, distinct_id)) as snapshot_version)
                 AND snapshot_version >= version
             """,
             {"name": self.qualified_name},
         )
-
-        mutation = self.__find_existing_mutation(client, table, "DELETE")
-        assert mutation is not None
-        return mutation
 
 
 # Snapshot Table Management
@@ -375,7 +384,7 @@ def start_person_id_update_mutations(
     shard_mutations = {
         host.shard_num: mutation
         for host, mutation in (
-            cluster.map_one_host_per_shard(dictionary.enqueue_person_id_update_mutation).result().items()
+            cluster.map_one_host_per_shard(dictionary.person_id_update_mutation_runner.enqueue).result().items()
         )
     }
     return (dictionary, shard_mutations)
@@ -401,7 +410,7 @@ def start_overrides_delete_mutations(
     dictionary: PersonOverridesSnapshotDictionary,
 ) -> tuple[PersonOverridesSnapshotDictionary, Mutation]:
     """Start the mutation to remove overrides contained within the snapshot from the overrides table."""
-    mutation = cluster.any_host(dictionary.enqueue_overrides_delete_mutation).result()
+    mutation = cluster.any_host(dictionary.overrides_delete_mutation_runner.enqueue).result()
     return (dictionary, mutation)
 
 
