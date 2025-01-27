@@ -83,6 +83,7 @@ func (c *PostHogKafkaConsumer) Consume() {
 		if err != nil {
 			log.Printf("Error consuming message: %v", err)
 			sentry.CaptureException(err)
+			continue
 		}
 
 		var wrapperMessage PostHogEventWrapper
