@@ -1,6 +1,16 @@
 import { getSeriesColor } from 'lib/colors'
 
-import { FeatureFlagFilters, FunnelTimeConversionMetrics, InsightType, TrendResult } from '~/types'
+import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema'
+import { AnyEntityNode, NodeKind } from '~/queries/schema/schema-general'
+import {
+    FeatureFlagFilters,
+    FunnelTimeConversionMetrics,
+    InsightType,
+    PropertyFilterType,
+    PropertyOperator,
+    TrendResult,
+    UniversalFiltersGroupValue,
+} from '~/types'
 
 export function getExperimentInsightColour(variantIndex: number | null): string {
     return variantIndex !== null ? getSeriesColor(variantIndex) : 'var(--muted-3000)'
@@ -89,4 +99,81 @@ export function transformFiltersForWinningVariant(
             ...(currentFlagFilters?.groups || []),
         ],
     }
+}
+
+function seriesToFilter(
+    series: AnyEntityNode,
+    featureFlagKey: string,
+    variantKey: string
+): UniversalFiltersGroupValue | null {
+    if (series.kind === NodeKind.EventsNode) {
+        return {
+            id: series.event as string,
+            name: series.event as string,
+            type: 'events',
+            properties: [
+                {
+                    key: `$feature/${featureFlagKey}`,
+                    type: PropertyFilterType.Event,
+                    value: [variantKey],
+                    operator: PropertyOperator.Exact,
+                },
+            ],
+        }
+    } else if (series.kind === NodeKind.ActionsNode) {
+        return {
+            id: series.id,
+            name: series.name,
+            type: 'actions',
+        }
+    }
+    return null
+}
+
+export function getViewRecordingFilters(
+    metric: ExperimentTrendsQuery | ExperimentFunnelsQuery,
+    featureFlagKey: string,
+    variantKey: string
+): UniversalFiltersGroupValue[] {
+    const filters: UniversalFiltersGroupValue[] = []
+    if (metric.kind === NodeKind.ExperimentTrendsQuery) {
+        if (metric.exposure_query) {
+            const exposure_filter = seriesToFilter(metric.exposure_query.series[0], featureFlagKey, variantKey)
+            if (exposure_filter) {
+                filters.push(exposure_filter)
+            }
+        } else {
+            filters.push({
+                id: '$feature_flag_called',
+                name: '$feature_flag_called',
+                type: 'events',
+                properties: [
+                    {
+                        key: `$feature_flag_response`,
+                        type: PropertyFilterType.Event,
+                        value: [variantKey],
+                        operator: PropertyOperator.Exact,
+                    },
+                    {
+                        key: '$feature_flag',
+                        type: PropertyFilterType.Event,
+                        value: featureFlagKey,
+                        operator: PropertyOperator.Exact,
+                    },
+                ],
+            })
+        }
+        const count_filter = seriesToFilter(metric.count_query.series[0], featureFlagKey, variantKey)
+        if (count_filter) {
+            filters.push(count_filter)
+        }
+        return filters
+    }
+    metric.funnels_query.series.forEach((series) => {
+        const filter = seriesToFilter(series, featureFlagKey, variantKey)
+        if (filter) {
+            filters.push(filter)
+        }
+    })
+    return filters
 }
