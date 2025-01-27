@@ -11,7 +11,7 @@
         "test": "jest --runInBand --forceExit",
         "clean": "rm -rf dist .parcel-cache",
         "build": "pnpm clean && pnpm build:parcel && pnpm build:cli",
-        "build:parcel": "parcel build",
+        "build:parcel": "parcel build --config .parcelrc --no-autoinstall",
         "build:compile": "tsc -p tsconfig.build.json",
         "build:cli": "cp ./src/cli.js ./dist/cli.js",
         "generate:stl": "cd ../../.. && python3 -m common.hogvm.stl.compile",

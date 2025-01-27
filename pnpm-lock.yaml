@@ -22023,7 +22023,7 @@ packages:
       react: '>=15'
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.201.0
+      unlayer-types: 1.202.0
     dev: false
 
   /react-error-boundary@3.1.4(react@18.2.0):
@@ -24772,8 +24772,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  /unlayer-types@1.201.0:
-    resolution: {integrity: sha512-0BspwzCXYX6ETG+H4Y1YRQ4PomZh0gu4RyArH/5YhD5SoIlQzMGu65Y9WPygA71YVie8qkcSF0tL5n+JaeXUaA==}
+  /unlayer-types@1.202.0:
+    resolution: {integrity: sha512-m84X+APYWPOl7QUDxPeiB2eUQSgWx4HeE3zyX1BhTTRI9NEki8Z0BB7hvP+Ddqg2utr5L6oJnBHc6vj9rPPtmw==}
     dev: false
 
   /unpipe@1.0.0:

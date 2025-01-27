@@ -70,6 +70,7 @@ common/plugin_transpiler/dist
 pyrightconfig.json
 .nx/cache
 .nx/workspace-data
+.parcel-cache
 
 # Max-specific entries
 ee/support_sidebar_max/max-venv/
