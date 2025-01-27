@@ -5,7 +5,7 @@ import { BindLogic, useValues } from 'kea'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { NotFound } from 'lib/components/NotFound'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
-import { range } from 'lib/utils'
+import { isObject, range } from 'lib/utils'
 import React from 'react'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -22,7 +22,14 @@ import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
 import { LLMInputOutput } from './LLMInputOutput'
 import { llmObservabilityTraceDataLogic, TraceTreeNode } from './llmObservabilityTraceDataLogic'
 import { llmObservabilityTraceLogic } from './llmObservabilityTraceLogic'
-import { formatLLMCost, formatLLMLatency, formatLLMUsage, isLLMTraceEvent, removeMilliseconds } from './utils'
+import {
+    formatLLMCost,
+    formatLLMEventTitle,
+    formatLLMLatency,
+    formatLLMUsage,
+    isLLMTraceEvent,
+    removeMilliseconds,
+} from './utils'
 
 export const scene: SceneExport = {
     component: LLMObservabilityTraceScene,
@@ -164,9 +171,7 @@ function TraceSidebar({
 }
 
 function NestingGroup({ level = 0, children }: { level?: number; children: React.ReactNode }): JSX.Element {
-    const listEl = (
-        <ul className={!level ? 'overflow-y-auto overflow-x-hidden p-1 first:*:mt-0 h-full' : 'flex-1'}>{children}</ul>
-    )
+    const listEl = <ul className={!level ? 'overflow-y-auto p-1 first:*:mt-0 h-full' : 'flex-1'}>{children}</ul>
 
     if (!level) {
         return listEl
@@ -182,59 +187,58 @@ function NestingGroup({ level = 0, children }: { level?: number; children: React
     )
 }
 
-function TraceNode({
-    topLevelTrace,
-    item,
-    isSelected,
-}: {
-    topLevelTrace: LLMTrace
-    item: LLMTrace | LLMTraceEvent
-    isSelected: boolean
-}): JSX.Element {
-    const totalCost = 'properties' in item ? item.properties.$ai_total_cost_usd : item.totalCost
-    const latency = 'properties' in item ? item.properties.$ai_latency : item.totalLatency
-    const usage = formatLLMUsage(item)
+const TraceNode = React.memo(
+    ({
+        topLevelTrace,
+        item,
+        isSelected,
+    }: {
+        topLevelTrace: LLMTrace
+        item: LLMTrace | LLMTraceEvent
+        isSelected: boolean
+    }): JSX.Element => {
+        const totalCost = 'properties' in item ? item.properties.$ai_total_cost_usd : item.totalCost
+        const latency = 'properties' in item ? item.properties.$ai_latency : item.totalLatency
+        const usage = formatLLMUsage(item)
 
-    let title = ''
-    if (isLLMTraceEvent(item)) {
-        title =
-            item.event === '$ai_generation'
-                ? `${item.properties.$ai_model} (${item.properties.$ai_provider})`
-                : item.properties.$ai_span_name
-    } else {
-        title = item.traceName ?? 'Trace'
-    }
+        const children = [
+            isLLMTraceEvent(item) && item.properties.$ai_is_error && <LemonTag type="danger">Error</LemonTag>,
+            latency >= 0.01 && <LemonTag type="muted">{formatLLMLatency(latency)}</LemonTag>,
+            (usage != null || totalCost != null) && (
+                <span>
+                    {usage}
+                    {usage != null && totalCost != null && <span>{' / '}</span>}
+                    {totalCost != null && formatLLMCost(totalCost)}
+                </span>
+            ),
+        ]
+        const hasChildren = children.find((child) => !!child)
 
-    return (
-        <li key={item.id} className="mt-0.5">
-            <Link
-                to={urls.llmObservabilityTrace(topLevelTrace.id, {
-                    event: item.id,
-                    timestamp: removeMilliseconds(topLevelTrace.createdAt),
-                })}
-                className={classNames(
-                    'flex flex-col gap-1 p-1 text-xs rounded hover:bg-accent-primary-highlight',
-                    isSelected && 'bg-accent-primary-highlight'
-                )}
-            >
-                <div className="flex flex-row items-center gap-1.5">
-                    <EventTypeTag event={item} size="small" />
-                    <span className="flex-1 truncate">{title}</span>
-                </div>
-                <div className="flex flex-row flex-wrap text-muted items-center gap-1.5">
-                    <LemonTag type="muted">{formatLLMLatency(latency)}</LemonTag>
-                    {(usage != null || totalCost != null) && (
-                        <span>
-                            {usage}
-                            {usage != null && totalCost != null && <span>{' / '}</span>}
-                            {totalCost != null && formatLLMCost(totalCost)}
-                        </span>
+        return (
+            <li key={item.id} className="mt-0.5">
+                <Link
+                    to={urls.llmObservabilityTrace(topLevelTrace.id, {
+                        event: item.id,
+                        timestamp: removeMilliseconds(topLevelTrace.createdAt),
+                    })}
+                    className={classNames(
+                        'flex flex-col gap-1 p-1 text-xs rounded min-h-8 justify-center hover:bg-accent-primary-highlight',
+                        isSelected && 'bg-accent-primary-highlight'
                     )}
-                </div>
-            </Link>
-        </li>
-    )
-}
+                >
+                    <div className="flex flex-row items-center gap-1.5">
+                        <EventTypeTag event={item} size="small" />
+                        <span className="flex-1 truncate">{formatLLMEventTitle(item)}</span>
+                    </div>
+                    {hasChildren && (
+                        <div className="flex flex-row flex-wrap text-muted items-center gap-1.5">{children}</div>
+                    )}
+                </Link>
+            </li>
+        )
+    }
+)
+TraceNode.displayName = 'TraceNode'
 
 function RecursiveTreeDisplay({
     tree,
@@ -265,6 +269,31 @@ function RecursiveTreeDisplay({
     )
 }
 
+function EventContentDisplay({ input, output }: { input: unknown; output: unknown }): JSX.Element {
+    return (
+        <LLMInputOutput
+            inputDisplay={
+                <div className="p-2 text-xs border rounded bg-[var(--bg-fill-tertiary)]">
+                    {isObject(input) ? (
+                        <JSONViewer src={input} collapsed={4} />
+                    ) : (
+                        <span className="font-mono">{JSON.stringify(input ?? null)}</span>
+                    )}
+                </div>
+            }
+            outputDisplay={
+                <div className="p-2 text-xs border rounded bg-[var(--bg-fill-success-tertiary)]">
+                    {isObject(output) ? (
+                        <JSONViewer src={output} collapsed={4} />
+                    ) : (
+                        <span className="font-mono">{JSON.stringify(output ?? null)}</span>
+                    )}
+                </div>
+            }
+        />
+    )
+}
+
 function EventContent({ event }: { event: LLMTrace | LLMTraceEvent | null }): JSX.Element {
     return (
         <div className="flex-1 bg-bg-light max-h-fit border rounded flex flex-col border-border p-4 overflow-y-auto">
@@ -275,11 +304,7 @@ function EventContent({ event }: { event: LLMTrace | LLMTraceEvent | null }): JS
                     <header className="space-y-2">
                         <div className="flex-row flex items-center gap-2">
                             <EventTypeTag event={event} />
-                            <h3 className="text-lg font-semibold p-0 m-0">
-                                {isLLMTraceEvent(event)
-                                    ? `${event.properties.$ai_model} (${event.properties.$ai_provider})`
-                                    : event.traceName}
-                            </h3>
+                            <h3 className="text-lg font-semibold p-0 m-0">{formatLLMEventTitle(event)}</h3>
                         </div>
                         {isLLMTraceEvent(event) ? (
                             <MetadataHeader
@@ -301,35 +326,20 @@ function EventContent({ event }: { event: LLMTrace | LLMTraceEvent | null }): JS
                     </header>
                     <LemonDivider className="my-3" />
                     {isLLMTraceEvent(event) ? (
-                        <ConversationMessagesDisplay
-                            input={event.properties.$ai_input}
-                            output={event.properties.$ai_output_choices || event.properties.$ai_output}
-                            httpStatus={event.properties.$ai_http_status}
-                        />
+                        event.event === '$ai_generation' ? (
+                            <ConversationMessagesDisplay
+                                input={event.properties.$ai_input}
+                                output={event.properties.$ai_output_choices || event.properties.$ai_output}
+                                httpStatus={event.properties.$ai_http_status}
+                            />
+                        ) : (
+                            <EventContentDisplay
+                                input={event.properties.$ai_input_state}
+                                output={event.properties.$ai_output_state}
+                            />
+                        )
                     ) : (
-                        <LLMInputOutput
-                            inputDisplay={
-                                <div className="p-2 text-xs border rounded bg-[var(--bg-fill-tertiary)]">
-                                    {event.inputState != null &&
-                                    typeof event.inputState !== 'number' &&
-                                    typeof event.inputState !== 'string' &&
-                                    typeof event.inputState !== 'boolean' ? (
-                                        <JSONViewer src={event.inputState || null} collapsed={4} />
-                                    ) : (
-                                        <span className="font-mono">{JSON.stringify(event.inputState ?? null)}</span>
-                                    )}
-                                </div>
-                            }
-                            outputDisplay={
-                                <div className="p-2 text-xs border rounded bg-[var(--bg-fill-success-tertiary)]">
-                                    {event.outputState ? (
-                                        <JSONViewer src={event.outputState} collapsed={4} />
-                                    ) : (
-                                        <span className="font-mono">{JSON.stringify(event.outputState ?? null)}</span>
-                                    )}
-                                </div>
-                            }
-                        />
+                        <EventContentDisplay input={event.inputState} output={event.outputState} />
                     )}
                 </>
             )}
@@ -343,7 +353,11 @@ function EventTypeTag({ event, size }: { event: LLMTrace | LLMTraceEvent; size?:
         eventType = event.event === '$ai_generation' ? 'generation' : 'span'
     }
     return (
-        <LemonTag className="uppercase" type={eventType === 'trace' ? 'completion' : 'default'} size={size}>
+        <LemonTag
+            className="uppercase"
+            type={eventType === 'trace' ? 'completion' : eventType === 'span' ? 'default' : 'success'}
+            size={size}
+        >
             {eventType}
         </LemonTag>
     )
