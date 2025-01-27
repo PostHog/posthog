@@ -51,14 +51,14 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
         caption: <Caption />,
         fields: [
             {
-                name: 'account_id',
+                name: 'stripe_account_id',
                 label: 'Account id',
                 type: 'text',
                 required: false,
-                placeholder: 'acct_...',
+                placeholder: 'stripe_account_id',
             },
             {
-                name: 'client_secret',
+                name: 'stripe_secret_key',
                 label: 'Client secret',
                 type: 'password',
                 required: true,

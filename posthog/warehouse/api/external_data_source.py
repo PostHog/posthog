@@ -195,20 +195,21 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         representation = super().to_representation(instance)
 
         sensitive_keys = {
-            "password",
-            "client_secret",
             "api_key",
-            "zendesk_api_key",
-            "salesforce_integration_id",
-            "hubspot_secret_key",
+            "client_secret",
             "hubspot_refresh_token",
-            "ssh_tunnel_auth_type_password",
-            "ssh_tunnel_auth_type_passphrase",
-            "ssh_tunnel_auth_type_private_key",
+            "hubspot_secret_key",
             "passphrase",
+            "password",
             "private_key",
             "private_key_id",
+            "salesforce_integration_id",
             "secret_token",
+            "ssh_tunnel_auth_type_passphrase",
+            "ssh_tunnel_auth_type_password",
+            "ssh_tunnel_auth_type_private_key",
+            "stripe_secret_key",
+            "zendesk_api_key",
         }
         job_inputs = representation.get("job_inputs", {})
         if isinstance(job_inputs, dict):
@@ -457,8 +458,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def _handle_stripe_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
         payload = request.data["payload"]
-        client_secret = payload.get("client_secret")
-        account_id = payload.get("account_id", None)
+        client_secret = payload.get("stripe_secret_key")
+        account_id = payload.get("stripe_account_id", None)
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
         # TODO: remove dummy vars
@@ -875,7 +876,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # Validate sourced credentials
         if source_type == ExternalDataSource.Type.STRIPE:
-            key = request.data.get("client_secret", "")
+            key = request.data.get("stripe_secret_key", "")
             if not validate_stripe_credentials(api_key=key):
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
