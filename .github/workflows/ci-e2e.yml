@@ -144,7 +144,7 @@ jobs:
             - name: Build and install frontend build dependencies
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
               run: |
-                  pnpm install --frozen-lockfile --filter frontend
+                  pnpm install --frozen-lockfile --filter .
                   pnpx nx deps:prepare frontend --verbose
                   pnpx nx deps:build frontend --verbose
 
