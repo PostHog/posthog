@@ -17,6 +17,7 @@ use derive_builder::Builder;
 use flate2::read::GzDecoder;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use serde_urlencoded;
 use std::{collections::HashMap, net::IpAddr};
 use std::{io::Read, sync::Arc};
 
@@ -253,6 +254,32 @@ pub fn decode_request(headers: &HeaderMap, body: Bytes) -> Result<FlagRequest, F
                 .map_err(|e| {
                     FlagError::RequestDecodingError(format!("Base64 decoding error: {}", e))
                 })?;
+            FlagRequest::from_bytes(Bytes::from(decoded))
+        }
+        "application/x-www-form-urlencoded" => {
+            let form_data = String::from_utf8(decoded_body.to_vec()).map_err(|e| {
+                FlagError::RequestDecodingError(format!("Invalid UTF-8 in form data: {}", e))
+            })?;
+
+            #[derive(Deserialize)]
+            struct FormData {
+                data: String,
+            }
+
+            let form: FormData = serde_urlencoded::from_str(&form_data).map_err(|e| {
+                FlagError::RequestDecodingError(format!("Failed to parse form data: {}", e))
+            })?;
+
+            // URL-decode the base64 string if needed
+            let data = urlencoding::decode(&form.data)
+                .map_err(|e| {
+                    FlagError::RequestDecodingError(format!("Failed to URL-decode data: {}", e))
+                })?
+                .into_owned();
+
+            let decoded = general_purpose::STANDARD.decode(data).map_err(|e| {
+                FlagError::RequestDecodingError(format!("Base64 decoding error: {}", e))
+            })?;
             FlagRequest::from_bytes(Bytes::from(decoded))
         }
         ct => Err(FlagError::RequestDecodingError(format!(
@@ -557,6 +584,27 @@ mod tests {
         assert!(result.is_err(), "Expected an error, but got Ok");
         // If you want to check for a specific error type, you might need to adjust
         // the FlagError enum or the decode_request function.
+    }
+
+    #[test]
+    fn test_decode_request_form_urlencoded() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "content-type",
+            "application/x-www-form-urlencoded".parse().unwrap(),
+        );
+
+        // URL-encoded form data with base64 JSON in the 'data' field
+        let body = Bytes::from(
+            "data=eyJ0b2tlbiI6InRlc3RfdG9rZW4iLCJkaXN0aW5jdF9pZCI6InVzZXIxMjMifQ%3D%3D",
+        );
+
+        let result = decode_request(&headers, body);
+
+        assert!(result.is_ok());
+        let request = result.unwrap();
+        assert_eq!(request.token, Some("test_token".to_string()));
+        assert_eq!(request.distinct_id, Some("user123".to_string()));
     }
 
     #[tokio::test]
