@@ -56,14 +56,13 @@ export class EventPipelineRunner {
     hub: Hub
     originalEvent: PipelineEvent
     eventsProcessor: EventsProcessor
-    // TODO: remove HogTransformerService being nullable once we have the new ingestion flow rolled out
     hogTransformer: HogTransformerService | null
 
-    constructor(hub: Hub, event: PipelineEvent, hogTransformer: HogTransformerService | null) {
+    constructor(hub: Hub, event: PipelineEvent, hogTransformer: HogTransformerService | null = null) {
         this.hub = hub
         this.originalEvent = event
         this.eventsProcessor = new EventsProcessor(hub)
-        this.hogTransformer = hogTransformer
+        this.hogTransformer = hub.HOG_TRANSFORMATIONS_ENABLED ? hogTransformer : null
     }
 
     isEventDisallowed(event: PipelineEvent): boolean {

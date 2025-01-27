@@ -1,7 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { HogTransformerService } from '../../../cdp/hog-transformations/hog-transformer.service'
-import { Hub } from '../../../types'
 
 // TODO: THIS IS THE REST OF THE PLAN
 // 1. we need logs and these things and we do not want them to block the main thread so avoid async if possible
@@ -11,15 +10,9 @@ import { Hub } from '../../../types'
 
 export async function transformEventStep(
     event: PluginEvent,
-    // TODO: remove HogTransformerService being nullable once we have the new ingestion flow rolled out
-    hogTransformer: HogTransformerService | null,
-    hub: Hub
+    hogTransformer: HogTransformerService | null
 ): Promise<PluginEvent> {
     if (!hogTransformer) {
-        return event
-    }
-    // return unmodified event if hog transformations are not enabled
-    if (!hub.HOG_TRANSFORMATIONS_ENABLED) {
         return event
     }
     return hogTransformer.transformEvent(event)
