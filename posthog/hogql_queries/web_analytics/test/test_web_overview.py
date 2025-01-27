@@ -801,6 +801,54 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert revenue.kind == "currency"
         assert revenue.value is None
 
+    @snapshot_clickhouse_queries
+    def test_no_revenue_when_event_conversion_goal_set_but_include_revenue_disabled(self):
+        s1 = str(uuid7("2023-12-01"))
+
+        self.team.revenue_tracking_config = {"events": [{"eventName": "purchase", "revenueProperty": "revenue"}]}
+        self.team.save()
+
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1, 100)]),
+            ],
+            event="purchase",
+        )
+
+        results = self._run_web_overview_query(
+            "2023-12-01", "2023-12-03", custom_event="purchase", include_revenue=False
+        ).results
+
+        assert len(results) == 4
+
+    @snapshot_clickhouse_queries
+    def test_no_revenue_when_action_conversion_goal_set_but_include_revenue_disabled(self):
+        s1 = str(uuid7("2023-12-01"))
+
+        self.team.revenue_tracking_config = {"events": [{"eventName": "purchase", "revenueProperty": "revenue"}]}
+        self.team.save()
+
+        action = Action.objects.create(
+            team=self.team,
+            name="Did Custom Event",
+            steps_json=[
+                {
+                    "event": "custom_event",
+                }
+            ],
+        )
+
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1, 100)]),
+            ],
+            event="custom_event",
+        )
+
+        results = self._run_web_overview_query("2023-12-01", "2023-12-03", action=action, include_revenue=False).results
+
+        assert len(results) == 4
+
     @patch("posthog.hogql.query.sync_execute", wraps=sync_execute)
     def test_limit_is_context_aware(self, mock_sync_execute: MagicMock):
         self._run_web_overview_query("2023-12-01", "2023-12-03", limit_context=LimitContext.QUERY_ASYNC)
