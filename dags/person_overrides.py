@@ -118,7 +118,7 @@ class Mutation:
 @dataclass
 class MutationRunner:
     table: str
-    command: str  # i.e. ALTER, DELETE, MATERIALIZE, etc.
+    command: str  # the part after ALTER TABLE prefix, i.e. UPDATE, DELETE, MATERIALIZE, etc.
     parameters: Mapping[str, Any]
 
     def find(self, client: Client) -> Mutation | None:
