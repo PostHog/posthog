@@ -442,7 +442,6 @@ class CaptureMiddleware:
         # reconciles the old style middleware with the new style middleware.
         for middleware_class in (
             CorsMiddleware,
-            PrometheusAfterMiddlewareWithTeamIds,
         ):
             try:
                 # Some middlewares raise MiddlewareNotUsed if they are not
