@@ -267,7 +267,8 @@ class BatchExportSerializer(serializers.ModelSerializer):
         if destination_type == BatchExportDestination.Destination.SNOWFLAKE:
             config = destination_attrs["config"]
             # for updates, get the existing config
-            if self.instance:
+            self.instance: BatchExport | None
+            if self.instance is not None:
                 existing_config = self.instance.destination.config
             else:
                 existing_config = {}
