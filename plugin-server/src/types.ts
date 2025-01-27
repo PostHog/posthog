@@ -90,6 +90,7 @@ export enum PluginServerMode {
     cdp_processed_events = 'cdp-processed-events',
     cdp_internal_events = 'cdp-internal-events',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
+    cdp_cyclotron_worker_plugins = 'cdp-cyclotron-worker-plugins',
     functional_tests = 'functional-tests',
 }
 
@@ -386,6 +387,7 @@ export interface PluginServerCapabilities {
     cdpProcessedEvents?: boolean
     cdpInternalEvents?: boolean
     cdpCyclotronWorker?: boolean
+    cdpCyclotronWorkerPlugins?: boolean
     appManagementSingleton?: boolean
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
     http?: boolean

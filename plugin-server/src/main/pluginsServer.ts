@@ -11,6 +11,7 @@ import v8Profiler from 'v8-profiler-next'
 
 import { getPluginServerCapabilities } from '../capabilities'
 import { CdpApi } from '../cdp/cdp-api'
+import { CdpCyclotronWorkerPlugins } from '../cdp/consumers/cdp-cyclotron-plugins-worker.consumer'
 import { CdpCyclotronWorker, CdpCyclotronWorkerFetch } from '../cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpInternalEventsConsumer } from '../cdp/consumers/cdp-internal-event.consumer'
 import { CdpProcessedEventsConsumer } from '../cdp/consumers/cdp-processed-events.consumer'
@@ -545,6 +546,13 @@ export async function startPluginsServer(
                     services.push(workerFetch.service)
                 }
             }
+        }
+
+        if (capabilities.cdpCyclotronWorkerPlugins) {
+            const hub = await setupHub()
+            const worker = new CdpCyclotronWorkerPlugins(hub)
+            await worker.start()
+            services.push(worker.service)
         }
 
         if (capabilities.http) {
