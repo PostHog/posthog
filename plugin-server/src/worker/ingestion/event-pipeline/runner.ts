@@ -1,6 +1,8 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 
+import { HogTransformerService } from '~/src/cdp/hog-transformations/hog-transformer.service'
+
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { runInSpan } from '../../../sentry'
 import { Hub, PipelineEvent } from '../../../types'
@@ -54,11 +56,13 @@ export class EventPipelineRunner {
     hub: Hub
     originalEvent: PipelineEvent
     eventsProcessor: EventsProcessor
+    hogTransformer: HogTransformerService
 
-    constructor(hub: Hub, event: PipelineEvent) {
+    constructor(hub: Hub, event: PipelineEvent, hogTransformer: HogTransformerService) {
         this.hub = hub
         this.originalEvent = event
         this.eventsProcessor = new EventsProcessor(hub)
+        this.hogTransformer = hogTransformer
     }
 
     isEventDisallowed(event: PipelineEvent): boolean {
@@ -223,7 +227,12 @@ export class EventPipelineRunner {
             return this.registerLastStep('pluginsProcessEventStep', [event], kafkaAcks)
         }
 
-        const transformedEvent = await this.runStep(transformEventStep, [this.hub, processedEvent], event.team_id)
+        // Pass the hogTransformer to transformEventStep
+        const transformedEvent = await this.runStep(
+            transformEventStep,
+            [processedEvent, this.hogTransformer, this.hub],
+            event.team_id
+        )
 
         const [normalizedEvent, timestamp] = await this.runStep(
             normalizeEventStep,

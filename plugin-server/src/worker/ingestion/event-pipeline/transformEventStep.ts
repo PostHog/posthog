@@ -9,18 +9,14 @@ import { Hub } from '../../../types'
 // 3. in case people transform stuff we do not support do we drop the event or just return the event with the allowed modifications?
 // 4. we need to support ordering of transformations e.g. if someone has 3 transformations and the first one fails we want to run the other 2 (are they dependend on each other?)
 
-export async function transformEventStep(hub: Hub, event: PluginEvent): Promise<PluginEvent> {
+export async function transformEventStep(
+    event: PluginEvent,
+    hogTransformer: HogTransformerService,
+    hub: Hub
+): Promise<PluginEvent> {
+    // return unmodified event if hog transformations are not enabled
     if (!hub.HOG_TRANSFORMATIONS_ENABLED) {
         return event
     }
-
-    // Lazy initialize the transformer when needed
-    let hogTransformer = hub.hogTransformer
-    if (!hogTransformer) {
-        hogTransformer = new HogTransformerService(hub)
-        await hogTransformer.start()
-        hub.hogTransformer = hogTransformer
-    }
-
-    return await hogTransformer.transformEvent(event)
+    return hogTransformer.transformEvent(event)
 }
