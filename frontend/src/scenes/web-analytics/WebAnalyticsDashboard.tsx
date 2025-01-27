@@ -14,6 +14,7 @@ import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
+import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
 import React, { useState } from 'react'
 import { WebAnalyticsErrorTrackingTile } from 'scenes/web-analytics/tiles/WebAnalyticsErrorTracking'
 import { WebAnalyticsRecordingsTile } from 'scenes/web-analytics/tiles/WebAnalyticsRecordings'
@@ -35,7 +36,7 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { QuerySchema } from '~/queries/schema'
-import { PropertyMathType } from '~/types'
+import { ProductKey, PropertyMathType } from '~/types'
 
 import { WebAnalyticsLiveUserCount } from './WebAnalyticsLiveUserCount'
 
@@ -136,6 +137,13 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
                 icon={<IconOpenInNew />}
                 size="small"
                 type="secondary"
+                onClick={() => {
+                    void addProductIntentForCrossSell({
+                        from: ProductKey.WEB_ANALYTICS,
+                        to: ProductKey.PRODUCT_ANALYTICS,
+                        intent_context: ProductIntentContext.WEB_ANALYTICS_INSIGHT,
+                    })
+                }}
             >
                 Open as new Insight
             </LemonButton>
@@ -267,6 +275,13 @@ export const WebTabs = ({
                 icon={<IconOpenInNew />}
                 size="small"
                 type="secondary"
+                onClick={() => {
+                    void addProductIntentForCrossSell({
+                        from: ProductKey.WEB_ANALYTICS,
+                        to: ProductKey.PRODUCT_ANALYTICS,
+                        intent_context: ProductIntentContext.WEB_ANALYTICS_INSIGHT,
+                    })
+                }}
             >
                 Open as new Insight
             </LemonButton>
