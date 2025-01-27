@@ -4247,7 +4247,10 @@ export type BatchExportServiceSnowflake = {
         database: string
         warehouse: string
         user: string
-        password: string
+        authentication_type: 'password' | 'keypair'
+        password: string | null
+        private_key: string | null
+        private_key_passphrase: string | null
         schema: string
         table_name: string
         role: string | null
