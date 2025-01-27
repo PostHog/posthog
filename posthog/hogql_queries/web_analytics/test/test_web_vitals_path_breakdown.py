@@ -14,9 +14,11 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     flush_persons_and_events,
+    snapshot_clickhouse_queries,
 )
 
 
+@snapshot_clickhouse_queries
 class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _create_events(self, data, metric: WebVitalsMetric = WebVitalsMetric.INP):
         for distinct_id, timestamps in data:

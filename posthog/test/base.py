@@ -1123,7 +1123,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
         )
 
 
-def snapshot_clickhouse_queries(fn):
+def snapshot_clickhouse_queries(fn_or_class):
     """
     Captures and snapshots SELECT queries from test using `syrupy` library.
 
@@ -1133,10 +1133,18 @@ def snapshot_clickhouse_queries(fn):
     Update snapshots via --snapshot-update.
     """
 
-    @wraps(fn)
+    # check if fn_or_class is a class
+    if inspect.isclass(fn_or_class):
+        # wrap every class method that starts with test_ with this decorator
+        for attr in dir(fn_or_class):
+            if callable(getattr(fn_or_class, attr)) and attr.startswith("test_"):
+                setattr(fn_or_class, attr, snapshot_clickhouse_queries(getattr(fn_or_class, attr)))
+        return fn_or_class
+
+    @wraps(fn_or_class)
     def wrapped(self, *args, **kwargs):
         with self.capture_select_queries() as queries:
-            fn(self, *args, **kwargs)
+            fn_or_class(self, *args, **kwargs)
 
         for query in queries:
             if "FROM system.columns" not in query:

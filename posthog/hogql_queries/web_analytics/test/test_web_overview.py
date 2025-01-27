@@ -29,6 +29,7 @@ from posthog.test.base import (
 )
 
 
+@snapshot_clickhouse_queries
 class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _create_events(self, data, event="$pageview"):
         person_result = []
@@ -109,7 +110,6 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         WebOverviewQueryResponse.model_validate(response)
         return response
 
-    @snapshot_clickhouse_queries
     def test_no_crash_when_no_data(self):
         results = self._run_web_overview_query(
             "2023-12-08",
@@ -152,7 +152,6 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "conversion rate",
         ]
 
-    @snapshot_clickhouse_queries
     def test_increase_in_users(self):
         s1a = str(uuid7("2023-12-02"))
         s1b = str(uuid7("2023-12-12"))
@@ -200,7 +199,6 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(0, bounce.previous)
         self.assertEqual(None, bounce.changeFromPreviousPct)
 
-    @snapshot_clickhouse_queries
     def test_increase_in_users_using_mobile(self):
         s1a = str(uuid7("2023-12-02"))
         s1b = str(uuid7("2023-12-12"))
@@ -250,7 +248,6 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(0, bounce.previous)
         self.assertEqual(None, bounce.changeFromPreviousPct)
 
-    @snapshot_clickhouse_queries
     def test_all_time(self):
         s1a = str(uuid7("2023-12-02"))
         s1b = str(uuid7("2023-12-12"))
@@ -298,7 +295,6 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(None, bounce.previous)
         self.assertEqual(None, bounce.changeFromPreviousPct)
 
-    @snapshot_clickhouse_queries
     def test_comparison(self):
         s1a = str(uuid7("2023-12-02"))
         s1b = str(uuid7("2023-12-12"))
@@ -346,7 +342,6 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(0, bounce.previous)
         self.assertEqual(None, bounce.changeFromPreviousPct)
 
-    @snapshot_clickhouse_queries
     def test_filter_test_accounts(self):
         s1 = str(uuid7("2023-12-02"))
         # Create 1 test account
@@ -370,7 +365,6 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual("bounce rate", bounce.key)
         self.assertEqual(None, bounce.value)
 
-    @snapshot_clickhouse_queries
     def test_dont_filter_test_accounts(self):
         s1 = str(uuid7("2023-12-02"))
         # Create 1 test account
@@ -381,7 +375,6 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         visitors = results[0]
         self.assertEqual(1, visitors.value)
 
-    @snapshot_clickhouse_queries
     def test_correctly_counts_pageviews_in_long_running_session(self):
         # this test is important when using the v1 sessions table as the raw sessions table will have 3 entries, one per day
         s1 = str(uuid7("2023-12-01"))
@@ -405,7 +398,6 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         sessions = results[2]
         self.assertEqual(1, sessions.value)
 
-    @snapshot_clickhouse_queries
     def test_conversion_goal_no_conversions(self):
         s1 = str(uuid7("2023-12-01"))
         self._create_events(
@@ -440,7 +432,6 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         conversion_rate = results[3]
         assert conversion_rate.value == 0
 
-    @snapshot_clickhouse_queries
     def test_conversion_goal_one_pageview_conversion(self):
         s1 = str(uuid7("2023-12-01"))
         self._create_events(
@@ -475,7 +466,6 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         conversion_rate = results[3]
         assert conversion_rate.value == 100
 
-    @snapshot_clickhouse_queries
     def test_conversion_goal_one_custom_event_conversion(self):
         s1 = str(uuid7("2023-12-01"))
         self._create_events(
@@ -499,7 +489,6 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         conversion_rate = results[3]
         assert conversion_rate.value == 100
 
-    @snapshot_clickhouse_queries
     def test_conversion_goal_one_custom_action_conversion(self):
         s1 = str(uuid7("2023-12-01"))
         self._create_events(
@@ -533,7 +522,6 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         conversion_rate = results[3]
         assert conversion_rate.value == 100
 
-    @snapshot_clickhouse_queries
     def test_conversion_goal_one_autocapture_conversion(self):
         s1 = str(uuid7("2023-12-01"))
         self._create_events(
@@ -569,7 +557,6 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         conversion_rate = results[3]
         assert conversion_rate.value == 100
 
-    @snapshot_clickhouse_queries
     def test_conversion_rate(self):
         s1 = str(uuid7("2023-12-01"))
         s2 = str(uuid7("2023-12-01"))
@@ -621,7 +608,6 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         conversion_rate = results[3]
         self.assertAlmostEqual(conversion_rate.value, 100 * 2 / 3)
 
-    @snapshot_clickhouse_queries
     def test_revenue(self):
         s1 = str(uuid7("2023-12-02"))
 
@@ -655,7 +641,6 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert revenue.kind == "currency"
         assert revenue.value == 100
 
-    @snapshot_clickhouse_queries
     def test_revenue_multiple_events(self):
         s1 = str(uuid7("2023-12-02"))
         s2 = str(uuid7("2023-12-02"))
@@ -701,7 +686,6 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert revenue.kind == "currency"
         assert revenue.value == 150
 
-    @snapshot_clickhouse_queries
     def test_revenue_no_config(self):
         s1 = str(uuid7("2023-12-02"))
 
@@ -717,7 +701,6 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert revenue.kind == "currency"
         assert revenue.value is None
 
-    @snapshot_clickhouse_queries
     def test_revenue_conversion_event(self):
         s1 = str(uuid7("2023-12-02"))
 
@@ -750,7 +733,6 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert revenue.kind == "currency"
         assert revenue.value == 100
 
-    @snapshot_clickhouse_queries
     def test_revenue_conversion_event_with_multiple_revenue_events(self):
         s1 = str(uuid7("2023-12-02"))
         s2 = str(uuid7("2023-12-02"))
@@ -783,7 +765,6 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert revenue.kind == "currency"
         assert revenue.value == 100
 
-    @snapshot_clickhouse_queries
     def test_revenue_conversion_no_config(self):
         s1 = str(uuid7("2023-12-02"))
 
@@ -801,7 +782,6 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert revenue.kind == "currency"
         assert revenue.value is None
 
-    @snapshot_clickhouse_queries
     def test_no_revenue_when_event_conversion_goal_set_but_include_revenue_disabled(self):
         s1 = str(uuid7("2023-12-01"))
 
@@ -821,7 +801,6 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert len(results) == 4
 
-    @snapshot_clickhouse_queries
     def test_no_revenue_when_action_conversion_goal_set_but_include_revenue_disabled(self):
         s1 = str(uuid7("2023-12-01"))
 
