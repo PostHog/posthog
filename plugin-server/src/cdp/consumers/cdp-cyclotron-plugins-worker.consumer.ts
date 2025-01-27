@@ -1,4 +1,4 @@
-import { Meta, ProcessedPluginEvent, RetryError, StorageExtension } from '@posthog/plugin-scaffold'
+import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
 import { Response, trackedFetch } from '~/src/utils/fetch'
@@ -12,22 +12,7 @@ import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 type PluginState = {
     setupPromise: Promise<any>
     errored: boolean
-    meta: Meta
-}
-
-const createStorage = (): StorageExtension => {
-    const storage: Record<string, any> = {}
-    return {
-        get: (key: string) => Promise.resolve(storage[key]),
-        set: (key: string, value: any) => {
-            storage[key] = value
-            return Promise.resolve()
-        },
-        del: (key: string) => {
-            delete storage[key]
-            return Promise.resolve()
-        },
-    }
+    meta: LegacyPluginMeta
 }
 
 /**
@@ -101,16 +86,9 @@ export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
         let state = this.pluginState[pluginId]
 
         if (!state) {
-            const meta: LegacyPluginMeta<any> = {
+            const meta: LegacyPluginMeta = {
                 config: invocation.globals.inputs,
-                attachments: {},
                 global: {},
-                jobs: {},
-                metrics: {},
-                cache: {} as any,
-                storage: createStorage(),
-                geoip: {} as any,
-                utils: {} as any,
                 fetch: (...args) => this.fetch(...args),
                 logger: logger,
             }
@@ -164,6 +142,7 @@ export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
             })
             await plugin.onEvent?.(event, {
                 ...state.meta,
+                // NOTE: We override logger and fetch here so we can track the calls
                 logger,
                 fetch: this.fetch,
             })
