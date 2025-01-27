@@ -303,13 +303,12 @@ export class SessionRecordingIngester {
     }
 
     private async commitOffsets(offsets: TopicPartitionOffset[]): Promise<void> {
-        await new Promise<void>((resolve, reject) => {
-            try {
+        await runInstrumentedFunction({
+            statsKey: `recordingingesterv2.handleEachBatch.flush.commitOffsets`,
+            func: async () => {
                 this.batchConsumer!.consumer.commitSync(offsets)
-                resolve()
-            } catch (error) {
-                reject(error)
-            }
+                return Promise.resolve()
+            },
         })
     }
 }
