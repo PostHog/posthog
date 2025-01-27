@@ -15,19 +15,19 @@ import { PLUGINS_BY_ID } from '../legacy-plugins'
 import { HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { CdpCyclotronWorkerPlugins } from './cdp-cyclotron-plugins-worker.consumer'
 
-jest.mock('../../../src/utils/fetch', () => {
-    return {
-        trackedFetch: jest.fn(() =>
-            Promise.resolve({
-                status: 200,
-                text: () => Promise.resolve(JSON.stringify({ success: true })),
-                json: () => Promise.resolve({ success: true }),
-            })
-        ),
-    }
-})
+// jest.mock('../../../src/utils/fetch', () => {
+//     return {
+//         trackedFetch: jest.fn(() =>
+//             Promise.resolve({
+//                 status: 200,
+//                 text: () => Promise.resolve(JSON.stringify({ success: true })),
+//                 json: () => Promise.resolve({ success: true }),
+//             })
+//         ),
+//     }
+// })
 
-const mockFetch: jest.Mock = require('../../../src/utils/fetch').trackedFetch
+// const mockFetch: jest.Mock = require('../../../src/utils/fetch').trackedFetch
 
 jest.setTimeout(1000)
 
@@ -40,7 +40,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
     let team: Team
     let fn: HogFunctionType
     let globals: HogFunctionInvocationGlobalsWithInputs
-
+    let mockFetch: jest.Mock
     const insertHogFunction = async (hogFunction: Partial<HogFunctionType>) => {
         const item = await _insertHogFunction(hub.postgres, team.id, {
             ...hogFunction,
@@ -60,10 +60,10 @@ describe('CdpCyclotronWorkerPlugins', () => {
 
         await processor.start()
 
+        processor.fetch = mockFetch = jest.fn(() => Promise.resolve({} as any))
+
         jest.spyOn(processor['cyclotronWorker']!, 'updateJob').mockImplementation(() => {})
         jest.spyOn(processor['cyclotronWorker']!, 'releaseJob').mockImplementation(() => Promise.resolve())
-
-        mockFetch.mockClear()
 
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
@@ -132,9 +132,16 @@ describe('CdpCyclotronWorkerPlugins', () => {
                     "triggeringEvents": "$identify,mycustomevent",
                     "useEuropeanDataStorage": "No",
                   },
+                  "fetch": [Function],
                   "geoip": {},
                   "global": {},
                   "jobs": {},
+                  "logger": {
+                    "debug": [Function],
+                    "error": [Function],
+                    "log": [Function],
+                    "warn": [Function],
+                  },
                   "metrics": {},
                   "storage": {
                     "del": [Function],

@@ -1,7 +1,11 @@
 import { Meta, ProcessedPluginEvent, RetryError, StorageExtension } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
+import { Response, trackedFetch } from '~/src/utils/fetch'
+import { status } from '~/src/utils/status'
+
 import { PLUGINS_BY_ID } from '../legacy-plugins'
+import { LegacyPluginLogger, LegacyPluginMeta } from '../legacy-plugins/types'
 import { HogFunctionInvocation, HogFunctionInvocationResult, HogFunctionTypeType } from '../types'
 import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 
@@ -46,6 +50,10 @@ export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
         return results
     }
 
+    public async fetch(...args: Parameters<typeof trackedFetch>): Promise<Response> {
+        return trackedFetch(...args)
+    }
+
     public async executePluginInvocation(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult> {
         const result: HogFunctionInvocationResult = {
             invocation,
@@ -75,10 +83,25 @@ export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
             return result
         }
 
+        const addLog = (level: 'debug' | 'warn' | 'error' | 'info', ...args: any[]) => {
+            result.logs.push({
+                level,
+                timestamp: DateTime.now(),
+                message: args.join(' '),
+            })
+        }
+
+        const logger: LegacyPluginLogger = {
+            debug: (...args: any[]) => addLog('debug', ...args),
+            warn: (...args: any[]) => addLog('warn', ...args),
+            log: (...args: any[]) => addLog('info', ...args),
+            error: (...args: any[]) => addLog('error', ...args),
+        }
+
         let state = this.pluginState[pluginId]
 
         if (!state) {
-            const meta: Meta = {
+            const meta: LegacyPluginMeta<any> = {
                 config: invocation.globals.inputs,
                 attachments: {},
                 global: {},
@@ -88,6 +111,8 @@ export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
                 storage: createStorage(),
                 geoip: {} as any,
                 utils: {} as any,
+                fetch: (...args) => this.fetch(...args),
+                logger: logger,
             }
 
             state = this.pluginState[pluginId] = {
@@ -133,7 +158,15 @@ export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
         }
 
         try {
-            await plugin.onEvent?.(event, state.meta)
+            status.info('⚡️', 'Executing plugin', {
+                pluginId,
+                invocationId: invocation.id,
+            })
+            await plugin.onEvent?.(event, {
+                ...state.meta,
+                logger,
+                fetch: this.fetch,
+            })
             result.logs.push({
                 level: 'debug',
                 timestamp: DateTime.now(),
@@ -143,6 +176,13 @@ export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
             if (e instanceof RetryError) {
                 // NOTE: Schedule as a retry to cyclotron?
             }
+
+            status.error('💩', 'Plugin errored', {
+                error: e,
+                pluginId,
+                invocationId: invocation.id,
+            })
+
             result.error = e
             result.logs.push({
                 level: 'error',
