@@ -36,6 +36,20 @@ exports[`EventPipelineRunner runEventPipeline() runs steps starting from populat
     ],
   ],
   [
+    "transformEventStep",
+    [
+      null,
+      {
+        "db": {
+          "kafkaProducer": {},
+        },
+        "eventsToDropByToken": {},
+        "kafkaProducer": {},
+        "teamManager": {},
+      },
+    ],
+  ],
+  [
     "normalizeEventStep",
     [
       true,
