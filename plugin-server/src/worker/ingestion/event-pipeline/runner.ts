@@ -13,7 +13,6 @@ import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '..
 import { createEventStep } from './createEventStep'
 import { emitEventStep } from './emitEventStep'
 import { extractHeatmapDataStep } from './extractHeatmapDataStep'
-import { HogTransformerService } from './hog-transformations/hog-transformer.service'
 import {
     eventProcessedAndIngestedCounter,
     pipelineLastStepCounter,
@@ -55,13 +54,11 @@ export class EventPipelineRunner {
     hub: Hub
     originalEvent: PipelineEvent
     eventsProcessor: EventsProcessor
-    hogTransformer: HogTransformerService
 
-    constructor(hub: Hub, event: PipelineEvent, hogTransformer: HogTransformerService) {
+    constructor(hub: Hub, event: PipelineEvent) {
         this.hub = hub
         this.originalEvent = event
         this.eventsProcessor = new EventsProcessor(hub)
-        this.hogTransformer = hogTransformer
     }
 
     isEventDisallowed(event: PipelineEvent): boolean {
@@ -226,12 +223,7 @@ export class EventPipelineRunner {
             return this.registerLastStep('pluginsProcessEventStep', [event], kafkaAcks)
         }
 
-        // Pass the hogTransformer to transformEventStep
-        const transformedEvent = await this.runStep(
-            transformEventStep,
-            [this.hub.HOG_TRANSFORMATIONS_ALPHA_ENABLED, processedEvent, this.hogTransformer],
-            event.team_id
-        )
+        const transformedEvent = await this.runStep(transformEventStep, [this.hub, processedEvent], event.team_id)
 
         const [normalizedEvent, timestamp] = await this.runStep(
             normalizeEventStep,

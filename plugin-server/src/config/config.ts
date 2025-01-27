@@ -218,7 +218,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_MAX_BATCH_AGE_MS: 10 * 1000, // 10 seconds
 
         // Hog Transformations (Alpha)
-        HOG_TRANSFORMATIONS_ALPHA_ENABLED: true,
+        HOG_TRANSFORMATIONS_ENABLED: true,
     }
 }
 

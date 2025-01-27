@@ -1,4 +1,4 @@
-import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { HogExecutorService } from '~/src/cdp/services/hog-executor.service'
 import { HogFunctionManagerService } from '~/src/cdp/services/hog-function-manager.service'
@@ -70,28 +70,6 @@ export class HogTransformerService {
         return createInvocation(globals, hogFunction)
     }
 
-    private validateProperties(properties: unknown): properties is Properties {
-        if (!properties || typeof properties !== 'object') {
-            return false
-        }
-
-        for (const [_key, value] of Object.entries(properties)) {
-            if (
-                value !== null &&
-                value !== undefined &&
-                typeof value !== 'string' &&
-                typeof value !== 'number' &&
-                typeof value !== 'boolean' &&
-                !Array.isArray(value) &&
-                typeof value !== 'object'
-            ) {
-                return false
-            }
-        }
-
-        return true
-    }
-
     public async start(): Promise<void> {
         const hogTypes: HogFunctionTypeType[] = ['transformation']
         await this.hogFunctionManager.start(hogTypes)
@@ -127,46 +105,37 @@ export class HogTransformerService {
 
                     const transformedEvent: unknown = result.execResult
 
-                    // Validate the transformed event has a properties object
+                    // Validate the transformed event has a valid properties object
                     if (
                         !transformedEvent ||
                         typeof transformedEvent !== 'object' ||
-                        !('properties' in transformedEvent)
+                        !('properties' in transformedEvent) ||
+                        !transformedEvent.properties ||
+                        typeof transformedEvent.properties !== 'object'
                     ) {
-                        status.warn('⚠️', 'Invalid transformation result - missing properties', {
+                        status.warn('⚠️', 'Invalid transformation result - missing or invalid properties', {
                             function_id: hogFunction.id,
                         })
                         continue
                     }
 
-                    // Validate properties are of correct type
-                    if (!this.validateProperties(transformedEvent.properties)) {
-                        status.warn('⚠️', 'Invalid transformation result - invalid properties', {
-                            function_id: hogFunction.id,
-                            properties: transformedEvent.properties,
-                        })
-                        return event
+                    event.properties = {
+                        ...event.properties,
+                        ...transformedEvent.properties,
                     }
 
-                    // Validate event name is a string if present
-                    if ('event' in transformedEvent && typeof transformedEvent.event !== 'string') {
-                        status.warn('⚠️', 'Invalid transformation result - invalid event name', {
-                            function_id: hogFunction.id,
-                            event: transformedEvent.event,
-                        })
-                        continue
-                    }
-
-                    // Only merge properties, ignore other fields
-                    event = {
-                        ...event,
-                        properties: {
-                            ...event.properties,
-                            ...transformedEvent.properties,
-                        },
+                    // Validate event name is a string if present and update it
+                    if ('event' in transformedEvent) {
+                        if (typeof transformedEvent.event !== 'string') {
+                            status.warn('⚠️', 'Invalid transformation result - event name must be a string', {
+                                function_id: hogFunction.id,
+                                event: transformedEvent.event,
+                            })
+                            continue
+                        }
+                        event.event = transformedEvent.event
                     }
                 }
-
                 return event
             },
         })

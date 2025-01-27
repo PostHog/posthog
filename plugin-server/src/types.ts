@@ -18,6 +18,7 @@ import { DateTime } from 'luxon'
 import { VM } from 'vm2'
 
 import { EncryptedFields } from './cdp/encryption-utils'
+import { HogTransformerService } from './cdp/hog-transformations/hog-transformer.service'
 import { BatchConsumer } from './kafka/batch-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { ObjectStorage } from './main/services/object_storage'
@@ -320,7 +321,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CYCLOTRON_SHARD_DEPTH_LIMIT: number
 
     // HOG Transformations (Alpha feature)
-    HOG_TRANSFORMATIONS_ALPHA_ENABLED: boolean
+    HOG_TRANSFORMATIONS_ENABLED: boolean
 
     SESSION_RECORDING_MAX_BATCH_SIZE_KB: number | undefined
     SESSION_RECORDING_MAX_BATCH_AGE_MS: number | undefined
@@ -367,6 +368,7 @@ export interface Hub extends PluginsServerConfig {
     eventsToDropByToken: Map<string, string[]>
     eventsToSkipPersonsProcessingByToken: Map<string, string[]>
     encryptedFields: EncryptedFields
+    hogTransformer?: HogTransformerService
 }
 
 export interface PluginServerCapabilities {
