@@ -173,7 +173,7 @@ def test_create_external_job_activity(activity_environment, team, **kwargs):
     test_1_schema = _create_schema("test-1", new_source, team)
 
     inputs = CreateExternalDataJobModelActivityInputs(
-        team_id=team.id, source_id=new_source.pk, schema_id=test_1_schema.id
+        team_id=team.id, source_id=new_source.pk, schema_id=test_1_schema.id, billable=True
     )
 
     run_id, _, __ = activity_environment.run(create_external_data_job_model_activity, inputs)
@@ -199,7 +199,9 @@ def test_create_external_job_activity_schemas_exist(activity_environment, team, 
         source_id=new_source.pk,
     )
 
-    inputs = CreateExternalDataJobModelActivityInputs(team_id=team.id, source_id=new_source.pk, schema_id=schema.id)
+    inputs = CreateExternalDataJobModelActivityInputs(
+        team_id=team.id, source_id=new_source.pk, schema_id=schema.id, billable=True
+    )
 
     run_id, _, __ = activity_environment.run(create_external_data_job_model_activity, inputs)
 
