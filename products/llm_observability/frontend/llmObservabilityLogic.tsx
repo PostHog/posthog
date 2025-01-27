@@ -19,15 +19,17 @@ import {
     ChartDisplayType,
     EventDefinitionType,
     HogQLMathType,
+    PropertyFilterType,
     PropertyMathType,
+    PropertyOperator,
 } from '~/types'
 
 import type { llmObservabilityLogicType } from './llmObservabilityLogicType'
 
 export const LLM_OBSERVABILITY_DATA_COLLECTION_NODE_ID = 'llm-observability-data'
 
-const INITIAL_DATE_FROM = '-7d' as string | null
-const INITIAL_DATE_TO = null as string | null
+const INITIAL_DATE_FROM = '-7d'
+const INITIAL_DATE_TO = null
 
 export interface QueryTile {
     title: string
@@ -50,8 +52,8 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
     reducers({
         dateFilter: [
             {
-                dateFrom: INITIAL_DATE_FROM,
-                dateTo: INITIAL_DATE_TO,
+                dateFrom: INITIAL_DATE_FROM as string,
+                dateTo: INITIAL_DATE_TO as string | null,
             },
             {
                 setDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
@@ -129,6 +131,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                                 // NOTE: This assumes the chart is day-by-day
                                 const dayStart = dayjs(series.day).startOf('day')
                                 router.actions.push(urls.llmObservabilityTraces(), {
+                                    ...router.values.searchParams,
                                     date_from: dayStart.format('YYYY-MM-DD[T]HH:mm:ss'),
                                     date_to: dayStart
                                         .add(1, 'day')
@@ -178,6 +181,12 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
                         properties: propertyFilters,
                         filterTestAccounts: shouldFilterTestAccounts,
+                    },
+                    context: {
+                        groupTypeLabel: 'traces',
+                        onDataPointClick: () => {
+                            router.actions.push(urls.llmObservabilityTraces(), router.values.searchParams)
+                        },
                     },
                 },
                 {
@@ -237,6 +246,23 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         properties: propertyFilters,
                         filterTestAccounts: shouldFilterTestAccounts,
                     },
+                    context: {
+                        groupTypeLabel: 'traces',
+                        onDataPointClick: ({ breakdown }) => {
+                            router.actions.push(urls.llmObservabilityTraces(), {
+                                ...router.values.searchParams,
+                                filters: [
+                                    ...(router.values.searchParams.filters || []),
+                                    {
+                                        type: PropertyFilterType.Event,
+                                        key: '$ai_model',
+                                        operator: PropertyOperator.Exact,
+                                        value: breakdown as string,
+                                    },
+                                ],
+                            })
+                        },
+                    },
                 },
                 {
                     title: 'Generation calls',
@@ -252,6 +278,22 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
                         properties: propertyFilters,
                         filterTestAccounts: shouldFilterTestAccounts,
+                    },
+                    context: {
+                        groupTypeLabel: 'generations',
+                        onDataPointClick: (series) => {
+                            if (typeof series.day === 'string') {
+                                const dayStart = dayjs(series.day).startOf('day')
+                                router.actions.push(urls.llmObservabilityGenerations(), {
+                                    ...router.values.searchParams,
+                                    date_from: dayStart.format('YYYY-MM-DD[T]HH:mm:ss'),
+                                    date_to: dayStart
+                                        .add(1, 'day')
+                                        .subtract(1, 'second')
+                                        .format('YYYY-MM-DD[T]HH:mm:ss'),
+                                })
+                            }
+                        },
                     },
                 },
                 {
@@ -279,6 +321,31 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         properties: propertyFilters,
                         filterTestAccounts: shouldFilterTestAccounts,
                     },
+                    context: {
+                        groupTypeLabel: 'generations',
+                        onDataPointClick: (series) => {
+                            if (typeof series.day === 'string') {
+                                const dayStart = dayjs(series.day).startOf('day')
+                                router.actions.push(urls.llmObservabilityGenerations(), {
+                                    ...router.values.searchParams,
+                                    date_from: dayStart.format('YYYY-MM-DD[T]HH:mm:ss'),
+                                    date_to: dayStart
+                                        .add(1, 'day')
+                                        .subtract(1, 'second')
+                                        .format('YYYY-MM-DD[T]HH:mm:ss'),
+                                    filters: [
+                                        ...(router.values.searchParams.filters || []),
+                                        {
+                                            type: PropertyFilterType.Event,
+                                            key: '$ai_model',
+                                            operator: PropertyOperator.Exact,
+                                            value: series.breakdown as string,
+                                        },
+                                    ] as AnyPropertyFilter[],
+                                })
+                            }
+                        },
+                    },
                 },
                 {
                     title: 'Generations by HTTP status',
@@ -300,6 +367,23 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
                         properties: propertyFilters,
                         filterTestAccounts: shouldFilterTestAccounts,
+                    },
+                    context: {
+                        groupTypeLabel: 'generations',
+                        onDataPointClick: (series) => {
+                            router.actions.push(urls.llmObservabilityGenerations(), {
+                                ...router.values.searchParams,
+                                filters: [
+                                    ...(router.values.searchParams.filters || []),
+                                    {
+                                        type: PropertyFilterType.Event,
+                                        key: '$ai_http_status',
+                                        operator: PropertyOperator.Exact,
+                                        value: series.breakdown as string,
+                                    },
+                                ] as AnyPropertyFilter[],
+                            })
+                        },
                     },
                 },
             ],
@@ -396,7 +480,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 (date_from || INITIAL_DATE_FROM) !== values.dateFilter.dateFrom ||
                 (date_to || INITIAL_DATE_TO) !== values.dateFilter.dateTo
             ) {
-                actions.setDates(date_from || null, date_to || null)
+                actions.setDates(date_from || INITIAL_DATE_FROM, date_to || INITIAL_DATE_TO)
             }
             const filterTestAccountsValue = [true, 'true', 1, '1'].includes(filter_test_accounts)
             if (filterTestAccountsValue !== values.shouldFilterTestAccounts) {
@@ -415,14 +499,14 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
         setPropertyFilters: ({ propertyFilters }) => [
             router.values.currentLocation.pathname,
             {
-                ...router.values.currentLocation.searchParams,
+                ...router.values.searchParams,
                 filters: propertyFilters,
             },
         ],
         setDates: ({ dateFrom, dateTo }) => [
             router.values.currentLocation.pathname,
             {
-                ...router.values.currentLocation.searchParams,
+                ...router.values.searchParams,
                 date_from: dateFrom || undefined,
                 date_to: dateTo || undefined,
             },
@@ -430,7 +514,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
         setShouldFilterTestAccounts: ({ shouldFilterTestAccounts }) => [
             router.values.currentLocation.pathname,
             {
-                ...router.values.currentLocation.searchParams,
+                ...router.values.searchParams,
                 filter_test_accounts: shouldFilterTestAccounts ? 'true' : undefined,
             },
         ],
