@@ -394,6 +394,13 @@ class FeatureFlagSerializer(
                 feature_flag=instance,
                 name=f"Experiment for {instance.key}",
                 created_by=validated_data["created_by"],
+                parameters={
+                    "feature_flag_variants": variants,
+                    "recommended_sample_size": 0,
+                    "recommended_running_time": 0,
+                    "minimum_detectable_effect": 1,
+                },
+                stats_config={"version": 2},
             )
 
         return instance
