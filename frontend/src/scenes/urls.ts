@@ -37,8 +37,6 @@ import { SurveysTabs } from './surveys/surveysLogic'
  * Sync the paths with AutoProjectMiddleware!
  */
 
-export type LLMObservabilityTab = 'dashboard' | 'traces' | 'generations'
-
 export const urls = {
     ...productUrls,
     absolute: (path = ''): string => window.location.origin + path,

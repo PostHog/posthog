@@ -1,6 +1,7 @@
 import { LemonBanner, LemonTabs, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -128,6 +129,7 @@ function LLMObservabilityGenerations(): JSX.Element {
 
 export function LLMObservabilityScene(): JSX.Element {
     const { activeTab } = useValues(llmObservabilityLogic)
+    const { searchParams } = useValues(router)
 
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_OBSERVABILITY_DATA_COLLECTION_NODE_ID }}>
@@ -139,19 +141,19 @@ export function LLMObservabilityScene(): JSX.Element {
                         key: 'dashboard',
                         label: 'Dashboard',
                         content: <LLMObservabilityDashboard />,
-                        link: urls.llmObservability('dashboard'),
+                        link: combineUrl(urls.llmObservabilityDashboard(), searchParams).url,
                     },
                     {
                         key: 'traces',
                         label: 'Traces',
                         content: <LLMObservabilityTraces />,
-                        link: urls.llmObservability('traces'),
+                        link: combineUrl(urls.llmObservabilityTraces(), searchParams).url,
                     },
                     {
                         key: 'generations',
                         label: 'Generations',
                         content: <LLMObservabilityGenerations />,
-                        link: urls.llmObservability('generations'),
+                        link: combineUrl(urls.llmObservabilityGenerations(), searchParams).url,
                     },
                 ]}
             />

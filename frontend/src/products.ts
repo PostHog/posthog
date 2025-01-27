@@ -62,8 +62,9 @@ export const productConfiguration: Record<string, any> = {
 export const productUrls = {
     earlyAccessFeatures: (): string => '/early_access_features',
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
-    llmObservability: (tab?: 'dashboard' | 'traces' | 'generations'): string =>
-        `/llm-observability${tab !== 'dashboard' ? '/' + tab : ''}`,
+    llmObservabilityDashboard: (): string => '/llm-observability',
+    llmObservabilityGenerations: (): string => '/llm-observability/generations',
+    llmObservabilityTraces: (): string => '/llm-observability/traces',
     llmObservabilityTrace: (
         id: string,
         params?: {

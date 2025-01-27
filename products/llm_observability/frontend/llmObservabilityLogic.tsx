@@ -1,15 +1,17 @@
 import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
+import { objectsEqual } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
 import { DataTableNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { isAnyPropertyFilters } from '~/queries/schema-guards'
 import { QueryContext } from '~/queries/types'
 import {
     AnyPropertyFilter,
@@ -88,7 +90,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
             },
         },
     }),
-    selectors(({ actions }) => ({
+    selectors(() => ({
         activeTab: [
             (s) => [s.sceneKey],
             (sceneKey) => {
@@ -123,14 +125,16 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     context: {
                         groupTypeLabel: 'traces',
                         onDataPointClick: (series) => {
-                            router.actions.push(urls.llmObservability('traces'))
                             if (typeof series.day === 'string') {
                                 // NOTE: This assumes the chart is day-by-day
                                 const dayStart = dayjs(series.day).startOf('day')
-                                actions.setDates(
-                                    dayStart.format('YYYY-MM-DD[T]HH:mm:ss'),
-                                    dayStart.add(1, 'day').subtract(1, 'second').format('YYYY-MM-DD[T]HH:mm:ss')
-                                )
+                                router.actions.push(urls.llmObservabilityTraces(), {
+                                    date_from: dayStart.format('YYYY-MM-DD[T]HH:mm:ss'),
+                                    date_to: dayStart
+                                        .add(1, 'day')
+                                        .subtract(1, 'second')
+                                        .format('YYYY-MM-DD[T]HH:mm:ss'),
+                                })
                             }
                         },
                     },
@@ -378,6 +382,57 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 ],
                 showExport: true,
             }),
+        ],
+    })),
+
+    urlToAction(({ actions, values }) => {
+        function applySearchParams({ filters, date_from, date_to, filter_test_accounts }: Record<string, any>): void {
+            // Reusing logic and naming from webAnalyticsLogic
+            const parsedFilters = isAnyPropertyFilters(filters) ? filters : []
+            if (!objectsEqual(parsedFilters, values.propertyFilters)) {
+                actions.setPropertyFilters(parsedFilters)
+            }
+            if (
+                (date_from || INITIAL_DATE_FROM) !== values.dateFilter.dateFrom ||
+                (date_to || INITIAL_DATE_TO) !== values.dateFilter.dateTo
+            ) {
+                actions.setDates(date_from || null, date_to || null)
+            }
+            const filterTestAccountsValue = [true, 'true', 1, '1'].includes(filter_test_accounts)
+            if (filterTestAccountsValue !== values.shouldFilterTestAccounts) {
+                actions.setShouldFilterTestAccounts(filterTestAccountsValue)
+            }
+        }
+
+        return {
+            [urls.llmObservabilityDashboard()]: (_, searchParams) => applySearchParams(searchParams),
+            [urls.llmObservabilityGenerations()]: (_, searchParams) => applySearchParams(searchParams),
+            [urls.llmObservabilityTraces()]: (_, searchParams) => applySearchParams(searchParams),
+        }
+    }),
+
+    actionToUrl(() => ({
+        setPropertyFilters: ({ propertyFilters }) => [
+            router.values.currentLocation.pathname,
+            {
+                ...router.values.currentLocation.searchParams,
+                filters: propertyFilters,
+            },
+        ],
+        setDates: ({ dateFrom, dateTo }) => [
+            router.values.currentLocation.pathname,
+            {
+                ...router.values.currentLocation.searchParams,
+                date_from: dateFrom || undefined,
+                date_to: dateTo || undefined,
+            },
+        ],
+        setShouldFilterTestAccounts: ({ shouldFilterTestAccounts }) => [
+            router.values.currentLocation.pathname,
+            {
+                ...router.values.currentLocation.searchParams,
+                filter_test_accounts: shouldFilterTestAccounts ? 'true' : undefined,
+            },
         ],
     })),
 
