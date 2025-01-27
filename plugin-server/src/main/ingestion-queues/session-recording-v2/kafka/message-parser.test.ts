@@ -2,20 +2,19 @@ import { promisify } from 'node:util'
 import { Message } from 'node-rdkafka'
 import { gzip } from 'zlib'
 
-import { KafkaMessageParser } from '../../../../../src/main/ingestion-queues/session-recording-v2/kafka/message-parser'
-import { KafkaMetrics } from '../../../../../src/main/ingestion-queues/session-recording-v2/kafka/metrics'
+import { KafkaMessageParser } from './message-parser'
+import { KafkaMetrics } from './metrics'
 
 const compressWithGzip = promisify(gzip)
 
+jest.mock('./metrics')
+
 describe('KafkaMessageParser', () => {
     let parser: KafkaMessageParser
-    let mockKafkaMetrics: jest.Mocked<KafkaMetrics>
 
     beforeEach(() => {
-        mockKafkaMetrics = {
-            incrementMessageDropped: jest.fn(),
-        } as jest.Mocked<KafkaMetrics>
-        parser = new KafkaMessageParser(mockKafkaMetrics)
+        jest.clearAllMocks()
+        parser = new KafkaMessageParser()
     })
 
     const createMessage = (data: any, overrides: Partial<Message> = {}): Message => ({
@@ -71,7 +70,7 @@ describe('KafkaMessageParser', () => {
                 },
                 snapshot_source: undefined,
             })
-            expect(mockKafkaMetrics.incrementMessageDropped).not.toHaveBeenCalled()
+            expect(KafkaMetrics.incrementMessageDropped).not.toHaveBeenCalled()
         })
 
         it('handles gzipped message', async () => {
@@ -108,7 +107,7 @@ describe('KafkaMessageParser', () => {
                     end: 1234567891,
                 },
             })
-            expect(mockKafkaMetrics.incrementMessageDropped).not.toHaveBeenCalled()
+            expect(KafkaMetrics.incrementMessageDropped).not.toHaveBeenCalled()
         })
 
         it('filters out message with missing value', async () => {
@@ -117,7 +116,7 @@ describe('KafkaMessageParser', () => {
             const results = await parser.parseBatch(messages)
 
             expect(results).toHaveLength(0)
-            expect(mockKafkaMetrics.incrementMessageDropped).toHaveBeenCalledWith(
+            expect(KafkaMetrics.incrementMessageDropped).toHaveBeenCalledWith(
                 'session_recordings_blob_ingestion',
                 'message_value_or_timestamp_is_empty'
             )
@@ -129,7 +128,7 @@ describe('KafkaMessageParser', () => {
             const results = await parser.parseBatch(messages)
 
             expect(results).toHaveLength(0)
-            expect(mockKafkaMetrics.incrementMessageDropped).toHaveBeenCalledWith(
+            expect(KafkaMetrics.incrementMessageDropped).toHaveBeenCalledWith(
                 'session_recordings_blob_ingestion',
                 'message_value_or_timestamp_is_empty'
             )
@@ -141,7 +140,7 @@ describe('KafkaMessageParser', () => {
             const results = await parser.parseBatch(messages)
 
             expect(results).toHaveLength(0)
-            expect(mockKafkaMetrics.incrementMessageDropped).toHaveBeenCalledWith(
+            expect(KafkaMetrics.incrementMessageDropped).toHaveBeenCalledWith(
                 'session_recordings_blob_ingestion',
                 'invalid_gzip_data'
             )
@@ -153,7 +152,7 @@ describe('KafkaMessageParser', () => {
             const results = await parser.parseBatch(messages)
 
             expect(results).toHaveLength(0)
-            expect(mockKafkaMetrics.incrementMessageDropped).toHaveBeenCalledWith(
+            expect(KafkaMetrics.incrementMessageDropped).toHaveBeenCalledWith(
                 'session_recordings_blob_ingestion',
                 'invalid_json'
             )
@@ -174,7 +173,7 @@ describe('KafkaMessageParser', () => {
             const results = await parser.parseBatch(messages)
 
             expect(results).toHaveLength(0)
-            expect(mockKafkaMetrics.incrementMessageDropped).toHaveBeenCalledWith(
+            expect(KafkaMetrics.incrementMessageDropped).toHaveBeenCalledWith(
                 'session_recordings_blob_ingestion',
                 'received_non_snapshot_message'
             )

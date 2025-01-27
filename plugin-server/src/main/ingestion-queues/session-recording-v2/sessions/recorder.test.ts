@@ -1,7 +1,7 @@
 import { PassThrough } from 'stream'
 
-import { ParsedMessageData } from '../../../../../src/main/ingestion-queues/session-recording-v2/kafka/types'
-import { SessionRecorder } from '../../../../../src/main/ingestion-queues/session-recording-v2/sessions/recorder'
+import { ParsedMessageData } from '../kafka/types'
+import { SessionRecorder } from './recorder'
 
 // RRWeb event type constants
 const enum EventType {
