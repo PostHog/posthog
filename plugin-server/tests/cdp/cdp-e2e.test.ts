@@ -3,7 +3,6 @@ import { getProducedKafkaMessages, getProducedKafkaMessagesForTopic } from '../h
 
 import { CdpCyclotronWorker, CdpCyclotronWorkerFetch } from '../../src/cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpProcessedEventsConsumer } from '../../src/cdp/consumers/cdp-processed-events.consumer'
-import { CdpCyclotronWorkerPlugins } from '../../src/cdp/consumers/cdp-cyclotron-plugins-worker.consumer'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
 import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../src/config/kafka-topics'
 import { Hub, Team } from '../../src/types'
@@ -35,7 +34,6 @@ describe('CDP Consumer loop', () => {
         let processedEventsConsumer: CdpProcessedEventsConsumer
         let cyclotronWorker: CdpCyclotronWorker | undefined
         let cyclotronFetchWorker: CdpCyclotronWorkerFetch | undefined
-        let cdpCyclotronWorkerPlugins: CdpCyclotronWorkerPlugins | undefined
 
         let hub: Hub
         let team: Team
@@ -65,8 +63,6 @@ describe('CDP Consumer loop', () => {
 
             cyclotronWorker = new CdpCyclotronWorker(hub)
             await cyclotronWorker.start()
-            cdpCyclotronWorkerPlugins = new CdpCyclotronWorkerPlugins(hub)
-            await cdpCyclotronWorkerPlugins.start()
             cyclotronFetchWorker = new CdpCyclotronWorkerFetch(hub)
             await cyclotronFetchWorker.start()
 
@@ -93,7 +89,6 @@ describe('CDP Consumer loop', () => {
                 processedEventsConsumer?.stop().then(() => console.log('Stopped processedEventsConsumer')),
                 cyclotronWorker?.stop().then(() => console.log('Stopped cyclotronWorker')),
                 cyclotronFetchWorker?.stop().then(() => console.log('Stopped cyclotronFetchWorker')),
-                cdpCyclotronWorkerPlugins?.stop().then(() => console.log('Stopped cdpCyclotronWorkerPlugins')),
             ]
 
             await Promise.all(stoppers)
@@ -110,114 +105,6 @@ describe('CDP Consumer loop', () => {
          */
 
         it('should invoke a function in the worker loop until completed', async () => {
-            const invocations = await processedEventsConsumer.processBatch([globals])
-            expect(invocations).toHaveLength(1)
-
-            await waitForExpect(() => {
-                expect(getProducedKafkaMessages()).toHaveLength(7)
-            }, 5000)
-
-            expect(mockFetch).toHaveBeenCalledTimes(1)
-
-            expect(mockFetch.mock.calls[0]).toMatchInlineSnapshot(`
-                [
-                  "https://example.com/posthog-webhook",
-                  {
-                    "body": "{"event":{"uuid":"b3a1fe86-b10c-43cc-acaf-d208977608d0","event":"$pageview","elements_chain":"","distinct_id":"distinct_id","url":"http://localhost:8000/events/1","properties":{"$current_url":"https://posthog.com","$lib_version":"1.0.0"},"timestamp":"2024-09-03T09:00:00Z"},"groups":{},"nested":{"foo":"http://localhost:8000/events/1"},"person":{"id":"uuid","name":"test","url":"http://localhost:8000/persons/1","properties":{"email":"test@posthog.com","first_name":"Pumpkin"}},"event_url":"http://localhost:8000/events/1-test"}",
-                    "headers": {
-                      "version": "v=1.0.0",
-                    },
-                    "method": "POST",
-                    "timeout": 10000,
-                  },
-                ]
-            `)
-
-            const logMessages = getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
-            const metricsMessages = getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
-
-            expect(metricsMessages).toMatchObject([
-                {
-                    topic: 'clickhouse_app_metrics2_test',
-                    value: {
-                        app_source: 'hog_function',
-                        app_source_id: fnFetchNoFilters.id.toString(),
-                        count: 1,
-                        metric_kind: 'other',
-                        metric_name: 'fetch',
-                        team_id: 2,
-                    },
-                },
-                {
-                    topic: 'clickhouse_app_metrics2_test',
-                    value: {
-                        app_source: 'hog_function',
-                        app_source_id: fnFetchNoFilters.id.toString(),
-                        count: 1,
-                        metric_kind: 'success',
-                        metric_name: 'succeeded',
-                        team_id: 2,
-                    },
-                },
-            ])
-
-            expect(logMessages).toMatchObject([
-                {
-                    topic: 'log_entries_test',
-                    value: {
-                        level: 'debug',
-                        log_source: 'hog_function',
-                        log_source_id: fnFetchNoFilters.id.toString(),
-                        message: 'Executing function',
-                        team_id: 2,
-                    },
-                },
-                {
-                    topic: 'log_entries_test',
-                    value: {
-                        level: 'debug',
-                        log_source: 'hog_function',
-                        log_source_id: fnFetchNoFilters.id.toString(),
-                        message: expect.stringContaining(
-                            "Suspending function due to async function call 'fetch'. Payload:"
-                        ),
-                        team_id: 2,
-                    },
-                },
-                {
-                    topic: 'log_entries_test',
-                    value: {
-                        level: 'debug',
-                        log_source: 'hog_function',
-                        log_source_id: fnFetchNoFilters.id.toString(),
-                        message: 'Resuming function',
-                        team_id: 2,
-                    },
-                },
-                {
-                    topic: 'log_entries_test',
-                    value: {
-                        level: 'info',
-                        log_source: 'hog_function',
-                        log_source_id: fnFetchNoFilters.id.toString(),
-                        message: `Fetch response:, {"status":200,"body":{"success":true}}`,
-                        team_id: 2,
-                    },
-                },
-                {
-                    topic: 'log_entries_test',
-                    value: {
-                        level: 'debug',
-                        log_source: 'hog_function',
-                        log_source_id: fnFetchNoFilters.id.toString(),
-                        message: expect.stringContaining('Function completed in'),
-                        team_id: 2,
-                    },
-                },
-            ])
-        })
-
-        it('should invoke a legacy plugin in the worker loop until completed', async () => {
             const invocations = await processedEventsConsumer.processBatch([globals])
             expect(invocations).toHaveLength(1)
 
