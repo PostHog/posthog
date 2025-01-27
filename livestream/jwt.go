@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/spf13/viper"
 )
 
@@ -43,10 +43,10 @@ func decodeAuthToken(authHeader string) (jwt.MapClaims, error) {
 		// Validate audience
 		tokenScope := fmt.Sprint(claims["aud"])
 		if tokenScope != ExpectedScope {
-			return nil, fmt.Errorf("invalid audience")
+			return nil, errors.New("invalid audience")
 		}
 		return claims, nil
 	} else {
-		return nil, fmt.Errorf("invalid token")
+		return nil, errors.New("invalid token")
 	}
 }
