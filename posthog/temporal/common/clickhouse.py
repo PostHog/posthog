@@ -309,6 +309,11 @@ class ClickHouseClient:
             params["query_id"] = query_id
 
         query = self.prepare_query(query, query_parameters)
+        if query_parameters is not None:
+            for key, value in query_parameters.items():
+                if key in query:
+                    params[f"param_{key}"] = str(value)
+
         request_data = self.prepare_request_data(data)
 
         if request_data:
