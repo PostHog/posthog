@@ -148,6 +148,7 @@ describe('EventPipelineRunner', () => {
             expect(runner.steps).toEqual([
                 'populateTeamDataStep',
                 'pluginsProcessEventStep',
+                'transformEventStep',
                 'normalizeEventStep',
                 'processPersonsStep',
                 'prepareEventStep',
@@ -177,6 +178,7 @@ describe('EventPipelineRunner', () => {
             expect(runner.steps).toEqual([
                 'populateTeamDataStep',
                 'pluginsProcessEventStep',
+                'transformEventStep',
                 'normalizeEventStep',
                 'processPersonsStep',
                 'prepareEventStep',
@@ -204,7 +206,7 @@ describe('EventPipelineRunner', () => {
             const result = await runner.runEventPipeline(pipelineEvent)
             expect(result.error).toBeUndefined()
 
-            expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(8)
+            expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(9)
             expect(pipelineLastStepCounterSpy).toHaveBeenCalledTimes(1)
             expect(eventProcessedAndIngestedCounterSpy).toHaveBeenCalledTimes(1)
             expect(pipelineStepMsSummarySpy).toHaveBeenCalledWith('emitEventStep')
@@ -392,6 +394,7 @@ describe('EventPipelineRunner', () => {
                 expect(runner.steps).toEqual([
                     'populateTeamDataStep',
                     'pluginsProcessEventStep',
+                    'transformEventStep',
                     'normalizeEventStep',
                     'processPersonsStep',
                     'prepareEventStep',
