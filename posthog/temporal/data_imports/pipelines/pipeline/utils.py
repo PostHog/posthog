@@ -20,6 +20,8 @@ DLT_TO_PA_TYPE_MAP = {
     "json": pa.string(),
     "double": pa.float64(),
     "date": pa.date64(),
+    "time": pa.timestamp("us"),
+    "decimal": pa.float64(),
 }
 
 
