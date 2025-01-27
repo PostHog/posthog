@@ -9333,8 +9333,8 @@ packages:
     resolution: {integrity: sha512-quJQXlTSUGL2LH9SUXo8VwsY4soanhgo6LNSm84E1LBcE8s3O0wpdiRzyR9z/ZZJMlMWv37qOOb9pdJlMUEKFQ==}
     engines: {node: '>=8'}
 
-  /ansi-regex@6.0.1:
-    resolution: {integrity: sha512-n5M855fKb2SsfMIiFFoVrABHJC8QtHwVx+mHWP3QcEqBHYienj5dHSgjbxtC0WEZXYt4wcD6zrQElDPhFuZgfA==}
+  /ansi-regex@6.1.0:
+    resolution: {integrity: sha512-7HSX4QQb4CspciLpVFwyRe79O3xsIZDDLER21kERQ71oaPodF8jL725AgJMFAYbooIqolJoRLuM81SpeUkpkvA==}
     engines: {node: '>=12'}
     dev: true
 
@@ -18818,7 +18818,7 @@ packages:
       react: '>=15'
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.199.0
+      unlayer-types: 1.201.0
     dev: false
 
   /react-error-boundary@3.1.4(react@18.2.0):
@@ -20461,7 +20461,7 @@ packages:
     resolution: {integrity: sha512-cXNxvT8dFNRVfhVME3JAe98mkXDYN2O1l7jmcwMnOslDeESg1rF/OZMtK0nRAhiari1unG5cD4jG3rapUAkLbw==}
     engines: {node: '>=12'}
     dependencies:
-      ansi-regex: 6.0.1
+      ansi-regex: 6.1.0
     dev: true
 
   /strip-bom@3.0.0:
@@ -21429,8 +21429,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  /unlayer-types@1.199.0:
-    resolution: {integrity: sha512-ZBHpty2RkDc4BygHqw18ZwNrTvX31Rf10NY4SuncdqYkEj6wqHoNZiVoIhObQJrhPskT1mYdL8CTgLsSq42SeQ==}
+  /unlayer-types@1.201.0:
+    resolution: {integrity: sha512-0BspwzCXYX6ETG+H4Y1YRQ4PomZh0gu4RyArH/5YhD5SoIlQzMGu65Y9WPygA71YVie8qkcSF0tL5n+JaeXUaA==}
     dev: false
 
   /unpipe@1.0.0:
