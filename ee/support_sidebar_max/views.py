@@ -3,6 +3,7 @@ ViewSet for Max Support Sidebar Chat Assistant.
 """
 
 from typing import Any
+from collections.abc import MutableMapping
 from django.conf import settings
 import logging
 from rest_framework import viewsets, status
@@ -44,6 +45,10 @@ class MaxChatViewSet(viewsets.ViewSet):
 
     CONVERSATION_TIMEOUT = 3600  # one hour
     basename = "max"
+
+    def _convert_headers(self, headers: MutableMapping[str, str]) -> dict[str, str]:
+        """Convert MutableMapping headers to dict safely."""
+        return dict(headers)
 
     def list(self, request: Request, **kwargs: Any) -> Response:
         """List endpoint - not used but required by DRF"""
@@ -238,12 +243,14 @@ class MaxChatViewSet(viewsets.ViewSet):
 
             # Log rate limit information if available
             try:
+                # Convert headers to dict for type safety
+                response_headers = self._convert_headers(raw_response.headers)
                 # Log current capacity (for monitoring/debugging)
                 django_logger.info(
                     f"✨🦔 API Capacity - "
-                    f"Requests: {raw_response.headers.get('anthropic-ratelimit-requests-remaining', '?')}/{raw_response.headers.get('anthropic-ratelimit-requests-limit', '?')}, "
-                    f"Input Tokens: {raw_response.headers.get('anthropic-ratelimit-input-tokens-remaining', '?')}/{raw_response.headers.get('anthropic-ratelimit-input-tokens-limit', '?')}, "
-                    f"Output Tokens: {raw_response.headers.get('anthropic-ratelimit-output-tokens-remaining', '?')}/{raw_response.headers.get('anthropic-ratelimit-output-tokens-limit', '?')}"
+                    f"Requests: {response_headers.get('anthropic-ratelimit-requests-remaining', '?')}/{response_headers.get('anthropic-ratelimit-requests-limit', '?')}, "
+                    f"Input Tokens: {response_headers.get('anthropic-ratelimit-input-tokens-remaining', '?')}/{response_headers.get('anthropic-ratelimit-input-tokens-limit', '?')}, "
+                    f"Output Tokens: {response_headers.get('anthropic-ratelimit-output-tokens-remaining', '?')}/{response_headers.get('anthropic-ratelimit-output-tokens-limit', '?')}"
                 )
             except Exception as e:
                 django_logger.warning(f"✨🦔 Unable to log capacity info: {str(e)}")
@@ -277,7 +284,8 @@ class MaxChatViewSet(viewsets.ViewSet):
         except anthropic.RateLimitError as e:
             try:
                 # Get reset time from headers if available
-                headers = e.response.headers if hasattr(e, "response") and hasattr(e.response, "headers") else {}
+                raw_headers = e.response.headers if hasattr(e, "response") and hasattr(e.response, "headers") else {}
+                headers = self._convert_headers(raw_headers) if raw_headers else {}
 
                 # Try to get retry-after header first
                 if "retry-after" in headers:
