@@ -298,7 +298,7 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
         content = <SidebarListItemAccordion category={item} />
     } else if (isItemClickable(item)) {
         content = (
-            <li
+            <div
                 className="SidebarListItem__button"
                 onClick={item.onClick}
                 // eslint-disable-next-line react/forbid-dom-props
@@ -306,7 +306,7 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
             >
                 {item.icon && <div className="SidebarListItem__icon">{item.icon}</div>}
                 <h5 className="SidebarListItem__name">{item.name}</h5>
-            </li>
+            </div>
         )
     } else if (!save || (!isItemTentative(item) && newName === null)) {
         if (isItemTentative(item)) {
@@ -556,7 +556,7 @@ function SidebarListItemAccordion({ category }: { category: ListItemAccordion })
     const isExpanded = !(keyString in listItemAccordionCollapseMapping) || !listItemAccordionCollapseMapping[keyString]
 
     return (
-        <li className="SidebarListItemAccordion" role="region" aria-expanded={isExpanded}>
+        <div className="SidebarListItemAccordion" role="region" aria-expanded={isExpanded}>
             <div
                 id={`sidebar-list-item-accordion-${keyString}`}
                 className="SidebarListItemAccordion__header"
@@ -577,6 +577,6 @@ function SidebarListItemAccordion({ category }: { category: ListItemAccordion })
                     )}
                 </h4>
             </div>
-        </li>
+        </div>
     )
 }
