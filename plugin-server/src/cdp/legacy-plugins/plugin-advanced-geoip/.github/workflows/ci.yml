@@ -1,0 +1,50 @@
+name: CI
+
+on:
+    - pull_request
+
+jobs:
+    lint:
+        name: Code formatting & linting
+        runs-on: ubuntu-20.04
+        steps:
+            - uses: actions/checkout@v2
+
+            - name: Set up Node 16
+              uses: actions/setup-node@v3
+              with:
+                  node-version: 16
+                  cache: 'yarn'
+
+            - name: Install dependencies
+              run: yarn install --frozen-lockfile
+
+            - name: Check formatting with Prettier
+              run: yarn format:check
+
+            - name: Lint with ESLint
+              run: yarn lint:check
+
+            - name: Check Typescript
+              run: |
+                  yarn typecheck
+
+    test:
+        name: Test
+        runs-on: ubuntu-20.04
+
+        steps:
+            - uses: actions/checkout@v2
+
+            - name: Set up Node 16
+              uses: actions/setup-node@v3
+              with:
+                  node-version: 16
+                  cache: 'yarn'
+
+            - name: Install dependencies
+              run: yarn install --frozen-lockfile
+
+            - name: Run tests
+              run: |
+                  yarn test

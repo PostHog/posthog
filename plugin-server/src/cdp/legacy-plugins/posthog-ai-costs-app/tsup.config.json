@@ -1,0 +1,5 @@
+{
+    "noExternal": ["*", "js-big-decimal"],
+    "treeshake": true,
+    "minify": true
+}

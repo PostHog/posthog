@@ -1,0 +1,13 @@
+{
+  "name": "pineapple-mode-app",
+  "version": "1.0.0",
+  "description": "",
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@posthog/app-dev-server": "^1.1.1"
+  },
+  "scripts": {
+    "start": "app-dev-server"
+  }
+}

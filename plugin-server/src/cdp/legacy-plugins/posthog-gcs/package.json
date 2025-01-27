@@ -1,0 +1,16 @@
+{
+    "name": "posthog-gcs-plugin",
+    "private": true,
+    "version": "0.0.3",
+    "description": "Export PostHog events to GCS on ingestion.",
+    "devDependencies": {
+        "@posthog/plugin-scaffold": "^0.11.0",
+        "@types/node": "^16.0.0"
+    },
+    "dependencies": {
+        "@google-cloud/storage": "^5.8.5"
+    },
+    "engines": {
+        "node": ">= 14.0.0"
+    }
+}

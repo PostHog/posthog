@@ -1,0 +1,29 @@
+{
+    "name": "Early Access Features App",
+    "config": [
+        {
+            "markdown": "## MANUAL STEP NOTICE: This app is used with Early Access Feature Management and needs to inject code into your website through posthog-js. You need to **opt-in** on your site to enable this behaviour.\n\n```\nposthog.init(\"api_key\", {\n  \"api_host\": \"https://app.posthog.com\",\n  \"opt_in_site_apps\": true,\n})\n```"
+        },
+        {
+            "key": "selector",
+            "name": "Selector",
+            "hint": "CSS selector to activate on. For example: \"#my-beta-button\" or \"[data-attr='posthog-early-access-features-button']\"",
+            "type": "string",
+            "default": "",
+            "site": true
+        },
+        {
+            "key": "useButton",
+            "name": "Show features button on the page",
+            "hint": "If enabled, a button will be shown on the page that will open the features modal.",
+            "type": "choice",
+            "choices": [
+                "Yes",
+                "No"
+            ],
+            "default": "No",
+            "required": false,
+            "site": true
+        }
+    ]
+}

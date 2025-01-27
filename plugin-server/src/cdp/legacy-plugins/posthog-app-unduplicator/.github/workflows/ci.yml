@@ -1,0 +1,68 @@
+name: CI
+
+on:
+    - pull_request
+
+jobs:
+    lint:
+        name: Code formatting & linting
+        runs-on: ubuntu-20.04
+        steps:
+            - uses: actions/checkout@v1
+
+            - name: Set up Node 16
+              uses: actions/setup-node@v1
+              with:
+                  node-version: 16
+
+            - uses: actions/cache@v2
+              id: node-modules-cache
+              with:
+                  path: |
+                      node_modules
+                  key: ${{ runner.os }}-node-modules-${{ hashFiles('**/package-lock.json') }}
+                  restore-keys: |
+                      ${{ runner.os }}-node-modules
+
+            - name: Install dependencies
+              if: steps.node-modules-cache.outputs.cache-hit != 'true'
+              run: yarn install --frozen-lockfile
+
+            - name: Check formatting with Prettier
+              run: yarn format:check
+
+            - name: Lint with ESLint
+              run: yarn lint
+
+            - name: Check Typescript
+              run: |
+                  yarn typescript:check
+
+    test:
+        name: Test
+        runs-on: ubuntu-20.04
+
+        steps:
+            - uses: actions/checkout@v1
+
+            - name: Set up Node 16
+              uses: actions/setup-node@v1
+              with:
+                  node-version: 16
+
+            - uses: actions/cache@v2
+              id: node-modules-cache
+              with:
+                  path: |
+                      node_modules
+                  key: ${{ runner.os }}-node-modules-${{ hashFiles('**/package-lock.json') }}
+                  restore-keys: |
+                      ${{ runner.os }}-node-modules
+
+            - name: Install dependencies
+              if: steps.node-modules-cache.outputs.cache-hit != 'true'
+              run: yarn install --frozen-lockfile
+
+            - name: Run test
+              run: |
+                  yarn test

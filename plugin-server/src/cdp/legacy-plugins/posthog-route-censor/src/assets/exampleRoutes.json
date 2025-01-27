@@ -1,0 +1,14 @@
+[
+  {
+    "path": "/drivers-license/:driversLicenseId",
+    "include": ["driversLicenseId"]
+  },
+  {
+    "path": "/medical-id-number/:medicalIdNumber",
+    "include": ["medicalIdNumber"]
+  },
+  {
+    "path": "/secret-clubs/:category/:secretClubId",
+    "include": ["secretClubId"]
+  }
+]

@@ -1,0 +1,16 @@
+{
+    "compilerOptions": {
+        "target": "ES2018",
+        "lib": ["ESNext"],
+        "module": "CommonJS",
+        "moduleResolution": "Node",
+        "strict": true,
+        "forceConsistentCasingInFileNames": true,
+        "noImplicitReturns": true,
+        "noUnusedParameters": true,
+        "resolveJsonModule": true,
+        "outDir": "dist",
+        "rootDir": "src"
+    },
+    "exclude": ["**/*.test.ts"]
+}

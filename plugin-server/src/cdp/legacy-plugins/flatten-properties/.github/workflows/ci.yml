@@ -1,0 +1,23 @@
+name: CI
+
+on:
+    - pull_request
+
+jobs:
+    unit-tests:
+        name: Unit tests
+        runs-on: ubuntu-20.04
+        steps:
+            - name: Checkout the repository
+              uses: actions/checkout@v4
+
+            - name: Set up Node 16
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 16
+
+            - name: Install dependencies
+              run: yarn --frozen-lockfile
+
+            - name: Run unit tests
+              run: yarn test

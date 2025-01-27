@@ -1,0 +1,76 @@
+{
+    "name": "Notification Bar",
+    "url": "https://github.com/PostHog/notification-bar-app",
+    "description": "Show a notification bar for your users",
+    "config": [
+        {
+            "markdown": "## MANUAL STEP NOTICE: This app needs to injects code into your website through posthog-js. You need to **opt-in** on your site to enable this behaviour.\n\n```\nposthog.init(\"api_key\", {\n  \"api_host\": \"https://app.posthog.com\",\n  \"opt_in_site_apps\": true,\n})\n```"
+        },
+        {
+            "key": "domains",
+            "name": "Domains",
+            "hint": "Comma separated list of domains to activate on. Leave blank to enable all. For example: \"localhost,app.posthog.com\"",
+            "type": "string",
+            "default": "",
+            "site": true
+        },
+        {
+            "key": "notification",
+            "name": "HTML to show in the notification bar",
+            "type": "string",
+            "default": "🚀 <strong>Product 2.0!</strong> is out! <a href='https://google.com'>Click here</a> to learn more.",
+            "required": true,
+            "site": true
+        },
+        {
+            "key": "position",
+            "name": "Position of the notification bar",
+            "type": "choice",
+            "choices": ["sticky", "top-of-page"],
+            "default": "sticky",
+            "required": true,
+            "site": true
+        },
+        {
+            "key": "backgroundColor",
+            "name": "Background color",
+            "type": "string",
+            "default": "#ebece8",
+            "required": true,
+            "site": true
+        },
+        {
+            "key": "textColor",
+            "name": "Text color",
+            "type": "string",
+            "default": "#333",
+            "required": true,
+            "site": true
+        },
+        {
+            "key": "linkColor",
+            "name": "Link color",
+            "type": "string",
+            "default": "#f64e00",
+            "required": true,
+            "site": true
+        },
+        {
+            "key": "cssOverride",
+            "name": "CSS override",
+            "type": "string",
+            "default": ".notification-bar { }",
+            "required": false,
+            "site": true
+        },
+        {
+            "key": "rememberClose",
+            "name": "Remember close",
+            "type": "choice",
+            "choices": ["yes", "no"],
+            "default": "yes",
+            "hint": "Remember if the user has closed the notification bar, and don't show it again. This resets if you update the notification bar's text.",
+            "site": true
+        }
+    ]
+}

@@ -1,0 +1,23 @@
+{
+    "name": "posthog-currency-normalization-plugin",
+    "version": "0.0.2",
+    "description": "Convert ingested payment values between currencies",
+    "main": "index.js",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/PostHog/posthog-currency-normalization-plugin.git"
+    },
+    "author": "Marius Andra <marius.andra@gmail.com>",
+    "license": "MIT",
+    "bugs": {
+        "url": "https://github.com/PostHog/posthog-currency-normalization-plugin/issues"
+    },
+    "homepage": "https://github.com/PostHog/posthog-currency-normalization-plugin#readme",
+    "scripts": {
+        "test": "jest"
+    },
+    "devDependencies": {
+        "jest": "^26.6.3",
+        "posthog-plugins": "^0.2.2"
+    }
+}

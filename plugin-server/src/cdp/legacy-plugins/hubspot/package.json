@@ -1,0 +1,32 @@
+{
+    "name": "hubspot-plugin",
+    "version": "0.0.3",
+    "description": "Send contact data to Hubspot on PostHog identify events.",
+    "main": "index.ts",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/PostHog/hubspot-plugin.git"
+    },
+    "author": "Yakko Majuri",
+    "license": "MIT",
+    "bugs": {
+        "url": "https://github.com/PostHog/hubspot-plugin/issues"
+    },
+    "homepage": "https://github.com/PostHog/hubspot-plugin#readme",
+    "devDependencies": {
+        "husky": "^4.3.0",
+        "lint-staged": "^10.5.2",
+        "prettier": "^2.2.1"
+    },
+    "husky": {
+        "hooks": {
+            "pre-commit": "lint-staged"
+        }
+    },
+    "lint-staged": {
+        "*.{js,ts,tsx,json,yml}": "prettier --write"
+    },
+    "dependencies": {
+        "@posthog/plugin-scaffold": "^1.3.4"
+    }
+}

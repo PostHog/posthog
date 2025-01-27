@@ -1,0 +1,16 @@
+{
+    "compilerOptions": {
+        "target": "ES2018",
+        "lib": ["ESNext"],
+        "module": "ES2015",
+        "moduleResolution": "Node",
+        "strict": true,
+        "forceConsistentCasingInFileNames": true,
+        "noImplicitReturns": true,
+        "noUnusedParameters": true,
+        "esModuleInterop": true,
+        "noEmit": true,
+        "resolveJsonModule": true
+    },
+    "exclude": ["**.test.ts"]
+}

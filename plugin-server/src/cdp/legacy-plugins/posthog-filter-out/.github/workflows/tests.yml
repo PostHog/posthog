@@ -1,0 +1,23 @@
+name: Unit tests
+
+on:
+    - pull_request
+
+jobs:
+    unit-tests:
+        name: Unit tests
+        runs-on: ubuntu-20.04
+        steps:
+            - name: Checkout the repository
+              uses: actions/checkout@v2
+
+            - name: Set up Node 14
+              uses: actions/setup-node@v2
+              with:
+                  node-version: 14
+
+            - name: Install dependencies
+              run: yarn --frozen-lockfile
+
+            - name: Run unit tests
+              run: yarn test

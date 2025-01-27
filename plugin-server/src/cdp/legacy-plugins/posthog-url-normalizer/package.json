@@ -1,0 +1,16 @@
+{
+  "name": "posthog-url-normalizer-plugin",
+  "private": false,
+  "version": "0.0.1",
+  "description": "A PostHog plugin to normalize the format of urls in your application allowing you to more easily compare them in insights.",
+  "scripts": {
+    "test": "jest ."
+  },
+  "devDependencies": {
+    "@posthog/plugin-scaffold": "^1.0.4",
+    "@types/jest": "^28.1.1",
+    "jest": "^28.1.1",
+    "ts-jest": "^28.0.4",
+    "typescript": "^4.7.3"
+  }
+}

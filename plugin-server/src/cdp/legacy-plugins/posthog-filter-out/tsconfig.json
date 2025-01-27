@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "esModuleInterop": true,
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "noEmit": false,
+    "outDir": "dist",
+    "resolveJsonModule": true,
+    "sourceMap": true,
+    "target": "es6",
+    "baseUrl": ".",
+    "rootDir": "./src",
+    "paths": {
+      "src/*": ["./src/*"]
+    }
+  },
+  "lib": ["ESNext"],
+  "include": ["src/**/*.ts"]
+}

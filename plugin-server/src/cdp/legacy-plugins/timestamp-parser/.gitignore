@@ -1,0 +1,8 @@
+node_modules
+.idea
+yarn-error.log
+dist
+.yalc
+yalc.lock
+test.js
+.DS_STORE

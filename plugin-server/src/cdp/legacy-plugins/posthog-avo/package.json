@@ -1,0 +1,17 @@
+{
+    "name": "posthog-avo-plugin",
+    "private": true,
+    "version": "1.0.0",
+    "description": "Export PostHog events to Avo inspector.",
+    "devDependencies": {
+        "@posthog/plugin-contrib": "^0.0.3",
+        "@posthog/plugin-scaffold": "^0.12.10",
+        "@types/generic-pool": "^3.1.9",
+        "aws-sdk": "^2.885.0",
+        "generic-pool": "^3.7.8",
+        "@types/node": "^17.0.24",
+        "@types/node-fetch": "^2.6.1",
+        "node-fetch": "^3.2.3"
+    },
+    "dependencies": {}
+}

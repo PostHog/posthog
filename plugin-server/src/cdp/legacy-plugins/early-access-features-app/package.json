@@ -1,0 +1,14 @@
+{
+  "name": "early-access-features-app",
+  "version": "1.0.0",
+  "description": "",
+  "author": "",
+  "license": "MIT",
+  "scripts": {
+      "start": "app-dev-server"
+  },
+  "dependencies": {},
+  "devDependencies": {
+      "@posthog/app-dev-server": "^1.1.1"
+  }
+}

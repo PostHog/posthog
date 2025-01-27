@@ -1,0 +1,74 @@
+{
+    "name": "Pineapple Mode",
+    "description": "Make any website better by adding pineapples",
+    "config": [
+        {
+            "markdown": "## MANUAL STEP NOTICE: This app needs to injects code into your website through posthog-js. You need to **opt-in** on your site to enable this behaviour.\n\n```\nposthog.init(\"api_key\", {\n  \"api_host\": \"https://app.posthog.com\",\n  \"opt_in_site_apps\": true,\n})\n```"
+        },
+        {
+            "key": "domains",
+            "name": "Domains",
+            "hint": "Comma separated list of domains to activate on. Leave blank to enable all. For example: \"localhost,app.posthog.com\"",
+            "type": "string",
+            "default": "",
+            "site": true
+        },
+        {
+            "key": "emoji",
+            "name": "Emoji to use",
+            "type": "string",
+            "default": "🍍",
+            "required": true,
+            "site": true
+        },
+        {
+            "key": "intensity",
+            "name": "Intensity",
+            "type": "string",
+            "default": "4",
+            "required": true,
+            "site": true,
+            "hint": "Rainfall intensity (1-10)"
+        },
+        {
+            "key": "startRaining",
+            "name": "Start raining immediately",
+            "type": "choice",
+            "choices": ["Yes", "No"],
+            "default": "Yes",
+            "required": true,
+            "site": true
+        },
+        {
+            "key": "showButton",
+            "name": "Show Floating Button",
+            "hint": "Shows a button you can use to disable the pineapple mode",
+            "type": "choice",
+            "choices": ["Yes", "No"],
+            "default": "Yes",
+            "site": true
+        },
+        {
+            "key": "buttonText",
+            "name": "Button text, if enabled",
+            "type": "string",
+            "default": "",
+            "site": true
+        },
+        {
+            "key": "buttonColor",
+            "name": "Button text color",
+            "type": "string",
+            "hint": "Any valid CSS color. For example: \"#ff0000\" or \"red\"",
+            "default": "",
+            "site": true
+        },        {
+            "key": "buttonBackground",
+            "name": "Button background",
+            "type": "string",
+            "hint": "Any valid CSS background. For example: \"red\" or \"url('...')\"",
+            "default": "",
+            "site": true
+        }
+    ]
+}

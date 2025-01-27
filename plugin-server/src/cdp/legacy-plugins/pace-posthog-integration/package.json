@@ -1,0 +1,56 @@
+{
+    "name": "posthog-pace-plugin",
+    "version": "1.0.0",
+    "description": "Send events to Pace",
+    "keywords": [
+        "posthog",
+        "plugin",
+        "Twilio"
+    ],
+    "main": "index.ts",
+    "repository": "github:PostHog/pace-posthog-integration.git",
+    "author": "PostHog <hey@posthog.com>",
+    "bugs": {
+        "url": "https://github.com/PostHog/pace-posthog-integration/issues"
+    },
+    "homepage": "https://github.com/PostHog/pace-posthog-integration#readme",
+    "license": "MIT",
+    "scripts": {
+        "test": "jest .",
+        "lint": "eslint .",
+        "lint:fix": "eslint --fix .",
+        "format": "prettier --write .",
+        "format:check": "prettier --check .",
+        "prepublishOnly": "yarn test",
+        "typecheck": "tsc"
+    },
+    "dependencies": {},
+    "devDependencies": {
+        "@posthog/plugin-scaffold": "^1.6.0",
+        "@types/jest": "^26.0.24",
+        "@typescript-eslint/eslint-plugin": "^4.33.0",
+        "@typescript-eslint/parser": "^4.33.0",
+        "eslint": "^7.32.0",
+        "eslint-config-prettier": "^8.10.0",
+        "eslint-plugin-import": "^2.29.1",
+        "eslint-plugin-node": "^11.1.0",
+        "eslint-plugin-promise": "^4.3.1",
+        "eslint-plugin-simple-import-sort": "^7.0.0",
+        "husky": "~4.3.8",
+        "jest": "^26.6.3",
+        "jest-fetch-mock": "^3.0.3",
+        "lint-staged": "~10.5.4",
+        "prettier": "^2.8.8",
+        "ts-jest": "^26.5.6",
+        "typescript": "^4.9.5"
+    },
+    "husky": {
+        "hooks": {
+            "pre-commit": "lint-staged && tsc --noEmit"
+        }
+    },
+    "lint-staged": {
+        "*.{js,ts}": "eslint --fix",
+        "*.{ts,tsx,js,jsx,json,yaml,toml,css,scss,html,xml}": "prettier --write"
+    }
+}
