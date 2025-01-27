@@ -10,7 +10,6 @@ export type LegacyPluginLogger = {
 }
 
 export type LegacyPluginMeta = {
-    // storage: StorageExtension
     config: Record<string, any>
     global: Record<string, any>
 
