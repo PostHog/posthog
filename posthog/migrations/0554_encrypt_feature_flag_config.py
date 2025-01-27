@@ -5,13 +5,13 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0541_feature_flag_config"),
+        ("posthog", "0553_feature_flag_config"),
     ]
 
     operations = [
         migrations.AddField(
             model_name="featureflag",
             name="has_encrypted_payloads",
-            field=models.BooleanField(default=False),
+            field=models.BooleanField(default=False, null=True, blank=True),
         ),
     ]
