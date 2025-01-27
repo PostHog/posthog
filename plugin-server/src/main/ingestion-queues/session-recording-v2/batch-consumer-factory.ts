@@ -37,7 +37,7 @@ export class DefaultBatchConsumerFactory implements BatchConsumerFactory {
             topic,
             eachBatch,
             callEachBatchWhenEmpty: true, // Required, as we want to flush session batches periodically
-            autoCommit: false,
+            autoCommit: true,
             autoOffsetStore: false,
             sessionTimeout: KAFKA_CONSUMER_SESSION_TIMEOUT_MS,
             maxPollIntervalMs: this.serverConfig.KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS,
