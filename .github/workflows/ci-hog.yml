@@ -126,8 +126,7 @@ jobs:
             - name: Run HogVM TypeScript tests
               run: |
                   # TODO: just npm install in <root> should only install build deps
-                  npm install -g nx@20.3.1
-                  pnpx nx prepare hogvm-ts
+                  pnpm install --filter @posthog/hogvm
                   pnpx nx test hogvm-ts
 
             - name: Run Hog tests
