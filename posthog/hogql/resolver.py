@@ -676,7 +676,7 @@ class Resolver(CloningVisitor):
 
                 if node.type.isolate_scope:
                     table_type = node.type.table_type
-                    while isinstance(table_type, ast.TableAliasType) or isinstance(table_type, ast.VirtualTableType):
+                    while isinstance(table_type, ast.VirtualTableType):
                         table_type = table_type.table_type
                     self.scopes.append(ast.SelectQueryType(tables={node.type.name: table_type}))
 
