@@ -133,7 +133,6 @@ describe('CdpCyclotronWorkerPlugins', () => {
                     "triggeringEvents": "$identify,mycustomevent",
                     "useEuropeanDataStorage": "No",
                   },
-                  "fetch": [Function],
                   "geoip": {},
                   "global": {},
                   "jobs": {},
