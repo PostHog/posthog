@@ -370,7 +370,6 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             event_variant = event.get("breakdown_value")
             if event_variant == "control":
                 errors[ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT] = False
-                errors[ExperimentNoResultsErrorKeys.NO_FLAG_INFO] = False
                 break
         # Check if at least one of the test variants is present
         test_variants = [variant for variant in self.variants if variant != "control"]
@@ -379,7 +378,6 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             event_variant = event.get("breakdown_value")
             if event_variant in test_variants:
                 errors[ExperimentNoResultsErrorKeys.NO_TEST_VARIANT] = False
-                errors[ExperimentNoResultsErrorKeys.NO_FLAG_INFO] = False
                 break
 
         has_errors = any(errors.values())
