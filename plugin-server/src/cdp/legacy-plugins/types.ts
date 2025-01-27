@@ -1,5 +1,4 @@
-import { Meta, Plugin } from '@posthog/plugin-scaffold'
-import fetch from 'node-fetch'
+import { Plugin } from '@posthog/plugin-scaffold'
 
 export type LegacyPlugin = {
     id: string
@@ -7,14 +6,4 @@ export type LegacyPlugin = {
     description: string
     onEvent: Plugin<any>['onEvent']
     setupPlugin: Plugin<any>['setupPlugin']
-}
-
-export type FetchType = typeof fetch
-
-export type MetaWithFetch = Meta & {
-    fetch: FetchType
-}
-
-export type PluginWithFetch = Plugin & {
-    fetch: FetchType
 }

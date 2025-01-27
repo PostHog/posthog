@@ -35,7 +35,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         await this.produceQueuedMessages()
     }
 
-    private async updateJobs(invocations: HogFunctionInvocationResult[]) {
+    protected async updateJobs(invocations: HogFunctionInvocationResult[]) {
         await Promise.all(
             invocations.map((item) => {
                 if (item.invocation.queue === 'fetch') {

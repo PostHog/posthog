@@ -1,10 +1,7 @@
 import { Meta, ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { trackedFetch } from '~/src/utils/fetch'
-
 import { PLUGINS_BY_ID } from '../legacy-plugins'
-import { FetchType, MetaWithFetch } from '../legacy-plugins/types'
 import { HogFunctionInvocation, HogFunctionInvocationResult, HogFunctionTypeType } from '../types'
 import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 
@@ -25,12 +22,12 @@ export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
     private pluginState: Record<string, PluginState> = {}
 
     public async processInvocations(invocations: HogFunctionInvocation[]): Promise<HogFunctionInvocationResult[]> {
-        return await this.runManyWithHeartbeat(invocations, (item) => this.executePluginInvocation(item))
-    }
+        const results = await this.runManyWithHeartbeat(invocations, (item) => this.executePluginInvocation(item))
 
-    public fetch(...args: Parameters<FetchType>) {
-        // TOOD: THis better
-        return trackedFetch(...args)
+        await this.processInvocationResults(results)
+        await this.updateJobs(results)
+
+        return results
     }
 
     public async executePluginInvocation(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult> {
@@ -65,7 +62,7 @@ export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
         let state = this.pluginState[pluginId]
 
         if (!state) {
-            const meta: MetaWithFetch = {
+            const meta: Meta = {
                 config: invocation.globals.inputs,
                 attachments: {},
                 global: {},
@@ -75,7 +72,6 @@ export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
                 storage: {} as any, // NOTE: Figuree out what to do about storage as that is used...
                 geoip: {} as any,
                 utils: {} as any,
-                fetch: this.fetch as any,
             }
 
             state = this.pluginState[pluginId] = {
