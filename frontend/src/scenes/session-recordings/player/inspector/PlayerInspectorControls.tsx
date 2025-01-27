@@ -29,13 +29,6 @@ import { FilterableInspectorListItemTypes } from '~/types'
 import { sessionRecordingPlayerLogic, SessionRecordingPlayerMode } from '../sessionRecordingPlayerLogic'
 import { InspectorSearchInfo } from './components/InspectorSearchInfo'
 
-export const TabToIcon = {
-    [FilterableInspectorListItemTypes.EVENTS]: IconUnverifiedEvent,
-    [FilterableInspectorListItemTypes.CONSOLE]: IconTerminal,
-    [FilterableInspectorListItemTypes.NETWORK]: IconDashboard,
-    [FilterableInspectorListItemTypes.DOCTOR]: IconStethoscope,
-}
-
 function sideActionForType({
     miniFilters,
     setMiniFilter,
