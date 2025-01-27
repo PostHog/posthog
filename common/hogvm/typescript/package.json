@@ -24,8 +24,12 @@
     "repository": "https://github.com/PostHog/posthog-plugin-server",
     "license": "MIT",
     "devDependencies": {
-        "@parcel/packager-ts": "2.12.0",
-        "@parcel/transformer-typescript-types": "2.12.0",
+        "@parcel/config-default": "^2.13.3",
+        "@parcel/core": "^2.13.3",
+        "@parcel/packager-ts": "^2.13.3",
+        "@parcel/transformer-js": "^2.13.3",
+        "@parcel/transformer-react-refresh-wrap": "^2.13.3",
+        "@parcel/transformer-typescript-types": "^2.13.3",
         "@swc-node/register": "^1.9.1",
         "@swc/core": "^1.5.7",
         "@swc/jest": "^0.2.36",
@@ -33,7 +37,7 @@
         "@types/node": "^20.14.2",
         "crypto-browserify": "^3.12.0",
         "jest": "^28.1.1",
-        "parcel": "^2.12.0",
+        "parcel": "^2.13.3",
         "prettier": "^3.2.5",
         "re2": "^1.21.3",
         "typescript": "^5.4.5"
@@ -51,5 +55,14 @@
     },
     "dependencies": {
         "luxon": "^3.4.4"
+    },
+    "parcel": {
+        "extends": "@parcel/config-default",
+        "transformers": {
+            "*.{js,mjs,jsx,cjs,ts,tsx}": [
+                "@parcel/transformer-js",
+                "@parcel/transformer-react-refresh-wrap"
+            ]
+        }
     }
 }

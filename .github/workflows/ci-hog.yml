@@ -127,8 +127,8 @@ jobs:
               run: |
                   # TODO: just npm install in <root> should only install build deps
                   npm install -g nx@20.3.1
-                  npx nx prepare hogvm-ts
-                  npx nx test hogvm-ts
+                  pnpx nx prepare hogvm-ts
+                  pnpx nx test hogvm-ts
 
             - name: Run Hog tests
               run: |

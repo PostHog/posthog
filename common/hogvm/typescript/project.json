@@ -7,7 +7,9 @@
         "prepare": {
             "executor": "nx:run-commands",
             "options": {
-                "commands": ["pnpm install --frozen-lockfile"],
+                "commands": [
+                    "pnpm install --frozen-lockfile --filter @posthog/hogvm && echo 'Installed deps for @posthog/hogvm'"
+                ],
                 "cwd": "{projectRoot}"
             }
         },

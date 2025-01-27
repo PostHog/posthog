@@ -77,7 +77,7 @@
         "@microsoft/fetch-event-source": "^2.0.1",
         "@monaco-editor/react": "4.6.0",
         "@nx/web": "20.3.1",
-        "@posthog/hogvm": "file:./common/hogvm/typescript",
+        "@posthog/hogvm": "workspace:*",
         "@posthog/icons": "0.10.0",
         "@posthog/plugin-scaffold": "^1.4.4",
         "@react-hook/size": "^2.1.2",

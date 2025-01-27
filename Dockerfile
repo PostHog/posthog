@@ -27,22 +27,23 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # Copy everything we need to `pnpm install` && `nx run prepare`
 COPY package.json pnpm-lock.yaml nx.json project.json ./
-COPY common/hogvm/typescript/project.json common/hogvm/typescript/package.json common/hogvm/typescript/pnpm-lock.yaml common/hogvm/typescript/
+COPY common/ common/
 COPY patches/ patches/
+ENV PNPM_HOME /tmp/pnpm-store 
 RUN corepack enable && pnpm --version && \
     mkdir /tmp/pnpm-store && \
     pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
-    PNPM_HOME=/tmp/pnpm-store npx nx deps:prepare frontend --verbose && \
+    pnpx nx deps:prepare frontend --verbose && \
+    pnpx nx deps:build frontend --verbose && \
     rm -rf /tmp/pnpm-store
 
 # Build the frontend.
 COPY frontend/ frontend/
 COPY products/ products/
-COPY common/ common/
 COPY ee/frontend/ ee/frontend/
 COPY ./bin/ ./bin/
 COPY babel.config.js tsconfig.json webpack.config.js tailwind.config.js ./
-RUN npx nx build frontend --verbose
+RUN pnpx nx build frontend --verbose
 
 #
 # ---------------------------------------------------------
