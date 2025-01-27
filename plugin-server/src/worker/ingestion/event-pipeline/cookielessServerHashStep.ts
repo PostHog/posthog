@@ -1,6 +1,7 @@
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as siphashDouble from '@posthog/siphash/lib/siphash-double'
 import { DateTime } from 'luxon'
+import { Counter } from 'prom-client'
 import { getDomain } from 'tldts'
 
 import { cookielessRedisErrorCounter, eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
@@ -114,10 +115,12 @@ export class CookielessSaltManager {
                     'cookielessServerHashStep'
                 )
                 if (saltBase64) {
+                    cookielessCacheHitCounter.labels({ operation: 'getSaltForDay', day: yyyymmdd }).inc()
                     const salt = base64StringToUint32ArrayLE(saltBase64)
                     this.localSaltMap[yyyymmdd] = salt
                     return salt
                 }
+                cookielessCacheMissCounter.labels({ operation: 'getSaltForDay', day: yyyymmdd }).inc()
 
                 // try to write a new one to redis, but don't overwrite
                 const newSaltParts = createRandomUint32x4()
@@ -639,3 +642,15 @@ export function sessionStateToBuffer({ sessionId, lastActivityTimestamp }: Sessi
     buffer.writeBigUInt64LE(BigInt(lastActivityTimestamp), 16)
     return buffer
 }
+
+const cookielessCacheHitCounter = new Counter({
+    name: 'cookieless_salt_cache_hit',
+    help: 'Number of local cache hits for cookieless salt',
+    labelNames: ['operation', 'day'],
+})
+
+const cookielessCacheMissCounter = new Counter({
+    name: 'cookieless_salt_cache_miss',
+    help: 'Number of local cache misses for cookieless salt',
+    labelNames: ['operation', 'day'],
+})
