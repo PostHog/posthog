@@ -3,6 +3,7 @@ ViewSet for Max Support Sidebar Chat Assistant.
 """
 
 from typing import Any
+import builtins
 from collections.abc import MutableMapping
 from django.conf import settings
 import logging
@@ -153,7 +154,7 @@ class MaxChatViewSet(viewsets.ViewSet):
         headers["container_hostname"] = settings.CONTAINER_HOSTNAME
         return headers
 
-    def _format_system_prompt(self, prompt: str) -> list:
+    def _format_system_prompt(self, prompt: str) -> builtins.list[dict[str, Any]]:
         """Format system prompt with cache control."""
         return [{"type": "text", "text": prompt, "cache_control": {"type": "ephemeral"}}]
 
