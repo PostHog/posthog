@@ -1,6 +1,6 @@
 import datetime
 import json
-from typing import Optional
+from typing import Optional, cast
 from unittest.mock import call, patch
 
 from django.core.cache import cache
@@ -480,7 +480,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         instance = FeatureFlag.objects.get(id=response.json()["id"])
         self.assertEqual(instance.key, "experiment-feature")
         self.assertEqual(instance.experiment_set.count(), 1)
-        experiment = Experiment.objects.get(id=instance.experiment_set.first().id)
+        experiment = cast(Experiment, instance.experiment_set.first())
         self.assertEqual(experiment.name, f"Experiment for {instance.key}")
         mock_capture.assert_called_with(
             self.user,
