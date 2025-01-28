@@ -1355,6 +1355,34 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "test_absolute_exposure": 1,
                 },
             ],
+            [
+                "group",
+                {
+                    "key": "name",
+                    "type": "group",
+                    # Value is generated in the test
+                    "value": None,
+                    "operator": "exact",
+                    "group_type_index": 0,
+                },
+                {
+                    "control_absolute_exposure": 7,
+                    "test_absolute_exposure": 9,
+                },
+            ],
+            [
+                "element",
+                {
+                    "key": "tag_name",
+                    "type": "element",
+                    "value": ["button"],
+                    "operator": "exact",
+                },
+                {
+                    "control_absolute_exposure": 0,
+                    "test_absolute_exposure": 0,
+                },
+            ],
         ]
     )
     def test_query_runner_with_data_warehouse_internal_filters(self, name, filter: dict, filter_expected: dict):
@@ -1389,6 +1417,17 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ],
             )
             filter["value"] = cohort.pk
+        elif name == "group":
+            GroupTypeMapping.objects.create(
+                team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+            )
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key="my_awesome_group",
+                properties={"name": "Test Group"},
+            )
+            filter["value"] = ["Test Group"]
 
         self.team.test_account_filters = [filter]
         self.team.save()
@@ -1431,6 +1470,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         feature_flag_property: variant,
                         "$feature_flag": feature_flag.key,
                         "$user_id": f"user_{variant}_{i}",
+                        "$group_0": "my_awesome_group",
                     },
                     timestamp=datetime(2023, 1, i + 1),
                 )
@@ -1451,7 +1491,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             properties={"email": "internal_test_1@posthog.com"},
         )
         # 10th exposure for 'test'
-        # filtered out by "event_properties" and "person_properties"
+        # filtered out by "event_properties" , "person_properties", and "group"
         _create_event(
             team=self.team,
             event="$feature_flag_called",
@@ -1520,8 +1560,8 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query_runner = ExperimentTrendsQueryRunner(
             query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
         )
-        # "feature_flags" filters out all events
-        if name == "feature_flags":
+        # "feature_flags" and "element" filter out all events
+        if name == "feature_flags" or name == "element":
             with freeze_time("2023-01-07"), self.assertRaises(ValidationError) as context:
                 query_runner.calculate()
 
