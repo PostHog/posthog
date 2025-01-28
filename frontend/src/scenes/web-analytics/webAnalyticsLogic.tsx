@@ -6,9 +6,7 @@ import { windowValues } from 'kea-window-values'
 import api from 'lib/api'
 import { FEATURE_FLAGS, RETENTION_FIRST_TIME } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval, isNotNil, objectsEqual, updateDatesWithInterval } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
@@ -797,41 +795,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     }
                 }
 
-                const pathCleaningControl = (
-                    <LemonSwitch
-                        label={
-                            <div className="flex flex-row space-x-2">
-                                <Tooltip
-                                    title={
-                                        <>
-                                            Check{' '}
-                                            <Link to="https://posthog.com/docs/product-analytics/paths#path-cleaning-rules">
-                                                our path cleaning rules documentation
-                                            </Link>{' '}
-                                            to learn more about path cleaning
-                                        </>
-                                    }
-                                    interactive
-                                >
-                                    <span>Enable path cleaning</span>
-                                </Tooltip>
-                                <LemonButton
-                                    icon={<IconGear />}
-                                    type="tertiary"
-                                    status="alt"
-                                    size="small"
-                                    noPadding={true}
-                                    tooltip="Edit path cleaning settings"
-                                    to={urls.settings('project-product-analytics', 'path-cleaning')}
-                                />
-                            </div>
-                        }
-                        checked={isPathCleaningEnabled}
-                        onChange={(value) => actions.setIsPathCleaningEnabled(value)}
-                        className="h-full"
-                    />
-                )
-
                 if (featureFlags[FEATURE_FLAGS.WEB_VITALS] && productTab === ProductTab.WEB_VITALS) {
                     const createSeries = (name: WebVitalsMetric, math: PropertyMathType): AnyEntityNode => ({
                         kind: NodeKind.EventsNode,
@@ -904,7 +867,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 loadPriority: loadPriorityMap[TileId.WEB_VITALS_PATH_BREAKDOWN],
                                 dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
                             },
-                            control: pathCleaningControl,
                         },
                     ]
                 }
@@ -1044,7 +1006,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               doPathCleaning: isPathCleaningEnabled,
                                           },
                                           {
-                                              control: pathCleaningControl,
                                               docs: {
                                                   url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
                                                   title: 'Paths',
@@ -1088,7 +1049,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               doPathCleaning: isPathCleaningEnabled,
                                           },
                                           {
-                                              control: pathCleaningControl,
                                               docs: {
                                                   url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
                                                   title: 'Entry Path',
@@ -1122,7 +1082,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               doPathCleaning: isPathCleaningEnabled,
                                           },
                                           {
-                                              control: pathCleaningControl,
                                               docs: {
                                                   url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
                                                   title: 'End Path',

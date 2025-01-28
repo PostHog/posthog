@@ -1,5 +1,5 @@
-import { IconRewindPlay, IconTrending } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { IconRewindPlay, IconTrending, IconWarning } from '@posthog/icons'
+import { Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { getColorVar } from 'lib/colors'
@@ -622,15 +622,27 @@ export const WebExternalClicksTile = ({
 export const WebVitalsPathBreakdownTile = ({
     query,
     insightProps,
-    control,
-}: QueryWithInsightProps<WebVitalsPathBreakdownQuery> & {
-    control?: JSX.Element
-}): JSX.Element => {
+}: QueryWithInsightProps<WebVitalsPathBreakdownQuery>): JSX.Element => {
+    const { isPathCleaningEnabled } = useValues(webAnalyticsLogic)
+    const { setIsPathCleaningEnabled } = useActions(webAnalyticsLogic)
+
     return (
         <div>
-            <div className="flex flex-row items-center justify-between m-2 mr-4">
+            <div className="flex flex-row items-center gap-1 m-2">
                 <h3 className="text-lg font-semibold">Path Breakdown</h3>
-                {control}
+                {!isPathCleaningEnabled && (
+                    <Tooltip
+                        title={
+                            <span>
+                                Path Breakdown is more useful when path cleaning is turned on.{' '}
+                                <Link onClick={() => setIsPathCleaningEnabled(true)}>Enable it.</Link>
+                            </span>
+                        }
+                        interactive
+                    >
+                        <IconWarning className="mb-2" fontSize="18" />
+                    </Tooltip>
+                )}
             </div>
             <Query query={query} readOnly context={{ ...webAnalyticsDataTableQueryContext, insightProps }} />
         </div>
@@ -670,7 +682,7 @@ export const WebQuery = ({
     }
 
     if (query.kind === NodeKind.WebVitalsPathBreakdownQuery) {
-        return <WebVitalsPathBreakdownTile query={query} insightProps={insightProps} control={control} />
+        return <WebVitalsPathBreakdownTile query={query} insightProps={insightProps} />
     }
 
     return <Query query={query} readOnly={true} context={{ ...webAnalyticsDataTableQueryContext, insightProps }} />
