@@ -45,7 +45,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
     path(['products', 'llm_observability', 'frontend', 'llmObservabilityLogic']),
     connect({ values: [sceneLogic, ['sceneKey']] }),
     actions({
-        setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setDates: (dateFrom: string, dateTo: string | null) => ({ dateFrom, dateTo }),
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
         setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => ({ propertyFilters }),
     }),
@@ -56,7 +56,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 dateTo: INITIAL_DATE_TO as string | null,
             },
             {
-                setDates: (_, { dateFrom, dateTo }) => ({ dateFrom: dateFrom || INITIAL_DATE_FROM, dateTo }),
+                setDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
             },
         ],
         shouldFilterTestAccounts: [
@@ -489,7 +489,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 (date_from || INITIAL_DATE_FROM) !== values.dateFilter.dateFrom ||
                 (date_to || INITIAL_DATE_TO) !== values.dateFilter.dateTo
             ) {
-                actions.setDates(date_from, date_to)
+                actions.setDates(date_from || INITIAL_DATE_FROM, date_to || INITIAL_DATE_TO)
             }
             const filterTestAccountsValue = [true, 'true', 1, '1'].includes(filter_test_accounts)
             if (filterTestAccountsValue !== values.shouldFilterTestAccounts) {
@@ -505,23 +505,31 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
     }),
 
     actionToUrl(() => ({
-        setPropertyFilters: ({ propertyFilters }) => [
-            router.values.currentLocation.pathname,
-            {
-                ...router.values.searchParams,
-                filters: propertyFilters,
-            },
-        ],
+        setPropertyFilters: ({ propertyFilters }) => {
+            const searchParams = router.values.searchParams
+            // The `objectsEqual` check is necessary, because kea-router as of 3.2.0 uses a `===` check on search params
+            // internally, meaning that every time the filters array is constructed, it will be considered a new object
+            // (even if actually it's identical)
+            if (!objectsEqual(propertyFilters, searchParams.filters)) {
+                return [
+                    router.values.location.pathname,
+                    {
+                        ...searchParams,
+                        filters: propertyFilters.length > 0 ? propertyFilters : undefined,
+                    },
+                ]
+            }
+        },
         setDates: ({ dateFrom, dateTo }) => [
-            router.values.currentLocation.pathname,
+            router.values.location.pathname,
             {
                 ...router.values.searchParams,
-                date_from: dateFrom || undefined,
+                date_from: dateFrom === INITIAL_DATE_FROM ? undefined : dateFrom || undefined,
                 date_to: dateTo || undefined,
             },
         ],
         setShouldFilterTestAccounts: ({ shouldFilterTestAccounts }) => [
-            router.values.currentLocation.pathname,
+            router.values.location.pathname,
             {
                 ...router.values.searchParams,
                 filter_test_accounts: shouldFilterTestAccounts ? 'true' : undefined,
