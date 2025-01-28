@@ -95,7 +95,7 @@ def _create_ai_generation_event(
 def _create_ai_trace_event(
     *,
     trace_id: str,
-    trace_name: str,
+    trace_name: str | None,
     input_state: Any,
     output_state: Any,
     team: Team | None = None,
@@ -106,7 +106,7 @@ def _create_ai_trace_event(
 ):
     props = {
         "$ai_trace_id": trace_id,
-        "$ai_trace_name": trace_name,
+        "$ai_span_name": trace_name,
         "$ai_input_state": input_state,
         "$ai_output_state": output_state,
     }
@@ -722,7 +722,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             team=self.team,
             query=TracesQuery(
                 properties=[
-                    EventPropertyFilter(key="$ai_trace_name", value="runnable", operator=PropertyOperator.EXACT)
+                    EventPropertyFilter(key="$ai_span_name", value="runnable", operator=PropertyOperator.EXACT)
                 ],
                 dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
             ),
@@ -745,10 +745,65 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             team=self.team,
             query=TracesQuery(
                 properties=[
-                    EventPropertyFilter(key="$ai_trace_name", value="runnable", operator=PropertyOperator.EXACT),
+                    EventPropertyFilter(key="$ai_span_name", value="runnable", operator=PropertyOperator.EXACT),
                     EventPropertyFilter(key="foo", value="bar", operator=PropertyOperator.EXACT),
                 ],
                 dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
             ),
         ).calculate()
         self.assertEqual(len(response.results), 0)
+
+    def test_trace_name_fallback(self):
+        """
+        $ai_trace_name is a deprecated property, but we still want to support it for backwards compatibility.
+        """
+        _create_person(distinct_ids=["person1"], team=self.team)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace1",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 0),
+        )
+        _create_ai_trace_event(
+            trace_id="trace1",
+            trace_name="runnable",
+            input_state={"messages": [{"role": "user", "content": "Foo"}]},
+            output_state={"messages": [{"role": "user", "content": "Foo"}, {"role": "assistant", "content": "Bar"}]},
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 5),
+        )
+
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(
+                traceId="trace1",
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
+            ),
+        ).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].traceName, "runnable")
+
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace2",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 0),
+        )
+        _create_ai_trace_event(
+            trace_id="trace2",
+            trace_name=None,
+            input_state={"messages": [{"role": "user", "content": "Foo"}]},
+            output_state={"messages": [{"role": "user", "content": "Foo"}, {"role": "assistant", "content": "Bar"}]},
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 0, 5),
+            properties={"$ai_trace_name": "bar"},
+        )
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(
+                traceId="trace2",
+                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
+            ),
+        ).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].traceName, "bar")
