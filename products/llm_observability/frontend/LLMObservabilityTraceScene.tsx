@@ -38,13 +38,10 @@ export const scene: SceneExport = {
 }
 
 export function LLMObservabilityTraceScene(): JSX.Element {
-    const { traceId, query, cachedTraceResponse } = useValues(llmObservabilityTraceLogic)
+    const { traceId, query } = useValues(llmObservabilityTraceLogic)
 
     return (
-        <BindLogic
-            logic={llmObservabilityTraceDataLogic}
-            props={{ traceId, query, cachedResults: cachedTraceResponse }}
-        >
+        <BindLogic logic={llmObservabilityTraceDataLogic} props={{ traceId, query }}>
             <TraceSceneWrapper />
         </BindLogic>
     )

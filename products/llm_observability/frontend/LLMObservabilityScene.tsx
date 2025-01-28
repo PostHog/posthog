@@ -23,13 +23,12 @@ export const scene: SceneExport = {
 }
 
 const Filters = (): JSX.Element => {
-    const {
-        dateFilter: { dateTo, dateFrom },
-        shouldFilterTestAccounts,
-        generationsQuery,
-        propertyFilters,
-    } = useValues(llmObservabilityLogic)
+    const { dashboardDateFilter, dateFilter, shouldFilterTestAccounts, generationsQuery, propertyFilters, activeTab } =
+        useValues(llmObservabilityLogic)
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmObservabilityLogic)
+
+    const dateFrom = activeTab === 'dashboard' ? dashboardDateFilter.dateFrom : dateFilter.dateFrom
+    const dateTo = activeTab === 'dashboard' ? dashboardDateFilter.dateTo : dateFilter.dateTo
 
     return (
         <div className="flex gap-x-4 gap-y-2 items-center flex-wrap py-4 -mt-4 mb-4 border-b">
