@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from concurrent.futures import (
     ALL_COMPLETED,
@@ -10,15 +11,15 @@ from concurrent.futures import (
     as_completed,
 )
 from copy import copy
-from typing import Literal, NamedTuple, TypeVar
+from dataclasses import dataclass
+from typing import Any, Literal, NamedTuple, TypeVar
 
 from clickhouse_driver import Client
 from clickhouse_pool import ChPool
-from django.conf import settings
 
+from posthog import settings
 from posthog.clickhouse.client.connection import _make_ch_pool, default_client
 from posthog.settings import CLICKHOUSE_PER_TEAM_SETTINGS
-
 
 K = TypeVar("K")
 V = TypeVar("V")
@@ -169,3 +170,79 @@ def get_cluster(
         extra_hosts.append(ConnectionInfo(host_config.pop("host")))
         assert len(host_config) == 0, f"unexpected values: {host_config!r}"
     return ClickhouseCluster(default_client(), extra_hosts=extra_hosts, logger=logger, client_settings=client_settings)
+
+
+@dataclass
+class Mutation:
+    table: str
+    mutation_id: str
+
+    def is_done(self, client: Client) -> bool:
+        [[is_done]] = client.execute(
+            f"""
+            SELECT is_done
+            FROM system.mutations
+            WHERE database = %(database)s AND table = %(table)s AND mutation_id = %(mutation_id)s
+            ORDER BY create_time DESC
+            """,
+            {"database": settings.CLICKHOUSE_DATABASE, "table": self.table, "mutation_id": self.mutation_id},
+        )
+        return is_done
+
+    def wait(self, client: Client) -> None:
+        while not self.is_done(client):
+            time.sleep(15.0)
+
+
+@dataclass
+class MutationRunner:
+    table: str
+    command: str  # the part after ALTER TABLE prefix, i.e. UPDATE, DELETE, MATERIALIZE, etc.
+    parameters: Mapping[str, Any]
+
+    def find(self, client: Client) -> Mutation | None:
+        """Find the running mutation task, if one exists."""
+        results = client.execute(
+            f"""
+            SELECT mutation_id
+            FROM system.mutations
+            WHERE
+                database = %(_database_{id(self)})s
+                AND table = %(_table_{id(self)})s
+                -- only one command per mutation is currently supported, so throw if the mutation contains more than we expect to find
+                -- throwIf always returns 0 if it does not throw, so negation turns this condition into effectively a noop if the test passes
+                AND NOT throwIf(
+                    length(splitByChar('\n', formatQuery($_sql_{id(self)}$ALTER TABLE {settings.CLICKHOUSE_DATABASE}{self.table} {self.command}$_sql_{id(self)}$)) as lines) != 2,
+                    'unexpected number of lines, expected 2 (ALTER TABLE prefix, followed by single command)'
+                )
+                AND command = trim(lines[2])
+                AND NOT is_killed  -- ok to restart a killed mutation
+            ORDER BY create_time DESC
+            """,
+            {
+                f"_database_{id(self)}": settings.CLICKHOUSE_DATABASE,
+                f"_table_{id(self)}": self.table,
+                **self.parameters,
+            },
+        )
+        if not results:
+            return None
+        else:
+            assert len(results) == 1
+            [[mutation_id]] = results
+            return Mutation(self.table, mutation_id)
+
+    def enqueue(self, client: Client) -> Mutation:
+        """Enqueue the mutation (or return the existing mutation if it is already running.)"""
+        if task := self.find(client):
+            return task
+
+        client.execute(
+            f"ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} {self.command}",
+            self.parameters,
+        )
+
+        task = self.find(client)
+        assert task is not None
+
+        return task
