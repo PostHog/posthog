@@ -86,6 +86,7 @@ export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
         let state = this.pluginState[pluginId]
 
         if (!state) {
+            // TODO: Modify fetch to be a silent log if it is a test function...
             const meta: LegacyPluginMeta = {
                 config: invocation.globals.inputs,
                 global: {},

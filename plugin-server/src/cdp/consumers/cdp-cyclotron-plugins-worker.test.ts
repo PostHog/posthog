@@ -110,8 +110,6 @@ describe('CdpCyclotronWorkerPlugins', () => {
             expect(PLUGINS_BY_ID['intercom'].setupPlugin).toHaveBeenCalledTimes(1)
             expect(jest.mocked(PLUGINS_BY_ID['intercom'].setupPlugin!).mock.calls[0][0]).toMatchInlineSnapshot(`
                 {
-                  "attachments": {},
-                  "cache": {},
                   "config": {
                     "ignoredEmailDomains": "dev.posthog.com",
                     "intercomApiKey": "1234567890",
@@ -119,22 +117,13 @@ describe('CdpCyclotronWorkerPlugins', () => {
                     "useEuropeanDataStorage": "No",
                   },
                   "fetch": [Function],
-                  "geoip": {},
                   "global": {},
-                  "jobs": {},
                   "logger": {
                     "debug": [Function],
                     "error": [Function],
                     "log": [Function],
                     "warn": [Function],
                   },
-                  "metrics": {},
-                  "storage": {
-                    "del": [Function],
-                    "get": [Function],
-                    "set": [Function],
-                  },
-                  "utils": {},
                 }
             `)
         })
