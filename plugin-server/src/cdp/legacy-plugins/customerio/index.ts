@@ -3,7 +3,7 @@ import { RetryError } from '@posthog/plugin-scaffold'
 
 import { Response } from '~/src/utils/fetch'
 
-import { LegacyPlugin, LegacyPluginMeta } from '../types'
+import { LegacyDestinationPlugin, LegacyPluginMeta } from '../types'
 import metadata from './plugin.json'
 
 const DEFAULT_HOST = 'track.customer.io'
@@ -255,7 +255,7 @@ function getEmailFromEvent(event: ProcessedPluginEvent): string | null {
     return null
 }
 
-export const customerioPlugin: LegacyPlugin = {
+export const customerioPlugin: LegacyDestinationPlugin = {
     id: 'customer-io',
     metadata: metadata as any,
     setupPlugin: setupPlugin as any,

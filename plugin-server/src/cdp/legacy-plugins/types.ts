@@ -17,7 +17,7 @@ export type LegacyPluginMeta = {
     fetch: (...args: Parameters<typeof trackedFetch>) => Promise<Response>
 }
 
-export type LegacyPlugin = {
+export type LegacyDestinationPlugin = {
     id: string
     metadata: {
         name: string
