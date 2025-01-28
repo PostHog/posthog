@@ -160,37 +160,37 @@ function TraceSidebar({
     tree: TraceTreeNode[]
 }): JSX.Element {
     return (
-        <aside className="border-border max-h-full bg-bg-light border rounded overflow-hidden md:w-72">
+        <aside className="border-border max-h-full bg-bg-light border rounded overflow-hidden flex flex-col md:w-72">
             <h3 className="font-medium text-sm px-2 my-2">Tree</h3>
             <LemonDivider className="m-0" />
             <NestingGroup>
                 <TraceLeaf topLevelTrace={trace} item={trace} isSelected={!eventId || eventId === trace.id} />
-                <li>
-                    <TreeNode tree={tree} trace={trace} selectedEventId={eventId} />
-                </li>
+                <TreeNode tree={tree} trace={trace} selectedEventId={eventId} />
             </NestingGroup>
         </aside>
     )
 }
 
 function NestingGroup({ level = 0, children }: { level?: number; children: React.ReactNode }): JSX.Element {
-    const listEl = <ul className={!level ? 'overflow-y-auto p-1 first:*:mt-0 h-full' : 'flex-1'}>{children}</ul>
+    const listEl = (
+        <ul className={!level ? 'overflow-y-auto p-1 first:*:mt-0 overflow-x-hidden' : 'flex-1 min-w-0'}>{children}</ul>
+    )
 
     if (!level) {
         return listEl
     }
 
     return (
-        <div className="flex items-stretch">
+        <li className="flex items-stretch min-w-0">
             {range(level).map((i) => (
                 <LemonDivider key={i} vertical className="mt-0 mb-1 mx-2" />
             ))}
             {listEl}
-        </div>
+        </li>
     )
 }
 
-const TraceLeaf = React.memo(function TraceNode({
+const TraceLeaf = React.memo(function TraceLeaf({
     topLevelTrace,
     item,
     isSelected,
@@ -238,7 +238,9 @@ const TraceLeaf = React.memo(function TraceNode({
             >
                 <div className="flex flex-row items-center gap-1.5">
                     <EventTypeTag event={item} size="small" />
-                    <span className="flex-1 truncate">{formatLLMEventTitle(item)}</span>
+                    <Tooltip title={formatLLMEventTitle(item)}>
+                        <span className="flex-1 truncate">{formatLLMEventTitle(item)}</span>
+                    </Tooltip>
                 </div>
                 {hasChildren && (
                     <div className="flex flex-row flex-wrap text-muted items-center gap-1.5">{children}</div>
@@ -266,11 +268,7 @@ function TreeNode({
                         item={event}
                         isSelected={!!selectedEventId && selectedEventId === event.id}
                     />
-                    {children && (
-                        <li>
-                            <TreeNode tree={children} trace={trace} selectedEventId={selectedEventId} />
-                        </li>
-                    )}
+                    {children && <TreeNode tree={children} trace={trace} selectedEventId={selectedEventId} />}
                 </React.Fragment>
             ))}
         </NestingGroup>
