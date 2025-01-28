@@ -1028,7 +1028,7 @@ class TestAsyncQuery(ClickhouseTestMixin, APIBaseTest):
         self.client.logout()
         query = HogQLQuery(query="select event, distinct_id, properties.key from events order by timestamp")
         response = self.client.post(f"/api/environments/{self.team.id}/query_async/", {"query": query.dict()})
-        self.assertEqual(response.status_code, status.HTTP_403_BAD_REQUEST, response.content)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
 
 
 class TestQueryRetrieve(APIBaseTest):

@@ -15,7 +15,6 @@ from asgiref.sync import sync_to_async
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.monitoring import Feature, monitor
-from posthog.models.team import Team
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 
@@ -200,58 +199,25 @@ ASYNC_FALLBACK_TO_POLLING_TIMEOUT = 50
 async def query_async(request: Request, *args, **kwargs) -> HttpResponse:
     """Async endpoint for handling event source queries."""
 
-    try:
-        data = json.loads(request.body)
-    except json.JSONDecodeError:
-        return HttpResponse(
-            json.dumps({"error": "Invalid JSON in request body"}),
-            content_type="application/json",
-            status=400,
-        )
+    # Call the create method on QueryViewSet
+    view = await sync_to_async(QueryViewSet.as_view)({"post": "create"}, **kwargs)
+    response = await sync_to_async(view)(request)
 
-    try:
-        data = QueryRequest.model_validate(data)
-    except ValidationError as exc:
-        capture_exception(exc)
-        return HttpResponse(
-            json.dumps({"error": "JSON parse error - {}".format(str(exc))}), content_type="application/json", status=400
-        )
+    if response.status_code != 200:
+        return HttpResponse(response.rendered_content, status=response.status_code)
 
-    check_auth_view = await sync_to_async(QueryViewSet.as_view)({"post": "check_auth_for_async"}, **kwargs)
-    check_auth = await sync_to_async(check_auth_view)(request)
-    if check_auth.status_code != 200 or request.user.is_anonymous:
-        return HttpResponse(check_auth.rendered_content, status=check_auth.status_code)
+    response.render()
+    data = json.loads(response.rendered_content)
 
-    team_id = kwargs.get("team_id")
+    # If it's not an async response, return immediately
+    if not isinstance(data, dict) or "query_id" not in data:
+        return response
 
-    team = await Team.objects.aget(id=team_id)
-
-    if data.filters_override is not None:
-        data.query = apply_dashboard_filters_to_dict(data.query.model_dump(), data.filters_override.model_dump(), team)
-
-    if data.variables_override is not None:
-        if isinstance(data.query, BaseModel):
-            query_as_dict = data.query.model_dump()
-        else:
-            query_as_dict = data.query
-
-        data.query = apply_dashboard_variables_to_dict(query_as_dict, data.variables_override, team)
-
-    client_query_id = data.client_query_id or uuid.uuid4().hex
-    execution_mode = execution_mode_from_refresh(data.refresh)
-
-    tag_queries(client_query_id=client_query_id)
-    set_tag("client_query_id", client_query_id)
-
-    if execution_mode == execution_mode.CACHE_ONLY_NEVER_CALCULATE:
-        execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
-
-    tag_queries(query=data.query.model_dump())
-
+    # For async responses, poll until complete or timeout
     async def check_query_status():
-        manager = QueryStatusManager(client_query_id, team.pk)
+        manager = QueryStatusManager(data["query_id"], kwargs.get("project_id"))
         start_time = time.time()
-        sleep_time = 0.01  # Start with 10ms
+        sleep_time = 0.1  # Start with 100ms
         max_sleep_time = 1.0  # Don't wait more than 1 second between checks
 
         while time.time() - start_time < ASYNC_FALLBACK_TO_POLLING_TIMEOUT:
@@ -262,51 +228,22 @@ async def query_async(request: Request, *args, **kwargs) -> HttpResponse:
             except Exception:
                 pass
 
-            # Exponential backoff with a maximum delay
             await asyncio.sleep(sleep_time)
-            sleep_time = min(sleep_time * 1.1, max_sleep_time)
+            sleep_time = min(sleep_time * 1.5, max_sleep_time)
 
         return None
 
-    try:
-        # Start the query processing
-        result = await sync_to_async(process_query_model)(
-            team,
-            data.query,
-            execution_mode=execution_mode,
-            query_id=client_query_id,
-            user=request.user,
-        )
+    status = await check_query_status()
 
-        # For async calculations, poll Redis for completion
-        if execution_mode in [
-            ExecutionMode.CALCULATE_ASYNC_ALWAYS,
-            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
-        ]:
-            status = await check_query_status()
-            if status is None and isinstance(result, BaseModel):
-                # If we timeout, return just the query status
-                response_data = result.model_dump_json()
-            elif isinstance(status, BaseModel) and hasattr(status, "results"):
-                response_data = json.dumps(status.results)
-            else:
-                response_data = json.dumps(status)
-        else:
-            # For non-async calculations, return the result directly
-            if isinstance(result, BaseModel):
-                response_data = result.model_dump_json()
-            else:
-                response_data = json.dumps(result)
+    if status is None:
+        # If we timeout on responding syncronously, return the original response so the client can continue to poll
+        return response
+    elif isinstance(status, BaseModel) and hasattr(status, "results"):
+        response_data = json.dumps(status.results)
+    else:
+        response_data = json.dumps(status)
 
-    except (ExposedHogQLError, ExposedCHQueryError) as e:
-        response_data = {"error": str(e), "code": getattr(e, "code_name", None)}
-    except Exception as e:
-        capture_exception(e)
-        raise
-
-    response = HttpResponse(
+    return HttpResponse(
         response_data,
         content_type="application/json",
     )
-    response["Cache-Control"] = "no-cache"
-    return response
