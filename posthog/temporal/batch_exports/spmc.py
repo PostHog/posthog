@@ -858,7 +858,7 @@ def compose_filters_clause(
     )
     context.database = create_hogql_database(team.id, context.modifiers)
 
-    exprs = [property_to_expr(EventPropertyFilter(**filter), team=team) for filter in filters]  # type: ignore
+    exprs = [property_to_expr(EventPropertyFilter(**filter), team=team) for filter in filters]
     and_expr = ast.And(exprs=exprs)
     select_query = ast.SelectQuery(
         select=[parse_expr("properties as properties")],
@@ -873,7 +873,10 @@ def compose_filters_clause(
     )
 
     printed = print_prepared_ast(
-        prepared_and_expr, context=context, dialect="clickhouse", stack=[prepared_select_query]
+        prepared_and_expr,  # type: ignore
+        context=context,
+        dialect="clickhouse",
+        stack=[prepared_select_query],
     )
 
     return printed, context.values

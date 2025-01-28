@@ -240,9 +240,9 @@ def test_use_events_recent(test_data: dict[str, typing.Any]):
         ),
     ],
 )
-async def test_compose_filters_clause(
+def test_compose_filters_clause(
     filters: list[dict[str, typing.Any]], expected_clause: str, expected_values: dict[str, str], ateam
 ):
-    result_clause, result_values = await compose_filters_clause(filters, team_id=ateam.id)
+    result_clause, result_values = compose_filters_clause(filters, team_id=ateam.id)
     assert result_clause == expected_clause
     assert result_values == expected_values
