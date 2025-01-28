@@ -1,7 +1,7 @@
 import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
 import posthog from 'posthog-js'
 
-import { Survey, SurveyQuestion } from '~/types'
+import { Survey } from '~/types'
 
 import type { internalMultipleChoiceSurveyLogicType } from './internalMultipleChoiceSurveyLogicType'
 
@@ -22,19 +22,12 @@ export const internalMultipleChoiceSurveyLogic = kea<internalMultipleChoiceSurve
         setShowThankYouMessage: (showThankYouMessage: boolean) => ({ showThankYouMessage }),
         setThankYouMessage: (thankYouMessage: string) => ({ thankYouMessage }),
         setOpenChoice: (openChoice: string) => ({ openChoice }),
-        setQuestions: (questions: SurveyQuestion[]) => ({ questions }),
     }),
     reducers({
         survey: [
             null as Survey | null,
             {
                 setSurvey: (_, { survey }) => survey,
-            },
-        ],
-        questions: [
-            [] as SurveyQuestion[],
-            {
-                setQuestions: (_, { questions }) => questions,
             },
         ],
         thankYouMessage: [
@@ -59,7 +52,7 @@ export const internalMultipleChoiceSurveyLogic = kea<internalMultipleChoiceSurve
             [] as string[],
             {
                 handleChoiceChange: (state, { choice, isAdded }) =>
-                    isAdded ? [...state, choice] : state.filter((c) => c !== choice),
+                    isAdded ? [...state, choice] : state.filter((c: string) => c !== choice),
             },
         ],
     }),
@@ -74,7 +67,6 @@ export const internalMultipleChoiceSurveyLogic = kea<internalMultipleChoiceSurve
                     $survey_id: props.surveyId,
                 })
                 actions.setSurvey(survey)
-                actions.setQuestions(survey.questions)
 
                 if (survey.appearance?.thankYouMessageHeader) {
                     actions.setThankYouMessage(survey.appearance?.thankYouMessageHeader)

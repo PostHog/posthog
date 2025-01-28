@@ -31,32 +31,39 @@ export function InternalMultipleChoiceSurvey({ surveyId }: InternalSurveyProps):
                                 <strong>{question.question}</strong>
                                 {question.type === SurveyQuestionType.MultipleChoice && (
                                     <ul className="list-inside list-none mt-2">
-                                        {question.choices.map((choice) => (
-                                            <li key={choice}>
-                                                <LemonCheckbox
-                                                    onChange={(checked) => handleChoiceChange(choice, checked)}
-                                                    label={choice}
-                                                    className="font-normal"
-                                                />
-                                            </li>
-                                        ))}
+                                        {question.choices.map((choice, index) => {
+                                            // Add an open choice text area if the last choice is an open choice
+                                            if (index === question.choices.length - 1 && question.hasOpenChoice) {
+                                                return (
+                                                    <div className="mt-2" key={choice}>
+                                                        {choice}
+                                                        <LemonTextArea
+                                                            placeholder="Please share any additional comments or feedback"
+                                                            onChange={setOpenChoice}
+                                                            value={openChoice ?? ''}
+                                                            className="my-2"
+                                                        />
+                                                    </div>
+                                                )
+                                            }
+                                            return (
+                                                <li key={choice}>
+                                                    <LemonCheckbox
+                                                        onChange={(checked) => handleChoiceChange(choice, checked)}
+                                                        label={choice}
+                                                        className="font-normal"
+                                                    />
+                                                </li>
+                                            )
+                                        })}
                                     </ul>
-                                )}
-                                {question.type === SurveyQuestionType.MultipleChoice && question.hasOpenChoice && (
-                                    <div className="mt-2">
-                                        Other:
-                                        <LemonTextArea
-                                            placeholder="Please share any additional comments or feedback"
-                                            onChange={(value) => setOpenChoice(value)}
-                                            value={openChoice ?? ''}
-                                            className="my-2"
-                                        />
-                                    </div>
                                 )}
                                 <LemonButton
                                     type="primary"
                                     disabledReason={
-                                        surveyResponse.length === 0 ? 'Please select at least one option' : false
+                                        surveyResponse.length === 0 && openChoice === null
+                                            ? 'Please select at least one option'
+                                            : false
                                     }
                                     onClick={handleSurveyResponse}
                                 >
