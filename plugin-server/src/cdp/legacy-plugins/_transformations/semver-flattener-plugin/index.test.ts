@@ -28,7 +28,7 @@ const meta = {
 } as unknown as LegacyPluginMeta
 
 describe('the semver flattener plugin', () => {
-    test('processEvent adds properties when they match config', async () => {
+    test('processEvent adds properties when they match config', () => {
         // Create a random event
         const event0: PluginEvent = createEvent({
             uuid: 'the-uuid',
@@ -97,7 +97,6 @@ describe('the semver flattener plugin', () => {
 
             const processedEvent = processEvent(event, meta)
 
-            console.log(processedEvent?.properties)
             expect(processedEvent?.properties).toEqual({
                 targetted_version: versionString,
                 targetted_version__major: expected.major,
