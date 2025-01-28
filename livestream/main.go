@@ -125,7 +125,7 @@ func main() {
 		return c.JSON(http.StatusOK, claims)
 	})
 
-	if isProd {
+	if !isProd {
 		e.File("/debug", "./index.html")
 		e.GET("/debug/sse", func(c echo.Context) error {
 			e.Logger.Printf("Map client connected, ip: %v", c.RealIP())
