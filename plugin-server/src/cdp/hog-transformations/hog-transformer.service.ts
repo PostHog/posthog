@@ -1,4 +1,5 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
+import { Counter } from 'prom-client'
 
 import {
     HogFunctionInvocation,
@@ -13,6 +14,11 @@ import { status } from '../../utils/status'
 import { buildGlobalsWithInputs, HogExecutorService } from '../services/hog-executor.service'
 import { HogFunctionManagerService } from '../services/hog-function-manager.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
+
+export const hogTransformationDroppedEvents = new Counter({
+    name: 'hog_transformation_dropped_events',
+    help: 'Indicates how many events are dropped by hog transformations',
+})
 
 export class HogTransformerService {
     private hogExecutor: HogExecutorService
@@ -109,6 +115,7 @@ export class HogTransformerService {
                     if (!result.execResult) {
                         // TODO: Correct this - if we have no result but a successful execution then we should be dropping the event
                         status.warn('⚠️', 'Execution result is null - dropping event')
+                        hogTransformationDroppedEvents.inc()
                         return null
                     }
 
