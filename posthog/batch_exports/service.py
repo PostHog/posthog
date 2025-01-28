@@ -795,15 +795,18 @@ async def acreate_batch_export_backfill(
     return backfill
 
 
-def update_batch_export_backfill_status(backfill_id: UUID, status: str) -> BatchExportBackfill:
+def update_batch_export_backfill_status(
+    backfill_id: UUID, status: str, finished_at: dt.datetime | None = None
+) -> BatchExportBackfill:
     """Update the status of an BatchExportBackfill with given id.
 
     Arguments:
         id: The id of the BatchExportBackfill to update.
         status: The new status to assign to the BatchExportBackfill.
+        finished_at: The time the BatchExportBackfill finished.
     """
     model = BatchExportBackfill.objects.filter(id=backfill_id)
-    updated = model.update(status=status)
+    updated = model.update(status=status, finished_at=finished_at)
 
     if not updated:
         raise ValueError(f"BatchExportBackfill with id {backfill_id} not found.")
