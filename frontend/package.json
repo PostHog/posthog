@@ -158,6 +158,9 @@
         "use-resize-observer": "^8.0.0",
         "zxcvbn": "^4.4.2"
     },
+    "peerDependencies": {
+        "eslint": "*"
+    },
     "devDependencies": {
         "@babel/core": "^7.22.10",
         "@babel/plugin-transform-class-properties": "^7.24.7",
