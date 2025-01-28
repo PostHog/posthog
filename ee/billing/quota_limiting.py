@@ -166,8 +166,9 @@ def org_quota_limited_until(
                 organization,
                 "quota limiting suspension removed",
                 properties={
-                    "quota_limiting_suspended_until": quota_limiting_suspended_until,
+                    "current_usage": usage + todays_usage,
                     "resource": resource.value,
+                    "quota_limiting_suspended_until": quota_limiting_suspended_until,
                 },
             )
         return None
@@ -178,9 +179,10 @@ def org_quota_limited_until(
             organization,
             "quota limiting ignored",
             properties={
+                "current_usage": usage + todays_usage,
+                "resource": resource.value,
                 "never_drop_data": organization.never_drop_data,
                 "trust_score": trust_score,
-                "resource": resource.value,
             },
         )
         return None
@@ -191,15 +193,17 @@ def org_quota_limited_until(
         QUOTA_LIMIT_DATA_RETENTION_FLAG,
         str(organization.id),
         groups={"organization": str(organization.id)},
-        group_properties={
-            "organization": {"id": str(organization.id)},
-            "feature_flag": QUOTA_LIMIT_DATA_RETENTION_FLAG,
-            "resource": resource.value,
-        },
+        group_properties={"organization": {"id": str(organization.id)}},
     ):
         # Don't drop data for this org but record that they would have been limited.
         report_organization_action(
-            organization, "quota limiting ignored", properties={"feature_flag": QUOTA_LIMIT_DATA_RETENTION_FLAG}
+            organization,
+            "quota limiting suspended",
+            properties={
+                "current_usage": usage + todays_usage,
+                "resource": resource.value,
+                "feature_flag": QUOTA_LIMIT_DATA_RETENTION_FLAG,
+            },
         )
         return None
 
@@ -210,7 +214,12 @@ def org_quota_limited_until(
     if team_being_limited:
         # They are already being limited, do not update their status.
         report_organization_action(
-            organization, "quota limiting already limited", properties={"resource": resource.value}
+            organization,
+            "quota limiting already limited",
+            properties={
+                "current_usage": usage + todays_usage,
+                "resource": resource.value,
+            },
         )
         return {
             "quota_limited_until": billing_period_end,
@@ -232,7 +241,11 @@ def org_quota_limited_until(
         report_organization_action(
             organization,
             "quota limiting suspended",
-            properties={"resource": resource.value, "trust_score": trust_score},
+            properties={
+                "current_usage": usage + todays_usage,
+                "resource": resource.value,
+                "trust_score": trust_score,
+            },
         )
         return {
             "quota_limited_until": billing_period_end,
@@ -245,7 +258,11 @@ def org_quota_limited_until(
         report_organization_action(
             organization,
             "quota limiting suspended",
-            properties={"trust_score": trust_score, "resource": resource.value},
+            properties={
+                "current_usage": usage + todays_usage,
+                "resource": resource.value,
+                "trust_score": trust_score,
+            },
         )
         update_organization_usage_field(organization, resource, "quota_limiting_suspended_until", None)
         return {
@@ -268,8 +285,8 @@ def org_quota_limited_until(
                 "quota limiting suspended",
                 properties={
                     "current_usage": usage + todays_usage,
-                    "grace_period_days": grace_period_days,
                     "resource": resource.value,
+                    "grace_period_days": grace_period_days,
                 },
             )
             quota_limiting_suspended_until = round((today_end + timedelta(days=grace_period_days)).timestamp())
@@ -286,7 +303,11 @@ def org_quota_limited_until(
             report_organization_action(
                 organization,
                 "quota limiting suspension not expired",
-                properties={"current_usage": usage + todays_usage, "resource": resource.value},
+                properties={
+                    "current_usage": usage + todays_usage,
+                    "resource": resource.value,
+                    "quota_limiting_suspended_until": quota_limiting_suspended_until,
+                },
             )
             return {
                 "quota_limited_until": None,
@@ -297,7 +318,10 @@ def org_quota_limited_until(
             report_organization_action(
                 organization,
                 "quota limiting suspended expired",
-                properties={"current_usage": usage + todays_usage, "resource": resource.value},
+                properties={
+                    "current_usage": usage + todays_usage,
+                    "resource": resource.value,
+                },
             )
             update_organization_usage_field(organization, resource, "quota_limiting_suspended_until", None)
             return {
@@ -306,7 +330,14 @@ def org_quota_limited_until(
             }
     else:
         # Should never reach here - return the default behavior just to be safe
-        report_quota_limiting_event("org_quota_limited_until unexpected trust score", {"trust_score": trust_score})
+        report_quota_limiting_event(
+            "org_quota_limited_until unexpected trust score",
+            {
+                "current_usage": usage + todays_usage,
+                "resource": resource.value,
+                "trust_score": trust_score,
+            },
+        )
         return {
             "quota_limited_until": billing_period_end,
             "quota_limiting_suspended_until": None,

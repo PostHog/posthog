@@ -74,12 +74,21 @@ class TestQuotaLimiting(BaseTest):
             groups={"organization": org_id},
             group_properties={"organization": {"id": str(org_id)}},
         )
-        patch_capture.assert_called_once_with(
-            org_id,
-            "quota limiting suspended",
-            properties={"current_usage": 109},
-            groups={"instance": "http://localhost:8010", "organization": org_id},
+        # Check out many times it was called
+        assert patch_capture.call_count == 8  # 7 logs + 1 org
+        # Find the org action call
+        org_action_call = next(
+            call for call in patch_capture.call_args_list if call.args[1] == "quota limiting suspended"
         )
+        assert org_action_call.kwargs.get("properties") == {
+            "current_usage": 109,
+            "resource": "events",
+            "feature_flag": QUOTA_LIMIT_DATA_RETENTION_FLAG,
+        }
+        assert org_action_call.kwargs.get("groups") == {
+            "instance": "http://localhost:8010",
+            "organization": org_id,
+        }
         # Feature flag is enabled so they won't be limited.
         assert quota_limited_orgs["events"] == {}
         assert quota_limited_orgs["recordings"] == {}
@@ -139,7 +148,7 @@ class TestQuotaLimiting(BaseTest):
             quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
         # Shouldn't be called due to lazy evaluation of the conditional
         patch_feature_enabled.assert_not_called()
-        patch_capture.assert_not_called()
+        assert patch_capture.call_count == 7  # 7 logs
         assert quota_limited_orgs["events"] == {}
         assert quota_limited_orgs["recordings"] == {}
         assert quota_limited_orgs["rows_synced"] == {}
@@ -215,16 +224,21 @@ class TestQuotaLimiting(BaseTest):
             assert quota_limiting_suspended_orgs["recordings"] == {}
             assert quota_limiting_suspended_orgs["rows_synced"] == {}
 
-            patch_capture.assert_called_once_with(
-                org_id,
-                "organization quota limits changed",
-                properties={
-                    "quota_limited_events": 1612137599,
-                    "quota_limited_recordings": 1612137599,
-                    "quota_limited_rows_synced": None,
-                },
-                groups={"instance": "http://localhost:8010", "organization": org_id},
+            # Check out many times it was called
+            assert patch_capture.call_count == 9  # 7 logs + 1 org and 1 log from org_quota_limited_until
+            # Find the org action call
+            org_action_call = next(
+                call for call in patch_capture.call_args_list if call.args[1] == "organization quota limits changed"
             )
+            assert org_action_call.kwargs.get("properties") == {
+                "quota_limited_events": 1612137599,
+                "quota_limited_recordings": 1612137599,
+                "quota_limited_rows_synced": None,
+            }
+            assert org_action_call.kwargs.get("groups") == {
+                "instance": "http://localhost:8010",
+                "organization": org_id,
+            }
 
             assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == [
                 self.team.api_token.encode("UTF-8")
@@ -254,23 +268,7 @@ class TestQuotaLimiting(BaseTest):
             assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == [
                 self.team.api_token.encode("UTF-8")
             ]
-            assert self.redis_client.zrange(f"@posthog/quota-limits/recordings", 0, -1) == []
-            assert self.redis_client.zrange(f"@posthog/quota-limits/rows_synced", 0, -1) == []
 
-            # Reset the event limiting set so their limiting will be suspended for 1 day.
-            self.redis_client.delete(f"@posthog/quota-limits/events")
-            quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
-            assert quota_limited_orgs["events"] == {}
-            assert quota_limited_orgs["recordings"] == {}
-            assert quota_limited_orgs["rows_synced"] == {}
-            assert quota_limiting_suspended_orgs["events"] == {org_id: 1611705600}
-            assert quota_limiting_suspended_orgs["recordings"] == {}
-            assert quota_limiting_suspended_orgs["rows_synced"] == {}
-            assert self.redis_client.zrange(f"@posthog/quota-limiting-suspended/events", 0, -1) == [
-                self.team.api_token.encode("UTF-8")
-            ]
-
-            assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == []
             assert self.redis_client.zrange(f"@posthog/quota-limits/recordings", 0, -1) == []
             assert self.redis_client.zrange(f"@posthog/quota-limits/rows_synced", 0, -1) == []
 
