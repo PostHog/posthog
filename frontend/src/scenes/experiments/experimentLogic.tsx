@@ -1194,8 +1194,10 @@ export const experimentLogic = kea<experimentLogicType>([
         getMetricType: [
             () => [],
             () =>
-                (metric: ExperimentTrendsQuery | ExperimentFunnelsQuery): InsightType => {
-                    return metric?.kind === NodeKind.ExperimentTrendsQuery ? InsightType.TRENDS : InsightType.FUNNELS
+                (metric: ExperimentTrendsQuery | ExperimentFunnelsQuery | undefined): InsightType => {
+                    return metric && metric?.kind === NodeKind.ExperimentTrendsQuery
+                        ? InsightType.TRENDS
+                        : InsightType.FUNNELS
                 },
         ],
         isExperimentRunning: [
@@ -1266,16 +1268,12 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         minimumDetectableEffect: [
-            (s) => [s.experiment, s.getMetricType, s.conversionMetrics, s.trendResults],
-            (newExperiment, getMetricType, conversionMetrics, trendResults): number => {
+            (s) => [s.experiment, s.getMetricType, s.conversionMetrics, s.trendResults, s.firstPrimaryMetric],
+            (newExperiment, getMetricType, conversionMetrics, trendResults, firstPrimaryMetric): number => {
                 return (
                     newExperiment?.parameters?.minimum_detectable_effect ||
                     // :KLUDGE: extracted the method due to difficulties with logic tests
-                    getMinimumDetectableEffect(
-                        getMetricType(newExperiment?.metrics[0]),
-                        conversionMetrics,
-                        trendResults
-                    ) ||
+                    getMinimumDetectableEffect(getMetricType(firstPrimaryMetric), conversionMetrics, trendResults) ||
                     0
                 )
             },
@@ -1357,6 +1355,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 s.experiment,
                 s.variants,
                 s.getMetricType,
+                s.firstPrimaryMetric,
                 s.funnelResults,
                 s.conversionMetrics,
                 s.expectedRunningTime,
@@ -1368,6 +1367,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 experiment,
                 variants,
                 getMetricType,
+                firstPrimaryMetric,
                 funnelResults,
                 conversionMetrics,
                 expectedRunningTime,
@@ -1375,7 +1375,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 minimumSampleSizePerVariant,
                 recommendedExposureForCountData
             ): number => {
-                if (getMetricType(experiment.metrics[0]) === InsightType.FUNNELS) {
+                if (getMetricType(firstPrimaryMetric) === InsightType.FUNNELS) {
                     const currentDuration = dayjs().diff(dayjs(experiment?.start_date), 'hour')
                     const funnelEntrants = funnelResults?.[0]?.count
 
@@ -1495,8 +1495,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
         ],
         getIndexForVariant: [
-            (s) => [s.experiment, s.getMetricType],
-            (experiment, getMetricType) =>
+            (s) => [s.experiment, s.getMetricType, s.firstPrimaryMetric],
+            (experiment, getMetricType, firstPrimaryMetric) =>
                 (
                     metricResult: CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null,
                     variant: string
@@ -1508,7 +1508,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     }
 
                     let index = -1
-                    if (getMetricType(experiment.metrics[0]) === InsightType.FUNNELS) {
+                    if (getMetricType(firstPrimaryMetric) === InsightType.FUNNELS) {
                         // Funnel Insight is displayed in order of decreasing count
                         index = (Array.isArray(metricResult.insight) ? [...metricResult.insight] : [])
                             .sort((a, b) => {
@@ -1530,7 +1530,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     }
                     const result = index === -1 ? null : index
 
-                    if (result !== null && getMetricType(experiment.metrics[0]) === InsightType.FUNNELS) {
+                    if (result !== null && getMetricType(firstPrimaryMetric) === InsightType.FUNNELS) {
                         return result + 1
                     }
                     return result
