@@ -47,7 +47,7 @@ import type {
     RecordingOrder,
     RecordingsQuery,
 } from './queries/schema'
-import { NodeKind } from './queries/schema/schema-general'
+import { NodeKind, RevenueTrackingConfig } from './queries/schema/schema-general'
 
 // Type alias for number to be reflected as integer in json-schema.
 /** @asType integer */
@@ -4849,15 +4849,6 @@ export enum CookielessServerHashMode {
     Disabled = 0,
     Stateless = 1,
     Stateful = 2,
-}
-
-export interface RevenueTrackingEventItem {
-    eventName: string
-    revenueProperty: string
-}
-
-export interface RevenueTrackingConfig {
-    events: RevenueTrackingEventItem[]
 }
 
 /**
