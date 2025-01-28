@@ -156,11 +156,10 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         is_create = self.context.get("view") and self.context["view"].action == "create"
 
         template_id = attrs.get("template_id", instance.template_id if instance else None)
+        template = HOG_FUNCTION_TEMPLATES_BY_ID.get(template_id, None)
 
         if template_id and template_id.startswith("plugin-"):
             template = create_legacy_plugin_template(template_id)
-        else:
-            template = HOG_FUNCTION_TEMPLATES_BY_ID.get(template_id, None)
 
         if not has_addon:
             # In this case they are only allowed to create or update the function with free templates
