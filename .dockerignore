@@ -46,9 +46,9 @@
 !tsconfig.json
 !unit.json.tpl
 !webpack.config.js
-common/build/node_modules
+common/*/node_modules
+common/*/*/node_modules
 common/hogvm/typescript/dist
-common/hogvm/typescript/node_modules
 rust/.env
 rust/.github
 rust/cyclotron-node/dist
