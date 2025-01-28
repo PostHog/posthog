@@ -109,7 +109,7 @@ def create_usage_tables(context: AssetExecutionContext, config: UsageReportConfi
     )
 
 
-@asset
+@asset(deps=[create_usage_tables])
 def event_counts(context: AssetExecutionContext, config: UsageReportConfig) -> Dict[int, int]:
     """Get billable event counts for all teams."""
     period_start, period_end = get_period(config)
@@ -128,7 +128,7 @@ def event_counts(context: AssetExecutionContext, config: UsageReportConfig) -> D
     return dict(results)
 
 
-@asset
+@asset(deps=[create_usage_tables])
 def enhanced_persons_counts(context: AssetExecutionContext, config: UsageReportConfig) -> Dict[int, int]:
     """Get enhanced persons event counts for all teams."""
     period_start, period_end = get_period(config)
@@ -147,7 +147,7 @@ def enhanced_persons_counts(context: AssetExecutionContext, config: UsageReportC
     return dict(results)
 
 
-@asset
+@asset(deps=[create_usage_tables])
 def events_with_groups_counts(context: AssetExecutionContext, config: UsageReportConfig) -> Dict[int, int]:
     """Get event counts with groups for all teams."""
     period_start, period_end = get_period(config)
@@ -166,7 +166,7 @@ def events_with_groups_counts(context: AssetExecutionContext, config: UsageRepor
     return dict(results)
 
 
-@asset
+@asset(deps=[create_usage_tables])
 def all_event_metrics(context: AssetExecutionContext, config: UsageReportConfig) -> Dict[str, Dict[int, int]]:
     """Get all event metrics for all teams."""
     period_start, period_end = get_period(config)
@@ -186,7 +186,7 @@ def all_event_metrics(context: AssetExecutionContext, config: UsageReportConfig)
     return results
 
 
-@asset
+@asset(deps=[create_usage_tables])
 def recording_counts(context: AssetExecutionContext, config: UsageReportConfig) -> Dict[int, int]:
     """Get recording counts for all teams."""
     period_start, period_end = get_period(config)
@@ -205,7 +205,7 @@ def recording_counts(context: AssetExecutionContext, config: UsageReportConfig) 
     return dict(results)
 
 
-@asset
+@asset(deps=[create_usage_tables])
 def mobile_recording_counts(context: AssetExecutionContext, config: UsageReportConfig) -> Dict[int, int]:
     """Get mobile recording counts for all teams."""
     period_start, period_end = get_period(config)
@@ -224,7 +224,7 @@ def mobile_recording_counts(context: AssetExecutionContext, config: UsageReportC
     return dict(results)
 
 
-@asset
+@asset(deps=[create_usage_tables])
 def feature_flag_counts(context: AssetExecutionContext, config: UsageReportConfig) -> Dict[int, int]:
     """Get feature flag request counts for all teams."""
     period_start, period_end = get_period(config)
@@ -243,7 +243,7 @@ def feature_flag_counts(context: AssetExecutionContext, config: UsageReportConfi
     return dict(results)
 
 
-@asset
+@asset(deps=[create_usage_tables])
 def survey_response_counts(context: AssetExecutionContext, config: UsageReportConfig) -> Dict[int, int]:
     """Get survey response counts for all teams."""
     period_start, period_end = get_period(config)
@@ -262,7 +262,7 @@ def survey_response_counts(context: AssetExecutionContext, config: UsageReportCo
     return dict(results)
 
 
-@asset
+@asset(deps=[create_usage_tables])
 def rows_synced_counts(context: AssetExecutionContext, config: UsageReportConfig) -> Dict[int, int]:
     """Get rows synced counts for all teams."""
     period_start, period_end = get_period(config)
@@ -281,7 +281,7 @@ def rows_synced_counts(context: AssetExecutionContext, config: UsageReportConfig
     return dict(results)
 
 
-@asset
+@asset(deps=[create_usage_tables])
 def query_metrics(context: AssetExecutionContext, config: UsageReportConfig) -> Dict[str, Dict[int, int]]:
     """Get query metrics for all teams."""
     period_start, period_end = get_period(config)
@@ -333,7 +333,7 @@ def query_metrics(context: AssetExecutionContext, config: UsageReportConfig) -> 
     return results
 
 
-@asset
+@asset(deps=[create_usage_tables])
 def hog_function_calls(context: AssetExecutionContext, config: UsageReportConfig) -> Dict[int, int]:
     """Get hog function call counts for all teams."""
     period_start, period_end = get_period(config)
@@ -352,7 +352,7 @@ def hog_function_calls(context: AssetExecutionContext, config: UsageReportConfig
     return dict(results)
 
 
-@asset
+@asset(deps=[create_usage_tables])
 def hog_function_fetch_calls(context: AssetExecutionContext, config: UsageReportConfig) -> Dict[int, int]:
     """Get hog function fetch call counts for all teams."""
     period_start, period_end = get_period(config)
