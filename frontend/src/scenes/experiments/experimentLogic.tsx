@@ -1495,8 +1495,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
         ],
         getIndexForVariant: [
-            (s) => [s.experiment, s.getMetricType, s.firstPrimaryMetric],
-            (experiment, getMetricType, firstPrimaryMetric) =>
+            (s) => [s.getMetricType, s.firstPrimaryMetric],
+            (getMetricType, firstPrimaryMetric) =>
                 (
                     metricResult: CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null,
                     variant: string
