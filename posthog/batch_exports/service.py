@@ -119,14 +119,17 @@ class SnowflakeBatchExportInputs:
 
     batch_export_id: str
     team_id: int
-    user: str
-    password: str
     account: str
+    user: str
     database: str
     warehouse: str
     schema: str
     interval: str = "hour"
     table_name: str = "events"
+    authentication_type: str = "password"
+    password: str | None = None
+    private_key: str | None = None
+    private_key_passphrase: str | None = None
     data_interval_end: str | None = None
     role: str | None = None
     exclude_events: list[str] | None = None

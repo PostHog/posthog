@@ -15,7 +15,9 @@ env = "local" if settings.DEBUG else "prod"
 resources_by_env = {
     "prod": {
         "cluster": ClickhouseClusterResource.configure_at_launch(),
-        "io_manager": s3_pickle_io_manager.configured({"s3_bucket": "posthog-dags", "s3_prefix": "dag-storage"}),
+        "io_manager": s3_pickle_io_manager.configured(
+            {"s3_bucket": settings.DAGSTER_S3_BUCKET, "s3_prefix": "dag-storage"}
+        ),
         "s3": s3_resource,
     },
     "local": {
