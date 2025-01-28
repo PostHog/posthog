@@ -1,5 +1,6 @@
 @import '../../../styles/mixins';
-@import '../../../styles/vars';
+
+// @import '../../../styles/vars';
 
 .Playlist {
     display: flex;
@@ -13,7 +14,7 @@
 
     .Playlist__list {
         &:not(.Playlist__list--collapsed) {
-            width: 25%;
+            // width: 25%;
             min-width: 285px;
         }
 

@@ -21,7 +21,7 @@ export function TreeRow({ item, menuItems }: TreeRowProps): JSX.Element {
     const [isMenuOpen, setIsMenuOpen] = useState(false)
 
     return (
-        <li className={clsx('relative flex items-center', isMenuOpen && 'bg-bg-light')}>
+        <li className={clsx('relative flex items-center', isMenuOpen && 'bg-surface-primary')}>
             <LemonButton
                 onClick={() => {
                     void copyToClipboard(item.name, item.name)

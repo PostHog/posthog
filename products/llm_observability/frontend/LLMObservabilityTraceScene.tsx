@@ -67,7 +67,7 @@ export function LLMObservabilityTraceScene(): JSX.Element {
 
 function Chip({ title, children }: { title: string; children: React.ReactNode }): JSX.Element {
     return (
-        <div className="flex items-center gap-1.5 p-2 border bg-bg-light rounded">
+        <div className="flex items-center gap-1.5 p-2 border bg-surface-primary rounded">
             <span className="font-medium">{title}:</span>
             <span>{children}</span>
         </div>
@@ -101,7 +101,7 @@ function TraceMetadata({ trace }: { trace: LLMTrace }): JSX.Element {
 
 function TraceSidebar({ trace, eventId }: { trace: LLMTrace; eventId?: string | null }): JSX.Element {
     return (
-        <aside className="border-border max-h-fit bg-bg-light border rounded overflow-hidden md:w-72">
+        <aside className="border-border max-h-fit bg-surface-primary border rounded overflow-hidden md:w-72">
             <h3 className="font-medium text-sm px-2 my-2">Tree</h3>
             <LemonDivider className="m-0" />
             <NestingGroup>
@@ -188,7 +188,7 @@ function TraceNode({
 
 function EventContent({ event }: { event: LLMTrace | LLMTraceEvent | null }): JSX.Element {
     return (
-        <div className="flex-1 bg-bg-light border rounded flex flex-col border-border p-4 overflow-y-auto">
+        <div className="flex-1 bg-surface-primary border rounded flex flex-col border-border p-4 overflow-y-auto">
             {!event ? (
                 <InsightEmptyState heading="Event not found" detail="Check if the event ID is correct." />
             ) : (

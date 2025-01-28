@@ -12,7 +12,7 @@ export function LLMInputOutput({
     outputHeading?: string
 }): JSX.Element {
     return (
-        <div className="bg-bg-light rounded-lg border p-2">
+        <div className="bg-surface-primary rounded-lg border p-2">
             <h4 className="flex items-center gap-x-1.5 text-xs font-semibold mb-2">
                 <IconArrowUp className="text-base" />
                 {inputHeading}

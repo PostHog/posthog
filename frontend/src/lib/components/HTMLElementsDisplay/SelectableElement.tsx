@@ -18,7 +18,10 @@ export function TagPart({
     readonly: boolean
 }): JSX.Element {
     const hoverSelector = readonly ? '' : 'hover:underline'
-    const htmlElementsSelector = clsx('decoration-primary-highlight', !readonly && 'cursor-pointer SelectableElement')
+    const htmlElementsSelector = clsx(
+        'decoration-accent-primary-highlight',
+        !readonly && 'cursor-pointer SelectableElement'
+    )
     const isSelected = !readonly && !!selectedParts.tag
 
     return (
@@ -46,7 +49,10 @@ function IdPart({
     readonly: boolean
 }): JSX.Element | null {
     const hoverSelector = readonly ? '' : 'hover:underline'
-    const htmlElementsSelector = clsx('decoration-primary-highlight', !readonly && 'cursor-pointer SelectableElement')
+    const htmlElementsSelector = clsx(
+        'decoration-accent-primary-highlight',
+        !readonly && 'cursor-pointer SelectableElement'
+    )
     const isSelected = !readonly && !!selectedParts.id
 
     return id ? (

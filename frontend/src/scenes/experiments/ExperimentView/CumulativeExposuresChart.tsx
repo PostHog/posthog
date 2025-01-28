@@ -96,7 +96,7 @@ export function CumulativeExposuresChart(): JSX.Element {
                     }}
                 />
             ) : (
-                <div className="border rounded bg-bg-light">
+                <div className="border rounded bg-surface-primary">
                     <InsightEmptyState
                         heading="No exposures to show yet"
                         detail="This chart will display once the experiment starts."

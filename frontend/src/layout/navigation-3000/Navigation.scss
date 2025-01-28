@@ -631,7 +631,7 @@
     justify-content: center;
 
     // Pseudo-elements don't work on inputs, so we use a wrapper div
-    background: var(--bg-light);
+    background: var(--surface-primary);
 
     input {
         width: 100%;

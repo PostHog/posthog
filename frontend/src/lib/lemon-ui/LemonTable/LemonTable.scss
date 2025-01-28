@@ -16,7 +16,7 @@
     .Insight &,
     .InsightCard__viz & {
         // Special override for scenes where the table is primarily next to insights
-        --lemon-table-background-color: var(--bg-light);
+        --lemon-table-background-color: var(--surface-primary);
     }
 
     .WebAnalyticsDashboard &,

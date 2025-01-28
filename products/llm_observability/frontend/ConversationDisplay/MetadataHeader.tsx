@@ -63,5 +63,5 @@ function MetadataTag({
         wrappedChildren = <Tooltip title={label}>{children}</Tooltip>
     }
 
-    return <LemonTag className="bg-bg-light cursor-default">{wrappedChildren}</LemonTag>
+    return <LemonTag className="bg-surface-primary cursor-default">{wrappedChildren}</LemonTag>
 }

@@ -245,7 +245,7 @@ export function HogFunctionMappings(): JSX.Element | null {
                 ) : null
 
                 return (
-                    <div className="p-3 border rounded bg-bg-light">
+                    <div className="p-3 border rounded bg-surface-primary">
                         <div className="flex items-start justify-between">
                             <div className="flex-1">
                                 <LemonLabel>Mappings</LemonLabel>
