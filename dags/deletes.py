@@ -178,7 +178,6 @@ class PendingPersonEventDeletesTable:
             return mutation
 
         client.execute(
-            # TODO: update to use created_at as limit
             f"""
             DELETE FROM {table} WHERE (team_id, person_id, timestamp) IN (
                 SELECT e.team_id, e.person_id, e.timestamp
