@@ -139,9 +139,7 @@ def migrate_legacy_plugins(dry_run=True, team_ids=None, test_mode=True):
         has_addon = team.organization.is_feature_available(AvailableFeature.DATA_PIPELINES)
 
         if not has_addon:
-            print("Found a team without the required addon!", team.id, plugin_config["id"])  # noqa: T201
             plugin_configs_without_addon.append(plugin_config["id"])
-            continue
 
         serializer = HogFunctionSerializer(
             data=data,
