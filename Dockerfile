@@ -32,7 +32,7 @@ COPY patches/ patches/
 ENV PNPM_HOME /tmp/pnpm-store 
 RUN corepack enable && pnpm --version && \
     mkdir /tmp/pnpm-store && \
-    pnpm fetch --filter @posthog/frontend... --store-dir /tmp/pnpm-store && \
+    pnpm install --frozen-lockfile --filter @posthog/frontend... --store-dir /tmp/pnpm-store && \
     rm -rf /tmp/pnpm-store
 
 # Build the frontend.
@@ -72,7 +72,7 @@ RUN apt-get update && \
 COPY ./common/ ./common/
 RUN corepack enable && \
     mkdir /tmp/pnpm-store && \
-    pnpm fetch --filter @posthog/plugin-server... --store-dir /tmp/pnpm-store && \
+    pnpm install --frozen-lockfile --filter @posthog/plugin-server... --store-dir /tmp/pnpm-store && \
     rm -rf /tmp/pnpm-store
 
 # Build the plugin server.
@@ -88,7 +88,7 @@ RUN pnpx nx build plugin-server --verbose
 # as we will copy it to the last image.
 RUN corepack enable && \
     mkdir /tmp/pnpm-store && \
-    pnpm fetch --filter @posthog/plugin-server --store-dir /tmp/pnpm-store --prod && \
+    pnpm install --frozen-lockfile --filter @posthog/plugin-server --store-dir /tmp/pnpm-store --prod && \
     rm -rf /tmp/pnpm-store
 
 
