@@ -873,6 +873,19 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "test_absolute_exposure": 10,
                 },
             ],
+            [
+                "element",
+                {
+                    "key": "tag_name",
+                    "type": "element",
+                    "value": ["button"],
+                    "operator": "exact",
+                },
+                {
+                    "control_absolute_exposure": 0,
+                    "test_absolute_exposure": 0,
+                },
+            ],
         ]
     )
     def test_query_runner_with_internal_filters(self, name: str, filter: dict, expected_results: dict):
@@ -993,8 +1006,8 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query_runner = ExperimentTrendsQueryRunner(
             query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
         )
-        # "feature_flags" filters out all events
-        if name == "feature_flags":
+        # "feature_flags" and "element" filter out all events
+        if name == "feature_flags" or name == "element":
             with self.assertRaises(ValidationError) as context:
                 query_runner.calculate()
 
