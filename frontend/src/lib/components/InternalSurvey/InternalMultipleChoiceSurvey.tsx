@@ -3,9 +3,10 @@
  */
 import { LemonButton, LemonCheckbox, LemonTextArea } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { internalMultipleChoiceSurveyLogic } from 'lib/components/InternalSurvey/internalMultipleChoiceSurveyLogic'
 
 import { SurveyQuestion, SurveyQuestionType } from '~/types'
+
+import { internalMultipleChoiceSurveyLogic } from './internalMultipleChoiceSurveyLogic'
 
 interface InternalSurveyProps {
     surveyId: string
