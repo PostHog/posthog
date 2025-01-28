@@ -2,7 +2,6 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 
 import { HogTransformerService } from '~/src/cdp/hog-transformations/hog-transformer.service'
-import { HogFunctionInvocationResult } from '~/src/cdp/types'
 
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { runInSpan } from '../../../sentry'
@@ -58,7 +57,6 @@ export class EventPipelineRunner {
     originalEvent: PipelineEvent
     eventsProcessor: EventsProcessor
     hogTransformer: HogTransformerService | null
-    invocationResults?: HogFunctionInvocationResult[]
 
     constructor(hub: Hub, event: PipelineEvent, hogTransformer: HogTransformerService | null = null) {
         this.hub = hub

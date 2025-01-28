@@ -29,13 +29,11 @@ export class HogTransformerService {
     private hogExecutor: HogExecutorService
     private hogFunctionManager: HogFunctionManagerService
     private hub: Hub
-    private kafkaProducer: KafkaProducerWrapper
 
     constructor(hub: Hub) {
         this.hub = hub
         this.hogFunctionManager = new HogFunctionManagerService(hub)
         this.hogExecutor = new HogExecutorService(hub, this.hogFunctionManager)
-        this.kafkaProducer = null as any
     }
 
     private getTransformationFunctions() {
@@ -85,7 +83,7 @@ export class HogTransformerService {
     public async start(): Promise<void> {
         const hogTypes: HogFunctionTypeType[] = ['transformation']
         await this.hogFunctionManager.start(hogTypes)
-        this.kafkaProducer = await KafkaProducerWrapper.create(this.hub)
+        this.hub.kafkaProducer = await KafkaProducerWrapper.create(this.hub)
     }
 
     private produceAppMetric(metric: HogFunctionAppMetric): Promise<void> {
@@ -95,7 +93,7 @@ export class HogTransformerService {
             timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
         }
 
-        return this.kafkaProducer
+        return this.hub.kafkaProducer
             .queueMessages([
                 {
                     topic: KAFKA_APP_METRICS_2,
@@ -123,7 +121,7 @@ export class HogTransformerService {
             }))
         )
 
-        return this.kafkaProducer
+        return this.hub.kafkaProducer
             .queueMessages(
                 logs.map((logEntry) => ({
                     topic: KAFKA_LOG_ENTRIES,
