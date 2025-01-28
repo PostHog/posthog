@@ -92,8 +92,6 @@ const Filters = (): JSX.Element => {
                 />
 
                 <ReloadAll />
-
-                <WebAnalyticsLiveUserCount />
             </div>
         </div>
     )
@@ -384,16 +382,22 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                 <WebAnalyticsModal />
                 <VersionCheckerBanner />
                 <div className="WebAnalyticsDashboard w-full flex flex-col">
-                    {featureFlags[FEATURE_FLAGS.WEB_VITALS] && (
-                        <LemonTabs<ProductTab>
-                            activeKey={productTab}
-                            onChange={setProductTab}
-                            tabs={[
-                                { key: ProductTab.ANALYTICS, label: 'Web analytics' },
-                                { key: ProductTab.WEB_VITALS, label: 'Web vitals' },
-                            ]}
-                        />
-                    )}
+                    <div className="flex flex-row space-between justify-center">
+                        {featureFlags[FEATURE_FLAGS.WEB_VITALS] && (
+                            <div className="flex-1">
+                                <LemonTabs<ProductTab>
+                                    activeKey={productTab}
+                                    onChange={setProductTab}
+                                    tabs={[
+                                        { key: ProductTab.ANALYTICS, label: 'Web analytics' },
+                                        { key: ProductTab.WEB_VITALS, label: 'Web vitals' },
+                                    ]}
+                                />
+                            </div>
+                        )}
+
+                        <WebAnalyticsLiveUserCount />
+                    </div>
 
                     <Filters />
                     <WebAnalyticsHealthCheck />
