@@ -9,10 +9,11 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useEffect, useState } from 'react'
 
 import { groupsModel } from '~/models/groupsModel'
-import { FeatureFlagType, GroupTypeIndex } from '~/types'
+import { FeatureFlagType, GroupTypeIndex, SDKKey } from '~/types'
 
 import {
     BOOTSTRAPPING_OPTIONS,
+    ENCRYPTED_PAYLOAD_LIBRARIES,
     FF_ANCHOR,
     InstructionOption,
     LibraryType,
@@ -56,7 +57,12 @@ export function CodeInstructions({
     showAdvancedOptions = true,
     showFooter = true,
 }: CodeInstructionsProps): JSX.Element {
-    const [defaultSelectedOption] = options
+    const encryptedPayload = featureFlag?.has_encrypted_payloads
+
+    const [defaultSelectedOption] = encryptedPayload
+        ? options.filter((option) => option.key === SDKKey.NODE_JS)
+        : options
+
     const [selectedOption, setSelectedOption] = useState(defaultSelectedOption)
     const [bootstrapOption, setBootstrapOption] = useState(BOOTSTRAPPING_OPTIONS[0])
     const [showPayloadCode, setShowPayloadCode] = useState(
@@ -155,6 +161,54 @@ export function CodeInstructions({
 
     const randomProperty = groups.find((group) => group.properties?.length)?.properties?.[0]?.key
 
+    const allFlagLibraries = [
+        {
+            title: 'Client libraries',
+            options: OPTIONS.filter((option) => option.type == LibraryType.Client).map((option) => ({
+                value: option.key,
+                label: option.value,
+                'data-attr': `feature-flag-instructions-select-option-${option.key}`,
+                labelInMenu: (
+                    <div className="flex items-center space-x-2">
+                        <option.Icon />
+                        <span>{option.value}</span>
+                    </div>
+                ),
+            })),
+        },
+        {
+            title: 'Server libraries',
+            options: OPTIONS.filter((option) => option.type == LibraryType.Server).map((option) => ({
+                value: option.key,
+                label: option.value,
+                'data-attr': `feature-flag-instructions-select-option-${option.key}`,
+                labelInMenu: (
+                    <div className="flex items-center space-x-2">
+                        <option.Icon />
+                        <span>{option.value}</span>
+                    </div>
+                ),
+            })),
+        },
+    ]
+    const encryptedPayloadLibraries = [
+        {
+            title: 'Server libraries',
+            options: OPTIONS.filter((option) => ENCRYPTED_PAYLOAD_LIBRARIES.includes(option.key)).map((option) => ({
+                value: option.key,
+                label: option.value,
+                'data-attr': `feature-flag-instructions-select-option-${option.key}`,
+                labelInMenu: (
+                    <div className="flex items-center space-x-2">
+                        <option.Icon />
+                        <span>{option.value}</span>
+                    </div>
+                ),
+            })),
+        },
+    ]
+    const supportedLibraries = encryptedPayload ? encryptedPayloadLibraries : allFlagLibraries
+
     return (
         <div>
             {showAdvancedOptions && (
@@ -162,40 +216,7 @@ export function CodeInstructions({
                     <div>
                         <LemonSelect
                             data-attr={'feature-flag-instructions-select' + (dataAttr ? `-${dataAttr}` : '')}
-                            options={[
-                                {
-                                    title: 'Client libraries',
-                                    options: OPTIONS.filter((option) => option.type == LibraryType.Client).map(
-                                        (option) => ({
-                                            value: option.key,
-                                            label: option.value,
-                                            'data-attr': `feature-flag-instructions-select-option-${option.key}`,
-                                            labelInMenu: (
-                                                <div className="flex items-center space-x-2">
-                                                    <option.Icon />
-                                                    <span>{option.value}</span>
-                                                </div>
-                                            ),
-                                        })
-                                    ),
-                                },
-                                {
-                                    title: 'Server libraries',
-                                    options: OPTIONS.filter((option) => option.type == LibraryType.Server).map(
-                                        (option) => ({
-                                            value: option.key,
-                                            label: option.value,
-                                            'data-attr': `feature-flag-instructions-select-option-${option.key}`,
-                                            labelInMenu: (
-                                                <div className="flex items-center space-x-2">
-                                                    <option.Icon />
-                                                    <span>{option.value}</span>
-                                                </div>
-                                            ),
-                                        })
-                                    ),
-                                },
-                            ]}
+                            options={supportedLibraries}
                             onChange={(val) => {
                                 if (val) {
                                     selectOption(val)
@@ -260,6 +281,7 @@ export function CodeInstructions({
                                         reportFlagsCodeExampleInteraction('local evaluation')
                                     }}
                                     disabled={
+                                        encryptedPayload ||
                                         !LOCAL_EVALUATION_LIBRARIES.includes(selectedOption.key) ||
                                         !!featureFlag?.ensure_experience_continuity
                                     }
@@ -297,6 +319,7 @@ export function CodeInstructions({
                             groupType={groupType}
                             localEvaluation={showLocalEvalCode}
                             payload={true}
+                            encryptedPayload={encryptedPayload}
                         />
                     </>
                 )}

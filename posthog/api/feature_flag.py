@@ -607,12 +607,21 @@ class FeatureFlagViewSet(
             # Add request for analytics only if request coming with personal API key authentication
             increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
 
-        return super().list(request, args, kwargs)
+        response = super().list(request, *args, **kwargs)
+        feature_flags_data = response.data.get("results", [])
+
+        # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
+        for feature_flag in feature_flags_data:
+            if feature_flag.get("has_encrypted_payloads", False):
+                feature_flag["filters"] = get_decrypted_flag_payloads(request, feature_flag["filters"])
+
+        return response
 
     def retrieve(self, request, *args, **kwargs):
         response = super().retrieve(request, *args, **kwargs)
         feature_flag_data = response.data
 
+        # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
         if feature_flag_data.get("has_encrypted_payloads", False):
             feature_flag_data["filters"] = get_decrypted_flag_payloads(request, feature_flag_data["filters"])
 

@@ -163,7 +163,10 @@ export const PAYLOAD_LIBRARIES: string[] = [
     SDKKey.REACT_NATIVE,
     SDKKey.IOS,
     SDKKey.FLUTTER,
+    SDKKey.GO,
 ]
+
+export const ENCRYPTED_PAYLOAD_LIBRARIES: string[] = [SDKKey.NODE_JS, SDKKey.PYTHON, SDKKey.GO, SDKKey.RUBY]
 
 export const BOOTSTRAPPING_OPTIONS: InstructionOption[] = [
     {
