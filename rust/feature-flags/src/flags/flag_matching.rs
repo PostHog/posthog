@@ -427,12 +427,6 @@ impl FeatureFlagMatcher {
         group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> FlagsResponse {
-        info!(
-            "Starting flag evaluation for distinct_id {} with {} flags",
-            self.distinct_id,
-            feature_flags.flags.len()
-        );
-
         let mut errors_while_computing_flags = false;
         let mut feature_flags_map = HashMap::new();
         let mut feature_flag_payloads_map = HashMap::new();
@@ -983,7 +977,7 @@ impl FeatureFlagMatcher {
         } else {
             match self.get_person_properties_from_cache_or_db().await {
                 Ok(props) => Ok(props),
-                Err(FlagError::PersonNotFound) => Ok(HashMap::new()), // NB: This is a special case where we don't have a person ID, so we return an empty map
+                Err(FlagError::PersonNotFound) => Ok(HashMap::new()), // NB: If we can't find a person ID associated with the distinct ID, return an empty map
                 Err(e) => Err(e),
             }
         }
