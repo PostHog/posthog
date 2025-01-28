@@ -328,7 +328,7 @@ def update_org_billing_quotas(organization: Organization):
         "update_org_billing_quotas started", {"today_end": today_end, "organization_id": organization.id}
     )
 
-    for resource in ["events", "recordings", "rows_synced"]:
+    for resource in [QuotaResource.EVENTS, QuotaResource.RECORDINGS, QuotaResource.ROWS_SYNCED]:
         previously_quota_limited_team_tokens = list_limited_team_attributes(
             resource,
             QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
