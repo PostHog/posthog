@@ -5,7 +5,6 @@ import datetime as dt
 import operator
 import typing
 import uuid
-from string import Template
 
 import pyarrow as pa
 import structlog
@@ -33,7 +32,13 @@ from posthog.temporal.batch_exports.metrics import (
     get_export_started_metric,
 )
 from posthog.temporal.batch_exports.spmc import compose_filters_clause
-from posthog.temporal.batch_exports.sql import SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
+from posthog.temporal.batch_exports.sql import (
+    SELECT_FROM_DISTRIBUTED_EVENTS_RECENT,
+    SELECT_FROM_EVENTS_VIEW,
+    SELECT_FROM_EVENTS_VIEW_BACKFILL,
+    SELECT_FROM_EVENTS_VIEW_RECENT,
+    SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
+)
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import bind_temporal_worker_logger
@@ -141,85 +146,6 @@ SETTINGS
     optimize_aggregation_in_order=1
 """
 
-SELECT_FROM_EVENTS_VIEW = Template(
-    """
-SELECT
-    $fields
-FROM
-    events_batch_export(
-        team_id={team_id},
-        lookback_days={lookback_days},
-        interval_start={interval_start},
-        interval_end={interval_end},
-        include_events={include_events}::Array(String),
-        exclude_events={exclude_events}::Array(String)
-    ) AS events
-FORMAT ArrowStream
-SETTINGS
-    -- This is half of configured MAX_MEMORY_USAGE for batch exports.
-    max_bytes_before_external_sort=50000000000
-"""
-)
-
-SELECT_FROM_EVENTS_VIEW_UNBOUNDED = Template(
-    """
-SELECT
-    $fields
-FROM
-    events_batch_export_unbounded(
-        team_id={team_id},
-        interval_start={interval_start},
-        interval_end={interval_end},
-        include_events={include_events}::Array(String),
-        exclude_events={exclude_events}::Array(String)
-    ) AS events
-FORMAT ArrowStream
-SETTINGS
-    -- This is half of configured MAX_MEMORY_USAGE for batch exports.
-    max_bytes_before_external_sort=50000000000
-"""
-)
-
-SELECT_FROM_EVENTS_VIEW_RECENT = Template(
-    """
-SELECT
-    $fields
-FROM
-    events_batch_export_recent(
-        team_id={team_id},
-        interval_start={interval_start},
-        interval_end={interval_end},
-        include_events={include_events}::Array(String),
-        exclude_events={exclude_events}::Array(String)
-    ) AS events
-FORMAT ArrowStream
-SETTINGS
-    -- This is half of configured MAX_MEMORY_USAGE for batch exports.
-    max_bytes_before_external_sort=50000000000,
-    max_replica_delay_for_distributed_queries=1
-"""
-)
-
-
-SELECT_FROM_EVENTS_VIEW_BACKFILL = Template(
-    """
-SELECT
-    $fields
-FROM
-    events_batch_export_backfill(
-        team_id={team_id},
-        interval_start={interval_start},
-        interval_end={interval_end},
-        include_events={include_events}::Array(String),
-        exclude_events={exclude_events}::Array(String)
-    ) AS events
-FORMAT ArrowStream
-SETTINGS
-    -- This is half of configured MAX_MEMORY_USAGE for batch exports.
-    max_bytes_before_external_sort=50000000000
-"""
-)
-
 
 def default_fields() -> list[BatchExportField]:
     """Return list of default batch export Fields."""
@@ -267,6 +193,7 @@ async def iter_model_records(
             team_id=team_id,
             is_backfill=is_backfill,
             fields=model.schema["fields"] if model.schema is not None else batch_export_default_fields,
+            filters=model.filters,
             extra_query_parameters=model.schema["values"] if model.schema is not None else None,
             interval_start=interval_start,
             interval_end=interval_end,
@@ -310,6 +237,9 @@ async def iter_records_from_model_view(
         )
     else:
         filters_str, extra_query_parameters = "", extra_query_parameters
+
+    if filters_str:
+        filters_str = f"AND {filters_str}"
 
     if model_name == "persons":
         if is_backfill and interval_start is None:
@@ -386,7 +316,7 @@ async def iter_records_from_model_view(
 
         query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
 
-        view = query_template.substitute(fields=query_fields, filters=filters_str)
+        view = query_template.safe_substitute(fields=query_fields, filters=filters_str)
 
     if interval_start is not None:
         parameters["interval_start"] = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
@@ -584,7 +514,7 @@ def iter_records(
         lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
         base_query_parameters["lookback_days"] = lookback_days
 
-    query_str = query.substitute(fields=query_fields, filters=filters_str or "")
+    query_str = query.safe_substitute(fields=query_fields, filters=filters_str or "")
 
     if extra_query_parameters is not None:
         query_parameters = base_query_parameters | extra_query_parameters

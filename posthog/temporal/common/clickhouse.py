@@ -280,6 +280,11 @@ class ClickHouseClient:
 
         params["query"] = self.prepare_query(query, query_parameters)
 
+        if query_parameters is not None:
+            for key, value in query_parameters.items():
+                if key in query:
+                    params[f"param_{key}"] = str(value)
+
         async with self.session.get(url=self.url, headers=self.headers, params=params) as response:
             await self.acheck_response(response, query)
             yield response
@@ -351,6 +356,11 @@ class ClickHouseClient:
             params["query"] = query
         else:
             request_data = query.encode("utf-8")
+
+        if query_parameters is not None:
+            for key, value in query_parameters.items():
+                if key in query:
+                    params[f"param_{key}"] = str(value)
 
         with requests.Session() as s:
             response = s.post(

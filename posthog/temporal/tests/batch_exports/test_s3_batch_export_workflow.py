@@ -251,14 +251,6 @@ async def assert_clickhouse_records_in_s3(
     if batch_export_model is not None:
         if isinstance(batch_export_model, BatchExportModel):
             batch_export_schema = batch_export_model.schema
-            if batch_export_model.filters is not None:
-                exclude_without_properties = [f"test-no-prop-{i}" for i in range(5)]
-
-                if not exclude_events:
-                    exclude_events = exclude_without_properties
-                else:
-                    exclude_events.extend(exclude_without_properties)
-
         else:
             batch_export_schema = batch_export_model
 
@@ -1276,7 +1268,7 @@ async def test_s3_export_workflow_with_s3_bucket(
     ],
     indirect=True,
 )
-@pytest.mark.parametrize("model", [TEST_S3_MODELS[1], TEST_S3_MODELS[2], None])
+@pytest.mark.parametrize("model", [TEST_S3_MODELS[1], TEST_S3_MODELS[3], None])
 async def test_s3_export_workflow_with_minio_bucket_and_custom_key_prefix(
     clickhouse_client,
     ateam,
@@ -2008,7 +2000,7 @@ async def test_s3_multi_part_upload_raises_exception_if_invalid_endpoint(bucket_
         await s3_upload.start()
 
 
-@pytest.mark.parametrize("model", [TEST_S3_MODELS[1], TEST_S3_MODELS[2], None])
+@pytest.mark.parametrize("model", [TEST_S3_MODELS[1], TEST_S3_MODELS[3], None])
 async def test_s3_export_workflow_with_request_timeouts(
     clickhouse_client,
     ateam,
