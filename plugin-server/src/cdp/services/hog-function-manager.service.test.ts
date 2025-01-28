@@ -70,24 +70,6 @@ describe('HogFunctionManager', () => {
             })
         )
 
-        // hogFunctions.push(
-        //     await insertHogFunction(hub.postgres, teamId1, {
-        //         name: 'Email Provider team 1',
-        //         type: 'email',
-        //         inputs_schema: [
-        //             {
-        //                 type: 'email',
-        //                 key: 'message',
-        //             },
-        //         ],
-        //         inputs: {
-        //             email: {
-        //                 value: { from: 'me@a.com', to: 'you@b.com', subject: 'subject', html: 'text' },
-        //             },
-        //         },
-        //     })
-        // )
-
         hogFunctions.push(
             await insertHogFunction(hub.postgres, teamId2, {
                 name: 'Test Hog Function team 2',
@@ -149,6 +131,7 @@ describe('HogFunctionManager', () => {
                 encrypted_inputs: null,
                 masking: null,
                 mappings: null,
+                template_id: null,
                 depends_on_integration_ids: new Set([integrations[0].id]),
             },
         ])
