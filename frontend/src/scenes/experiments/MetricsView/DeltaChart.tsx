@@ -11,6 +11,7 @@ import {
 import { LemonBanner, LemonButton, LemonModal, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
@@ -104,6 +105,7 @@ export function DeltaChart({
         countDataForVariant,
         exposureCountDataForVariant,
         metricResultsLoading,
+        featureFlags,
     } = useValues(experimentLogic)
 
     const { experiment } = useValues(experimentLogic)
@@ -112,6 +114,7 @@ export function DeltaChart({
         openSecondaryMetricModal,
         openPrimarySharedMetricModal,
         openSecondarySharedMetricModal,
+        openVariantDeltaTimeseriesModal,
     } = useActions(experimentLogic)
     const [tooltipData, setTooltipData] = useState<{ x: number; y: number; variant: string } | null>(null)
     const [emptyStateTooltipVisible, setEmptyStateTooltipVisible] = useState(true)
@@ -401,6 +404,16 @@ export function DeltaChart({
                                                 })
                                             }}
                                             onMouseLeave={() => setTooltipData(null)}
+                                            onClick={() => {
+                                                if (featureFlags[FEATURE_FLAGS.EXPERIMENT_INTERVAL_TIMESERIES]) {
+                                                    openVariantDeltaTimeseriesModal()
+                                                }
+                                            }}
+                                            className={
+                                                featureFlags[FEATURE_FLAGS.EXPERIMENT_INTERVAL_TIMESERIES]
+                                                    ? 'cursor-pointer'
+                                                    : ''
+                                            }
                                         >
                                             {/* Add variant name using VariantTag */}
                                             <foreignObject
