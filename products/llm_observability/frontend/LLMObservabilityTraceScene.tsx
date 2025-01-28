@@ -160,7 +160,7 @@ function TraceSidebar({
     tree: TraceTreeNode[]
 }): JSX.Element {
     return (
-        <aside className="border-border max-h-fit bg-bg-light border rounded overflow-hidden flex flex-col md:w-72">
+        <aside className="border-border max-h-fit bg-bg-light border rounded overflow-hidden flex flex-col md:w-80">
             <h3 className="font-medium text-sm px-2 my-2">Tree</h3>
             <LemonDivider className="m-0" />
             <NestingGroup>
