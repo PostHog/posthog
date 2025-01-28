@@ -7,7 +7,7 @@ require (
 	github.com/fsnotify/fsnotify v1.8.0
 	github.com/getsentry/sentry-go v0.31.1
 	github.com/gofrs/uuid/v5 v5.3.0
-	github.com/golang-jwt/jwt v3.2.2+incompatible
+	github.com/golang-jwt/jwt/v5 v5.2.1
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/jackc/pgx/v5 v5.7.2
 	github.com/labstack/echo/v4 v4.13.3

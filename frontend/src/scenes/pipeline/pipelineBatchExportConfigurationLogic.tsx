@@ -37,6 +37,9 @@ export function getDefaultConfiguration(service: string): Record<string, any> {
         destination: service,
         model: 'events',
         paused: true,
+        ...(service === 'Snowflake' && {
+            authentication_type: 'password',
+        }),
     }
 }
 
@@ -339,8 +342,8 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
         service: [(s, p) => [s.batchExportConfig, p.service], (config, service) => config?.destination.type || service],
         isNew: [(_, p) => [p.id], (id): boolean => !id],
         requiredFields: [
-            (s) => [s.service, s.isNew],
-            (service, isNew): string[] => {
+            (s) => [s.service, s.isNew, s.configuration],
+            (service, isNew, config): string[] => {
                 const generalRequiredFields = ['interval', 'name', 'model']
                 if (service === 'Postgres') {
                     return [
@@ -385,7 +388,8 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                         'database',
                         'warehouse',
                         ...(isNew ? ['user'] : []),
-                        ...(isNew ? ['password'] : []),
+                        ...(isNew && config.authentication_type == 'password' ? ['password'] : []),
+                        ...(isNew && config.authentication_type == 'keypair' ? ['private_key'] : []),
                         'schema',
                         'table_name',
                     ]

@@ -1,5 +1,7 @@
 from decimal import Decimal
 from unittest.mock import patch
+
+from parameterized import parameterized
 from django.test import RequestFactory
 from inline_snapshot import snapshot
 import pytest
@@ -124,12 +126,13 @@ class TestRemoteConfig(_RemoteConfigBase):
         self.remote_config.refresh_from_db()
         assert self.remote_config.config["autocaptureExceptions"] == {"endpoint": "/e/"}
 
-    def test_session_recording_sample_rate(self):
+    @parameterized.expand([["1.00", None], ["0.95", "0.95"], ["0.50", "0.50"], ["0.00", "0.00"], [None, None]])
+    def test_session_recording_sample_rate(self, value: str | None, expected: str | None) -> None:
         self.team.session_recording_opt_in = True
-        self.team.session_recording_sample_rate = Decimal("0.5")
+        self.team.session_recording_sample_rate = Decimal(value) if value else None
         self.team.save()
         self.remote_config.refresh_from_db()
-        assert self.remote_config.config["sessionRecording"]["sampleRate"] == "0.50"
+        assert self.remote_config.config["sessionRecording"]["sampleRate"] == expected
 
     def test_session_recording_domains(self):
         self.team.session_recording_opt_in = True

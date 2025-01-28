@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { objectsEqual } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { RevenueTrackingConfig, RevenueTrackingEventItem } from '~/types'
+import { RevenueTrackingConfig, RevenueTrackingEventItem } from '~/queries/schema'
 
 import type { revenueEventsSettingsLogicType } from './revenueEventsSettingsLogicType'
 
