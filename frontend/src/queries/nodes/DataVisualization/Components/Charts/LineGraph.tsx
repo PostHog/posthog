@@ -137,7 +137,7 @@ export const LineGraph = (): JSX.Element => {
 
         const data: ChartData = {
             labels: xSeriesData.data,
-            datasets: ySeriesData.map(({ data, settings }, index) => {
+            datasets: ySeriesData.map(({ data, settings, ...rest }, index) => {
                 const color = settings?.display?.color ?? getSeriesColor(index)
                 const backgroundColor = isAreaChart ? hexToRGBA(color, 0.5) : color
 
@@ -151,8 +151,17 @@ export const LineGraph = (): JSX.Element => {
                     yAxisID = 'yRight'
                 }
 
+                const getLabel = (): string => {
+                    if ('name' in rest) {
+                        return rest.name
+                    }
+
+                    return rest.column.name
+                }
+
                 return {
                     data,
+                    label: getLabel(),
                     borderColor: color,
                     backgroundColor: backgroundColor,
                     borderWidth: graphType === GraphType.Bar ? 0 : 2,
@@ -193,6 +202,13 @@ export const LineGraph = (): JSX.Element => {
                             const annotations = ctx.chart.options.plugins.annotation.annotations as Record<string, any>
                             if (annotations[`line${curIndex}`]) {
                                 annotations[`line${curIndex}`].label.content = `${cur.label}: ${cur.value}`
+                                // Hide the external tooltip element
+                                const tooltipEl = document.getElementById('InsightTooltipWrapper')
+
+                                if (tooltipEl) {
+                                    tooltipEl.style.display = 'none'
+                                }
+
                                 ctx.chart.update()
                             }
                         }
@@ -202,6 +218,13 @@ export const LineGraph = (): JSX.Element => {
                             const annotations = ctx.chart.options.plugins.annotation.annotations as Record<string, any>
                             if (annotations[`line${curIndex}`]) {
                                 annotations[`line${curIndex}`].label.content = cur.label
+
+                                // Show the external tooltip element
+                                const tooltipEl = document.getElementById('InsightTooltipWrapper')
+                                if (tooltipEl) {
+                                    tooltipEl.style.display = 'block'
+                                }
+
                                 ctx.chart.update()
                             }
                         }
@@ -272,7 +295,7 @@ export const LineGraph = (): JSX.Element => {
                     borderColor: 'white',
                 },
                 legend: {
-                    display: false,
+                    display: chartSettings.showLegend ?? false,
                 },
                 annotation: annotations,
                 ...(isBarChart

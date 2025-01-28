@@ -44,7 +44,7 @@ pub async fn test_black_hole(
     metrics::counter!(CONTENT_HEADER_TYPE, "type" => content_type.to_string()).increment(1);
 
     // Attempt to decode the request using the handler's decode_request function
-    let request = match decode_request(&headers, body) {
+    let request = match decode_request(&headers, body, &meta) {
         Ok(req) => req,
         Err(e) => {
             error!("failed to decode request: {}", e);
