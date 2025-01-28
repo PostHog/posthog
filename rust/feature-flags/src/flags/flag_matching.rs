@@ -427,6 +427,12 @@ impl FeatureFlagMatcher {
         group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> FlagsResponse {
+        info!(
+            "Starting flag evaluation for distinct_id {} with {} flags",
+            self.distinct_id,
+            feature_flags.flags.len()
+        );
+
         let mut errors_while_computing_flags = false;
         let mut feature_flags_map = HashMap::new();
         let mut feature_flag_payloads_map = HashMap::new();
@@ -560,11 +566,6 @@ impl FeatureFlagMatcher {
                     }
                     Err(e) => {
                         errors_while_computing_flags = true;
-                        // TODO add sentry exception tracking
-                        error!(
-                            "Error evaluating feature flag '{}' for distinct_id '{}': {:?}",
-                            flag.key, self.distinct_id, e
-                        );
                         let reason = parse_exception_for_prometheus_label(&e);
                         inc(
                             FLAG_EVALUATION_ERROR_COUNTER,
@@ -700,6 +701,30 @@ impl FeatureFlagMatcher {
         property_overrides: Option<HashMap<String, Value>>,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<FeatureFlagMatch, FlagError> {
+        // First check if we actually need person properties for this flag
+        let needs_person_properties = flag.filters.groups.iter().any(|group| {
+            group.properties.as_ref().map_or(false, |props| {
+                props.iter().any(|prop| prop.prop_type == "person")
+            })
+        });
+
+        // If we need person properties but can't find the person, treat as non-match
+        if needs_person_properties {
+            match self.get_person_properties(None, &[]).await {
+                Ok(_) => (), // Person exists, continue normally
+                Err(FlagError::PersonNotFound) => {
+                    return Ok(FeatureFlagMatch {
+                        matches: false,
+                        variant: None,
+                        reason: FeatureFlagMatchReason::NoConditionMatch,
+                        condition_index: None,
+                        payload: None,
+                    });
+                }
+                Err(e) => return Err(e), // Other errors should still propagate
+            }
+        }
+
         if self
             .hashed_identifier(flag, hash_key_overrides.clone())
             .await?
@@ -937,14 +962,19 @@ impl FeatureFlagMatcher {
                     &[("type".to_string(), "person_id".to_string())],
                     1,
                 );
-                let id = self.get_person_id_from_db().await?;
-                inc(
-                    DB_PERSON_PROPERTIES_READS_COUNTER,
-                    &[("team_id".to_string(), self.team_id.to_string())],
-                    1,
-                );
-                self.properties_cache.person_id = Some(id);
-                Ok(id)
+                match self.get_person_id_from_db().await {
+                    Ok(id) => {
+                        self.properties_cache.person_id = Some(id);
+                        Ok(id)
+                    }
+                    Err(e) => {
+                        error!(
+                            "Failed to fetch person_id for distinct_id {}: {:?}",
+                            self.distinct_id, e
+                        );
+                        Err(e)
+                    }
+                }
             }
         }
     }
@@ -975,7 +1005,11 @@ impl FeatureFlagMatcher {
         {
             Ok(overrides)
         } else {
-            self.get_person_properties_from_cache_or_db().await
+            match self.get_person_properties_from_cache_or_db().await {
+                Ok(props) => Ok(props),
+                Err(FlagError::PersonNotFound) => Ok(HashMap::new()), // NB: This is a special case where we don't have a person ID, so we return an empty map
+                Err(e) => Err(e),
+            }
         }
     }
 
@@ -2121,10 +2155,10 @@ mod tests {
             None,
             None,
         );
-        let match_result = matcher.get_match(&flag, None, None).await;
+        let match_result = matcher.get_match(&flag, None, None).await.unwrap();
 
-        // Expecting an error for non-existent distinct_id
-        assert!(match_result.is_err());
+        // Expecting false for non-existent distinct_id
+        assert!(!match_result.matches);
     }
 
     #[tokio::test]
