@@ -3,3 +3,4 @@ packages:
     - 'common/hogvm/typescript'
     - 'common/plugin_transpiler'
     - 'plugin-server'
+    - 'rust/cyclotron-node'

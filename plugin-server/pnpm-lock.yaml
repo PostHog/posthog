@@ -47,8 +47,8 @@ dependencies:
     specifier: ^1.7.0
     version: 1.7.0
   '@posthog/cyclotron':
-    specifier: file:../rust/cyclotron-node
-    version: file:../rust/cyclotron-node
+    specifier: workspace:*
+    version: link:../rust/cyclotron-node
   '@posthog/hogvm':
     specifier: workspace:*
     version: link:../common/hogvm/typescript
@@ -10557,7 +10557,7 @@ packages:
       '@swc/core': '>=1.2.50'
       '@swc/wasm': '>=1.2.50'
       '@types/node': '*'
-      typescript: ~4.9.5
+      typescript: '>=2.7'
     peerDependenciesMeta:
       '@swc/core':
         optional: true
@@ -11159,9 +11159,4 @@ packages:
 
   /zod@3.24.1:
     resolution: {integrity: sha512-muH7gBL9sI1nciMZV67X5fTKKBLtwpZ5VBp1vsOQzj1MhrBZ4wlVCm3gedKZWLp0Oyel8sIGfeiz54Su+OVT+A==}
-    dev: false
-
-  file:../rust/cyclotron-node:
-    resolution: {directory: ../rust/cyclotron-node, type: directory}
-    name: '@posthog/cyclotron'
     dev: false
