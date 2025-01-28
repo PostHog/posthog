@@ -32,11 +32,19 @@ def normalize_column_name(column_name: str) -> str:
 
 def safe_parse_datetime(date_str):
     try:
+        if date_str is None:
+            return None
+
         if isinstance(date_str, pa.StringScalar):
-            return parser.parse(date_str.as_py())
+            scalar = date_str.as_py()
+
+            if scalar is None:
+                return None
+
+            return parser.parse(scalar)
 
         return parser.parse(date_str)
-    except (ValueError, OverflowError):
+    except (ValueError, OverflowError, TypeError):
         return None
 
 
@@ -195,7 +203,7 @@ def _update_incremental_state(schema: ExternalDataSchema | None, table: pa.Table
     # TODO(@Gilbert09): support different operations here (e.g. min)
     last_value = numpy_arr.max()
 
-    logger.debug(f"Updating incremental_field_last_value_v2 with {last_value}")
+    logger.debug(f"Updating incremental_field_last_value with {last_value}")
 
     schema.update_incremental_field_last_value(last_value)
 
