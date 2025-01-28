@@ -193,6 +193,13 @@ export const LineGraph = (): JSX.Element => {
                             const annotations = ctx.chart.options.plugins.annotation.annotations as Record<string, any>
                             if (annotations[`line${curIndex}`]) {
                                 annotations[`line${curIndex}`].label.content = `${cur.label}: ${cur.value}`
+                                // Hide the external tooltip element
+                                const tooltipEl = document.getElementById('InsightTooltipWrapper')
+
+                                if (tooltipEl) {
+                                    tooltipEl.style.display = 'none'
+                                }
+
                                 ctx.chart.update()
                             }
                         }
@@ -202,6 +209,13 @@ export const LineGraph = (): JSX.Element => {
                             const annotations = ctx.chart.options.plugins.annotation.annotations as Record<string, any>
                             if (annotations[`line${curIndex}`]) {
                                 annotations[`line${curIndex}`].label.content = cur.label
+
+                                // Show the external tooltip element
+                                const tooltipEl = document.getElementById('InsightTooltipWrapper')
+                                if (tooltipEl) {
+                                    tooltipEl.style.display = 'block'
+                                }
+
                                 ctx.chart.update()
                             }
                         }

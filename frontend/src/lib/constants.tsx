@@ -227,9 +227,7 @@ export const FEATURE_FLAGS = {
     SUPPORT_SIDEBAR_MAX: 'support-sidebar-max', // owner: @steven #team-max
     BILLING_SKIP_FORECASTING: 'billing-skip-forecasting', // owner: @zach
     EXPERIMENT_STATS_V2: 'experiment-stats-v2', // owner: @danielbachhuber #team-experiments
-    WEB_ANALYTICS_PERIOD_COMPARISON: 'web-analytics-period-comparison', // owner: @rafaeelaudibert #team-web-analytics
     BILLING_USAGE_DASHBOARD: 'billing-usage-dashboard', // owner: @pato
-    WEB_ANALYTICS_CONVERSION_GOAL_FILTERS: 'web-analytics-conversion-goal-filters', // owner: @rafaeelaudibert #team-web-analytics
     CDP_ACTIVITY_LOG_NOTIFICATIONS: 'cdp-activity-log-notifications', // owner: #team-cdp
     COOKIELESS_SERVER_HASH_MODE_SETTING: 'cookieless-server-hash-mode-setting', // owner: @robbie-c #team-web-analytics
     INSIGHT_COLORS: 'insight-colors', // owner: @thmsobrmlr #team-product-analytics
@@ -240,6 +238,7 @@ export const FEATURE_FLAGS = {
     WEB_REVENUE_TRACKING: 'web-revenue-tracking', // owner: @robbie-c #team-web-analytics
     LLM_OBSERVABILITY: 'llm-observability', // owner: #team-ai-product-manager
     ONBOARDING_SESSION_REPLAY_SEPERATE_STEP: 'onboarding-session-replay-separate-step', // owner: @joshsny #team-growth
+    EXPERIMENT_INTERVAL_TIMESERIES: 'experiments-interval-timeseries', // owner: @jurajmajerik #team-experiments
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
