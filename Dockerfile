@@ -32,7 +32,7 @@ COPY patches/ patches/
 ENV PNPM_HOME /tmp/pnpm-store 
 RUN corepack enable && pnpm --version && \
     mkdir /tmp/pnpm-store && \
-    pnpm install --frozen-lockfile --filter @posthog/frontend... --store-dir /tmp/pnpm-store --prod && \
+    pnpm install --frozen-lockfile --filter @posthog/frontend... --store-dir /tmp/pnpm-store && \
     pnpx nx deps:build frontend --verbose && \
     rm -rf /tmp/pnpm-store
 
