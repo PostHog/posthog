@@ -206,9 +206,9 @@ export function SourceFormComponent({
     return (
         <div className="space-y-4">
             <Group name="payload">
-                {SOURCE_DETAILS[sourceConfig.name].fields.map((field) => {
-                    return sourceFieldToElement(field, sourceConfig, jobInputs?.[field.name])
-                })}
+                {SOURCE_DETAILS[sourceConfig.name].fields.map((field) =>
+                    sourceFieldToElement(field, sourceConfig, jobInputs?.[field.name])
+                )}
             </Group>
             {showPrefix && (
                 <LemonField name="prefix" label="Table Prefix (optional)">
