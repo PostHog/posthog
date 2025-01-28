@@ -20,8 +20,18 @@ const CONNECTION_STRING_DEFAULT_PORT = {
     Postgres: 5432,
 }
 
-const sourceFieldToElement = (field: SourceFieldConfig, sourceConfig: SourceConfig, lastValue?: any): JSX.Element => {
+const sourceFieldToElement = (
+    field: SourceFieldConfig,
+    sourceConfig: SourceConfig,
+    lastValue?: any,
+    isUpdateMode?: boolean
+): JSX.Element => {
+    // It doesn't make sense for this to show on an update to an existing connection since we likely just want to change
+    // a field or two. There is also some divergence in creates vs. updates that make this a bit more complex to handle.
     if (field.type === 'text' && field.name === 'connection_string') {
+        if (isUpdateMode) {
+            return <></>
+        }
         return (
             <React.Fragment key={field.name}>
                 <LemonField name={field.name} label={field.label}>
@@ -203,11 +213,13 @@ export function SourceFormComponent({
         }
     }, [JSON.stringify(jobInputs), setSourceConfigValue])
 
+    const isUpdateMode = !!setSourceConfigValue
+
     return (
         <div className="space-y-4">
             <Group name="payload">
                 {SOURCE_DETAILS[sourceConfig.name].fields.map((field) =>
-                    sourceFieldToElement(field, sourceConfig, jobInputs?.[field.name])
+                    sourceFieldToElement(field, sourceConfig, jobInputs?.[field.name], isUpdateMode)
                 )}
             </Group>
             {showPrefix && (
