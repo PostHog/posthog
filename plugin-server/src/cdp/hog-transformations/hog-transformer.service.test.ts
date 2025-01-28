@@ -4,6 +4,7 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { brotliDecompressSync } from 'zlib'
 
+import { template as defaultTemplate } from '~/src/cdp/templates/_transformations/default/default.template'
 import { template as filterOutPluginTemplate } from '~/src/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { template as geoipTemplate } from '~/src/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '~/src/cdp/templates/compiler'
@@ -11,8 +12,8 @@ import { createHogFunction } from '~/tests/cdp/fixtures'
 
 import { Hub } from '../../types'
 import { createHub } from '../../utils/db/hub'
+import { HogFunctionTemplate } from '../templates/types'
 import { HogTransformerService } from './hog-transformer.service'
-
 let mockGetTeamHogFunctions: jest.Mock
 
 jest.mock('../../utils/status', () => ({
@@ -68,6 +69,7 @@ describe('HogTransformer', () => {
             const geoIpFunction = createHogFunction({
                 ...geoipTemplate,
                 bytecode: hogByteCode,
+                execution_order: 1,
             })
 
             mockGetTeamHogFunctions.mockReturnValue([geoIpFunction])
@@ -187,6 +189,143 @@ describe('HogTransformer', () => {
                   ],
                 }
             `)
+        })
+
+        it('should execute multiple transformations in execution order', async () => {
+            const testTemplate: HogFunctionTemplate = {
+                status: 'alpha',
+                type: 'transformation',
+                id: 'template-test',
+                name: 'Test Template',
+                description: 'A simple test template that adds a test property',
+                category: ['Custom'],
+                hog: `
+                    let returnEvent := event
+                    returnEvent.properties.test_property := 'test_value'
+                    return returnEvent
+                `,
+                inputs_schema: [],
+            }
+
+            const geoTransformationIpByteCode = await compileHog(geoipTemplate.hog)
+            const geoIpTransformationFunction = createHogFunction({
+                ...geoipTemplate,
+                bytecode: geoTransformationIpByteCode,
+                execution_order: 1,
+            })
+
+            const defaultTransformationByteCode = await compileHog(defaultTemplate.hog)
+            const defaultTransformationFunction = createHogFunction({
+                ...defaultTemplate,
+                bytecode: defaultTransformationByteCode,
+                execution_order: 2,
+            })
+
+            const testTransformationByteCode = await compileHog(testTemplate.hog)
+            const testTransformationFunction = createHogFunction({
+                ...testTemplate,
+                bytecode: testTransformationByteCode,
+                execution_order: 3,
+            })
+
+            mockGetTeamHogFunctions.mockReturnValue([
+                defaultTransformationFunction,
+                geoIpTransformationFunction,
+                testTransformationFunction,
+            ])
+
+            const createHogFunctionInvocationSpy = jest.spyOn(hogTransformer as any, 'createHogFunctionInvocation')
+
+            const event: PluginEvent = {
+                ip: '89.160.20.129',
+                site_url: 'http://localhost',
+                team_id: 1,
+                now: '2024-06-07T12:00:00.000Z',
+                uuid: 'event-id',
+                event: 'event-name',
+                distinct_id: 'distinct-id',
+                properties: { $ip: '89.160.20.129' },
+                timestamp: '2024-01-01T00:00:00Z',
+            }
+
+            await hogTransformer.transformEvent(event)
+
+            expect(createHogFunctionInvocationSpy).toHaveBeenCalledTimes(3)
+            expect(createHogFunctionInvocationSpy).toHaveBeenNthCalledWith(1, event, geoIpTransformationFunction)
+            expect(createHogFunctionInvocationSpy).toHaveBeenNthCalledWith(2, event, defaultTransformationFunction)
+            expect(createHogFunctionInvocationSpy).toHaveBeenNthCalledWith(3, event, testTransformationFunction)
+
+            expect(event.properties?.test_property).toEqual('test_value')
+            expect(event.properties?.$geoip_city_name).toEqual('Linköping')
+        })
+
+        it('should delete a property from previous transformation', async () => {
+            const addingTemplate: HogFunctionTemplate = {
+                status: 'alpha',
+                type: 'transformation',
+                id: 'template-test',
+                name: 'Test Template',
+                description: 'A simple test template that adds a test property',
+                category: ['Custom'],
+                hog: `
+                    let returnEvent := event
+                    returnEvent.properties.test_property := 'test_value'
+                    return returnEvent
+                `,
+                inputs_schema: [],
+            }
+
+            const deletingTemplate: HogFunctionTemplate = {
+                status: 'alpha',
+                type: 'transformation',
+                id: 'template-test',
+                name: 'Test Template',
+                description: 'A simple test template that adds a test property',
+                category: ['Custom'],
+                hog: `
+                    let returnEvent := event
+                    returnEvent.properties.test_property := null
+                    return returnEvent
+                `,
+                inputs_schema: [],
+            }
+
+            const addingTransformationByteCode = await compileHog(addingTemplate.hog)
+            const addingTransformationFunction = createHogFunction({
+                ...addingTemplate,
+                bytecode: addingTransformationByteCode,
+                execution_order: 1,
+            })
+
+            const deletingTransformationByteCode = await compileHog(deletingTemplate.hog)
+            const deletingTransformationFunction = createHogFunction({
+                ...deletingTemplate,
+                bytecode: deletingTransformationByteCode,
+                execution_order: 2,
+            })
+
+            mockGetTeamHogFunctions.mockReturnValue([addingTransformationFunction, deletingTransformationFunction])
+
+            const createHogFunctionInvocationSpy = jest.spyOn(hogTransformer as any, 'createHogFunctionInvocation')
+
+            const event: PluginEvent = {
+                ip: '89.160.20.129',
+                site_url: 'http://localhost',
+                team_id: 1,
+                now: '2024-06-07T12:00:00.000Z',
+                uuid: 'event-id',
+                event: 'event-name',
+                distinct_id: 'distinct-id',
+                properties: { $ip: '89.160.20.129' },
+                timestamp: '2024-01-01T00:00:00Z',
+            }
+
+            await hogTransformer.transformEvent(event)
+
+            expect(createHogFunctionInvocationSpy).toHaveBeenCalledTimes(2)
+            expect(createHogFunctionInvocationSpy).toHaveBeenNthCalledWith(1, event, addingTransformationFunction)
+            expect(createHogFunctionInvocationSpy).toHaveBeenNthCalledWith(2, event, deletingTransformationFunction)
+            expect(event.properties?.test_property).toEqual(null)
         })
     })
 })
