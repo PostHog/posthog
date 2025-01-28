@@ -32,11 +32,19 @@ def normalize_column_name(column_name: str) -> str:
 
 def safe_parse_datetime(date_str):
     try:
+        if date_str is None:
+            return None
+
         if isinstance(date_str, pa.StringScalar):
-            return parser.parse(date_str.as_py())
+            scalar = date_str.as_py()
+
+            if scalar is None:
+                return None
+
+            return parser.parse(scalar)
 
         return parser.parse(date_str)
-    except (ValueError, OverflowError):
+    except (ValueError, OverflowError, TypeError):
         return None
 
 
