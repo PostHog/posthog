@@ -3,7 +3,6 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import {
     HogFunctionInvocation,
     HogFunctionInvocationGlobals,
-    HogFunctionInvocationGlobalsWithInputs,
     HogFunctionType,
     HogFunctionTypeType,
 } from '../../cdp/types'
@@ -89,6 +88,7 @@ export class HogTransformerService {
                 // Later we can add support for chaining/ordering
                 for (const hogFunction of teamHogFunctions) {
                     const invocation = this.createHogFunctionInvocation(event, hogFunction)
+
                     const result = this.hogExecutor.execute(invocation, { functions: transformationFunctions })
                     if (result.error) {
                         status.warn('⚠️', 'Error in transformation', {
