@@ -5,7 +5,7 @@ import {
     createInvocation,
     insertHogFunction as _insertHogFunction,
 } from '~/tests/cdp/fixtures'
-import { getProducedKafkaMessages } from '~/tests/helpers/mocks/producer.mock'
+import { getProducedKafkaMessages, getProducedKafkaMessagesForTopic } from '~/tests/helpers/mocks/producer.mock'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
@@ -206,6 +206,33 @@ describe('CdpCyclotronWorkerPlugins', () => {
                     "<REPLACED-UUID-0>",
                     "completed",
                   ],
+                ]
+            `)
+        })
+
+        it('should mock out fetch if it is a test function', async () => {
+            jest.spyOn(PLUGINS_BY_ID['intercom'] as any, 'onEvent')
+
+            const invocation = createInvocation(fn, globals)
+            invocation.hogFunction.name = 'My function [CDP-TEST-HIDDEN]'
+            invocation.globals.event.event = 'mycustomevent'
+            invocation.globals.event.properties = {
+                email: 'test@posthog.com',
+            }
+
+            await processor.processInvocations([invocation])
+
+            expect(mockFetch).toHaveBeenCalledTimes(0)
+
+            expect(PLUGINS_BY_ID['intercom'].onEvent).toHaveBeenCalledTimes(1)
+
+            expect(forSnapshot(getProducedKafkaMessagesForTopic('log_entries_test').map((m) => m.value.message)))
+                .toMatchInlineSnapshot(`
+                [
+                  "Executing plugin intercom",
+                  "Fetch called but mocked due to test function",
+                  "Unable to search contact test@posthog.com in Intercom. Status Code: undefined. Error message: ",
+                  "Execution successful",
                 ]
             `)
         })

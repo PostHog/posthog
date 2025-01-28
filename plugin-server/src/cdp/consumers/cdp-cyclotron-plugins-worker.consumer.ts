@@ -51,6 +51,8 @@ export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
             ? invocation.hogFunction.template_id.replace('plugin-', '')
             : null
 
+        const isTestFunction = invocation.hogFunction.name.includes('[CDP-TEST-HIDDEN]')
+
         result.logs.push({
             level: 'debug',
             timestamp: DateTime.now(),
@@ -85,12 +87,26 @@ export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
 
         let state = this.pluginState[pluginId]
 
+        const fetch = (...args: Parameters<typeof trackedFetch>): Promise<Response> => {
+            if (isTestFunction) {
+                addLog('info', 'Fetch called but mocked due to test function')
+                return Promise.resolve({
+                    status: 500,
+                    json: () =>
+                        Promise.resolve({
+                            message: 'Test function',
+                        }),
+                } as Response)
+            }
+            return this.fetch(...args)
+        }
+
         if (!state) {
             // TODO: Modify fetch to be a silent log if it is a test function...
             const meta: LegacyPluginMeta = {
                 config: invocation.globals.inputs,
                 global: {},
-                fetch: (...args) => this.fetch(...args),
+                fetch,
                 logger: logger,
             }
 
@@ -145,7 +161,7 @@ export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
                 ...state.meta,
                 // NOTE: We override logger and fetch here so we can track the calls
                 logger,
-                fetch: this.fetch,
+                fetch,
             })
             result.logs.push({
                 level: 'debug',
