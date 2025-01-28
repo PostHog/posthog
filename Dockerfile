@@ -50,13 +50,15 @@ RUN pnpx nx build frontend --verbose
 #
 FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.80.1-node_18.19.1 AS plugin-server-build
 WORKDIR /code
+# Workspace settings
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc project.json ./
 COPY ./rust ./rust
 COPY ./common/plugin_transpiler/ ./common/plugin_transpiler/
 WORKDIR /code/plugin-server
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # Compile and install Node.js dependencies.
-COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./
+COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./plugin-server/project.json ./
 COPY ./plugin-server/patches/ ./patches/
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -71,8 +73,8 @@ RUN apt-get update && \
     corepack enable && \
     mkdir /tmp/pnpm-store && \
     pnpm install --frozen-lockfile --filter @posthog/plugin-server --store-dir /tmp/pnpm-store && \
-    pnpx nx prepare:deps plugin-server && \
-    pnpx nx build:deps plugin-server && \
+    pnpx nx deps:prepare plugin-server --verbose && \
+    pnpx nx deps:build plugin-server --verbose && \
     rm -rf /tmp/pnpm-store
 
 # Build the plugin server.
@@ -81,7 +83,7 @@ RUN apt-get update && \
 # the cache hit ratio of the layers above.
 COPY ./plugin-server/src/ ./src/
 COPY ./plugin-server/tests/ ./tests/
-RUN pnpx nx build
+RUN pnpx nx build --verbose
 
 # As the plugin-server is now built, let’s keep
 # only prod dependencies in the node_module folder
