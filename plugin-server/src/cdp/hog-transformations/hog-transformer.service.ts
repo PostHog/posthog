@@ -79,7 +79,7 @@ export class HogTransformerService {
         await this.hogFunctionManager.start(hogTypes)
     }
 
-    public async transformEvent(event: PluginEvent): Promise<TransformationResult> {
+    public transformEvent(event: PluginEvent): Promise<TransformationResult> {
         return runInstrumentedFunction({
             statsKey: `hogTransformer`,
             // eslint-disable-next-line @typescript-eslint/require-await
