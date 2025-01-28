@@ -64,6 +64,7 @@ describe('events dead letter queue', () => {
             lastStep: 'prepareEventStep',
             error: 'database unavailable',
             args: expect.anything(),
+            invocationResults: [],
         })
         expect(generateEventDeadLetterQueueMessage).toHaveBeenCalled()
 

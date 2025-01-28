@@ -14,7 +14,6 @@ import { status } from '../../utils/status'
 import { HogExecutorService } from '../services/hog-executor.service'
 import { HogFunctionManagerService } from '../services/hog-function-manager.service'
 
-// Add return type to include both event and results
 export interface TransformationResult {
     event: PluginEvent
     invocationResults: HogFunctionInvocationResult[]
@@ -31,7 +30,6 @@ export class HogTransformerService {
         this.hogExecutor = new HogExecutorService(hub, this.hogFunctionManager)
     }
 
-    // Built-in transformation functions that will be available to all transformations
     private getTransformationFunctions() {
         return {
             geoipLookup: (ipAddress: unknown) => {
@@ -96,7 +94,7 @@ export class HogTransformerService {
                     const invocation = this.createHogFunctionInvocation(event, hogFunction)
                     const result = this.hogExecutor.execute(invocation, { functions: transformationFunctions })
 
-                    // Store the HogFunctionInvocationResult to show logs and errors in the UI
+                    // Store the HogFunctionInvocationResult to show logs and metrics in the UI
                     invocationResults.push({
                         invocation,
                         logs: result.logs,
@@ -106,7 +104,7 @@ export class HogTransformerService {
                     })
 
                     if (result.error) {
-                        status.warn('⚠️', 'Error in transformation', {
+                        status.error('⚠️', 'Error in transformation', {
                             error: result.error,
                             function_id: hogFunction.id,
                             team_id: event.team_id,
@@ -114,15 +112,13 @@ export class HogTransformerService {
                         continue
                     }
 
-                    // Type check execResult before accessing result
                     if (!result.execResult) {
-                        status.warn('⚠️', 'Missing execution result - no transformation applied')
+                        status.error('⚠️', 'Missing execution result - no transformation applied')
                         continue
                     }
 
                     const transformedEvent: unknown = result.execResult
 
-                    // Validate the transformed event has a valid properties object
                     if (
                         !transformedEvent ||
                         typeof transformedEvent !== 'object' ||
@@ -130,7 +126,7 @@ export class HogTransformerService {
                         !transformedEvent.properties ||
                         typeof transformedEvent.properties !== 'object'
                     ) {
-                        status.warn('⚠️', 'Invalid transformation result - missing or invalid properties', {
+                        status.error('⚠️', 'Invalid transformation result - missing or invalid properties', {
                             function_id: hogFunction.id,
                         })
                         continue
@@ -141,10 +137,9 @@ export class HogTransformerService {
                         ...transformedEvent.properties,
                     }
 
-                    // Validate event name is a string if present and update it
                     if ('event' in transformedEvent) {
                         if (typeof transformedEvent.event !== 'string') {
-                            status.warn('⚠️', 'Invalid transformation result - event name must be a string', {
+                            status.error('⚠️', 'Invalid transformation result - event name must be a string', {
                                 function_id: hogFunction.id,
                                 event: transformedEvent.event,
                             })

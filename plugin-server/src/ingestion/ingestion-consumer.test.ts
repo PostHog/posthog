@@ -74,15 +74,6 @@ const createKafkaMessages: (events: PipelineEvent[]) => Message[] = (events) => 
     })
 }
 
-// Add mock for CyclotronManager
-const mockBulkCreateJobs = jest.fn()
-jest.mock('@posthog/cyclotron', () => ({
-    CyclotronManager: jest.fn().mockImplementation(() => ({
-        connect: jest.fn(),
-        bulkCreateJobs: mockBulkCreateJobs,
-    })),
-}))
-
 describe('IngestionConsumer', () => {
     let ingester: IngestionConsumer
     let hub: Hub
@@ -680,7 +671,5 @@ describe('IngestionConsumer', () => {
                 },
             ])
         })
-
-        xit('should handle transformation errors gracefully', async () => {})
     })
 })
