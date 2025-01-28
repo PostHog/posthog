@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { createHash } from 'crypto'
 
-import { LegacyTransformationPlugin,LegacyTransformationPluginMeta } from '../../types'
+import { LegacyTransformationPlugin, LegacyTransformationPluginMeta } from '../../types'
 import metadata from './plugin.json'
 
 export function setupPlugin({ config, global }: LegacyTransformationPluginMeta) {
