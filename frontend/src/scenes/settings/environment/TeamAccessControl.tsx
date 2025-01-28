@@ -1,5 +1,5 @@
 import { IconCrown, IconLeave, IconLock, IconUnlock } from '@posthog/icons'
-import { LemonButton, LemonSelect, LemonSelectOption, LemonSnack, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSelect, LemonSelectOption, LemonSnack, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
@@ -209,7 +209,7 @@ export function TeamMembers(): JSX.Element | null {
 export function TeamAccessControl(): JSX.Element {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { updateCurrentTeam, updateAccessControlVersion } = useActions(teamLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
     const restrictionReason = useRestrictedArea({
@@ -217,13 +217,29 @@ export function TeamAccessControl(): JSX.Element {
     })
 
     const newAccessControl = useFeatureFlag('ROLE_BASED_ACCESS_CONTROL')
-    if (newAccessControl) {
+
+    console.log('currentTeam', currentTeam)
+    // Only render the new access control if they are not using the old dashboard permissions (v1) and have the feature flag enabled
+    if (newAccessControl && currentTeam?.access_control_version === 'v2') {
         return <AccessControlObject resource="project" resource_id={`${currentTeam?.id}`} />
     }
 
     return (
         <>
             <p>
+                {newAccessControl && (
+                    <LemonBanner
+                        className="mb-4"
+                        type="warning"
+                        action={{
+                            children: 'Upgrade now',
+                            onClick: () => updateAccessControlVersion(),
+                        }}
+                    >
+                        You're eligible to upgrade to our new access control system. This will allow you to better manage
+                        access to your project.
+                    </LemonBanner>
+                )}
                 {currentTeam?.access_control ? (
                     <>
                         This project is{' '}

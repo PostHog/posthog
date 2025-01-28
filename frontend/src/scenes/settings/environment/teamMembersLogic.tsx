@@ -129,6 +129,10 @@ export const teamMembersLogic = kea<teamMembersLogicType>([
             (explicitMembersLoading, organizationMembersLoading) =>
                 explicitMembersLoading || organizationMembersLoading,
         ],
+        // isUpdateAccessControlVersionLoading: [
+        //     (s) => [s.updateAccessControlVersionLoading],
+        //     (updateAccessControlVersionLoading) => updateAccessControlVersionLoading,
+        // ],
         admins: [
             (s) => [s.allMembers],
             (allMembers: FusedTeamMemberType[]) => allMembers.filter(({ level }) => level >= TeamMembershipLevel.Admin),
