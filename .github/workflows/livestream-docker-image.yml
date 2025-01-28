@@ -55,6 +55,7 @@ jobs:
                   platforms: linux/amd64,linux/arm64
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
+                  project: '87b1ch2t7h'
 
     deploy:
         runs-on: ubuntu-24.04

@@ -590,7 +590,7 @@ export function DeltaChart({
                                             </span>
                                             /
                                             <span className="font-semibold">
-                                                {metricType === InsightType.TRENDS ? '5' : '4'}
+                                                {metricType === InsightType.TRENDS ? '3' : '2'}
                                             </span>
                                         </LemonTag>
                                     ) : (
@@ -785,12 +785,13 @@ export function DeltaChart({
                             borderRadius: '6px',
                             fontSize: '13px',
                             boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-                            pointerEvents: 'none',
                             zIndex: 100,
                             minWidth: '200px',
                         }}
+                        onMouseEnter={() => setEmptyStateTooltipVisible(true)}
+                        onMouseLeave={() => setEmptyStateTooltipVisible(false)}
                     >
-                        <NoResultEmptyState error={error} />
+                        <NoResultEmptyState error={error} metric={metric} />
                     </div>
                 )}
             </div>

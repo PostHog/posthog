@@ -1858,47 +1858,6 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecide.test_flag_with_behavioural_cohorts.22
-  '''
-  SELECT "posthog_cohort"."id",
-         "posthog_cohort"."name",
-         "posthog_cohort"."description",
-         "posthog_cohort"."team_id",
-         "posthog_cohort"."deleted",
-         "posthog_cohort"."filters",
-         "posthog_cohort"."query",
-         "posthog_cohort"."version",
-         "posthog_cohort"."pending_version",
-         "posthog_cohort"."count",
-         "posthog_cohort"."created_by_id",
-         "posthog_cohort"."created_at",
-         "posthog_cohort"."is_calculating",
-         "posthog_cohort"."last_calculation",
-         "posthog_cohort"."errors_calculating",
-         "posthog_cohort"."last_error_at",
-         "posthog_cohort"."is_static",
-         "posthog_cohort"."groups"
-  FROM "posthog_cohort"
-  WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."team_id" = 99999)
-  '''
-# ---
-# name: TestDecide.test_flag_with_behavioural_cohorts.23
-  '''
-  SELECT "posthog_group"."id",
-         "posthog_group"."team_id",
-         "posthog_group"."group_key",
-         "posthog_group"."group_type_index",
-         "posthog_group"."group_properties",
-         "posthog_group"."created_at",
-         "posthog_group"."properties_last_updated_at",
-         "posthog_group"."properties_last_operation",
-         "posthog_group"."version"
-  FROM "posthog_group"
-  WHERE "posthog_group"."team_id" = 99999
-  LIMIT 21
-  '''
-# ---
 # name: TestDecide.test_flag_with_behavioural_cohorts.3
   '''
   SELECT "posthog_team"."id",
@@ -2936,43 +2895,6 @@
          AND "posthog_person"."team_id" = 99999)
   '''
 # ---
-# name: TestDecide.test_flag_with_regular_cohorts.22
-  '''
-  SELECT "posthog_cohort"."id",
-         "posthog_cohort"."name",
-         "posthog_cohort"."description",
-         "posthog_cohort"."team_id",
-         "posthog_cohort"."deleted",
-         "posthog_cohort"."filters",
-         "posthog_cohort"."query",
-         "posthog_cohort"."version",
-         "posthog_cohort"."pending_version",
-         "posthog_cohort"."count",
-         "posthog_cohort"."created_by_id",
-         "posthog_cohort"."created_at",
-         "posthog_cohort"."is_calculating",
-         "posthog_cohort"."last_calculation",
-         "posthog_cohort"."errors_calculating",
-         "posthog_cohort"."last_error_at",
-         "posthog_cohort"."is_static",
-         "posthog_cohort"."groups"
-  FROM "posthog_cohort"
-  WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."team_id" = 99999)
-  '''
-# ---
-# name: TestDecide.test_flag_with_regular_cohorts.23
-  '''
-  SELECT (("posthog_person"."properties" -> '$some_prop_1') = '"something_1"'::jsonb
-          AND "posthog_person"."properties" ? '$some_prop_1'
-          AND NOT (("posthog_person"."properties" -> '$some_prop_1') = 'null'::jsonb)) AS "flag_X_condition_0"
-  FROM "posthog_person"
-  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
-  WHERE ("posthog_persondistinctid"."distinct_id" = 'another_id'
-         AND "posthog_persondistinctid"."team_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
-  '''
-# ---
 # name: TestDecide.test_flag_with_regular_cohorts.3
   '''
   SELECT "posthog_team"."id",
@@ -3992,38 +3914,6 @@
   '''
 # ---
 # name: TestDecide.test_web_app_queries.21
-  '''
-  SELECT "posthog_pluginconfig"."id",
-         "posthog_pluginconfig"."web_token",
-         "posthog_pluginsourcefile"."updated_at",
-         "posthog_plugin"."updated_at",
-         "posthog_pluginconfig"."updated_at"
-  FROM "posthog_pluginconfig"
-  INNER JOIN "posthog_plugin" ON ("posthog_pluginconfig"."plugin_id" = "posthog_plugin"."id")
-  INNER JOIN "posthog_pluginsourcefile" ON ("posthog_plugin"."id" = "posthog_pluginsourcefile"."plugin_id")
-  WHERE ("posthog_pluginconfig"."enabled"
-         AND "posthog_pluginsourcefile"."filename" = 'site.ts'
-         AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
-         AND "posthog_pluginconfig"."team_id" = 99999)
-  '''
-# ---
-# name: TestDecide.test_web_app_queries.22
-  '''
-  SELECT "posthog_pluginconfig"."id",
-         "posthog_pluginconfig"."web_token",
-         "posthog_pluginsourcefile"."updated_at",
-         "posthog_plugin"."updated_at",
-         "posthog_pluginconfig"."updated_at"
-  FROM "posthog_pluginconfig"
-  INNER JOIN "posthog_plugin" ON ("posthog_pluginconfig"."plugin_id" = "posthog_plugin"."id")
-  INNER JOIN "posthog_pluginsourcefile" ON ("posthog_plugin"."id" = "posthog_pluginsourcefile"."plugin_id")
-  WHERE ("posthog_pluginconfig"."enabled"
-         AND "posthog_pluginsourcefile"."filename" = 'site.ts'
-         AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
-         AND "posthog_pluginconfig"."team_id" = 99999)
-  '''
-# ---
-# name: TestDecide.test_web_app_queries.23
   '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginconfig"."web_token",
@@ -6070,36 +5960,6 @@
                                               'site_app'))
   '''
 # ---
-# name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.48
-  '''
-  SELECT "posthog_hogfunction"."id",
-         "posthog_hogfunction"."team_id",
-         "posthog_hogfunction"."name",
-         "posthog_hogfunction"."description",
-         "posthog_hogfunction"."created_at",
-         "posthog_hogfunction"."created_by_id",
-         "posthog_hogfunction"."deleted",
-         "posthog_hogfunction"."updated_at",
-         "posthog_hogfunction"."enabled",
-         "posthog_hogfunction"."type",
-         "posthog_hogfunction"."icon_url",
-         "posthog_hogfunction"."hog",
-         "posthog_hogfunction"."bytecode",
-         "posthog_hogfunction"."transpiled",
-         "posthog_hogfunction"."inputs_schema",
-         "posthog_hogfunction"."inputs",
-         "posthog_hogfunction"."encrypted_inputs",
-         "posthog_hogfunction"."filters",
-         "posthog_hogfunction"."mappings",
-         "posthog_hogfunction"."masking",
-         "posthog_hogfunction"."template_id"
-  FROM "posthog_hogfunction"
-  WHERE ("posthog_hogfunction"."enabled"
-         AND "posthog_hogfunction"."team_id" = 99999
-         AND "posthog_hogfunction"."type" IN ('site_destination',
-                                              'site_app'))
-  '''
-# ---
 # name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.5
   '''
   SELECT "posthog_organizationmembership"."id",
@@ -7564,108 +7424,6 @@
   '''
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.33
-  '''
-  SELECT "posthog_group"."id",
-         "posthog_group"."team_id",
-         "posthog_group"."group_key",
-         "posthog_group"."group_type_index",
-         "posthog_group"."group_properties",
-         "posthog_group"."created_at",
-         "posthog_group"."properties_last_updated_at",
-         "posthog_group"."properties_last_operation",
-         "posthog_group"."version"
-  FROM "posthog_group"
-  WHERE "posthog_group"."team_id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.34
-  '''
-  SELECT "posthog_hogfunction"."id",
-         "posthog_hogfunction"."team_id",
-         "posthog_hogfunction"."name",
-         "posthog_hogfunction"."description",
-         "posthog_hogfunction"."created_at",
-         "posthog_hogfunction"."created_by_id",
-         "posthog_hogfunction"."deleted",
-         "posthog_hogfunction"."updated_at",
-         "posthog_hogfunction"."enabled",
-         "posthog_hogfunction"."type",
-         "posthog_hogfunction"."icon_url",
-         "posthog_hogfunction"."hog",
-         "posthog_hogfunction"."bytecode",
-         "posthog_hogfunction"."transpiled",
-         "posthog_hogfunction"."inputs_schema",
-         "posthog_hogfunction"."inputs",
-         "posthog_hogfunction"."encrypted_inputs",
-         "posthog_hogfunction"."filters",
-         "posthog_hogfunction"."mappings",
-         "posthog_hogfunction"."masking",
-         "posthog_hogfunction"."template_id"
-  FROM "posthog_hogfunction"
-  WHERE ("posthog_hogfunction"."enabled"
-         AND "posthog_hogfunction"."team_id" = 99999
-         AND "posthog_hogfunction"."type" IN ('site_destination',
-                                              'site_app'))
-  LIMIT 21
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.35
-  '''
-  SELECT "posthog_hogfunction"."id",
-         "posthog_hogfunction"."team_id",
-         "posthog_hogfunction"."name",
-         "posthog_hogfunction"."description",
-         "posthog_hogfunction"."created_at",
-         "posthog_hogfunction"."created_by_id",
-         "posthog_hogfunction"."deleted",
-         "posthog_hogfunction"."updated_at",
-         "posthog_hogfunction"."enabled",
-         "posthog_hogfunction"."type",
-         "posthog_hogfunction"."icon_url",
-         "posthog_hogfunction"."hog",
-         "posthog_hogfunction"."bytecode",
-         "posthog_hogfunction"."transpiled",
-         "posthog_hogfunction"."inputs_schema",
-         "posthog_hogfunction"."inputs",
-         "posthog_hogfunction"."encrypted_inputs",
-         "posthog_hogfunction"."filters",
-         "posthog_hogfunction"."mappings",
-         "posthog_hogfunction"."masking",
-         "posthog_hogfunction"."template_id"
-  FROM "posthog_hogfunction"
-  WHERE ("posthog_hogfunction"."enabled"
-         AND "posthog_hogfunction"."team_id" = 99999
-         AND "posthog_hogfunction"."type" IN ('site_destination',
-                                              'site_app'))
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.36
-  '''
-  SELECT "posthog_cohort"."id",
-         "posthog_cohort"."name",
-         "posthog_cohort"."description",
-         "posthog_cohort"."team_id",
-         "posthog_cohort"."deleted",
-         "posthog_cohort"."filters",
-         "posthog_cohort"."query",
-         "posthog_cohort"."version",
-         "posthog_cohort"."pending_version",
-         "posthog_cohort"."count",
-         "posthog_cohort"."created_by_id",
-         "posthog_cohort"."created_at",
-         "posthog_cohort"."is_calculating",
-         "posthog_cohort"."last_calculation",
-         "posthog_cohort"."errors_calculating",
-         "posthog_cohort"."last_error_at",
-         "posthog_cohort"."is_static",
-         "posthog_cohort"."groups"
-  FROM "posthog_cohort"
-  WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."team_id" = 99999)
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.37
   '''
   SELECT "posthog_group"."id",
          "posthog_group"."team_id",
@@ -9305,104 +9063,6 @@
   '''
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.33
-  '''
-  SELECT (("posthog_person"."properties" -> '$some_prop_1') = '"something_1"'::jsonb
-          AND "posthog_person"."properties" ? '$some_prop_1'
-          AND NOT (("posthog_person"."properties" -> '$some_prop_1') = 'null'::jsonb)) AS "flag_X_condition_0"
-  FROM "posthog_person"
-  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
-  WHERE ("posthog_persondistinctid"."distinct_id" = 'another_id'
-         AND "posthog_persondistinctid"."team_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.34
-  '''
-  SELECT "posthog_hogfunction"."id",
-         "posthog_hogfunction"."team_id",
-         "posthog_hogfunction"."name",
-         "posthog_hogfunction"."description",
-         "posthog_hogfunction"."created_at",
-         "posthog_hogfunction"."created_by_id",
-         "posthog_hogfunction"."deleted",
-         "posthog_hogfunction"."updated_at",
-         "posthog_hogfunction"."enabled",
-         "posthog_hogfunction"."type",
-         "posthog_hogfunction"."icon_url",
-         "posthog_hogfunction"."hog",
-         "posthog_hogfunction"."bytecode",
-         "posthog_hogfunction"."transpiled",
-         "posthog_hogfunction"."inputs_schema",
-         "posthog_hogfunction"."inputs",
-         "posthog_hogfunction"."encrypted_inputs",
-         "posthog_hogfunction"."filters",
-         "posthog_hogfunction"."mappings",
-         "posthog_hogfunction"."masking",
-         "posthog_hogfunction"."template_id"
-  FROM "posthog_hogfunction"
-  WHERE ("posthog_hogfunction"."enabled"
-         AND "posthog_hogfunction"."team_id" = 99999
-         AND "posthog_hogfunction"."type" IN ('site_destination',
-                                              'site_app'))
-  LIMIT 21
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.35
-  '''
-  SELECT "posthog_hogfunction"."id",
-         "posthog_hogfunction"."team_id",
-         "posthog_hogfunction"."name",
-         "posthog_hogfunction"."description",
-         "posthog_hogfunction"."created_at",
-         "posthog_hogfunction"."created_by_id",
-         "posthog_hogfunction"."deleted",
-         "posthog_hogfunction"."updated_at",
-         "posthog_hogfunction"."enabled",
-         "posthog_hogfunction"."type",
-         "posthog_hogfunction"."icon_url",
-         "posthog_hogfunction"."hog",
-         "posthog_hogfunction"."bytecode",
-         "posthog_hogfunction"."transpiled",
-         "posthog_hogfunction"."inputs_schema",
-         "posthog_hogfunction"."inputs",
-         "posthog_hogfunction"."encrypted_inputs",
-         "posthog_hogfunction"."filters",
-         "posthog_hogfunction"."mappings",
-         "posthog_hogfunction"."masking",
-         "posthog_hogfunction"."template_id"
-  FROM "posthog_hogfunction"
-  WHERE ("posthog_hogfunction"."enabled"
-         AND "posthog_hogfunction"."team_id" = 99999
-         AND "posthog_hogfunction"."type" IN ('site_destination',
-                                              'site_app'))
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.36
-  '''
-  SELECT "posthog_cohort"."id",
-         "posthog_cohort"."name",
-         "posthog_cohort"."description",
-         "posthog_cohort"."team_id",
-         "posthog_cohort"."deleted",
-         "posthog_cohort"."filters",
-         "posthog_cohort"."query",
-         "posthog_cohort"."version",
-         "posthog_cohort"."pending_version",
-         "posthog_cohort"."count",
-         "posthog_cohort"."created_by_id",
-         "posthog_cohort"."created_at",
-         "posthog_cohort"."is_calculating",
-         "posthog_cohort"."last_calculation",
-         "posthog_cohort"."errors_calculating",
-         "posthog_cohort"."last_error_at",
-         "posthog_cohort"."is_static",
-         "posthog_cohort"."groups"
-  FROM "posthog_cohort"
-  WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."team_id" = 99999)
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.37
   '''
   SELECT (("posthog_person"."properties" -> '$some_prop_1') = '"something_1"'::jsonb
           AND "posthog_person"."properties" ? '$some_prop_1'
