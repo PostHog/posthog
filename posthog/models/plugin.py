@@ -1,5 +1,4 @@
 import datetime
-import json
 import os
 import subprocess
 from dataclasses import dataclass
@@ -281,10 +280,7 @@ class PluginAttachment(models.Model):
             return None
 
         try:
-            if self.content_type == "application/json":
-                return json.loads(contents)
-
-            if self.content_type == "text/plain":
+            if self.content_type == "application/json" or self.content_type == "text/plain":
                 return contents.decode("utf-8")
             return None
         except Exception:
