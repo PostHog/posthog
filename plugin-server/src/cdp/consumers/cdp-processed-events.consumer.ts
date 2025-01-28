@@ -1,13 +1,13 @@
 import { CyclotronManager } from '@posthog/cyclotron'
 import { Message } from 'node-rdkafka'
 
-import { Hub, RawClickHouseEvent } from '~/src/types'
-
 import {
     convertToHogFunctionInvocationGlobals,
     fixLogDeduplication,
     serializeHogFunctionInvocation,
-} from '../../cdp/utils'
+} from '~/src/cdp/utils'
+import { Hub, RawClickHouseEvent } from '~/src/types'
+
 import { KAFKA_EVENTS_JSON, KAFKA_LOG_ENTRIES } from '../../config/kafka-topics'
 import { runInstrumentedFunction } from '../../main/utils'
 import { status } from '../../utils/status'
