@@ -7,7 +7,7 @@
         "deps:build": {
             "executor": "nx:run-commands",
             "options": {
-                "commands": ["echo 'Building dependencies for plugin-server'"]
+                "commands": ["echo 'Building dependencies'"]
             },
             "dependsOn": ["^build"]
         },
@@ -18,7 +18,8 @@
                 "cwd": "{projectRoot}"
             },
             "inputs": ["{projectRoot}/src", "{projectRoot}/package.json"],
-            "outputs": ["{projectRoot}/dist"]
+            "outputs": ["{projectRoot}/dist"],
+            "dependsOn": ["deps:build"]
         }
     }
 }

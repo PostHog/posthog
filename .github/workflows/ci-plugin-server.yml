@@ -165,7 +165,10 @@ jobs:
 
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.plugin-server == 'true'
-              run: cd plugin-server && pnpm i
+              run: |
+                  cd plugin-server
+                  pnpm install --frozen-lockfile --filter @posthog/plugin-server...
+                  pnpx nx deps:build plugin-server --verbose
 
             - name: Wait for Clickhouse, Redis & Kafka
               if: needs.changes.outputs.plugin-server == 'true'

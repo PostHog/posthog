@@ -8,14 +8,14 @@
         "deps:prepare": {
             "executor": "nx:run-commands",
             "options": {
-                "commands": ["echo 'Prepared dependencies for building frontend'"]
+                "commands": ["echo 'Prepared dependencies'"]
             },
             "dependsOn": ["^prepare"]
         },
         "deps:build": {
             "executor": "nx:run-commands",
             "options": {
-                "commands": ["echo 'Building dependencies for frontend'"]
+                "commands": ["echo 'Building dependencies'"]
             },
             "dependsOn": ["^build"]
         },
