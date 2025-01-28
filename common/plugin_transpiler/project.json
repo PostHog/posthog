@@ -1,13 +1,13 @@
 {
     "$schema": "https://json.schemastore.org/nx",
-    "name": "hogvm-ts",
+    "name": "plugin-transpiler",
     "sourceRoot": "{projectRoot}/src",
     "projectType": "library",
     "targets": {
         "prepare": {
             "executor": "nx:run-commands",
             "options": {
-                "commands": ["pnpm install --frozen-lockfile --filter @posthog/hogvm"],
+                "commands": ["pnpm install --frozen-lockfile --filter @posthog/plugin-transpiler"],
                 "cwd": "{projectRoot}"
             }
         },
@@ -19,13 +19,6 @@
             },
             "inputs": ["{projectRoot}/src/**/*"],
             "outputs": ["{projectRoot}/dist"]
-        },
-        "test": {
-            "executor": "nx:run-commands",
-            "options": {
-                "commands": ["pnpm run test"],
-                "cwd": "{projectRoot}"
-            }
         }
     }
 }

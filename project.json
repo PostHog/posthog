@@ -8,14 +8,14 @@
         "deps:prepare": {
             "executor": "nx:run-commands",
             "options": {
-                "commands": ["echo 'Prepared frontend dependencies for building'"]
+                "commands": ["echo 'Prepared dependencies for building frontend'"]
             },
             "dependsOn": ["^prepare"]
         },
         "deps:build": {
             "executor": "nx:run-commands",
             "options": {
-                "commands": ["echo 'Building frontend dependencies'"]
+                "commands": ["echo 'Building dependencies for frontend'"]
             },
             "dependsOn": ["^build"]
         },
@@ -25,7 +25,7 @@
                 "commands": ["pnpm run build"]
             },
             "dependsOn": ["deps:build"],
-            "inputs": ["{projectRoot}/frontend/src/**/*"],
+            "inputs": ["{projectRoot}/frontend/src", "{projectRoot}/package.json"],
             "outputs": ["{projectRoot}/frontend/dist"]
         },
         "serve": {

@@ -39,7 +39,7 @@ jobs:
 
             - name: Install dependencies and Chromatic
               run: |
-                  pnpm install --frozen-lockfile --filter .
+                  pnpm install --frozen-lockfile --filter @posthog/frontend
                   pnpx nx deps:prepare frontend --verbose
                   pnpx nx deps:build frontend --verbose
                   pnpm i -D chromatic
@@ -120,12 +120,12 @@ jobs:
 
             - name: Build and install frontend build dependencies
               run: |
-                  pnpm install --frozen-lockfile --filter .
+                  pnpm install --frozen-lockfile --filter @posthog/frontend
                   pnpx nx deps:prepare frontend --verbose
                   pnpx nx deps:build frontend --verbose
 
             - name: Install CI utilities with pnpm
-              run: pnpm install http-server wait-on
+              run: pnpm install http-server wait-on -g
 
             - name: Build Storybook
               run: pnpm build-storybook --test --quiet # Silence since progress logging results in a massive wall of spam

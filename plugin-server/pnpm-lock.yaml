@@ -1,4 +1,4 @@
-lockfileVersion: '6.1'
+lockfileVersion: '6.0'
 
 settings:
   autoInstallPeers: true
@@ -47,8 +47,8 @@ dependencies:
     specifier: file:../rust/cyclotron-node
     version: file:../rust/cyclotron-node
   '@posthog/hogvm':
-    specifier: ^1.0.66
-    version: 1.0.66(luxon@3.4.4)
+    specifier: workspace:*
+    version: link:../common/hogvm/typescript
   '@posthog/plugin-scaffold':
     specifier: 1.4.4
     version: 1.4.4
@@ -2965,14 +2965,6 @@ packages:
   /@posthog/clickhouse@1.7.0:
     resolution: {integrity: sha512-B8hZ8Dh2EoJoDb7Gx38ylBQM92oON/X2IxXCb7BfYStk3m17nStcAyaCsc2zbvxC0fFfTMU8lFRiFSEJmijkyg==}
     engines: {node: '>=12'}
-    dev: false
-
-  /@posthog/hogvm@1.0.66(luxon@3.4.4):
-    resolution: {integrity: sha512-bczn4tB2rXRJVXihkRHGiNT+6ruYRLRtGRf9xhGlZmdFBL/QSJa5/gQqflp5de+N6UMofkyjdX8yvBwiTt3VHw==}
-    peerDependencies:
-      luxon: ^3.4.4
-    dependencies:
-      luxon: 3.4.4
     dev: false
 
   /@posthog/plugin-scaffold@1.4.4:
@@ -11169,5 +11161,4 @@ packages:
   file:../rust/cyclotron-node:
     resolution: {directory: ../rust/cyclotron-node, type: directory}
     name: '@posthog/cyclotron'
-    version: 0.1.7
     dev: false

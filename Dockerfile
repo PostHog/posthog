@@ -32,7 +32,7 @@ COPY patches/ patches/
 ENV PNPM_HOME /tmp/pnpm-store 
 RUN corepack enable && pnpm --version && \
     mkdir /tmp/pnpm-store && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
+    pnpm install --frozen-lockfile --filter @posthog/frontend --store-dir /tmp/pnpm-store --prod && \
     pnpx nx deps:prepare frontend --verbose && \
     pnpx nx deps:build frontend --verbose && \
     rm -rf /tmp/pnpm-store
@@ -70,10 +70,9 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/* && \
     corepack enable && \
     mkdir /tmp/pnpm-store && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
-    cd ../common/plugin_transpiler && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
-    pnpm build && \
+    pnpm install --frozen-lockfile --filter @posthog/plugin-server --store-dir /tmp/pnpm-store && \
+    pnpx nx prepare:deps plugin-server && \
+    pnpx nx build:deps plugin-server && \
     rm -rf /tmp/pnpm-store
 
 # Build the plugin server.
@@ -82,14 +81,14 @@ RUN apt-get update && \
 # the cache hit ratio of the layers above.
 COPY ./plugin-server/src/ ./src/
 COPY ./plugin-server/tests/ ./tests/
-RUN pnpm build
+RUN pnpx nx build
 
 # As the plugin-server is now built, let’s keep
 # only prod dependencies in the node_module folder
 # as we will copy it to the last image.
 RUN corepack enable && \
     mkdir /tmp/pnpm-store && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
+    pnpm install --frozen-lockfile --filter @posthog/plugin-server --store-dir /tmp/pnpm-store --prod && \
     rm -rf /tmp/pnpm-store
 
 
