@@ -1,5 +1,5 @@
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { SourceFormComponent, SourceFormProps } from 'scenes/data-warehouse/external/forms/SourceForm'
 
@@ -28,12 +28,17 @@ interface UpdateSourceConnectionFormContainerProps extends SourceFormProps {
 
 function UpdateSourceConnectionFormContainer(props: UpdateSourceConnectionFormContainerProps): JSX.Element {
     const { source, sourceLoading } = useValues(dataWarehouseSourceSettingsLogic({ id: props.id }))
+    const { setSourceConfigValue } = useActions(dataWarehouseSourceSettingsLogic)
 
     return (
         <>
             <span className="block mb-2">Overwrite your existing configuration here</span>
             <Form logic={dataWarehouseSourceSettingsLogic} formKey="sourceConfig" enableFormOnSubmit>
-                <SourceFormComponent {...props} jobInputs={source?.job_inputs} />
+                <SourceFormComponent
+                    {...props}
+                    jobInputs={source?.job_inputs}
+                    setSourceConfigValue={setSourceConfigValue}
+                />
                 <div className="mt-4 flex flex-row justify-end gap-2">
                     <LemonButton
                         loading={sourceLoading && !source}

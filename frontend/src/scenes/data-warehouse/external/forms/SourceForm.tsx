@@ -1,7 +1,7 @@
 import { LemonDivider, LemonFileInput, LemonInput, LemonSelect, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
-import { Form, Group } from 'kea-forms'
+import { FieldName, Form, Group } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import React from 'react'
+import React, { useEffect } from 'react'
 
 import { SourceConfig, SourceFieldConfig } from '~/types'
 
@@ -13,6 +13,7 @@ export interface SourceFormProps {
     sourceConfig: SourceConfig
     showPrefix?: boolean
     jobInputs?: Record<string, any>
+    setSourceConfigValue?: (key: FieldName, value: any) => void
 }
 
 const CONNECTION_STRING_DEFAULT_PORT = {
@@ -38,7 +39,7 @@ const sourceFieldToElement = (field: SourceFieldConfig, sourceConfig: SourceConf
 
                                 if (isValid) {
                                     sourceWizardLogic.actions.setSourceConnectionDetailsValue(
-                                        ['payload', 'dbname'],
+                                        ['payload', 'database'],
                                         database || ''
                                     )
                                     sourceWizardLogic.actions.setSourceConnectionDetailsValue(
@@ -172,8 +173,7 @@ const sourceFieldToElement = (field: SourceFieldConfig, sourceConfig: SourceConf
                     data-attr={field.name}
                     placeholder={field.placeholder}
                     type={field.type as 'text'}
-                    defaultValue={lastValue}
-                    value={value}
+                    value={value || ''}
                     onChange={onChange}
                 />
             )}
@@ -189,13 +189,26 @@ export default function SourceFormContainer(props: SourceFormProps): JSX.Element
     )
 }
 
-export function SourceFormComponent({ sourceConfig, showPrefix = true, jobInputs }: SourceFormProps): JSX.Element {
+export function SourceFormComponent({
+    sourceConfig,
+    showPrefix = true,
+    jobInputs,
+    setSourceConfigValue,
+}: SourceFormProps): JSX.Element {
+    useEffect(() => {
+        if (jobInputs && setSourceConfigValue) {
+            for (const input of Object.keys(jobInputs || {})) {
+                setSourceConfigValue(['payload', input], jobInputs[input])
+            }
+        }
+    }, [JSON.stringify(jobInputs), setSourceConfigValue])
+
     return (
         <div className="space-y-4">
             <Group name="payload">
-                {SOURCE_DETAILS[sourceConfig.name].fields.map((field) =>
-                    sourceFieldToElement(field, sourceConfig, jobInputs?.[field.name])
-                )}
+                {SOURCE_DETAILS[sourceConfig.name].fields.map((field) => {
+                    return sourceFieldToElement(field, sourceConfig, jobInputs?.[field.name])
+                })}
             </Group>
             {showPrefix && (
                 <LemonField name="prefix" label="Table Prefix (optional)">

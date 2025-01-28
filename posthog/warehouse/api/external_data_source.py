@@ -605,7 +605,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         host = payload.get("host")
         port = payload.get("port")
-        database = payload.get("dbname")
+        database = payload.get("database")
 
         user = payload.get("user")
         password = payload.get("password")
