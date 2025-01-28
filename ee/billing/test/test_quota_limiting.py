@@ -77,9 +77,9 @@ class TestQuotaLimiting(BaseTest):
         # Check out many times it was called
         assert patch_capture.call_count == 8  # 7 logs + 1 org
         # Find the org action call
-        org_action_call = [call for call in patch_capture.call_args_list if call.args[1] == "quota limiting suspended"][
-            0
-        ]  # noqa: RUF015
+        org_action_call = next(
+            call for call in patch_capture.call_args_list if call.args[1] == "quota limiting suspended"
+        )
         assert org_action_call.kwargs.get("properties") == {
             "current_usage": 109,
             "resource": "events",
@@ -118,9 +118,9 @@ class TestQuotaLimiting(BaseTest):
         # Check out many times it was called
         assert patch_capture.call_count == 8  # 7 logs + 1 org
         # Find the org action call
-        org_action_call = [
+        org_action_call = next(
             call for call in patch_capture.call_args_list if call.args[1] == "quota limiting already limited"
-        ][0]  # noqa: RUF015
+        )
         assert org_action_call.kwargs.get("properties") == {
             "current_usage": 109,
             "resource": "events",
@@ -240,9 +240,9 @@ class TestQuotaLimiting(BaseTest):
             # Check out many times it was called
             assert patch_capture.call_count == 9  # 7 logs + 1 org and 1 log from org_quota_limited_until
             # Find the org action call
-            org_action_call = [
+            org_action_call = next(
                 call for call in patch_capture.call_args_list if call.args[1] == "organization quota limits changed"
-            ][0]  # noqa: RUF015
+            )
             assert org_action_call.kwargs.get("properties") == {
                 "quota_limited_events": 1612137599,
                 "quota_limited_recordings": 1612137599,
