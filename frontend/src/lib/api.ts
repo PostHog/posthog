@@ -95,6 +95,7 @@ import {
     PropertyDefinitionType,
     QueryBasedInsightModel,
     RawAnnotationType,
+    RawBatchExportBackfill,
     RawBatchExportRun,
     RoleMemberType,
     RolesListParams,
@@ -933,6 +934,10 @@ class ApiRequest {
 
     public batchExportRuns(id: BatchExportConfiguration['id'], teamId?: TeamType['id']): ApiRequest {
         return this.batchExports(teamId).addPathComponent(id).addPathComponent('runs')
+    }
+
+    public batchExportBackfills(id: BatchExportConfiguration['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.batchExports(teamId).addPathComponent(id).addPathComponent('backfills')
     }
 
     public batchExportRun(
@@ -2257,6 +2262,12 @@ const api = {
             data: Pick<BatchExportConfiguration, 'start_at' | 'end_at'>
         ): Promise<BatchExportRun> {
             return await new ApiRequest().batchExport(id).withAction('backfill').create({ data })
+        },
+        async listBackfills(
+            id: BatchExportConfiguration['id'],
+            params: Record<string, any> = {}
+        ): Promise<PaginatedResponse<RawBatchExportBackfill>> {
+            return await new ApiRequest().batchExportBackfills(id).withQueryString(toParams(params)).get()
         },
         async retryRun(
             id: BatchExportConfiguration['id'],
