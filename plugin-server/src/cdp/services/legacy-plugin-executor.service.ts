@@ -1,12 +1,18 @@
-import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
+import { PluginEvent, ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 
 import { Hub } from '../../types'
 import { Response, trackedFetch } from '../../utils/fetch'
 import { status } from '../../utils/status'
-import { DESTINATION_PLUGINS_BY_ID } from '../legacy-plugins'
-import { LegacyPluginLogger, LegacyPluginMeta } from '../legacy-plugins/types'
+import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '../legacy-plugins'
+import {
+    LegacyDestinationPlugin,
+    LegacyDestinationPluginMeta,
+    LegacyPluginLogger,
+    LegacyTransformationPlugin,
+    LegacyTransformationPluginMeta,
+} from '../legacy-plugins/types'
 import { sanitizeLogMessage } from '../services/hog-executor.service'
 import { HogFunctionInvocation, HogFunctionInvocationResult } from '../types'
 
@@ -20,7 +26,7 @@ const pluginExecutionDuration = new Histogram({
 export type PluginState = {
     setupPromise: Promise<any>
     errored: boolean
-    meta: LegacyPluginMeta
+    meta: LegacyTransformationPluginMeta
 }
 
 /**
@@ -43,28 +49,7 @@ export class LegacyPluginExecutorService {
             logs: [],
         }
 
-        const pluginId = invocation.hogFunction.template_id?.startsWith('plugin-')
-            ? invocation.hogFunction.template_id.replace('plugin-', '')
-            : null
-
         const isTestFunction = invocation.hogFunction.name.includes('[CDP-TEST-HIDDEN]')
-
-        result.logs.push({
-            level: 'debug',
-            timestamp: DateTime.now(),
-            message: `Executing plugin ${pluginId}`,
-        })
-        const plugin = pluginId ? DESTINATION_PLUGINS_BY_ID[pluginId] : null
-
-        if (!plugin || !pluginId) {
-            result.error = new Error(`Plugin ${pluginId} not found`)
-            result.logs.push({
-                level: 'error',
-                timestamp: DateTime.now(),
-                message: `Plugin ${pluginId} not found`,
-            })
-            return result
-        }
 
         const addLog = (level: 'debug' | 'warn' | 'error' | 'info', ...args: any[]) => {
             result.logs.push({
@@ -81,8 +66,6 @@ export class LegacyPluginExecutorService {
             error: (...args: any[]) => addLog('error', ...args),
         }
 
-        let state = this.pluginState[pluginId]
-
         const fetch = (...args: Parameters<typeof trackedFetch>): Promise<Response> => {
             if (isTestFunction) {
                 addLog('info', 'Fetch called but mocked due to test function')
@@ -97,76 +80,118 @@ export class LegacyPluginExecutorService {
             return this.fetch(...args)
         }
 
-        if (!state) {
-            // TODO: Modify fetch to be a silent log if it is a test function...
-            const meta: LegacyPluginMeta = {
-                config: invocation.globals.inputs,
-                global: {},
-                fetch,
-                logger: logger,
-            }
-
-            state = this.pluginState[pluginId] = {
-                setupPromise: plugin.setupPlugin?.(meta) ?? Promise.resolve(),
-                meta,
-                errored: false,
-            }
-        }
+        const pluginId = invocation.hogFunction.template_id?.startsWith('plugin-')
+            ? invocation.hogFunction.template_id.replace('plugin-', '')
+            : null
 
         try {
-            await state.setupPromise
-        } catch (e) {
-            state.errored = true
-            result.error = e
-            result.logs.push({
-                level: 'error',
-                timestamp: DateTime.now(),
-                message: `Plugin ${pluginId} setup failed: ${e.message}`,
+            const plugin = pluginId
+                ? ((DESTINATION_PLUGINS_BY_ID[pluginId] || TRANSFORMATION_PLUGINS_BY_ID[pluginId]) as
+                      | LegacyTransformationPlugin
+                      | LegacyDestinationPlugin)
+                : null
+
+            addLog('debug', `Executing plugin ${pluginId}`)
+
+            if (!pluginId || !plugin) {
+                throw new Error(`Plugin ${pluginId} not found`)
+            }
+
+            if (invocation.hogFunction.type === 'destination' && 'processEvent' in plugin) {
+                throw new Error(`Plugin ${pluginId} is not a destination`)
+            } else if (invocation.hogFunction.type === 'transformation' && 'onEvent' in plugin) {
+                throw new Error(`Plugin ${pluginId} is not a transformation`)
+            }
+
+            let state = this.pluginState[pluginId]
+
+            if (!state) {
+                // TODO: Modify fetch to be a silent log if it is a test function...
+                const meta: LegacyTransformationPluginMeta = {
+                    config: invocation.globals.inputs,
+                    global: {},
+                    logger: logger,
+                }
+
+                const setupPromise =
+                    'setupPlugin' in plugin
+                        ? 'processEvent' in plugin
+                            ? Promise.resolve(plugin.setupPlugin?.(meta))
+                            : Promise.resolve(
+                                  plugin.setupPlugin?.({
+                                      ...meta,
+                                      fetch,
+                                  })
+                              )
+                        : Promise.resolve()
+
+                // Check the type of the plugin and setup accordingly
+                state = this.pluginState[pluginId] = {
+                    setupPromise,
+                    meta,
+                    errored: false,
+                }
+            }
+
+            try {
+                await state.setupPromise
+            } catch (e) {
+                throw new Error(`Plugin ${pluginId} setup failed: ${e.message}`)
+            }
+
+            const start = performance.now()
+
+            status.info('⚡️', 'Executing plugin', {
+                pluginId,
+                invocationId: invocation.id,
             })
-            return result
-        }
 
-        // Convert the invocation into the right interface for the plugin
-
-        const event: ProcessedPluginEvent = {
-            distinct_id: invocation.globals.event.distinct_id,
-            ip: invocation.globals.event.properties.$ip,
-            team_id: invocation.hogFunction.team_id,
-            event: invocation.globals.event.event,
-            properties: invocation.globals.event.properties,
-            timestamp: invocation.globals.event.timestamp,
-            $set: invocation.globals.event.properties.$set,
-            $set_once: invocation.globals.event.properties.$set_once,
-            uuid: invocation.globals.event.uuid,
-            person: invocation.globals.person
+            const person: ProcessedPluginEvent['person'] = invocation.globals.person
                 ? {
                       uuid: invocation.globals.person.id,
                       team_id: invocation.hogFunction.team_id,
                       properties: invocation.globals.person.properties,
                       created_at: '', // NOTE: We don't have this anymore - see if any plugin uses it...
                   }
-                : undefined,
-        }
+                : undefined
 
-        const start = performance.now()
+            const event = {
+                distinct_id: invocation.globals.event.distinct_id,
+                ip: invocation.globals.event.properties.$ip,
+                team_id: invocation.hogFunction.team_id,
+                event: invocation.globals.event.event,
+                properties: invocation.globals.event.properties,
+                timestamp: invocation.globals.event.timestamp,
+                $set: invocation.globals.event.properties.$set,
+                $set_once: invocation.globals.event.properties.$set_once,
+                uuid: invocation.globals.event.uuid,
+            }
 
-        try {
-            status.info('⚡️', 'Executing plugin', {
-                pluginId,
-                invocationId: invocation.id,
-            })
+            if ('onEvent' in plugin) {
+                // Destination style
+                const processedEvent: ProcessedPluginEvent = {
+                    ...event,
+                    person,
+                    properties: event.properties || {},
+                }
 
-            await plugin.onEvent?.(event, {
-                ...state.meta,
-                // NOTE: We override logger and fetch here so we can track the calls
-                logger,
-                fetch,
-            })
-            result.logs.push({
-                level: 'debug',
-                timestamp: DateTime.now(),
-                message: `Execution successful`,
-            })
+                await plugin.onEvent?.(processedEvent, {
+                    ...state.meta,
+                    // NOTE: We override logger and fetch here so we can track the calls
+                    logger,
+                    fetch,
+                })
+            } else {
+                // Transformation style
+                const transformedEvent = plugin.processEvent(event as PluginEvent, {
+                    ...state.meta,
+                    logger,
+                })
+                result.execResult = transformedEvent
+            }
+
+            addLog('debug', `Execution successful`)
+            pluginExecutionDuration.observe(performance.now() - start)
         } catch (e) {
             if (e instanceof RetryError) {
                 // NOTE: Schedule as a retry to cyclotron?
@@ -179,13 +204,8 @@ export class LegacyPluginExecutorService {
             })
 
             result.error = e
-            result.logs.push({
-                level: 'error',
-                timestamp: DateTime.now(),
-                message: `Plugin errored: ${e.message}`,
-            })
-        } finally {
-            pluginExecutionDuration.observe(performance.now() - start)
+
+            addLog('error', `Plugin execution failed: ${e.message}`)
         }
 
         return result

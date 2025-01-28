@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyPluginMeta } from '../../types'
+import { LegacyTransformationPluginMeta } from '../../types'
 import { processEvent } from './index'
 
 interface SemanticVersionTestCase {
@@ -25,7 +25,7 @@ const meta = {
     logger: {
         log: jest.fn(),
     },
-} as unknown as LegacyPluginMeta
+} as unknown as LegacyTransformationPluginMeta
 
 describe('the semver flattener plugin', () => {
     test('processEvent adds properties when they match config', () => {

@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyPluginMeta } from '../../types'
+import { LegacyTransformationPluginMeta } from '../../types'
 import { processEvent } from './index'
 
 /**
@@ -43,7 +43,7 @@ const meta = {
     logger: {
         debug: jest.fn(),
     },
-} as unknown as LegacyPluginMeta
+} as unknown as LegacyTransformationPluginMeta
 
 describe('processEvent', () => {
     it("shouldn't change a url that's already lowercase", () => {

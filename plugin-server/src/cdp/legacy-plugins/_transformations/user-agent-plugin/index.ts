@@ -1,10 +1,10 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { detect } from 'detect-browser'
 
-import { LegacyPluginMeta, LegacyTransformationPlugin } from '../../types'
+import { LegacyTransformationPlugin,LegacyTransformationPluginMeta } from '../../types'
 import metadata from './plugin.json'
 
-export type UserAgentMeta = LegacyPluginMeta & {
+export type UserAgentMeta = LegacyTransformationPluginMeta & {
     config: {
         enable: string
         enableSegmentAnalyticsJs?: string

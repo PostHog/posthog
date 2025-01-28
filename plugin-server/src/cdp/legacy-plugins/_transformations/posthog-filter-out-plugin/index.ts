@@ -1,6 +1,6 @@
 import { Meta, PluginAttachment, PluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyPluginMeta, LegacyTransformationPlugin } from '../../types'
+import { LegacyTransformationPlugin,LegacyTransformationPluginMeta } from '../../types'
 import metadata from './plugin.json'
 
 export interface Filter {
@@ -48,7 +48,7 @@ const operations: Record<Filter['type'], Record<string, (a: any, b: any) => bool
     },
 }
 
-export function setupPlugin({ global, config }: LegacyPluginMeta) {
+export function setupPlugin({ global, config }: LegacyTransformationPluginMeta) {
     if (config.filters) {
         try {
             const filters = typeof config.filters === 'string' ? JSON.parse(config.filters) : config.filters
@@ -80,7 +80,7 @@ export function setupPlugin({ global, config }: LegacyPluginMeta) {
     global.keepUndefinedProperties = config.keepUndefinedProperties === 'Yes'
 }
 
-export function processEvent(event: PluginEvent, meta: LegacyPluginMeta): PluginEvent | undefined {
+export function processEvent(event: PluginEvent, meta: LegacyTransformationPluginMeta): PluginEvent | undefined {
     if (!event.properties) {
         return event
     }

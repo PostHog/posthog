@@ -1,9 +1,9 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyPluginMeta, LegacyTransformationPlugin } from '../../types'
+import { LegacyTransformationPlugin,LegacyTransformationPluginMeta } from '../../types'
 import metadata from './plugin.json'
 
-export function processEvent(event: PluginEvent, { config }: LegacyPluginMeta) {
+export function processEvent(event: PluginEvent, { config }: LegacyTransformationPluginMeta) {
     const { pattern, matchGroup, property, replacePattern, replaceKey, replaceValue } = config
     if (event.properties && typeof event.properties['$pathname'] === 'string') {
         const regexp = new RegExp(pattern)

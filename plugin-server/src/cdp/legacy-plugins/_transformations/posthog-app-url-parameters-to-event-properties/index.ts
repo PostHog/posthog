@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { URLSearchParams } from 'url'
 
-import { LegacyPluginMeta, LegacyTransformationPlugin } from '../../types'
+import { LegacyTransformationPlugin,LegacyTransformationPluginMeta } from '../../types'
 import metadata from './plugin.json'
 
 export type PluginConfig = {
@@ -14,7 +14,7 @@ export type PluginConfig = {
     alwaysJson: 'true' | 'false'
 }
 
-export type LocalMeta = LegacyPluginMeta & {
+export type LocalMeta = LegacyTransformationPluginMeta & {
     global: {
         ignoreCase: boolean
         setAsInitialUserProperties: boolean

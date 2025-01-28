@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyPluginMeta } from '../../types'
+import { LegacyTransformationPluginMeta } from '../../types'
 import { Filter, processEvent, setupPlugin } from '.'
 
 const filters: Filter[] = [
@@ -40,7 +40,7 @@ const createEvent = (event: Partial<PluginEvent>): PluginEvent => {
 
 const meta = {
     global: { filters, eventsToDrop: ['to_drop_event'] },
-} as unknown as LegacyPluginMeta
+} as unknown as LegacyTransformationPluginMeta
 
 test('Event satisfies all conditions and passes', () => {
     const event = createEvent({
@@ -118,7 +118,7 @@ test('Event is marked to be dropped when a property is undefined but keepUndefin
     }) as unknown as PluginEvent
     const processedEvent = processEvent(event, {
         global: { ...meta.global, keepUndefinedProperties: true },
-    } as unknown as LegacyPluginMeta)
+    } as unknown as LegacyTransformationPluginMeta)
     expect(processedEvent).toEqual(event)
 })
 
@@ -151,7 +151,7 @@ test('setupPlugin() parsing keepUndefinedProperties', () => {
 describe('empty filters', () => {
     const meta_no_filters = {
         global: { filters: [], eventsToDrop: ['to_drop_event'] },
-    } as unknown as LegacyPluginMeta
+    } as unknown as LegacyTransformationPluginMeta
 
     test('Event satisfies all conditions and passes', () => {
         const event = createEvent({
@@ -227,7 +227,7 @@ const filters_or: Filter[][] = [
 
 const meta_or = {
     global: { filters: filters_or, eventsToDrop: ['to_drop_event'] },
-} as unknown as LegacyPluginMeta
+} as unknown as LegacyTransformationPluginMeta
 
 test('Event satisfies at least one filter group and passes', () => {
     const event = createEvent({

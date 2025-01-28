@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyPluginMeta } from '../../types'
+import { LegacyTransformationPluginMeta } from '../../types'
 import { processEvent } from './legacy'
 
 const createEvent = (event: Partial<PluginEvent>): PluginEvent =>
@@ -28,7 +28,7 @@ describe('taxonomy-plugin', () => {
                 const result = processEvent(event, {
                     config: { defaultNamingConvention: 'camelCase' },
                     global: {},
-                } as unknown as LegacyPluginMeta)
+                } as unknown as LegacyTransformationPluginMeta)
                 expect(result.event).toBe(expected)
             }
         })
@@ -45,7 +45,7 @@ describe('taxonomy-plugin', () => {
                 const result = processEvent(event, {
                     config: { defaultNamingConvention: 'PascalCase' },
                     global: {},
-                } as unknown as LegacyPluginMeta)
+                } as unknown as LegacyTransformationPluginMeta)
                 expect(result.event).toBe(expected)
             }
         })
@@ -63,7 +63,7 @@ describe('taxonomy-plugin', () => {
                 const result = processEvent(event, {
                     config: { defaultNamingConvention: 'snake_case' },
                     global: {},
-                } as unknown as LegacyPluginMeta)
+                } as unknown as LegacyTransformationPluginMeta)
                 expect(result.event).toBe(expected)
             }
         })
@@ -80,7 +80,7 @@ describe('taxonomy-plugin', () => {
                 const result = processEvent(event, {
                     config: { defaultNamingConvention: 'kebab-case' },
                     global: {},
-                } as unknown as LegacyPluginMeta)
+                } as unknown as LegacyTransformationPluginMeta)
                 expect(result.event).toBe(expected)
             }
         })
@@ -97,7 +97,7 @@ describe('taxonomy-plugin', () => {
                 const result = processEvent(event, {
                     config: { defaultNamingConvention: 'spaces in between' },
                     global: {},
-                } as unknown as LegacyPluginMeta)
+                } as unknown as LegacyTransformationPluginMeta)
                 expect(result.event).toBe(expected)
             }
         })
@@ -112,7 +112,7 @@ describe('taxonomy-plugin', () => {
                 const result = processEvent(event, {
                     config: { defaultNamingConvention: 'camelCase' },
                     global: {},
-                } as unknown as LegacyPluginMeta)
+                } as unknown as LegacyTransformationPluginMeta)
                 expect(result.event).toBe(systemEvent)
             }
         })
@@ -125,7 +125,7 @@ describe('taxonomy-plugin', () => {
                 const result = processEvent(event, {
                     config: { defaultNamingConvention: 'camelCase' },
                     global: {},
-                } as unknown as LegacyPluginMeta)
+                } as unknown as LegacyTransformationPluginMeta)
                 expect(result.event).toBe(surveyEvent)
             }
         })
@@ -135,7 +135,7 @@ describe('taxonomy-plugin', () => {
             const result = processEvent(event, {
                 config: { defaultNamingConvention: 'camelCase' },
                 global: {},
-            } as unknown as LegacyPluginMeta)
+            } as unknown as LegacyTransformationPluginMeta)
 
             expect(result).toEqual({
                 ...event,

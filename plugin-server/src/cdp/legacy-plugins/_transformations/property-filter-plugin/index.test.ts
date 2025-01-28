@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyPluginMeta } from '../../types'
+import { LegacyTransformationPluginMeta } from '../../types'
 import { processEvent } from './index'
 
 const createEvent = (event: Partial<PluginEvent>): PluginEvent =>
@@ -25,10 +25,10 @@ const global = {
     ],
 }
 
-const meta: LegacyPluginMeta = {
+const meta: LegacyTransformationPluginMeta = {
     global,
     config: {},
-} as unknown as LegacyPluginMeta
+} as unknown as LegacyTransformationPluginMeta
 
 const properties = {
     properties: {

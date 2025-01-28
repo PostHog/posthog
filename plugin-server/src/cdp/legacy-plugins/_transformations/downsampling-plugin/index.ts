@@ -1,10 +1,10 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { createHash } from 'crypto'
 
-import { LegacyPluginMeta, LegacyTransformationPlugin } from '../../types'
+import { LegacyTransformationPlugin,LegacyTransformationPluginMeta } from '../../types'
 import metadata from './plugin.json'
 
-export function setupPlugin({ config, global }: LegacyPluginMeta) {
+export function setupPlugin({ config, global }: LegacyTransformationPluginMeta) {
     const percentage = parseFloat(config.percentage)
     if (isNaN(percentage) || percentage > 100 || percentage < 0) {
         throw new Error('Percentage must be a number between 0 and 100.')
@@ -14,7 +14,7 @@ export function setupPlugin({ config, global }: LegacyPluginMeta) {
 }
 
 // /* Runs on every event */
-export function processEvent(event: PluginEvent, { global }: LegacyPluginMeta) {
+export function processEvent(event: PluginEvent, { global }: LegacyTransformationPluginMeta) {
     // hash is a sha256 hash of the distinct_id represented in base 16
     // We take the first 15 digits, convert this into an integer,
     // dividing by the biggest 15 digit, base 16 number to get a value between 0 and 1.

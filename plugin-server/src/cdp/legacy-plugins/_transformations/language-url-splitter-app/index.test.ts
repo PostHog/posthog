@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyPluginMeta } from '../../types'
+import { LegacyTransformationPluginMeta } from '../../types'
 import { processEvent } from './index'
 import pluginJson from './plugin.json'
 
@@ -21,9 +21,9 @@ test('changes properties', () => {
     ]
 
     for (const [$pathname, properties] of matches) {
-        expect(processEvent(makeEvent($pathname), { config: globalConfig } as LegacyPluginMeta).properties).toEqual(
-            properties
-        )
+        expect(
+            processEvent(makeEvent($pathname), { config: globalConfig } as LegacyTransformationPluginMeta).properties
+        ).toEqual(properties)
     }
 })
 
@@ -34,8 +34,8 @@ test('changes properties if new $pathname', () => {
     ]
 
     for (const [$pathname, properties] of matches) {
-        expect(processEvent(makeEvent($pathname), { config } as unknown as LegacyPluginMeta).properties).toEqual(
-            properties
-        )
+        expect(
+            processEvent(makeEvent($pathname), { config } as unknown as LegacyTransformationPluginMeta).properties
+        ).toEqual(properties)
     }
 })

@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyPluginMeta } from '../../types'
+import { LegacyTransformationPluginMeta } from '../../types'
 
 type Transformation = {
     name: string
@@ -50,7 +50,7 @@ const configSelectionMap: Record<string, number> = {
 
 const skippedPostHogEvents = ['survey shown', 'survey sent', 'survey dismissed']
 
-export function processEvent(event: PluginEvent, { config }: LegacyPluginMeta) {
+export function processEvent(event: PluginEvent, { config }: LegacyTransformationPluginMeta) {
     if (!event.event.startsWith('$') && !skippedPostHogEvents.includes(event.event)) {
         const defaultTransformation = configSelectionMap[config.defaultNamingConvention]
         event.event = standardizeName(event.event, transformations[defaultTransformation])

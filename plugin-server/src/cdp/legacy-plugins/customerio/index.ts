@@ -3,13 +3,13 @@ import { RetryError } from '@posthog/plugin-scaffold'
 
 import { Response } from '~/src/utils/fetch'
 
-import { LegacyDestinationPlugin, LegacyPluginMeta } from '../types'
+import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from '../types'
 import metadata from './plugin.json'
 
 const DEFAULT_HOST = 'track.customer.io'
 const DEFAULT_SEND_EVENTS_FROM_ANONYMOUS_USERS = 'Send all events'
 
-type CustomerIoMeta = LegacyPluginMeta & {
+type CustomerIoMeta = LegacyDestinationPluginMeta & {
     config: {
         customerioSiteId: string
         customerioToken: string

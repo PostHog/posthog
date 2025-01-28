@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyPluginMeta, LegacyTransformationPlugin } from '../../types'
+import { LegacyTransformationPlugin, LegacyTransformationPluginMeta } from '../../types'
 import metadata from './plugin.json'
 
 interface VersionParts {
@@ -26,7 +26,7 @@ const splitVersion = (candidate: string): VersionParts => {
     }
 }
 
-export function processEvent(event: PluginEvent, meta: LegacyPluginMeta) {
+export function processEvent(event: PluginEvent, meta: LegacyTransformationPluginMeta) {
     if (!event.properties) {
         return
     }

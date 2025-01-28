@@ -268,11 +268,106 @@ describe('LegacyPluginExecutorService', () => {
             expect(forSnapshot(res.logs.map((l) => l.message))).toMatchInlineSnapshot(`
                 [
                   "Executing plugin intercom",
-                  "Plugin errored: Service is down, retry later",
+                  "Plugin execution failed: Service is down, retry later",
                 ]
             `)
 
             expect(res.error).toEqual(new Error('Service is down, retry later'))
+        })
+    })
+
+    describe('processEvent', () => {
+        describe('mismatched types', () => {
+            it('should throw if the plugin is a destination but the function is a transformation', async () => {
+                fn.type = 'destination'
+                fn.template_id = 'plugin-posthog-filter-out-plugin'
+
+                const invocation = createInvocation(fn, globals)
+                const res = await service.execute(invocation)
+
+                expect(res.error).toMatchInlineSnapshot(
+                    `[Error: Plugin posthog-filter-out-plugin is not a destination]`
+                )
+            })
+        })
+        describe('event dropping', () => {
+            beforeEach(() => {
+                fn.type = 'transformation'
+                fn.template_id = 'plugin-posthog-filter-out-plugin'
+
+                globals.inputs = {
+                    eventsToDrop: 'drop-me',
+                }
+            })
+
+            it('should not drop if event is returned', async () => {
+                const invocation = createInvocation(fn, globals)
+                invocation.globals.event.event = 'dont-drop-me'
+                invocation.globals.event.properties = {
+                    email: 'test@posthog.com',
+                }
+
+                const res = await service.execute(invocation)
+
+                expect(res.finished).toBe(true)
+                expect(res.error).toBeUndefined()
+                expect(res.execResult).toEqual(invocation.globals.event)
+            })
+
+            it('should drop if event is dropped', async () => {
+                const invocation = createInvocation(fn, globals)
+                invocation.globals.event.event = 'drop-me'
+                invocation.globals.event.properties = {
+                    email: 'test@posthog.com',
+                }
+
+                const res = await service.execute(invocation)
+
+                expect(res.finished).toBe(true)
+                expect(res.error).toBeUndefined()
+                expect(res.execResult).toBeUndefined()
+            })
+        })
+
+        describe('event modification', () => {
+            beforeEach(() => {
+                fn.type = 'transformation'
+                fn.template_id = 'plugin-semver-flattener-plugin'
+
+                globals.inputs = {
+                    properties: 'version',
+                }
+            })
+
+            it('should modify the event', async () => {
+                const invocation = createInvocation(fn, globals)
+                invocation.globals.event.properties = {
+                    version: '1.12.20',
+                }
+
+                const res = await service.execute(invocation)
+
+                expect(res.finished).toBe(true)
+                expect(res.error).toBeUndefined()
+                expect(res.execResult).toMatchInlineSnapshot(`
+                    {
+                      "$set": undefined,
+                      "$set_once": undefined,
+                      "distinct_id": "distinct_id",
+                      "event": "$pageview",
+                      "ip": undefined,
+                      "properties": {
+                        "version": "1.12.20",
+                        "version__major": 1,
+                        "version__minor": 12,
+                        "version__patch": 20,
+                      },
+                      "team_id": 1,
+                      "timestamp": "2025-01-01T00:00:00.000Z",
+                      "uuid": "b3a1fe86-b10c-43cc-acaf-d208977608d0",
+                    }
+                `)
+            })
         })
     })
 

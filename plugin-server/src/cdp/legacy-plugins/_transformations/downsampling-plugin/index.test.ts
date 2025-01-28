@@ -1,10 +1,10 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { randomBytes } from 'crypto'
 
-import { LegacyPluginMeta } from '../../types'
+import { LegacyTransformationPluginMeta } from '../../types'
 import { processEvent, setupPlugin } from './index'
 
-let meta: LegacyPluginMeta
+let meta: LegacyTransformationPluginMeta
 
 const createEvent = (event: Partial<PluginEvent>): PluginEvent =>
     ({
@@ -23,7 +23,7 @@ beforeEach(() => {
         config: {
             percentage: '100',
         },
-    } as unknown as LegacyPluginMeta
+    } as unknown as LegacyTransformationPluginMeta
 })
 
 test('processEvent filters event', () => {

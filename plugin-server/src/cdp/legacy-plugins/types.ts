@@ -9,11 +9,13 @@ export type LegacyPluginLogger = {
     error: (...args: any[]) => void
 }
 
-export type LegacyPluginMeta = {
+export type LegacyTransformationPluginMeta = {
     config: Record<string, any>
     global: Record<string, any>
-
     logger: LegacyPluginLogger
+}
+
+export type LegacyDestinationPluginMeta = LegacyTransformationPluginMeta & {
     fetch: (...args: Parameters<typeof trackedFetch>) => Promise<Response>
 }
 
@@ -23,8 +25,8 @@ export type LegacyDestinationPlugin = {
         name: string
         config: PluginConfigSchema[]
     }
-    onEvent(event: ProcessedPluginEvent, meta: LegacyPluginMeta): Promise<void>
-    setupPlugin?: (meta: LegacyPluginMeta) => Promise<void>
+    onEvent(event: ProcessedPluginEvent, meta: LegacyDestinationPluginMeta): Promise<void>
+    setupPlugin?: (meta: LegacyDestinationPluginMeta) => Promise<void>
 }
 
 export type LegacyTransformationPlugin = {
@@ -33,6 +35,6 @@ export type LegacyTransformationPlugin = {
         name: string
         config: PluginConfigSchema[]
     }
-    processEvent(event: PluginEvent, meta: LegacyPluginMeta): PluginEvent | undefined | null
-    setupPlugin?: (meta: LegacyPluginMeta) => void
+    processEvent(event: PluginEvent, meta: LegacyTransformationPluginMeta): PluginEvent | undefined | null
+    setupPlugin?: (meta: LegacyTransformationPluginMeta) => void
 }

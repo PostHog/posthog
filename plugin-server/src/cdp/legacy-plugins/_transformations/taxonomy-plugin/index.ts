@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyPluginMeta, LegacyTransformationPlugin } from '../../types'
+import { LegacyTransformationPlugin,LegacyTransformationPluginMeta } from '../../types'
 import metadata from './plugin.json'
 
 type Transformation = {
@@ -37,7 +37,7 @@ const transformations: Record<string, Transformation> = {
 
 const skippedPostHogEvents = ['survey shown', 'survey sent', 'survey dismissed']
 
-export function processEvent(event: PluginEvent, { config }: LegacyPluginMeta) {
+export function processEvent(event: PluginEvent, { config }: LegacyTransformationPluginMeta) {
     if (!event.event.startsWith('$') && !skippedPostHogEvents.includes(event.event)) {
         const transformer = transformations[config.defaultNamingConvention]
         event.event = transformer.transform(event.event, transformer.matchPattern)

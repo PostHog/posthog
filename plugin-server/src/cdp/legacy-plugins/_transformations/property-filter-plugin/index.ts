@@ -1,9 +1,9 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyPluginMeta, LegacyTransformationPlugin } from '../../types'
+import { LegacyTransformationPlugin,LegacyTransformationPluginMeta } from '../../types'
 import metadata from './plugin.json'
 
-export function setupPlugin({ config, global }: LegacyPluginMeta) {
+export function setupPlugin({ config, global }: LegacyTransformationPluginMeta) {
     global.propertiesToFilter = config.properties.split(',')
 }
 
@@ -20,7 +20,7 @@ function recursiveRemoveFilterObject(properties: Record<string, any>, propertyTo
     }
 }
 
-export function processEvent(event: PluginEvent, { global }: LegacyPluginMeta) {
+export function processEvent(event: PluginEvent, { global }: LegacyTransformationPluginMeta) {
     const propertiesCopy = event.properties ? { ...event.properties } : {}
 
     for (const propertyToFilter of global.propertiesToFilter) {
