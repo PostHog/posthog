@@ -204,20 +204,18 @@ async def query_async(request: Request, *args, **kwargs) -> HttpResponse:
     view = await sync_to_async(QueryViewSet.as_view)({"post": "create"}, **kwargs)
     response = await sync_to_async(view)(request)
 
-    if response.status_code != 200:
+    if (
+        response.status_code != 202
+    ):  # 202 means accepted, which means we're calculating async. Anything else means we can just return immediately
         return response
 
     response.render()
     data = json.loads(response.rendered_content)
 
-    # If it's not an async response, return immediately
-    if not isinstance(data, dict) or "query_id" not in data:
-        return response
-
     # For async responses, poll until complete or timeout
     async def check_query_status():
-        assert kwargs.get("project_id") is not None
-        manager = QueryStatusManager(data["query_id"], cast(int, kwargs["project_id"]))
+        assert kwargs.get("team_id") is not None
+        manager = QueryStatusManager(data["query_status"]["id"], cast(int, kwargs["team_id"]))
         start_time = time.time()
         sleep_time = 0.1  # Start with 100ms
         max_sleep_time = 1.0  # Don't wait more than 1 second between checks
