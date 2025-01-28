@@ -1,13 +1,8 @@
-#
-# ---------------------------------------------------------
-#
 FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.80.1-node_18.19.1 AS plugin-server-build
 WORKDIR /code
 # Workspace settings
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml nx.json .npmrc project.json ./
 COPY ./rust ./rust
-COPY ./common/plugin_transpiler/ ./common/plugin_transpiler/
-COPY ./common/hogvm/typescript/ ./common/hogvm/typescript/
 WORKDIR /code/plugin-server
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -24,28 +19,25 @@ RUN apt-get update && \
     "libssl-dev" \
     "zlib1g-dev" \
     && \
-    rm -rf /var/lib/apt/lists/* && \
-    corepack enable && \
-    mkdir /tmp/pnpm-store && \
-    pnpm install --frozen-lockfile --filter @posthog/plugin-server... --store-dir /tmp/pnpm-store
-    
-#     && \
-#     pnpx nx deps:prepare plugin-server --verbose && \
-#     pnpx nx deps:build plugin-server --verbose && \
-#     rm -rf /tmp/pnpm-store
+    rm -rf /var/lib/apt/lists/*
 
-# # Build the plugin server.
-# #
-# # Note: we run the build as a separate action to increase
-# # the cache hit ratio of the layers above.
-# COPY ./plugin-server/src/ ./src/
-# COPY ./plugin-server/tests/ ./tests/
-# RUN pnpx nx build --verbose
+COPY ./common/ ../common/
+RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
+    corepack enable && \
+    pnpm install --frozen-lockfile --filter @posthog/plugin-server... --store-dir /tmp/pnpm-store
+
+# Build the plugin server.
+#
+# Note: we run the build as a separate action to increase
+# the cache hit ratio of the layers above.
+COPY ./plugin-server/src/ ./src/
+COPY ./plugin-server/tests/ ./tests/
+# RUN pnpm nx build plugin-server --verbose
 
 # # As the plugin-server is now built, let’s keep
 # # only prod dependencies in the node_module folder
 # # as we will copy it to the last image.
-# RUN corepack enable && \
-#     mkdir /tmp/pnpm-store && \
-#     pnpm install --frozen-lockfile --filter @posthog/plugin-server... --store-dir /tmp/pnpm-store --prod && \
-#     rm -rf /tmp/pnpm-store
+# RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
+#     corepack enable && \
+#     pnpm install --frozen-lockfile --filter @posthog/plugin-server --store-dir /tmp/pnpm-store --prod
+

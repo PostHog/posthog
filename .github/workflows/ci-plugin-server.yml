@@ -168,7 +168,7 @@ jobs:
               run: |
                   cd plugin-server
                   pnpm install --frozen-lockfile --filter @posthog/plugin-server...
-                  cd .. && pnpm nx deps:build plugin-server --verbose
+                  cd .. && bin/nx deps:build plugin-server --verbose
 
             - name: Wait for Clickhouse, Redis & Kafka
               if: needs.changes.outputs.plugin-server == 'true'
@@ -263,7 +263,7 @@ jobs:
               run: |
                   cd plugin-server
                   pnpm install --frozen-lockfile --filter @posthog/plugin-server...
-                  cd .. && pnpm nx deps:build plugin-server --verbose
+                  cd .. && bin/nx deps:build plugin-server --verbose
 
             - name: Wait for Clickhouse, Redis & Kafka
               if: needs.changes.outputs.plugin-server == 'true'

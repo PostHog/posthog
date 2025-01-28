@@ -38,9 +38,9 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
 COPY frontend/ frontend/
 COPY products/ products/
 COPY ee/frontend/ ee/frontend/
-COPY ./bin/ ./bin/
+COPY bin/ bin/
 COPY babel.config.js tsconfig.json webpack.config.js tailwind.config.js ./
-RUN pnpm nx build frontend --verbose
+RUN bin/nx build frontend --verbose
 
 #
 # ---------------------------------------------------------
@@ -49,6 +49,7 @@ FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.80.1-node_18.19.1 AS pl
 WORKDIR /code
 # Workspace settings
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml nx.json .npmrc project.json ./
+COPY ./bin/ ./bin/
 COPY ./rust ./rust
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -78,7 +79,7 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
 # the cache hit ratio of the layers above.
 COPY ./plugin-server/src/ ./plugin-server/src/
 COPY ./plugin-server/tests/ ./plugin-server/tests/
-RUN pnpm nx build plugin-server --verbose
+RUN bin/nx build plugin-server --verbose
 
 # As the plugin-server is now built, let’s keep
 # only prod dependencies in the node_module folder

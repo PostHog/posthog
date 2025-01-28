@@ -145,7 +145,7 @@ jobs:
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
               run: |
                   pnpm install --frozen-lockfile --filter @posthog/frontend...
-                  pnpm nx deps:build frontend --verbose
+                  bin/nx deps:build frontend --verbose
 
             - name: Stop/Start stack with Docker Compose
               # these are required checks so, we can't skip entire sections
