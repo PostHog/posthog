@@ -164,8 +164,8 @@ function TraceSidebar({
             <h3 className="font-medium text-sm px-2 my-2">Tree</h3>
             <LemonDivider className="m-0" />
             <NestingGroup>
-                <TraceLeaf topLevelTrace={trace} item={trace} isSelected={!eventId || eventId === trace.id} />
-                <TreeNode tree={tree} trace={trace} selectedEventId={eventId} />
+                <TreeNode topLevelTrace={trace} item={trace} isSelected={!eventId || eventId === trace.id} />
+                <TreeNodeChildren tree={tree} trace={trace} selectedEventId={eventId} />
             </NestingGroup>
         </aside>
     )
@@ -190,7 +190,7 @@ function NestingGroup({ level = 0, children }: { level?: number; children: React
     )
 }
 
-const TraceLeaf = React.memo(function TraceLeaf({
+const TreeNode = React.memo(function TraceNode({
     topLevelTrace,
     item,
     isSelected,
@@ -250,7 +250,7 @@ const TraceLeaf = React.memo(function TraceLeaf({
     )
 })
 
-function TreeNode({
+function TreeNodeChildren({
     tree,
     trace,
     selectedEventId,
@@ -263,12 +263,12 @@ function TreeNode({
         <NestingGroup level={1}>
             {tree.map(({ event, children }) => (
                 <React.Fragment key={event.id}>
-                    <TraceLeaf
+                    <TreeNode
                         topLevelTrace={trace}
                         item={event}
                         isSelected={!!selectedEventId && selectedEventId === event.id}
                     />
-                    {children && <TreeNode tree={children} trace={trace} selectedEventId={selectedEventId} />}
+                    {children && <TreeNodeChildren tree={children} trace={trace} selectedEventId={selectedEventId} />}
                 </React.Fragment>
             ))}
         </NestingGroup>
