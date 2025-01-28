@@ -107,7 +107,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
         it('should setup a plugin on first call', async () => {
             jest.spyOn(PLUGINS_BY_ID['intercom'] as any, 'setupPlugin')
 
-            const results = processor.processInvocations([
+            const results = processor.processBatch([
                 createInvocation(fn, globals),
                 createInvocation(fn, globals),
                 createInvocation(fn, globals),
@@ -152,7 +152,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
                 json: () => Promise.resolve({ total_count: 1 }),
             })
 
-            await processor.processInvocations([invocation])
+            await processor.processBatch([invocation])
 
             expect(PLUGINS_BY_ID['intercom'].onEvent).toHaveBeenCalledTimes(1)
             expect(forSnapshot(jest.mocked(PLUGINS_BY_ID['intercom'].onEvent!).mock.calls[0][0]))
@@ -228,7 +228,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
                 email: 'test@posthog.com',
             }
 
-            await processor.processInvocations([invocation])
+            await processor.processBatch([invocation])
 
             expect(mockFetch).toHaveBeenCalledTimes(0)
 
@@ -256,7 +256,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
 
             mockFetch.mockRejectedValue(new Error('Test error'))
 
-            const res = await processor.processInvocations([invocation])
+            const res = await processor.processBatch([invocation])
 
             expect(PLUGINS_BY_ID['intercom'].onEvent).toHaveBeenCalledTimes(1)
 
@@ -308,7 +308,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
             }
 
             invocation.hogFunction.name = name
-            await processor.processInvocations([invocation])
+            await processor.processBatch([invocation])
 
             expect(
                 forSnapshot(

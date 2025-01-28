@@ -1,9 +1,8 @@
 import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { Response, trackedFetch } from '~/src/utils/fetch'
-import { status } from '~/src/utils/status'
-
+import { Response, trackedFetch } from '../../utils/fetch'
+import { status } from '../../utils/status'
 import { PLUGINS_BY_ID } from '../legacy-plugins'
 import { LegacyPluginLogger, LegacyPluginMeta } from '../legacy-plugins/types'
 import { sanitizeLogMessage } from '../services/hog-executor.service'
@@ -27,13 +26,7 @@ export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
     private pluginState: Record<string, PluginState> = {}
 
     public async processInvocations(invocations: HogFunctionInvocation[]): Promise<HogFunctionInvocationResult[]> {
-        const results = await this.runManyWithHeartbeat(invocations, (item) => this.executePluginInvocation(item))
-
-        await this.processInvocationResults(results)
-        await this.updateJobs(results)
-        await this.produceQueuedMessages()
-
-        return results
+        return await this.runManyWithHeartbeat(invocations, (item) => this.executePluginInvocation(item))
     }
 
     public async fetch(...args: Parameters<typeof trackedFetch>): Promise<Response> {

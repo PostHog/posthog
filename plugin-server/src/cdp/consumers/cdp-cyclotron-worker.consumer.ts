@@ -20,9 +20,9 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         return await this.runManyWithHeartbeat(invocations, (item) => this.hogExecutor.execute(item))
     }
 
-    public async processBatch(invocations: HogFunctionInvocation[]): Promise<void> {
+    public async processBatch(invocations: HogFunctionInvocation[]): Promise<HogFunctionInvocationResult[]> {
         if (!invocations.length) {
-            return
+            return []
         }
 
         const invocationResults = await runInstrumentedFunction({
@@ -33,6 +33,8 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         await this.processInvocationResults(invocationResults)
         await this.updateJobs(invocationResults)
         await this.produceQueuedMessages()
+
+        return invocationResults
     }
 
     protected async updateJobs(invocations: HogFunctionInvocationResult[]) {
