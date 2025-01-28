@@ -20,7 +20,7 @@ export const poeFilterLogic = kea<poeFilterLogicType>([
     })),
     actions(() => ({
         setSamplingPercentage: (samplingPercentage: number | null) => ({ samplingPercentage }),
-        setPoeMode: (poeMode: HogQLQueryModifiers['personsOnEventsMode'] | null) => ({ poeMode }),
+        setPoeMode: (poeMode: HogQLQueryModifiers['personsOnEventsMode']) => ({ poeMode }),
     })),
     reducers({
         samplingPercentage: [
@@ -30,7 +30,7 @@ export const poeFilterLogic = kea<poeFilterLogicType>([
             },
         ],
         poeMode: [
-            null as HogQLQueryModifiers['personsOnEventsMode'] | null,
+            undefined as HogQLQueryModifiers['personsOnEventsMode'],
             {
                 setPoeMode: (_, { poeMode }) => poeMode,
             },
@@ -71,9 +71,9 @@ export const poeFilterLogic = kea<poeFilterLogicType>([
     })),
     subscriptions(({ values, actions }) => ({
         querySource: (querySource) => {
-            const newSamplingPercentage = querySource?.samplingFactor ? querySource.samplingFactor * 100 : null
-            if (newSamplingPercentage !== values.samplingPercentage) {
-                actions.setSamplingPercentage(newSamplingPercentage)
+            const newPoeMode = querySource?.modifiers?.personsOnEventsMode
+            if (newPoeMode !== values.poeMode) {
+                actions.setPoeMode(newPoeMode)
             }
         },
     })),

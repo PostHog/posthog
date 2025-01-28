@@ -1,10 +1,8 @@
 import { LemonLabel, LemonSegmentedButton, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 
 import { InsightLogicProps } from '~/types'
 
-import { insightVizDataLogic } from '../insightVizDataLogic'
 import { AVAILABLE_SAMPLING_PERCENTAGES, poeFilterLogic } from './poeFilterLogic'
 
 const DEFAULT_SAMPLING_INFO_TOOLTIP_CONTENT =
@@ -16,9 +14,8 @@ interface PoeFilterProps {
 }
 
 export function PoeFilter({ insightProps, infoTooltipContent }: PoeFilterProps): JSX.Element {
-    const { isDataWarehouseSeries } = useValues(insightVizDataLogic(insightProps))
-    const { samplingPercentage } = useValues(poeFilterLogic(insightProps))
-    const { setSamplingPercentage } = useActions(poeFilterLogic(insightProps))
+    const { poeMode } = useValues(poeFilterLogic(insightProps))
+    const { setPoeMode } = useActions(poeFilterLogic(insightProps))
 
     return (
         <>
@@ -33,20 +30,15 @@ export function PoeFilter({ insightProps, infoTooltipContent }: PoeFilterProps):
                     className="m-2"
                     onChange={(checked) => {
                         if (checked) {
-                            setSamplingPercentage(10)
-                            posthog.capture('sampling_enabled_on_insight')
-                            return
+                            setPoeMode('person_id_override_properties_on_events')
+                        } else {
+                            setPoeMode(undefined)
                         }
-                        setSamplingPercentage(null)
-                        posthog.capture('sampling_disabled_on_insight')
                     }}
-                    checked={!!samplingPercentage}
-                    disabledReason={
-                        isDataWarehouseSeries ? 'Sampling is not available for data warehouse series' : undefined
-                    }
+                    checked={poeMode !== undefined}
                 />
             </div>
-            {samplingPercentage ? (
+            {poeMode !== undefined ? (
                 <div className="SamplingFilter">
                     <div className="flex items-center gap-2">
                         <LemonSegmentedButton
@@ -54,11 +46,11 @@ export function PoeFilter({ insightProps, infoTooltipContent }: PoeFilterProps):
                                 value: percentage,
                                 label: `${percentage}%`,
                             }))}
-                            value={samplingPercentage}
+                            value={10}
                             onChange={(newValue) => {
-                                setSamplingPercentage(newValue)
-
-                                posthog.capture('sampling_percentage_updated', { samplingPercentage })
+                                // setSamplingPercentage(newValue)
+                                // posthog.capture('sampling_percentage_updated', { samplingPercentage })
+                                console.log(newValue)
                             }}
                         />
                     </div>
