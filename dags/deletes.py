@@ -263,9 +263,13 @@ class PersonEventDeletesDictionary:
         client.execute(
             # TODO: update to use created_at as limit
             f"""
-            DELETE WHERE (team_id, person_id) IN (
-                SELECT team_id, person_id
-                FROM {self.qualified_name}
+            DELETE FROM {table} WHERE (team_id, person_id, timestamp) IN (
+                SELECT e.team_id, e.person_id, .e.timestamp
+                FROM events e
+                INNER JOIN {self.qualified_name} d
+                ON e.team_id = d.team_id
+                AND e.distinct_id = d.person_id
+                AND e.timestamp < d.created_at
             )
             """
         )
