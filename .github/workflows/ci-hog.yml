@@ -126,13 +126,13 @@ jobs:
             - name: Run HogVM TypeScript tests
               run: |
                   pnpm install --filter @posthog/hogvm
-                  pnpm nx test hogvm-ts --verbose
+                  pnpx nx test hogvm-ts --verbose
 
             - name: Run Hog tests
               run: |
                   cd common/hogvm/typescript
                   pnpm run generate:stl
-                  pnpm nx build hogvm-ts --verbose
+                  pnpx nx build hogvm-ts --verbose
                   cd ../
                   ./test.sh && git diff --exit-code
 
