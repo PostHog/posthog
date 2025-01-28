@@ -1022,7 +1022,7 @@ class TestAsyncQuery(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.pk}/query_async/", "invalid json", content_type="application/json"
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json(), {"error": "Invalid JSON in request body"})
+        self.assertEqual(response.json()["type"], "invalid_request")
 
     def test_async_auth(self):
         self.client.logout()

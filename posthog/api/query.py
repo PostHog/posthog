@@ -46,6 +46,7 @@ from posthog.schema import (
     QueryResponseAlternative,
     QueryStatusResponse,
 )
+from typing import cast
 
 
 class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
@@ -204,7 +205,7 @@ async def query_async(request: Request, *args, **kwargs) -> HttpResponse:
     response = await sync_to_async(view)(request)
 
     if response.status_code != 200:
-        return HttpResponse(response.rendered_content, status=response.status_code)
+        return response
 
     response.render()
     data = json.loads(response.rendered_content)
@@ -215,7 +216,8 @@ async def query_async(request: Request, *args, **kwargs) -> HttpResponse:
 
     # For async responses, poll until complete or timeout
     async def check_query_status():
-        manager = QueryStatusManager(data["query_id"], kwargs.get("project_id"))
+        assert kwargs.get("project_id") is not None
+        manager = QueryStatusManager(data["query_id"], cast(int, kwargs["project_id"]))
         start_time = time.time()
         sleep_time = 0.1  # Start with 100ms
         max_sleep_time = 1.0  # Don't wait more than 1 second between checks
