@@ -45,7 +45,10 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
     path(['products', 'llm_observability', 'frontend', 'llmObservabilityLogic']),
     connect({ values: [sceneLogic, ['sceneKey']] }),
     actions({
-        setDates: (dateFrom: string, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setDates: (dateFrom: string | null, dateTo: string | null) => ({
+            dateFrom: dateFrom || INITIAL_DATE_FROM,
+            dateTo,
+        }),
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
         setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => ({ propertyFilters }),
     }),
@@ -489,7 +492,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 (date_from || INITIAL_DATE_FROM) !== values.dateFilter.dateFrom ||
                 (date_to || INITIAL_DATE_TO) !== values.dateFilter.dateTo
             ) {
-                actions.setDates(date_from || INITIAL_DATE_FROM, date_to || INITIAL_DATE_TO)
+                actions.setDates(date_from, date_to)
             }
             const filterTestAccountsValue = [true, 'true', 1, '1'].includes(filter_test_accounts)
             if (filterTestAccountsValue !== values.shouldFilterTestAccounts) {
