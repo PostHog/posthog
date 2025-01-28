@@ -14,6 +14,7 @@ import { getDefaultInterval, isNotNil, objectsEqual, updateDatesWithInterval } f
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { errorTrackingQuery } from 'scenes/error-tracking/queries'
 import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { hogqlQuery } from '~/queries/query'
@@ -178,6 +179,8 @@ export enum GraphsTab {
     UNIQUE_CONVERSIONS = 'UNIQUE_CONVERSIONS',
     TOTAL_CONVERSIONS = 'TOTAL_CONVERSIONS',
     CONVERSION_RATE = 'CONVERSION_RATE',
+    REVENUE_EVENTS = 'REVENUE_EVENTS',
+    REVENUE_CONVERSION = 'REVENUE_CONVERSION',
 }
 
 export enum SourceTab {
@@ -263,7 +266,7 @@ const persistConfig = { persist: true, prefix: `${teamId}__` }
 export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     path(['scenes', 'webAnalytics', 'webAnalyticsSceneLogic']),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeam']],
     })),
     actions({
         setWebAnalyticsFilters: (webAnalyticsFilters: WebAnalyticsPropertyFilters) => ({ webAnalyticsFilters }),
@@ -618,6 +621,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.filters,
                 () => values.featureFlags,
                 () => values.isGreaterThanMd,
+                () => values.currentTeam,
             ],
             (
                 productTab,
@@ -633,7 +637,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     webVitalsTab,
                 },
                 featureFlags,
-                isGreaterThanMd
+                isGreaterThanMd,
+                currentTeam
             ): WebAnalyticsTile[] => {
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
                 const sampling = { enabled: false, forceSamplingRate: { numerator: 1, denominator: 10 } }
@@ -684,6 +689,23 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                       }
                     : undefined
 
+                // the queries don't currently revenue when the conversion goal is an action
+                const includeRevenue =
+                    !!featureFlags[FEATURE_FLAGS.WEB_REVENUE_TRACKING] &&
+                    !(conversionGoal && 'actionId' in conversionGoal)
+
+                const revenueEventsSeries: EventsNode[] =
+                    includeRevenue && currentTeam?.revenue_tracking_config
+                        ? currentTeam.revenue_tracking_config.events.map((e) => ({
+                              math: PropertyMathType.Sum,
+                              name: e.eventName,
+                              event: e.eventName,
+                              kind: NodeKind.EventsNode,
+                              custom_name: e.eventName,
+                              math_property: e.revenueProperty,
+                          }))
+                        : []
+
                 const createInsightProps = (tile: TileId, tab?: string): InsightLogicProps => {
                     return {
                         dashboardItemId: getDashboardItemId(tile, tab, false),
@@ -697,7 +719,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     title: string,
                     linkText: string,
                     series: AnyEntityNode[],
-                    trendsFilter?: Partial<TrendsFilter>
+                    trendsFilter?: Partial<TrendsFilter>,
+                    trendsQueryProperties?: Partial<TrendsQuery>
                 ): TabsTileTab => ({
                     id,
                     title,
@@ -715,10 +738,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                             compareFilter,
                             filterTestAccounts,
-                            conversionGoal: featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_FILTERS]
-                                ? conversionGoal
-                                : undefined,
+                            conversionGoal,
                             properties: webAnalyticsFilters,
+                            ...trendsQueryProperties,
                         },
                         hidePersonsModal: true,
                         embedded: true,
@@ -737,7 +759,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     source?: Partial<WebStatsTableQuery>,
                     tab?: Partial<TabsTileTab>
                 ): TabsTileTab => {
-                    const columns = ['breakdown_value', 'visitors', 'views']
+                    const columns = ['breakdown_value', 'visitors', 'views', 'replay_url']
                     if (source?.includeBounceRate) {
                         columns.push('bounce_rate')
                     }
@@ -758,9 +780,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 compareFilter,
                                 limit: 10,
                                 filterTestAccounts,
-                                conversionGoal: featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_FILTERS]
-                                    ? conversionGoal
-                                    : undefined,
+                                conversionGoal,
                                 ...(source || {}),
                             },
                             embedded: false,
@@ -900,6 +920,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             compareFilter,
                             filterTestAccounts,
                             conversionGoal,
+                            includeRevenue,
                         },
                         insightProps: createInsightProps(TileId.OVERVIEW),
                     },
@@ -927,6 +948,23 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           sessionsSeries,
                                       ])
                                     : null,
+                                !conversionGoal &&
+                                    revenueEventsSeries?.length &&
+                                    createGraphsTrendsTab(
+                                        GraphsTab.REVENUE_EVENTS,
+                                        'Revenue',
+                                        'Revenue',
+                                        revenueEventsSeries,
+                                        {
+                                            display:
+                                                revenueEventsSeries.length > 1
+                                                    ? ChartDisplayType.ActionsAreaGraph
+                                                    : ChartDisplayType.ActionsLineGraph,
+                                        },
+                                        {
+                                            compareFilter: revenueEventsSeries.length > 1 ? undefined : compareFilter,
+                                        }
+                                    ),
                                 conversionGoal && uniqueConversionsSeries
                                     ? createGraphsTrendsTab(
                                           GraphsTab.UNIQUE_CONVERSIONS,
@@ -1100,15 +1138,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                   sampling,
                                                   limit: 10,
                                                   filterTestAccounts,
-                                                  conversionGoal: featureFlags[
-                                                      FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_FILTERS
-                                                  ]
-                                                      ? conversionGoal
-                                                      : undefined,
+                                                  conversionGoal,
                                                   stripQueryParams: shouldStripQueryParams,
                                               },
                                               embedded: false,
-                                              columns: ['url', 'visitors', 'clicks'],
+                                              columns: ['url', 'visitors', 'clicks', 'replay_url'],
                                           },
                                           insightProps: createInsightProps(TileId.PATHS, PathTab.END_PATH),
                                           canOpenModal: true,
@@ -1393,11 +1427,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               trendsFilter: {
                                                   display: ChartDisplayType.WorldMap,
                                               },
-                                              conversionGoal: featureFlags[
-                                                  FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_FILTERS
-                                              ]
-                                                  ? conversionGoal
-                                                  : undefined,
+                                              conversionGoal,
                                               filterTestAccounts,
                                               properties: webAnalyticsFilters,
                                           },
@@ -1525,7 +1555,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       filterTestAccounts,
                                   },
                                   embedded: true,
-                                  columns: ['breakdown_value', 'visitors', 'views'],
+                                  columns: ['breakdown_value', 'visitors', 'views', 'replay_url'],
                               },
                               insightProps: createInsightProps(TileId.GOALS),
                               canOpenInsight: false,
@@ -1697,16 +1727,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         replayFilters: [
-            (s) => [s.webAnalyticsFilters, s.dateFilter, s.shouldFilterTestAccounts, s.conversionGoal, s.featureFlags],
+            (s) => [s.webAnalyticsFilters, s.dateFilter, s.shouldFilterTestAccounts, s.conversionGoal],
             (
                 webAnalyticsFilters: WebAnalyticsPropertyFilters,
                 dateFilter,
                 shouldFilterTestAccounts,
-                conversionGoal,
-                featureFlags
+                conversionGoal
             ): RecordingUniversalFilters => {
                 const filters: UniversalFiltersGroupValue[] = [...webAnalyticsFilters]
-                if (conversionGoal && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_FILTERS]) {
+                if (conversionGoal) {
                     if ('actionId' in conversionGoal) {
                         filters.push({
                             id: conversionGoal.actionId,

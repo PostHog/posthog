@@ -1,4 +1,11 @@
-import { LogLevel, PluginLogLevel, PluginsServerConfig, stringToPluginServerMode, ValueMatcher } from '../types'
+import {
+    CookielessConfig,
+    LogLevel,
+    PluginLogLevel,
+    PluginsServerConfig,
+    stringToPluginServerMode,
+    ValueMatcher,
+} from '../types'
 import { isDevEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from './constants'
 import {
@@ -191,7 +198,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_WATCHER_REFILL_RATE: 10,
         CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: 3,
         CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: '',
-        CDP_CYCLOTRON_ENABLED_TEAMS: '',
         CDP_HOG_FILTERS_TELEMETRY_TEAMS: '',
         CDP_REDIS_PASSWORD: '',
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
@@ -216,6 +222,24 @@ export function getDefaultConfig(): PluginsServerConfig {
         INGESTION_CONSUMER_CONSUME_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
         INGESTION_CONSUMER_OVERFLOW_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
         INGESTION_CONSUMER_DLQ_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
+
+        // Hog Transformations (Alpha)
+        HOG_TRANSFORMATIONS_ENABLED: true,
+
+        // Cookieless
+        COOKIELESS_FORCE_STATELESS_MODE: false,
+        COOKIELESS_DISABLED: false,
+        COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS: 60 * 60 * 1000, // 1 hour
+        COOKIELESS_SESSION_TTL_SECONDS: 60 * 60 * 24, // 24 hours
+        COOKIELESS_SALT_TTL_SECONDS: 60 * 60 * 24, // 24 hours
+        COOKIELESS_SESSION_INACTIVITY_MS: 30 * 60 * 1000, // 30 minutes
+        COOKIELESS_IDENTIFIES_TTL_SECONDS:
+            (24 + // max supported ingestion lag
+                12 + // max negative timezone in the world*/
+                14 + // max positive timezone in the world */
+                24) * // amount of time salt is valid in one timezone
+            60 *
+            60,
     }
 }
 
@@ -304,5 +328,17 @@ export function buildStringMatcher(config: string | undefined, allowStar: boolea
         return (v: string) => {
             return values.has(v)
         }
+    }
+}
+
+export const createCookielessConfig = (config: PluginsServerConfig): CookielessConfig => {
+    return {
+        disabled: config.COOKIELESS_DISABLED,
+        forceStatelessMode: config.COOKIELESS_FORCE_STATELESS_MODE,
+        deleteExpiredLocalSaltsIntervalMs: config.COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS,
+        sessionTtlSeconds: config.COOKIELESS_SESSION_TTL_SECONDS,
+        saltTtlSeconds: config.COOKIELESS_SALT_TTL_SECONDS,
+        sessionInactivityMs: config.COOKIELESS_SESSION_INACTIVITY_MS,
+        identifiesTtlSeconds: config.COOKIELESS_IDENTIFIES_TTL_SECONDS,
     }
 }

@@ -7,6 +7,7 @@ import {
     LemonInput,
     LemonInputSelect,
     LemonSelect,
+    LemonTextArea,
     Tooltip,
 } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
@@ -129,7 +130,7 @@ export function BatchExportsEditFields({
 }): JSX.Element {
     return (
         <>
-            <div className="space-y-4 max-w-200">
+            <div className="space-y-4 max-w-200 mt-4">
                 {batchExportConfigForm.destination === 'S3' ? (
                     <>
                         <div className="flex gap-4">
@@ -278,17 +279,44 @@ export function BatchExportsEditFields({
                     </>
                 ) : batchExportConfigForm.destination === 'Snowflake' ? (
                     <>
+                        <LemonField name="account" label="Account">
+                            <LemonInput placeholder="my-account" />
+                        </LemonField>
+
                         <LemonField name="user" label="User">
                             <LemonInput placeholder={isNew ? 'my-user' : 'Leave unchanged'} />
                         </LemonField>
 
-                        <LemonField name="password" label="Password">
-                            <LemonInput placeholder={isNew ? 'my-password' : 'Leave unchanged'} type="password" />
+                        <LemonField name="authentication_type" label="Authentication type" className="flex-1">
+                            <LemonSelect
+                                options={[
+                                    { value: 'password', label: 'Password' },
+                                    { value: 'keypair', label: 'Key pair' },
+                                ]}
+                            />
                         </LemonField>
 
-                        <LemonField name="account" label="Account">
-                            <LemonInput placeholder="my-account" />
-                        </LemonField>
+                        {batchExportConfigForm.authentication_type != 'keypair' && (
+                            <LemonField name="password" label="Password">
+                                <LemonInput placeholder={isNew ? 'my-password' : 'Leave unchanged'} type="password" />
+                            </LemonField>
+                        )}
+
+                        {batchExportConfigForm.authentication_type == 'keypair' && (
+                            <>
+                                <LemonField name="private_key" label="Private key">
+                                    <LemonTextArea
+                                        className="ph-ignore-input"
+                                        placeholder={isNew ? 'my-private-key' : 'Leave unchanged'}
+                                        minRows={4}
+                                    />
+                                </LemonField>
+
+                                <LemonField name="private_key_passphrase" label="Private key passphrase">
+                                    <LemonInput placeholder={isNew ? 'my-passphrase' : 'Leave unchanged'} />
+                                </LemonField>
+                            </>
+                        )}
 
                         <LemonField name="database" label="Database">
                             <LemonInput placeholder="my-database" />

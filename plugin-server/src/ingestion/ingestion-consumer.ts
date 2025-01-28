@@ -2,6 +2,7 @@ import { captureException } from '@sentry/node'
 import { Message, MessageHeader } from 'node-rdkafka'
 import { Histogram } from 'prom-client'
 
+import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../kafka/config'
 import { KafkaProducerWrapper } from '../kafka/producer'
@@ -60,6 +61,7 @@ export class IngestionConsumer {
     protected heartbeat = () => {}
     protected promises: Set<Promise<any>> = new Set()
     protected kafkaProducer?: KafkaProducerWrapper
+    public hogTransformer: HogTransformerService
 
     private overflowRateLimiter: MemoryRateLimiter
     private ingestionWarningLimiter: MemoryRateLimiter
@@ -82,6 +84,7 @@ export class IngestionConsumer {
         )
 
         this.ingestionWarningLimiter = new MemoryRateLimiter(1, 1.0 / 3600)
+        this.hogTransformer = new HogTransformerService(hub)
     }
 
     public get service(): PluginServerService {
@@ -104,6 +107,7 @@ export class IngestionConsumer {
                 groupId: this.groupId,
                 handleBatch: async (messages) => this.handleKafkaBatch(messages),
             }),
+            this.hogTransformer.start(),
         ])
     }
 

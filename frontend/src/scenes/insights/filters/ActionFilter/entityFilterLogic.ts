@@ -285,7 +285,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                     _filter.order = _filter.order + 1
                 }
             }
-            newFilters.splice(order, 0, {
+            newFilters.splice(order + 1, 0, {
                 ...filter,
                 uuid: uuid(),
                 custom_name: undefined,

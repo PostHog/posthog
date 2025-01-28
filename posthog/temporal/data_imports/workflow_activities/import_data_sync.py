@@ -2,7 +2,7 @@ import dataclasses
 import uuid
 from datetime import datetime
 from dateutil import parser
-from typing import Any
+from typing import Any, Optional
 
 from django.conf import settings
 from django.db import close_old_connections
@@ -35,6 +35,7 @@ class ImportDataActivityInputs:
     schema_id: uuid.UUID
     source_id: uuid.UUID
     run_id: str
+    reset_pipeline: Optional[bool] = None
 
 
 def process_incremental_last_value(value: Any | None, field_type: IncrementalFieldType | None) -> Any | None:
@@ -90,7 +91,16 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
 
         _trim_source_job_inputs(model.pipeline)
 
-        reset_pipeline = model.pipeline.job_inputs.get("reset_pipeline", "False") == "True"
+        schema: ExternalDataSchema | None = model.schema
+        assert schema is not None
+
+        if inputs.reset_pipeline is not None:
+            reset_pipeline = inputs.reset_pipeline
+        else:
+            reset_pipeline = schema.sync_type_config.get("reset_pipeline", False) is True
+
+        logger.debug(f"schema.sync_type_config = {schema.sync_type_config}")
+        logger.debug(f"reset_pipeline = {reset_pipeline}")
 
         schema = (
             ExternalDataSchema.objects.prefetch_related("source")
@@ -99,24 +109,26 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
         )
 
         endpoints = [schema.name]
+        processed_incremental_last_value = None
 
-        if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE_V2:
-            # Get the V2 last value, if it's not set yet (e.g. the first run), then fallback to the V1 value
-            processed_incremental_last_value = process_incremental_last_value(
-                schema.sync_type_config.get("incremental_field_last_value_v2"),
-                schema.sync_type_config.get("incremental_field_type"),
-            )
+        if reset_pipeline is not True:
+            if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE_V2:
+                # Get the V2 last value, if it's not set yet (e.g. the first run), then fallback to the V1 value
+                processed_incremental_last_value = process_incremental_last_value(
+                    schema.sync_type_config.get("incremental_field_last_value_v2"),
+                    schema.sync_type_config.get("incremental_field_type"),
+                )
 
-            if processed_incremental_last_value is None:
+                if processed_incremental_last_value is None:
+                    processed_incremental_last_value = process_incremental_last_value(
+                        schema.sync_type_config.get("incremental_field_last_value"),
+                        schema.sync_type_config.get("incremental_field_type"),
+                    )
+            else:
                 processed_incremental_last_value = process_incremental_last_value(
                     schema.sync_type_config.get("incremental_field_last_value"),
                     schema.sync_type_config.get("incremental_field_type"),
                 )
-        else:
-            processed_incremental_last_value = process_incremental_last_value(
-                schema.sync_type_config.get("incremental_field_last_value"),
-                schema.sync_type_config.get("incremental_field_type"),
-            )
 
         if schema.is_incremental:
             logger.debug(f"Incremental last value being used is: {processed_incremental_last_value}")
@@ -541,7 +553,6 @@ def _run(
             rows_synced=F("rows_synced") + total_rows_synced
         )
 
-    source = ExternalDataSource.objects.get(id=inputs.source_id)
-    source.job_inputs.pop("reset_pipeline", None)
-
-    source.save()
+    schema = ExternalDataSchema.objects.get(id=inputs.schema_id)
+    schema.sync_type_config.pop("reset_pipeline", None)
+    schema.save()
