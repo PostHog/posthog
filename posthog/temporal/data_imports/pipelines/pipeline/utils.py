@@ -79,6 +79,9 @@ def _handle_null_columns_with_definitions(table: pa.Table, resource: DltResource
         return table
 
     for field_name, data_type in column_hints.items():
+        if data_type is None:
+            continue
+
         normalized_field_name = normalize_column_name(field_name)
         # If the table doesn't have all fields, then add a field with all Nulls and the correct field type
         if normalized_field_name not in table.schema.names:
