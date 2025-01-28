@@ -206,7 +206,7 @@ const TraceNode = React.memo(
 
         const children = [
             isLLMTraceEvent(item) && item.properties.$ai_is_error && (
-                <LemonTag key="error-tag" type="danger">
+                <LemonTag key="error-tag" type="warning">
                     Error
                 </LemonTag>
             ),
