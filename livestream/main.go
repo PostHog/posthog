@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"log"
 	"net/http"
 	"time"
@@ -103,7 +104,11 @@ func main() {
 	// Routes
 	e.GET("/", index)
 
-	e.GET("/metrics", echo.WrapHandler(promhttp.Handler()))
+	// For details why promhttp.Handler won't work: https://github.com/prometheus/client_golang/issues/622
+	e.GET("/metrics", echo.WrapHandler(promhttp.InstrumentMetricHandler(
+		prometheus.DefaultRegisterer,
+		promhttp.HandlerFor(prometheus.DefaultGatherer, promhttp.HandlerOpts{DisableCompression: true}),
+	)))
 
 	e.GET("/served", servedHandler(stats))
 
