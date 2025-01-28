@@ -15,11 +15,13 @@ export function ConversationMessagesDisplay({
     input,
     output,
     httpStatus,
+    raisedError,
     bordered = false,
 }: {
     input: any
     output: any
     httpStatus?: number
+    raisedError?: boolean
     bordered?: boolean
 }): JSX.Element {
     const inputNormalized = normalizeMessages(input, 'user')
@@ -45,7 +47,16 @@ export function ConversationMessagesDisplay({
                 outputNormalized?.map((message, i) => <LLMMessageDisplay key={i} message={message} isOutput />) || (
                     <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--background-danger-subtle)]">
                         <IconExclamation className="text-base" />
-                        {httpStatus ? `Generation failed with HTTP status ${httpStatus}` : 'Missing output'}
+                        {raisedError ? (
+                            <span className="font-mono">
+                                {output}
+                                {httpStatus ? <span> (${httpStatus})</span> : null}
+                            </span>
+                        ) : (
+                            <span>
+                                {httpStatus ? `Generation failed with HTTP status ${httpStatus}` : 'Missing output'}
+                            </span>
+                        )}
                     </div>
                 )
             }

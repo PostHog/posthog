@@ -352,8 +352,13 @@ function EventContent({ event }: { event: LLMTrace | LLMTraceEvent | null }): JS
                         event.event === '$ai_generation' ? (
                             <ConversationMessagesDisplay
                                 input={event.properties.$ai_input}
-                                output={event.properties.$ai_output_choices ?? event.properties.$ai_output}
+                                output={
+                                    event.properties.$ai_output_choices ??
+                                    event.properties.$ai_output ??
+                                    event.properties.$ai_error
+                                }
                                 httpStatus={event.properties.$ai_http_status}
+                                raisedError={event.properties.$ai_is_error}
                             />
                         ) : (
                             <EventContentDisplay
