@@ -102,7 +102,7 @@ class TracesQueryRunner(QueryRunner):
         return {
             **super().get_cache_payload(),
             # When the response schema changes, increment this version to invalidate the cache.
-            "schema_version": 1,
+            "schema_version": 2,
         }
 
     @cached_property
