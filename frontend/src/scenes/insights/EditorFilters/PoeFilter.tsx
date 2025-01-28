@@ -1,19 +1,15 @@
-import { LemonLabel, LemonSegmentedButton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
 import { InsightLogicProps } from '~/types'
 
-import { AVAILABLE_SAMPLING_PERCENTAGES, poeFilterLogic } from './poeFilterLogic'
-
-const DEFAULT_SAMPLING_INFO_TOOLTIP_CONTENT =
-    'Sampling computes the result on only a subset of the data, making insights load significantly faster.'
+import { poeFilterLogic } from './poeFilterLogic'
 
 interface PoeFilterProps {
     insightProps: InsightLogicProps
-    infoTooltipContent?: string
 }
 
-export function PoeFilter({ insightProps, infoTooltipContent }: PoeFilterProps): JSX.Element {
+export function PoeFilter({ insightProps }: PoeFilterProps): JSX.Element {
     const { poeMode } = useValues(poeFilterLogic(insightProps))
     const { setPoeMode } = useActions(poeFilterLogic(insightProps))
 
@@ -21,41 +17,23 @@ export function PoeFilter({ insightProps, infoTooltipContent }: PoeFilterProps):
         <>
             <div className="flex items-center gap-1">
                 <LemonLabel
-                    info={infoTooltipContent || DEFAULT_SAMPLING_INFO_TOOLTIP_CONTENT}
-                    infoLink="https://posthog.com/docs/product-analytics/sampling"
+                    info="Overides the default person properties mode for this insight to use person properties from query time instead of from the time of the event. This can be useful for specific queries that require person data that comes in after the event in question, but it slows down performance considerably, so use it with care."
+                    infoLink="https://posthog.com/docs/how-posthog-works/queries#filtering-on-person-properties"
                 >
-                    Override Person Properties Mode
+                    Use person properties from query time
                 </LemonLabel>
                 <LemonSwitch
                     className="m-2"
                     onChange={(checked) => {
                         if (checked) {
-                            setPoeMode('person_id_override_properties_on_events')
+                            setPoeMode('person_id_override_properties_joined')
                         } else {
-                            setPoeMode(undefined)
+                            setPoeMode(null)
                         }
                     }}
-                    checked={poeMode !== undefined}
+                    checked={!!poeMode}
                 />
             </div>
-            {poeMode !== undefined ? (
-                <div className="SamplingFilter">
-                    <div className="flex items-center gap-2">
-                        <LemonSegmentedButton
-                            options={AVAILABLE_SAMPLING_PERCENTAGES.map((percentage) => ({
-                                value: percentage,
-                                label: `${percentage}%`,
-                            }))}
-                            value={10}
-                            onChange={(newValue) => {
-                                // setSamplingPercentage(newValue)
-                                // posthog.capture('sampling_percentage_updated', { samplingPercentage })
-                                console.log(newValue)
-                            }}
-                        />
-                    </div>
-                </div>
-            ) : null}
         </>
     )
 }

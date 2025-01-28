@@ -9,6 +9,14 @@ import { insightVizDataLogic } from '../insightVizDataLogic'
 import type { poeFilterLogicType } from './poeFilterLogicType'
 
 export const AVAILABLE_SAMPLING_PERCENTAGES = [0.1, 1, 10, 25]
+export const POE_MODES = {
+    PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS: 'person_id_override_properties_on_events',
+    PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS_WITH_SAMPLING: 'person_id_override_properties_on_events_with_sampling',
+    PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS_WITH_SAMPLING_PERCENTAGE:
+        'person_id_override_properties_on_events_with_sampling_percentage',
+}
+
+export type PoeModeTypes = HogQLQueryModifiers['personsOnEventsMode'] | null
 
 export const poeFilterLogic = kea<poeFilterLogicType>([
     props({} as InsightLogicProps),
@@ -20,7 +28,7 @@ export const poeFilterLogic = kea<poeFilterLogicType>([
     })),
     actions(() => ({
         setSamplingPercentage: (samplingPercentage: number | null) => ({ samplingPercentage }),
-        setPoeMode: (poeMode: HogQLQueryModifiers['personsOnEventsMode']) => ({ poeMode }),
+        setPoeMode: (poeMode: PoeModeTypes) => ({ poeMode }),
     })),
     reducers({
         samplingPercentage: [
@@ -30,9 +38,9 @@ export const poeFilterLogic = kea<poeFilterLogicType>([
             },
         ],
         poeMode: [
-            undefined as HogQLQueryModifiers['personsOnEventsMode'],
+            null as PoeModeTypes,
             {
-                setPoeMode: (_, { poeMode }) => poeMode,
+                setPoeMode: (_, { poeMode }) => poeMode || null,
             },
         ],
     }),
@@ -64,7 +72,7 @@ export const poeFilterLogic = kea<poeFilterLogicType>([
         setPoeMode: () => {
             actions.updateQuerySource({
                 modifiers: {
-                    personsOnEventsMode: values.poeMode,
+                    personsOnEventsMode: values.poeMode || undefined,
                 },
             })
         },
@@ -72,7 +80,7 @@ export const poeFilterLogic = kea<poeFilterLogicType>([
     subscriptions(({ values, actions }) => ({
         querySource: (querySource) => {
             const newPoeMode = querySource?.modifiers?.personsOnEventsMode
-            if (newPoeMode !== values.poeMode) {
+            if ((!!newPoeMode || !!values.poeMode) && newPoeMode != values.poeMode) {
                 actions.setPoeMode(newPoeMode)
             }
         },
