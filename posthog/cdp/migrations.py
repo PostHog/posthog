@@ -1,7 +1,3 @@
-# Migrate from legacy plugins to new hog function plugins
-
-
-import json
 from posthog.api.hog_function import HogFunctionSerializer
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.plugin import PluginAttachment, PluginConfig
