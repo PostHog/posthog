@@ -101,13 +101,13 @@ async function executeQuery<N extends DataNode>(
         !SYNC_ONLY_QUERY_KINDS.includes(queryNode.kind) &&
         !!featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.QUERY_ASYNC]
 
-    const useEventSource = posthog.isFeatureEnabled('query-eventsource')
+    const useOptimizedPolling = posthog.isFeatureEnabled('query-optimized-polling')
 
     if (!pollOnly) {
         const refreshParam: RefreshType | undefined =
             refresh && isAsyncQuery ? 'force_async' : isAsyncQuery ? 'async' : refresh
         let response: NonNullable<N['response']>
-        if (useEventSource) {
+        if (useOptimizedPolling) {
             response = await api.queryAsync(
                 queryNode,
                 methodOptions,
