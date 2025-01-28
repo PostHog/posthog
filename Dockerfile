@@ -31,7 +31,6 @@ COPY common/ common/
 COPY patches/ patches/
 ENV PNPM_HOME /tmp/pnpm-store 
 RUN corepack enable && pnpm --version && \
-    npm install -g nx@20 && \
     mkdir /tmp/pnpm-store && \
     pnpm install --frozen-lockfile --filter @posthog/frontend... --store-dir /tmp/pnpm-store && \
     rm -rf /tmp/pnpm-store
@@ -42,7 +41,7 @@ COPY products/ products/
 COPY ee/frontend/ ee/frontend/
 COPY ./bin/ ./bin/
 COPY babel.config.js tsconfig.json webpack.config.js tailwind.config.js ./
-RUN nx build frontend --verbose
+RUN pnpx nx build frontend --verbose
 
 #
 # ---------------------------------------------------------
@@ -72,7 +71,6 @@ RUN apt-get update && \
 
 COPY ./common/ ./common/
 RUN corepack enable && \
-    npm install -g nx@20 && \
     mkdir /tmp/pnpm-store && \
     pnpm install --frozen-lockfile --filter @posthog/plugin-server... --store-dir /tmp/pnpm-store && \
     rm -rf /tmp/pnpm-store
@@ -83,7 +81,7 @@ RUN corepack enable && \
 # the cache hit ratio of the layers above.
 COPY ./plugin-server/src/ ./src/
 COPY ./plugin-server/tests/ ./tests/
-RUN nx build plugin-server --verbose
+RUN pnpx nx build plugin-server --verbose
 
 # As the plugin-server is now built, let’s keep
 # only prod dependencies in the node_module folder
