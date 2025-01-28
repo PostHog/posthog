@@ -38,6 +38,7 @@ export const RecordingsUniversalFilters = ({
     const taxonomicGroupTypes = [
         TaxonomicFilterGroupType.Replay,
         TaxonomicFilterGroupType.Events,
+        TaxonomicFilterGroupType.EventProperties,
         TaxonomicFilterGroupType.Actions,
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.PersonProperties,

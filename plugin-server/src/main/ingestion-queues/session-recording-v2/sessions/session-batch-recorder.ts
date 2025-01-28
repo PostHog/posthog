@@ -1,6 +1,9 @@
 import { Writable } from 'stream'
 
+import { status } from '../../../../utils/status'
+import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithTeam } from '../teams/types'
+import { BlackholeSessionBatchWriter } from './blackhole-session-batch-writer'
 import { SessionBatchMetrics } from './metrics'
 import { SessionRecorder } from './recorder'
 
@@ -13,19 +16,16 @@ export interface SessionBatchWriter {
     open(): Promise<StreamWithFinish>
 }
 
-export interface SessionBatchRecorderInterface {
-    record(message: MessageWithTeam): number
-    flush(): Promise<void>
-    discardPartition(partition: number): void
-    readonly size: number
-}
-
-export class SessionBatchRecorder implements SessionBatchRecorderInterface {
+export class SessionBatchRecorder {
     private readonly partitionSessions = new Map<number, Map<string, SessionRecorder>>()
     private readonly partitionSizes = new Map<number, number>()
     private _size: number = 0
+    private readonly writer: BlackholeSessionBatchWriter
 
-    constructor(private readonly writer: SessionBatchWriter) {}
+    constructor(private readonly offsetManager: KafkaOffsetManager) {
+        this.writer = new BlackholeSessionBatchWriter()
+        status.debug('🔁', 'session_batch_recorder_created')
+    }
 
     public record(message: MessageWithTeam): number {
         const { partition } = message.message.metadata
@@ -49,19 +49,41 @@ export class SessionBatchRecorder implements SessionBatchRecorderInterface {
         this.partitionSizes.set(partition, currentPartitionSize + bytesWritten)
         this._size += bytesWritten
 
+        this.offsetManager.trackOffset({
+            partition: message.message.metadata.partition,
+            offset: message.message.metadata.offset,
+        })
+
+        status.debug('🔁', 'session_batch_recorder_recorded_message', {
+            partition,
+            sessionId,
+            bytesWritten,
+            totalSize: this._size,
+        })
+
         return bytesWritten
     }
 
     public discardPartition(partition: number): void {
         const partitionSize = this.partitionSizes.get(partition)
         if (partitionSize) {
+            status.info('🔁', 'session_batch_recorder_discarding_partition', {
+                partition,
+                partitionSize,
+            })
             this._size -= partitionSize
             this.partitionSizes.delete(partition)
             this.partitionSessions.delete(partition)
+            this.offsetManager.discardPartition(partition)
         }
     }
 
     public async flush(): Promise<void> {
+        status.info('🔁', 'session_batch_recorder_flushing', {
+            totalSessions: this.partitionSessions.size,
+            totalSize: this._size,
+        })
+
         const { stream, finish } = await this.writer.open()
 
         let totalEvents = 0
@@ -80,6 +102,7 @@ export class SessionBatchRecorder implements SessionBatchRecorderInterface {
 
         stream.end()
         await finish()
+        await this.offsetManager.commit()
 
         // Update metrics
         SessionBatchMetrics.incrementBatchesFlushed()
@@ -91,6 +114,12 @@ export class SessionBatchRecorder implements SessionBatchRecorderInterface {
         this.partitionSessions.clear()
         this.partitionSizes.clear()
         this._size = 0
+
+        status.info('🔁', 'session_batch_recorder_flushed', {
+            totalEvents,
+            totalSessions,
+            totalBytes,
+        })
     }
 
     public get size(): number {
