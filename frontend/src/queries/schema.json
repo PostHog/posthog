@@ -6264,6 +6264,9 @@
                     "const": "EventTaxonomyQuery",
                     "type": "string"
                 },
+                "maxPropertyValues": {
+                    "$ref": "#/definitions/integer"
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"

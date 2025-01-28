@@ -6156,6 +6156,7 @@ class EventTaxonomyQuery(BaseModel):
     )
     event: str
     kind: Literal["EventTaxonomyQuery"] = "EventTaxonomyQuery"
+    maxPropertyValues: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )

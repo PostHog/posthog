@@ -2157,6 +2157,7 @@ export interface EventTaxonomyQuery extends DataNode<EventTaxonomyQueryResponse>
     kind: NodeKind.EventTaxonomyQuery
     event: string
     properties?: string[]
+    maxPropertyValues?: integer
 }
 
 export type EventTaxonomyQueryResponse = AnalyticsQueryResponseBase<EventTaxonomyResponse>
