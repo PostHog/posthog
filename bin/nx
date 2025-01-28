@@ -1,6 +1,6 @@
 #!/bin/bash
 
-NX_PATH=./common/build/node_modules/.bin/nx
+NX_PATH=./node_modules/.bin/nx
 
 # if nx is not installed, install it from npm globally
 if [ ! -f $NX_PATH ]; then

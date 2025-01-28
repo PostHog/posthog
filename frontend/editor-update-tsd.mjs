@@ -11,7 +11,7 @@ export function writeSourceCodeEditorTypes() {
             return fse.readFileSync(path.resolve(__dirname, p), { encoding: 'utf-8' })
         } catch (e) {
             if (isDev) {
-                console.warn(`🙈 Didn't find "${p}" for the app source editor. Build it with: pnpm packages:build`)
+                console.warn(`🙈 Didn't find "${p}" for the app source editor.`)
             } else {
                 throw e
             }

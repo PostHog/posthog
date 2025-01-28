@@ -1,9 +1,5 @@
 lockfileVersion: '6.0'
 
-settings:
-  autoInstallPeers: true
-  excludeLinksFromLockfile: false
-
 patchedDependencies:
   node-rdkafka@2.17.0:
     hash: bugorwxdhlhl2utknko2c5ibqm
@@ -42,7 +38,7 @@ dependencies:
     version: 3.5.0
   '@posthog/build':
     specifier: workspace:*
-    version: link:../common/build
+    version: link:..
   '@posthog/clickhouse':
     specifier: ^1.7.0
     version: 1.7.0
@@ -10557,7 +10553,7 @@ packages:
       '@swc/core': '>=1.2.50'
       '@swc/wasm': '>=1.2.50'
       '@types/node': '*'
-      typescript: ~4.9.5
+      typescript: '>=2.7'
     peerDependenciesMeta:
       '@swc/core':
         optional: true
@@ -11164,4 +11160,9 @@ packages:
   file:../rust/cyclotron-node:
     resolution: {directory: ../rust/cyclotron-node, type: directory}
     name: '@posthog/cyclotron'
+    version: 0.1.7
     dev: false
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false

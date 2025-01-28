@@ -38,7 +38,13 @@
         "ignoreDeprecations": "5.0",
         "lib": ["dom", "es2021"]
     },
-    "include": ["frontend/**/*", ".storybook/**/*", "playwright/**/*", "ee/frontend/**/*", "products/**/frontend/**/*"],
+    "include": [
+        "frontend/**/*",
+        "common/storybook/.storybook/**/*",
+        "playwright/**/*",
+        "ee/frontend/**/*",
+        "products/**/frontend/**/*"
+    ],
     "exclude": ["frontend/dist/**/*"],
     "ts-node": {
         "compilerOptions": {
