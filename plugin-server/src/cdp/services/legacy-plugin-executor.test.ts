@@ -30,7 +30,7 @@ describe('LegacyPluginExecutorService', () => {
 
     beforeEach(async () => {
         hub = await createHub()
-        service = new LegacyPluginExecutorService(hub)
+        service = new LegacyPluginExecutorService()
         team = await getFirstTeam(hub)
 
         fn = createHogFunction({

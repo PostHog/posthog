@@ -2,7 +2,6 @@ import { PluginEvent, ProcessedPluginEvent, RetryError } from '@posthog/plugin-s
 import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 
-import { Hub } from '../../types'
 import { Response, trackedFetch } from '../../utils/fetch'
 import { status } from '../../utils/status'
 import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '../legacy-plugins'
@@ -32,8 +31,6 @@ export type PluginState = {
  * NOTE: This is a consumer to take care of legacy plugins.
  */
 export class LegacyPluginExecutorService {
-    constructor(private hub: Hub) {}
-
     private pluginState: Record<string, PluginState> = {}
 
     public async fetch(...args: Parameters<typeof trackedFetch>): Promise<Response> {
