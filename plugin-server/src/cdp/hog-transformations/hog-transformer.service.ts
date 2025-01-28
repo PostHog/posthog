@@ -12,7 +12,6 @@ import {
 } from '../../cdp/types'
 import { createInvocation, fixLogDeduplication } from '../../cdp/utils'
 import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../config/kafka-topics'
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import { runInstrumentedFunction } from '../../main/utils'
 import { AppMetric2Type, Hub, TimestampFormat } from '../../types'
 import { safeClickhouseString } from '../../utils/db/utils'
@@ -83,7 +82,6 @@ export class HogTransformerService {
     public async start(): Promise<void> {
         const hogTypes: HogFunctionTypeType[] = ['transformation']
         await this.hogFunctionManager.start(hogTypes)
-        this.hub.kafkaProducer = await KafkaProducerWrapper.create(this.hub)
     }
 
     private produceAppMetric(metric: HogFunctionAppMetric): Promise<void> {
