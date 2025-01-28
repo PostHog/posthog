@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo-contrib/echoprometheus"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/viper"
 )
@@ -103,7 +104,11 @@ func main() {
 	// Routes
 	e.GET("/", index)
 
-	e.GET("/metrics", echo.WrapHandler(promhttp.Handler()))
+	// For details why promhttp.Handler won't work: https://github.com/prometheus/client_golang/issues/622
+	e.GET("/metrics", echo.WrapHandler(promhttp.InstrumentMetricHandler(
+		prometheus.DefaultRegisterer,
+		promhttp.HandlerFor(prometheus.DefaultGatherer, promhttp.HandlerOpts{DisableCompression: true}),
+	)))
 
 	e.GET("/served", servedHandler(stats))
 
