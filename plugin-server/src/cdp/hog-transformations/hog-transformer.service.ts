@@ -2,6 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import {
     HogFunctionInvocation,
+    HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
     HogFunctionType,
     HogFunctionTypeType,
@@ -43,7 +44,7 @@ export class HogTransformerService {
         }
     }
 
-    private createInvocationGlobals(event: PluginEvent): HogFunctionInvocationGlobalsWithInputs {
+    private createInvocationGlobals(event: PluginEvent): HogFunctionInvocationGlobals {
         return {
             project: {
                 id: event.team_id,
@@ -59,19 +60,14 @@ export class HogTransformerService {
                 timestamp: event.timestamp || '',
                 url: event.properties?.$current_url || '',
             },
-            inputs: {},
         }
     }
 
     private createHogFunctionInvocation(event: PluginEvent, hogFunction: HogFunctionType): HogFunctionInvocation {
-        const globals = this.createInvocationGlobals(event)
-
-        const inputs = {
+        const globalsWithInputs = buildGlobalsWithInputs(this.createInvocationGlobals(event), {
             ...(hogFunction.inputs ?? {}),
             ...(hogFunction.encrypted_inputs ?? {}),
-        }
-
-        const globalsWithInputs = buildGlobalsWithInputs(globals, inputs)
+        })
 
         return createInvocation(globalsWithInputs, hogFunction)
     }
