@@ -40,6 +40,8 @@ def test_mutations(cluster: ClickhouseCluster) -> None:
         return client.execute(f"SELECT person_id, count() FROM {table} GROUP BY ALL ORDER BY ALL")
 
     for host_info, mutation in shard_mutations.items():
+        assert host_info.shard_num is not None
+
         # wait for mutations to complete on shard
         cluster.map_all_hosts_in_shard(host_info.shard_num, mutation.wait).result()
 
