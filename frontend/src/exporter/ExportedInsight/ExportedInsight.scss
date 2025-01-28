@@ -7,7 +7,7 @@
     min-width: 0;
     max-width: 100%;
     height: 100%;
-    background: var(--bg-light);
+    background: var(--surface-primary);
     border: 1px solid var(--border);
     border-radius: var(--radius);
 
@@ -39,7 +39,7 @@
     }
 
     .LemonTable {
-        --lemon-table-background-color: var(--bg-light);
+        --lemon-table-background-color: var(--surface-primary);
     }
 
     .ExportedInsight__watermark {

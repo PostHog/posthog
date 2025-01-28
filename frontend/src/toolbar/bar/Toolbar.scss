@@ -1,4 +1,4 @@
-@import '../../styles/vars';
+// @import '../../styles/vars';
 
 #button-toolbar {
     position: fixed;
@@ -37,17 +37,17 @@
         // override the mark value so that feature flag overrides are visible _and legible_ in dark mode
         --mark: var(--secondary-3000-hover-dark);
 
-        @include dark-mode-3000-variables;
+        // @include dark-mode-3000-variables;
     }
 
     & .ReactModalPortal {
         color: var(--text-3000);
     }
 
-    @include common-variables;
+    // @include common-variables;
 
     // default to light theme
-    @include light-mode-3000-variables;
+    // @include light-mode-3000-variables;
 }
 
 .ToolbarMenu {

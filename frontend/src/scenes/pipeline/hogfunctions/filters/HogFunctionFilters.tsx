@@ -50,7 +50,7 @@ export function HogFunctionFilters(): JSX.Element {
 
     if (type === 'broadcast') {
         return (
-            <div className="p-3 space-y-2 border rounded bg-bg-light">
+            <div className="p-3 space-y-2 border rounded bg-surface-primary">
                 <LemonField name="filters" label="Filters">
                     {({ value, onChange }) => (
                         <PropertyFilters
@@ -85,7 +85,7 @@ export function HogFunctionFilters(): JSX.Element {
     const showDropEvents = type === 'transformation'
 
     return (
-        <div className="p-3 space-y-2 border rounded bg-bg-light">
+        <div className="p-3 space-y-2 border rounded bg-surface-primary">
             <LemonField
                 name="filters"
                 label={useMapping ? 'Global filters' : 'Filters'}
