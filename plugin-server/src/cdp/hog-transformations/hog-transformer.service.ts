@@ -24,6 +24,7 @@ export class HogTransformerService {
         this.hub = hub
         this.hogFunctionManager = new HogFunctionManagerService(hub)
         this.hogExecutor = new HogExecutorService(hub, this.hogFunctionManager)
+        this.pluginExecutor = new LegacyPluginExecutorService()
     }
 
     // Built-in transformation functions that will be available to all transformations
