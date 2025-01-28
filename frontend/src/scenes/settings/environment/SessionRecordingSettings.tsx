@@ -14,12 +14,14 @@ import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
+import { InternalMultipleChoiceSurvey } from 'lib/components/InternalSurvey/InternalMultipleChoiceSurvey'
 import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { SESSION_RECORDING_OPT_OUT_SURVEY_ID } from 'lib/constants'
 import { IconSelectEvents } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { isObject, objectsEqual } from 'lib/utils'
-import { ReactNode } from 'react'
+import { ReactNode, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SessionRecordingAIConfig } from '~/types'
@@ -504,6 +506,20 @@ export function ReplayAISettings(): JSX.Element | null {
 export function ReplayGeneral(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
+    const [showSurvey, setShowSurvey] = useState<boolean>(false)
+
+    /**
+     * Handle the opt in change
+     * @param checked
+     */
+    const handleOptInChange = (checked: boolean): void => {
+        updateCurrentTeam({
+            session_recording_opt_in: checked,
+        })
+
+        //If the user opts out, we show the survey
+        setShowSurvey(!checked)
+    }
 
     return (
         <div className="flex flex-col gap-4">
@@ -521,16 +537,13 @@ export function ReplayGeneral(): JSX.Element {
                 <LemonSwitch
                     data-attr="opt-in-session-recording-switch"
                     onChange={(checked) => {
-                        updateCurrentTeam({
-                            // when switching replay on or off,
-                            // we set defaults for some of the other settings
-                            session_recording_opt_in: checked,
-                        })
+                        handleOptInChange(checked)
                     }}
                     label="Record user sessions"
                     bordered
                     checked={!!currentTeam?.session_recording_opt_in}
                 />
+                {showSurvey && <InternalMultipleChoiceSurvey surveyId={SESSION_RECORDING_OPT_OUT_SURVEY_ID} />}
             </div>
             <LogCaptureSettings />
             <CanvasCaptureSettings />
