@@ -8,7 +8,6 @@
     "module": "dist/module.js",
     "packageManager": "pnpm@8.3.1",
     "scripts": {
-        "nx": "./node_modules/@posthog/build/node_modules/.bin/nx",
         "test": "jest --runInBand --forceExit",
         "clean": "rm -rf dist .parcel-cache",
         "build": "pnpm clean && pnpm build:parcel && pnpm build:cli",

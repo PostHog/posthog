@@ -6,7 +6,6 @@
     "main": "dist/index.js",
     "packageManager": "pnpm@8.6.0",
     "scripts": {
-        "nx": "./node_modules/@posthog/build/node_modules/.bin/nx",
         "test": "jest --runInBand --forceExit",
         "functional_tests": "jest --config ./jest.config.functional.js",
         "start": "pnpm start:dist",

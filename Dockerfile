@@ -50,12 +50,11 @@ WORKDIR /code
 # Workspace settings
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml nx.json .npmrc project.json ./
 COPY ./rust ./rust
-WORKDIR /code/plugin-server
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # Compile and install Node.js dependencies.
-COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./plugin-server/project.json ./
-COPY ./plugin-server/patches/ ./patches/
+COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./plugin-server/project.json ./plugin-server/
+COPY ./plugin-server/patches/ ./plugin-server/patches/
 ENV PNPM_HOME /tmp/pnpm-store 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -77,8 +76,8 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
 #
 # Note: we run the build as a separate action to increase
 # the cache hit ratio of the layers above.
-COPY ./plugin-server/src/ ./src/
-COPY ./plugin-server/tests/ ./tests/
+COPY ./plugin-server/src/ ./plugin-server/src/
+COPY ./plugin-server/tests/ ./plugin-server/tests/
 RUN pnpm nx build plugin-server --verbose
 
 # As the plugin-server is now built, let’s keep
@@ -86,6 +85,7 @@ RUN pnpm nx build plugin-server --verbose
 # as we will copy it to the last image.
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
     corepack enable && \
+    rm -rf plugin-server/node_modules && \
     pnpm install --frozen-lockfile --filter @posthog/plugin-server --store-dir /tmp/pnpm-store --prod
 
 
