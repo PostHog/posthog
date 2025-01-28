@@ -239,6 +239,10 @@ export class EventPipelineRunner {
             event.team_id
         )
 
+        if (transformedEvent == null) {
+            return this.registerLastStep('transformEventStep', [processedEvent], kafkaAcks)
+        }
+
         const [normalizedEvent, timestamp] = await this.runStep(
             normalizeEventStep,
             [transformedEvent, processPerson],

@@ -11,7 +11,7 @@ import { HogTransformerService } from '../../../cdp/hog-transformations/hog-tran
 export async function transformEventStep(
     event: PluginEvent,
     hogTransformer: HogTransformerService | null
-): Promise<PluginEvent> {
+): Promise<PluginEvent | null> {
     if (!hogTransformer) {
         return event
     }
