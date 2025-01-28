@@ -96,6 +96,11 @@ export function restoreTree(events: LLMTraceEvent[], traceId: string): TraceTree
 
     // Map all events with parents to their parent IDs
     events.forEach((event) => {
+        // Exclude all metric and feedback events.
+        if (FEEDBACK_EVENTS.has(event.event)) {
+            return
+        }
+
         const eventId =
             event.properties.$ai_generation_id ??
             event.properties.$ai_span_id ??

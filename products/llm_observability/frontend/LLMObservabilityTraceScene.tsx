@@ -328,7 +328,9 @@ function EventContent({ event }: { event: LLMTrace | LLMTraceEvent | null }): JS
                     <header className="space-y-2">
                         <div className="flex-row flex items-center gap-2">
                             <EventTypeTag event={event} />
-                            <h3 className="text-lg font-semibold p-0 m-0">{formatLLMEventTitle(event)}</h3>
+                            <h3 className="text-lg font-semibold p-0 m-0 truncate flex-1">
+                                {formatLLMEventTitle(event)}
+                            </h3>
                         </div>
                         {isLLMTraceEvent(event) ? (
                             <MetadataHeader
