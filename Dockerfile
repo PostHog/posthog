@@ -30,10 +30,9 @@ COPY package.json pnpm-lock.yaml nx.json pnpm-workspace.yaml .npmrc project.json
 COPY common/ common/
 COPY patches/ patches/
 ENV PNPM_HOME /tmp/pnpm-store 
-RUN corepack enable && pnpm --version && \
-    mkdir /tmp/pnpm-store && \
-    pnpm install --frozen-lockfile --filter @posthog/frontend... --store-dir /tmp/pnpm-store && \
-    rm -rf /tmp/pnpm-store
+RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
+    corepack enable && pnpm --version && \
+    pnpm install --frozen-lockfile --filter @posthog/frontend... --store-dir /tmp/pnpm-store
 
 # Build the frontend.
 COPY frontend/ frontend/
@@ -70,10 +69,9 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 COPY ./common/ ./common/
-RUN corepack enable && \
-    mkdir /tmp/pnpm-store && \
-    pnpm install --frozen-lockfile --filter @posthog/plugin-server... --store-dir /tmp/pnpm-store && \
-    rm -rf /tmp/pnpm-store
+RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
+    corepack enable && \
+    pnpm install --frozen-lockfile --filter @posthog/plugin-server... --store-dir /tmp/pnpm-store
 
 # Build the plugin server.
 #
@@ -86,10 +84,9 @@ RUN pnpm nx build plugin-server --verbose
 # As the plugin-server is now built, let’s keep
 # only prod dependencies in the node_module folder
 # as we will copy it to the last image.
-RUN corepack enable && \
-    mkdir /tmp/pnpm-store && \
-    pnpm install --frozen-lockfile --filter @posthog/plugin-server --store-dir /tmp/pnpm-store --prod && \
-    rm -rf /tmp/pnpm-store
+RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
+    corepack enable && \
+    pnpm install --frozen-lockfile --filter @posthog/plugin-server --store-dir /tmp/pnpm-store --prod
 
 
 #

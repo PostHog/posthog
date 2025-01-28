@@ -86,7 +86,7 @@ jobs:
               if: needs.changes.outputs.frontend == 'true'
               run: |
                   pnpm install --frozen-lockfile --filter @posthog/frontend...
-                  pnpx nx deps:build frontend --verbose
+                  pnpm nx deps:build frontend --verbose
 
             - name: Check formatting with prettier
               if: needs.changes.outputs.frontend == 'true'
@@ -157,7 +157,7 @@ jobs:
               if: needs.changes.outputs.frontend == 'true'
               run: |
                   pnpm install --frozen-lockfile --filter @posthog/frontend...
-                  pnpx nx deps:build frontend --verbose
+                  pnpm nx deps:build frontend --verbose
 
             - name: Test with Jest
               # set maxWorkers or Jest only uses 1 CPU in GitHub Actions
