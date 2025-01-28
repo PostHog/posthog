@@ -304,7 +304,6 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             title: 'PoE Override',
             editorFilters: filterFalsy([
                 {
-                    // Have to change this to modifiers
                     key: 'poe',
                     position: 'right',
                     component: PoeFilter,
