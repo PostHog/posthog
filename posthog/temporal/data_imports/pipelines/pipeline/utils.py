@@ -1,6 +1,7 @@
 import json
 from collections.abc import Sequence
 from typing import Any
+from dateutil import parser
 import uuid
 import pyarrow as pa
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
@@ -27,6 +28,16 @@ DLT_TO_PA_TYPE_MAP = {
 
 def normalize_column_name(column_name: str) -> str:
     return NamingConvention().normalize_identifier(column_name)
+
+
+def safe_parse_datetime(date_str):
+    try:
+        if isinstance(date_str, pa.StringScalar):
+            return parser.parse(date_str.as_py())
+
+        return parser.parse(date_str)
+    except (ValueError, OverflowError):
+        return None
 
 
 def _get_primary_keys(resource: DltResource) -> list[Any] | None:
@@ -119,11 +130,21 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
             # If the deltalake schema has a different type to the pyarrows table, then cast to the deltalake field type
             py_arrow_table_column = table.column(field.name)
             if field.type != py_arrow_table_column.type:
-                table = table.set_column(
-                    table.schema.get_field_index(field.name),
-                    field.name,
-                    table.column(field.name).cast(field.type),
-                )
+                if isinstance(field.type, pa.TimestampType):
+                    timestamp_array = pa.array(
+                        [safe_parse_datetime(s) for s in table.column(field.name)], type=field.type
+                    )
+                    table = table.set_column(
+                        table.schema.get_field_index(field.name),
+                        field.name,
+                        timestamp_array,
+                    )
+                else:
+                    table = table.set_column(
+                        table.schema.get_field_index(field.name),
+                        field.name,
+                        table.column(field.name).cast(field.type),
+                    )
 
     # Change types based on what deltalake tables support
     return table.cast(ensure_delta_compatible_arrow_schema(table.schema))
