@@ -499,9 +499,9 @@ def update_all_orgs_billing_quotas(
     report_quota_limiting_event(
         "update_all_orgs_billing_quotas previously quota limited teams fetched",
         {
-            "events_count": len(previously_quota_limited_team_tokens[QuotaResource.EVENTS]),
-            "recordings_count": len(previously_quota_limited_team_tokens[QuotaResource.RECORDINGS]),
-            "rows_synced_count": len(previously_quota_limited_team_tokens[QuotaResource.ROWS_SYNCED]),
+            "events_count": len(previously_quota_limited_team_tokens["events"]),
+            "recordings_count": len(previously_quota_limited_team_tokens["recordings"]),
+            "rows_synced_count": len(previously_quota_limited_team_tokens["rows_synced"]),
         },
     )
 
