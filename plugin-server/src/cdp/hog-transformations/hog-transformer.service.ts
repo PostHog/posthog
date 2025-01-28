@@ -2,7 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import {
     HogFunctionInvocation,
-    HogFunctionInvocationGlobalsWithInputs,
+    HogFunctionInvocationGlobals,
     HogFunctionType,
     HogFunctionTypeType,
 } from '../../cdp/types'
@@ -10,7 +10,7 @@ import { createInvocation, isLegacyPluginHogFunction } from '../../cdp/utils'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub } from '../../types'
 import { status } from '../../utils/status'
-import { HogExecutorService } from '../services/hog-executor.service'
+import { buildGlobalsWithInputs, HogExecutorService } from '../services/hog-executor.service'
 import { HogFunctionManagerService } from '../services/hog-function-manager.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 
@@ -46,7 +46,7 @@ export class HogTransformerService {
         }
     }
 
-    private createInvocationGlobals(event: PluginEvent): HogFunctionInvocationGlobalsWithInputs {
+    private createInvocationGlobals(event: PluginEvent): HogFunctionInvocationGlobals {
         return {
             project: {
                 id: event.team_id,
@@ -62,14 +62,16 @@ export class HogTransformerService {
                 timestamp: event.timestamp || '',
                 url: event.properties?.$current_url || '',
             },
-            inputs: {},
         }
     }
 
     private createHogFunctionInvocation(event: PluginEvent, hogFunction: HogFunctionType): HogFunctionInvocation {
-        const globals = this.createInvocationGlobals(event)
+        const globalsWithInputs = buildGlobalsWithInputs(this.createInvocationGlobals(event), {
+            ...(hogFunction.inputs ?? {}),
+            ...(hogFunction.encrypted_inputs ?? {}),
+        })
 
-        return createInvocation(globals, hogFunction)
+        return createInvocation(globalsWithInputs, hogFunction)
     }
 
     public async start(): Promise<void> {
@@ -77,7 +79,7 @@ export class HogTransformerService {
         await this.hogFunctionManager.start(hogTypes)
     }
 
-    public transformEvent(event: PluginEvent): Promise<PluginEvent> {
+    public transformEvent(event: PluginEvent): Promise<PluginEvent | null> {
         return runInstrumentedFunction({
             statsKey: `hogTransformer`,
             // there is no await as all operations are sync
@@ -105,8 +107,9 @@ export class HogTransformerService {
 
                     // Type check execResult before accessing result
                     if (!result.execResult) {
-                        status.warn('⚠️', 'Missing execution result - no transformation applied')
-                        return event
+                        // TODO: Correct this - if we have no result but a successful execution then we should be dropping the event
+                        status.warn('⚠️', 'Execution result is null - dropping event')
+                        return null
                     }
 
                     const transformedEvent: unknown = result.execResult

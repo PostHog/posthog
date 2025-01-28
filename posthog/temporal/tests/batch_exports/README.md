@@ -62,3 +62,42 @@ DEBUG=1 S3_TEST_KMS_KEY_ID='1111111-2222-3333-4444-55555555555' S3_TEST_BUCKET='
 ```
 
 Replace the `S3_*` environment variables with the values obtained from the setup steps.
+
+## Testing Snowflake batch exports
+
+Snowflake batch exports are tested against a real Snowflake instance, with additional setup steps required. Due to this requirement, these tests are skipped unless Snowflake credentials are specified in the environment.
+
+> [!WARNING]
+> Since Snowflake batch export tests require additional setup, we skip them by default and will not be ran by automated CI pipelines. Please ensure these tests pass when making changes that affect Snowflake batch exports.
+
+To enable testing for Snowflake batch exports, we require:
+
+1. A Snowflake account.
+2. A Snowflake user and role with the necessary permissions to create and manage tables in the database.
+3. A Snowflake warehouse (compute resource) that the user has access to.
+
+For PostHog employees, check the password manager as a set of development credentials should already be available. You can either use these or ask someone to create a new user for you.
+
+We currently support 2 types of authentication for Snowflake batch exports:
+
+### Password authentication
+
+For password authentication, you can run the tests from the root of the `posthog` repo with:
+
+```bash
+DEBUG=1 SNOWFLAKE_WAREHOUSE='your-warehouse' SNOWFLAKE_USERNAME='your-username' SNOWFLAKE_PASSWORD='your-password' SNOWFLAKE_ACCOUNT='your-account' SNOWFLAKE_ROLE='your-role' pytest posthog/temporal/tests/batch_exports/test_snowflake_batch_export_workflow.py
+```
+
+Replace the `SNOWFLAKE_*` environment variables with the values obtained from the setup steps.
+
+### Key pair authentication
+
+For key pair authentication, you will first need to generate a key pair. You can find instructions on how to do this in the [Snowflake documentation](https://docs.snowflake.com/en/user-guide/key-pair-auth#configuring-key-pair-authentication)
+
+Once you have generated the key pair, you can run the tests from the root of the `posthog` repo with:
+
+```bash
+DEBUG=1 SNOWFLAKE_WAREHOUSE='your-warehouse' SNOWFLAKE_USERNAME='your-username' SNOWFLAKE_PRIVATE_KEY='your-private-key' SNOWFLAKE_PRIVATE_KEY_PASSPHRASE='your-passphrase' SNOWFLAKE_ACCOUNT='your-account' SNOWFLAKE_ROLE='your-role' pytest posthog/temporal/tests/batch_exports/test_snowflake_batch_export_workflow.py
+```
+
+Replace the `SNOWFLAKE_*` environment variables with the values obtained from the setup steps.
