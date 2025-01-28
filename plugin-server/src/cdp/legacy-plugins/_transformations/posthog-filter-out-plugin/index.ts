@@ -1,6 +1,6 @@
 import { Meta, PluginAttachment, PluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyPluginMeta, LegacyTransformationPlugin } from '../types'
+import { LegacyPluginMeta, LegacyTransformationPlugin } from '../../types'
 import metadata from './plugin.json'
 
 export interface Filter {
@@ -51,7 +51,8 @@ const operations: Record<Filter['type'], Record<string, (a: any, b: any) => bool
 export function setupPlugin({ global, config }: LegacyPluginMeta) {
     if (config.filters) {
         try {
-            const filterGroups = parseFiltersAndMigrate(config.filters)
+            const filters = typeof config.filters === 'string' ? JSON.parse(config.filters) : config.filters
+            const filterGroups = parseFiltersAndMigrate(filters)
             if (!filterGroups) {
                 throw new Error('No filters found')
             }

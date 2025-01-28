@@ -33,6 +33,6 @@ export type LegacyTransformationPlugin = {
         name: string
         config: PluginConfigSchema[]
     }
-    processEvent(event: PluginEvent, meta: LegacyPluginMeta): PluginEvent | undefined
+    processEvent(event: PluginEvent, meta: LegacyPluginMeta): PluginEvent | undefined | null
     setupPlugin?: (meta: LegacyPluginMeta) => void
 }

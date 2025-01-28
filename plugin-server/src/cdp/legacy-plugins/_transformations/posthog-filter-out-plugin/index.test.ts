@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyPluginMeta } from '../types'
+import { LegacyPluginMeta } from '../../types'
 import { Filter, processEvent, setupPlugin } from '.'
 
 const filters: Filter[] = [

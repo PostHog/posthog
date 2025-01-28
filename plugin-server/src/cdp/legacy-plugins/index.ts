@@ -1,6 +1,6 @@
+import { posthogFilterOutPlugin } from './_transformations/posthog-filter-out-plugin'
 import { customerioPlugin } from './customerio'
 import { intercomPlugin } from './intercom'
-import { posthogFilterOutPlugin } from './posthog-filter-out-plugin'
 
 export const DESTINATION_PLUGINS_BY_ID = {
     [customerioPlugin.id]: customerioPlugin,
