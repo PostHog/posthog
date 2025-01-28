@@ -6,6 +6,7 @@ import { status } from '~/src/utils/status'
 
 import { PLUGINS_BY_ID } from '../legacy-plugins'
 import { LegacyPluginLogger, LegacyPluginMeta } from '../legacy-plugins/types'
+import { sanitizeLogMessage } from '../services/hog-executor.service'
 import { HogFunctionInvocation, HogFunctionInvocationResult, HogFunctionTypeType } from '../types'
 import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 
@@ -74,7 +75,7 @@ export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
             result.logs.push({
                 level,
                 timestamp: DateTime.now(),
-                message: args.join(' '),
+                message: sanitizeLogMessage(args),
             })
         }
 
