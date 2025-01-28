@@ -69,8 +69,6 @@ export class IngestionConsumer {
     private tokensToDrop: string[] = []
     private tokenDistinctIdsToDrop: string[] = []
 
-    private messagesToProduce: { topic: string; value: any; key: string | null }[] = []
-
     constructor(private hub: Hub) {
         // The group and topic are configurable allowing for multiple ingestion consumers to be run in parallel
         this.groupId = hub.INGESTION_CONSUMER_GROUP_ID
@@ -189,7 +187,7 @@ export class IngestionConsumer {
                         event,
                     })
 
-                    // Add all promises to be awaited
+                    // This contains the Kafka producer ACKs & message promises, to avoid blocking after every message.
                     result.ackPromises?.forEach((promise) => {
                         void this.scheduleWork(
                             promise.catch(async (error) => {
