@@ -40,6 +40,9 @@ dependencies:
   '@maxmind/geoip2-node':
     specifier: ^3.4.0
     version: 3.5.0
+  '@posthog/build':
+    specifier: workspace:*
+    version: link:../common/build
   '@posthog/clickhouse':
     specifier: ^1.7.0
     version: 1.7.0
@@ -10554,7 +10557,7 @@ packages:
       '@swc/core': '>=1.2.50'
       '@swc/wasm': '>=1.2.50'
       '@types/node': '*'
-      typescript: '>=2.7'
+      typescript: ~4.9.5
     peerDependenciesMeta:
       '@swc/core':
         optional: true

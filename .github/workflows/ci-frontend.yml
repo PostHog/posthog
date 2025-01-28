@@ -85,8 +85,7 @@ jobs:
             - name: Build and install frontend build dependencies
               if: needs.changes.outputs.frontend == 'true'
               run: |
-                  pnpm install --frozen-lockfile --filter @posthog/frontend
-                  pnpx nx deps:prepare frontend --verbose
+                  pnpm install --frozen-lockfile --filter @posthog/frontend...
                   pnpx nx deps:build frontend --verbose
 
             - name: Check formatting with prettier
@@ -157,8 +156,7 @@ jobs:
             - name: Build and install frontend build dependencies
               if: needs.changes.outputs.frontend == 'true'
               run: |
-                  pnpm install --frozen-lockfile --filter @posthog/frontend
-                  pnpx nx deps:prepare frontend --verbose
+                  pnpm install --frozen-lockfile --filter @posthog/frontend...
                   pnpx nx deps:build frontend --verbose
 
             - name: Test with Jest

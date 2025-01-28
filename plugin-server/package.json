@@ -52,6 +52,7 @@
         "@google-cloud/pubsub": "3.0.1",
         "@google-cloud/storage": "^5.8.5",
         "@maxmind/geoip2-node": "^3.4.0",
+        "@posthog/build": "workspace:*",
         "@posthog/clickhouse": "^1.7.0",
         "@posthog/cyclotron": "file:../rust/cyclotron-node",
         "@posthog/hogvm": "workspace:*",

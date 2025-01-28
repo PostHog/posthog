@@ -191,7 +191,7 @@ jobs:
                   node-version: 18
                   registry-url: https://registry.npmjs.org
             - name: Install package.json dependencies
-              run: cd common/hogvm/typescript && pnpm install --filter @posthog/hogvm
+              run: cd common/hogvm/typescript && pnpm install --filter @posthog/hogvm...
             - name: Publish the package in the npm registry
               run: cd common/hogvm/typescript && npm publish --access public
               env:

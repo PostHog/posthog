@@ -76,7 +76,7 @@
         "@microlink/react-json-view": "^1.21.3",
         "@microsoft/fetch-event-source": "^2.0.1",
         "@monaco-editor/react": "4.6.0",
-        "@nx/web": "20.3.1",
+        "@posthog/build": "workspace:*",
         "@posthog/hogvm": "workspace:*",
         "@posthog/icons": "0.10.0",
         "@posthog/plugin-scaffold": "^1.4.4",
@@ -159,7 +159,6 @@
         "md5": "^2.3.0",
         "monaco-editor": "^0.49.0",
         "natural-orderby": "^3.0.2",
-        "nx": "20.3.1",
         "papaparse": "^5.4.1",
         "pmtiles": "^2.11.0",
         "postcss": "^8.4.31",
@@ -400,6 +399,5 @@
     },
     "browser": {
         "path": "path-browserify"
-    },
-    "nx": {}
+    }
 }

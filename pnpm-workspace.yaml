@@ -1,4 +1,5 @@
 packages:
+    - 'common/build'
     - 'common/hogvm/typescript'
     - 'common/plugin_transpiler'
     - 'plugin-server'

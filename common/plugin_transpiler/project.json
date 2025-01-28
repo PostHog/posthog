@@ -4,13 +4,6 @@
     "sourceRoot": "{projectRoot}/src",
     "projectType": "library",
     "targets": {
-        "prepare": {
-            "executor": "nx:run-commands",
-            "options": {
-                "commands": ["pnpm install --frozen-lockfile --filter @posthog/plugin-transpiler"],
-                "cwd": "{projectRoot}"
-            }
-        },
         "build": {
             "executor": "nx:run-commands",
             "options": {

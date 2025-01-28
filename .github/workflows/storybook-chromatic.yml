@@ -39,8 +39,7 @@ jobs:
 
             - name: Install dependencies and Chromatic
               run: |
-                  pnpm install --frozen-lockfile --filter @posthog/frontend
-                  pnpx nx deps:prepare frontend --verbose
+                  pnpm install --frozen-lockfile --filter @posthog/frontend...
                   pnpx nx deps:build frontend --verbose
                   pnpm i -D chromatic
 
@@ -120,8 +119,7 @@ jobs:
 
             - name: Build and install frontend build dependencies
               run: |
-                  pnpm install --frozen-lockfile --filter @posthog/frontend
-                  pnpx nx deps:prepare frontend --verbose
+                  pnpm install --frozen-lockfile --filter @posthog/frontend...
                   pnpx nx deps:build frontend --verbose
 
             - name: Install CI utilities with pnpm

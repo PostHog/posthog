@@ -54,6 +54,7 @@
         "luxon": "^3.4.4"
     },
     "dependencies": {
-        "luxon": "^3.4.4"
+        "luxon": "^3.4.4",
+        "@posthog/build": "workspace:*"
     }
 }

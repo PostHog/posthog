@@ -144,8 +144,7 @@ jobs:
             - name: Build and install frontend build dependencies
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
               run: |
-                  pnpm install --frozen-lockfile --filter @posthog/frontend
-                  pnpx nx deps:prepare frontend --verbose
+                  pnpm install --frozen-lockfile --filter @posthog/frontend...
                   pnpx nx deps:build frontend --verbose
 
             - name: Stop/Start stack with Docker Compose

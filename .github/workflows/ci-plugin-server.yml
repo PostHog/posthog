@@ -70,7 +70,7 @@ jobs:
                   cache: pnpm
 
             - name: Install package.json dependencies with pnpm
-              run: pnpm install --frozen-lockfile --filter @posthog/plugin-server
+              run: pnpm install --frozen-lockfile --filter @posthog/plugin-server...
 
             - name: Check formatting with prettier
               run: pnpm prettier:check
@@ -259,8 +259,8 @@ jobs:
               if: needs.changes.outputs.plugin-server == 'true'
               run: |
                   cd plugin-server
-                  pnpm install --frozen-lockfile --filter @posthog/plugin-server
-                  pnpm build
+                  pnpm install --frozen-lockfile --filter @posthog/plugin-server...
+                  pnpx nx build plugin-server --verbose
 
             - name: Wait for Clickhouse, Redis & Kafka
               if: needs.changes.outputs.plugin-server == 'true'

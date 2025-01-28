@@ -4,26 +4,12 @@
     "sourceRoot": "{projectRoot}/src",
     "projectType": "library",
     "targets": {
-        "deps:prepare": {
-            "executor": "nx:run-commands",
-            "options": {
-                "commands": ["echo 'Prepared dependencies for building plugin-server'"]
-            },
-            "dependsOn": ["^prepare"]
-        },
         "deps:build": {
             "executor": "nx:run-commands",
             "options": {
                 "commands": ["echo 'Building dependencies for plugin-server'"]
             },
             "dependsOn": ["^build"]
-        },
-        "prepare": {
-            "executor": "nx:run-commands",
-            "options": {
-                "commands": ["pnpm install --frozen-lockfile --filter @posthog/plugin-server"],
-                "cwd": "{projectRoot}"
-            }
         },
         "build": {
             "executor": "nx:run-commands",

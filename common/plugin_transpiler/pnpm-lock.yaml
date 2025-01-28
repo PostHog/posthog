@@ -8,6 +8,9 @@ devDependencies:
   '@babel/standalone':
     specifier: ^7.23.2
     version: 7.23.2
+  '@posthog/build':
+    specifier: workspace:*
+    version: link:../build
   '@types/babel__standalone':
     specifier: ^7.1.6
     version: 7.1.6
