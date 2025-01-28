@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { useMemo, useState } from 'react'
 import { WEB_VITALS_COLORS, WEB_VITALS_THRESHOLDS, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
@@ -130,7 +131,7 @@ const Content = ({
     response: WebVitalsPathBreakdownQueryResponse | undefined
     responseLoading: boolean
 }): JSX.Element => {
-    const { webVitalsTab } = useValues(webAnalyticsLogic)
+    const { webVitalsTab, isPathCleaningEnabled } = useValues(webAnalyticsLogic)
 
     const values = response?.results[0][band]
     const threshold = WEB_VITALS_THRESHOLDS[webVitalsTab]
@@ -158,7 +159,7 @@ const Content = ({
                                     style={{ width, backgroundColor: 'var(--muted)', opacity: 0.5 }}
                                 />
                                 <span title={path} className="relative z-10 truncate mr-2 flex-1">
-                                    {path}
+                                    {isPathCleaningEnabled ? parseAliasToReadable(path) : path}
                                 </span>
                                 <span className="relative z-10 flex-shrink-0">
                                     {value >= 1 ? value.toFixed(0) : value.toFixed(2)}

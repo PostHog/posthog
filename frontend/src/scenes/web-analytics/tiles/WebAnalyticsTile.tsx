@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { getColorVar } from 'lib/colors'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
+import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -193,6 +194,11 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
     const { breakdownBy } = source
 
     switch (breakdownBy) {
+        case WebStatsBreakdown.ExitPage:
+        case WebStatsBreakdown.InitialPage:
+        case WebStatsBreakdown.Page:
+            return <>{source.doPathCleaning ? parseAliasToReadable(value as string) : value}</>
+
         case WebStatsBreakdown.Viewport:
             if (Array.isArray(value)) {
                 const [width, height] = value
@@ -484,7 +490,9 @@ export const WebStatsTableTile = ({
     const context = useMemo((): QueryContext => {
         const rowProps: QueryContext['rowProps'] = (record: unknown) => {
             if (
-                (breakdownBy === WebStatsBreakdown.InitialPage || breakdownBy === WebStatsBreakdown.Page) &&
+                (breakdownBy === WebStatsBreakdown.InitialPage ||
+                    breakdownBy === WebStatsBreakdown.Page ||
+                    breakdownBy === WebStatsBreakdown.ExitPage) &&
                 isPathCleaningEnabled
             ) {
                 // if the path cleaning is enabled, don't allow toggling a path by clicking a row, as this wouldn't

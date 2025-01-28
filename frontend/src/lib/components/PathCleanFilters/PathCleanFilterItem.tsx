@@ -70,7 +70,7 @@ export const parseAliasToReadable = (alias: string): JSX.Element[] => {
         if (part.startsWith('<') && part.endsWith('>')) {
             return (
                 <span key={index}>
-                    <span className="rounded bg-bg-light px-1">{part}</span>
+                    <span className="rounded bg-accent-primary-highlight px-1">{part}</span>
                     <span>{includeSlash ? '/' : ''}</span>
                 </span>
             )
