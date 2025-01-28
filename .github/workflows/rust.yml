@@ -114,7 +114,7 @@ jobs:
             - name: Setup dependencies
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'others'
               run: |
-                  docker compose up kafka redis db echo_server -d --wait
+                  docker compose up kafka redis db echo_server objectstorage -d --wait
                   docker compose up setup_test_db
                   echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
 

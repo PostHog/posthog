@@ -18,8 +18,10 @@ use crate::limiters::token_dropper::TokenDropper;
 use crate::redis::RedisClient;
 use crate::router;
 use crate::router::BATCH_BODY_SIZE;
+use crate::sinks::fallback::FallbackSink;
 use crate::sinks::kafka::KafkaSink;
 use crate::sinks::print::PrintSink;
+use crate::sinks::s3::S3Sink;
 
 pub async fn serve<F>(config: Config, listener: TcpListener, shutdown: F)
 where
@@ -120,7 +122,7 @@ where
                 Some(partition)
             }
         };
-        let sink = KafkaSink::new(
+        let kafka_sink = KafkaSink::new(
             config.kafka,
             sink_liveness,
             partition,
@@ -128,18 +130,49 @@ where
         )
         .expect("failed to start Kafka sink");
 
-        router::router(
-            crate::time::SystemTime {},
-            liveness,
-            sink,
-            redis_client,
-            billing_limiter,
-            token_dropper,
-            config.export_prometheus,
-            config.capture_mode,
-            config.concurrency_limit,
-            event_max_bytes,
-        )
+        if config.s3_fallback_enabled {
+            let sink_liveness = liveness
+                .register("s3".to_string(), Duration::seconds(30))
+                .await;
+
+            let s3_sink = S3Sink::new(
+                config
+                    .s3_fallback_bucket
+                    .expect("S3 bucket required when fallback enabled"),
+                config.s3_fallback_endpoint,
+                sink_liveness,
+            )
+            .await
+            .expect("failed to create S3 sink");
+
+            let fallback_sink = FallbackSink::new(kafka_sink, s3_sink);
+
+            router::router(
+                crate::time::SystemTime {},
+                liveness,
+                fallback_sink,
+                redis_client,
+                billing_limiter,
+                token_dropper,
+                config.export_prometheus,
+                config.capture_mode,
+                config.concurrency_limit,
+                event_max_bytes,
+            )
+        } else {
+            router::router(
+                crate::time::SystemTime {},
+                liveness,
+                kafka_sink,
+                redis_client,
+                billing_limiter,
+                token_dropper,
+                config.export_prometheus,
+                config.capture_mode,
+                config.concurrency_limit,
+                event_max_bytes,
+            )
+        }
     };
 
     // run our app with hyper

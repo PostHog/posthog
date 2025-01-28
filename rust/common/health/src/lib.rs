@@ -63,6 +63,7 @@ struct HealthMessage {
     status: ComponentStatus,
 }
 
+#[derive(Clone)]
 pub struct HealthHandle {
     component: String,
     deadline: Duration,
