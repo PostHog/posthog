@@ -55,25 +55,25 @@ def run(options):
     delete_query_person_distinct_ids = f"""
     WITH to_delete AS ({select_query})
     DELETE FROM posthog_persondistinctid
-    WHERE team_id = %(team_id)s AND person_id IN (SELECT id FROM to_delete);
+    WHERE person_id IN (SELECT id FROM to_delete);
     """
 
     delete_query_person_override = f"""
     WITH to_delete AS ({select_query})
     DELETE FROM posthog_personoverride
-    WHERE team_id = %(team_id)s AND (old_person_id IN (SELECT id FROM to_delete) OR override_person_id IN (SELECT id FROM to_delete));
+    WHERE (old_person_id IN (SELECT id FROM to_delete) OR override_person_id IN (SELECT id FROM to_delete));
     """
 
     delete_query_cohort_people = f"""
     WITH to_delete AS ({select_query})
     DELETE FROM posthog_cohortpeople
-    WHERE team_id = %(team_id)s AND person_id IN (SELECT id FROM to_delete);
+    WHERE person_id IN (SELECT id FROM to_delete);
     """
 
     delete_query_person = f"""
     WITH to_delete AS ({select_query})
     DELETE FROM posthog_person
-    WHERE team_id = %(team_id)s AND id IN (SELECT id FROM to_delete);
+    WHERE id IN (SELECT id FROM to_delete);
     """
 
     with connection.cursor() as cursor:

@@ -40,7 +40,7 @@ export const formatAggregationAxisValue = (
                 formattedValue = humanFriendlyDuration(value)
                 break
             case 'duration_ms':
-                formattedValue = humanFriendlyDuration(value / 1000)
+                formattedValue = humanFriendlyDuration(value / 1000, { secondsFixed: 1 })
                 break
             case 'percentage':
                 formattedValue = percentage(value / 100)

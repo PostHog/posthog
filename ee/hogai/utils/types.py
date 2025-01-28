@@ -4,6 +4,7 @@ from enum import StrEnum
 from typing import Annotated, Optional, Union
 
 from langchain_core.agents import AgentAction
+from langchain_core.messages import BaseMessage as LangchainBaseMessage
 from langgraph.graph import END, START
 from pydantic import BaseModel, Field
 
@@ -28,6 +29,17 @@ class _SharedAssistantState(BaseModel):
     """
     plan: Optional[str] = Field(default=None)
     resumed: Optional[bool] = Field(default=None)
+    """
+    Whether the agent was resumed after interruption, such as a human in the loop.
+    """
+    memory_updated: Optional[bool] = Field(default=None)
+    """
+    Whether the memory was updated in the `MemoryCollectorNode`.
+    """
+    memory_collection_messages: Optional[Sequence[LangchainBaseMessage]] = Field(default=None)
+    """
+    The messages with tool calls to collect memory in the `MemoryCollectorToolsNode`.
+    """
 
 
 class AssistantState(_SharedAssistantState):
@@ -41,6 +53,9 @@ class PartialAssistantState(_SharedAssistantState):
 class AssistantNodeName(StrEnum):
     START = START
     END = END
+    MEMORY_ONBOARDING = "memory_onboarding"
+    MEMORY_INITIALIZER = "memory_initializer"
+    MEMORY_INITIALIZER_INTERRUPT = "memory_initializer_interrupt"
     ROUTER = "router"
     TRENDS_PLANNER = "trends_planner"
     TRENDS_PLANNER_TOOLS = "trends_planner_tools"
@@ -50,4 +65,10 @@ class AssistantNodeName(StrEnum):
     FUNNEL_PLANNER_TOOLS = "funnel_planner_tools"
     FUNNEL_GENERATOR = "funnel_generator"
     FUNNEL_GENERATOR_TOOLS = "funnel_generator_tools"
+    RETENTION_PLANNER = "retention_planner"
+    RETENTION_PLANNER_TOOLS = "retention_planner_tools"
+    RETENTION_GENERATOR = "retention_generator"
+    RETENTION_GENERATOR_TOOLS = "retention_generator_tools"
     SUMMARIZER = "summarizer"
+    MEMORY_COLLECTOR = "memory_collector"
+    MEMORY_COLLECTOR_TOOLS = "memory_collector_tools"

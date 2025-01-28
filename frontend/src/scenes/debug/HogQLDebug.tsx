@@ -29,7 +29,7 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
                 <HogQLQueryEditor query={query} setQuery={setQuery} />
                 <Modifiers setQuery={setQuery} query={query} response={response} />
                 <LemonDivider className="my-4" />
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2 ">
                     <Reload />
                     <DateRange key="date-range" query={query} setQuery={setQuery} />
                     <EventPropertyFilters key="event-property" query={query} setQuery={setQuery} />

@@ -52,7 +52,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
                     return formatBreakdownLabel(
                         item.breakdown_value,
                         breakdownFilter,
-                        cohorts,
+                        cohorts?.results,
                         formatPropertyValueForDisplay
                     )
                 }),

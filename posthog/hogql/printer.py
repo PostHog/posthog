@@ -113,8 +113,9 @@ def prepare_ast_for_printing(
     stack: Optional[list[ast.SelectQuery]] = None,
     settings: Optional[HogQLGlobalSettings] = None,
 ) -> _T_AST | None:
-    with context.timings.measure("create_hogql_database"):
-        context.database = context.database or create_hogql_database(context.team_id, context.modifiers, context.team)
+    if context.database is None:
+        with context.timings.measure("create_hogql_database"):
+            context.database = create_hogql_database(context.team_id, context.modifiers, context.team)
 
     context.modifiers = set_default_in_cohort_via(context.modifiers)
 
@@ -1316,7 +1317,7 @@ class _Printer(Visitor):
 
         # check for a materialised column
         table = field_type.table_type
-        while isinstance(table, ast.TableAliasType):
+        while isinstance(table, ast.TableAliasType) or isinstance(table, ast.VirtualTableType):
             table = table.table_type
 
         if isinstance(table, ast.TableType):
@@ -1351,10 +1352,8 @@ class _Printer(Visitor):
                         self._print_identifier(property_group_column),
                         self.context.add_value(property_name),
                     )
-        elif (
-            self.context.within_non_hogql_query
-            and (isinstance(table, ast.SelectQueryAliasType) and table.alias == "events__pdi__person")
-            or (isinstance(table, ast.VirtualTableType) and table.field == "poe")
+        elif self.context.within_non_hogql_query and (
+            isinstance(table, ast.SelectQueryAliasType) and table.alias == "events__pdi__person"
         ):
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
             if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.DISABLED:
@@ -1498,6 +1497,46 @@ class _Printer(Visitor):
             return "CURRENT ROW"
         else:
             raise ImpossibleASTError(f"Invalid frame type {node.frame_type}")
+
+    def visit_hogqlx_tag(self, node: ast.HogQLXTag):
+        if self.dialect != "hogql":
+            raise QueryError("Printing HogQLX tags is only supported in HogQL queries")
+
+        attributes = []
+        children = []
+        for attribute in node.attributes:
+            if isinstance(attribute, ast.HogQLXAttribute) and attribute.name == "children":
+                if isinstance(attribute.value, list):
+                    children.extend(attribute.value)
+                else:
+                    children.append(attribute.value)
+            else:
+                attributes.append(attribute)
+
+        tag = f"<{self._print_identifier(node.kind)}"
+        if attributes:
+            tag += " " + (" ".join(self.visit(a) for a in attributes))
+        if children:
+            children_contents = [
+                self.visit(child) if isinstance(child, ast.HogQLXTag) else "{" + self.visit(child) + "}"
+                for child in children
+            ]
+            tag += ">" + ("".join(children_contents)) + "</" + self._print_identifier(node.kind) + ">"
+        else:
+            tag += " />"
+
+        return tag
+
+    def visit_hogqlx_attribute(self, node: ast.HogQLXAttribute):
+        if self.dialect != "hogql":
+            raise QueryError("Printing HogQLX tags is only supported in HogQL queries")
+        if isinstance(node.value, ast.HogQLXTag):
+            value = self.visit(node.value)
+        elif isinstance(node.value, list):
+            value = "{[" + (", ".join(self.visit(x) for x in node.value)) + "]}"
+        else:
+            value = "{" + self.visit(node.value) + "}"
+        return f"{self._print_identifier(node.name)}={value}"
 
     def _last_select(self) -> Optional[ast.SelectQuery]:
         """Find the last SELECT query in the stack."""

@@ -1,7 +1,6 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import { FEATURE_FLAGS, SESSION_RECORDINGS_PLAYLIST_FREE_COUNT } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { SESSION_RECORDINGS_PLAYLIST_FREE_COUNT } from 'lib/constants'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -28,9 +27,6 @@ export const PLAYLIST_LIMIT_REACHED_MESSAGE = `You have reached the free limit o
 
 export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
     path(() => ['scenes', 'session-recordings', 'sessionReplaySceneLogic']),
-    connect({
-        values: [featureFlagLogic, ['featureFlags']],
-    }),
     actions({
         setTab: (tab: ReplayTabs = ReplayTabs.Home) => ({ tab }),
         hideNewBadge: true,
@@ -66,16 +62,9 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
     }),
 
     selectors(() => ({
-        tabs: [
-            (s) => [s.featureFlags],
-            (featureFlags) => {
-                const hasTemplates = !!featureFlags[FEATURE_FLAGS.REPLAY_TEMPLATES]
-                return Object.values(ReplayTabs).filter((tab) => (tab == ReplayTabs.Templates ? hasTemplates : true))
-            },
-        ],
         breadcrumbs: [
             (s) => [s.tab],
-            (tab): Breadcrumb[] => {
+            (tab: ReplayTabs): Breadcrumb[] => {
                 const breadcrumbs: Breadcrumb[] = []
                 if (tab !== ReplayTabs.Home) {
                     breadcrumbs.push({
@@ -94,7 +83,7 @@ export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [
             () => [router.selectors.searchParams],
-            (searchParams): SidePanelSceneContext | null => {
+            (searchParams: Record<string, any>): SidePanelSceneContext | null => {
                 return searchParams.sessionRecordingId
                     ? {
                           activity_scope: ActivityScope.REPLAY,

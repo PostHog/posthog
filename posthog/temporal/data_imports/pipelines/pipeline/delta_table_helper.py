@@ -46,8 +46,7 @@ class DeltaTableHelper:
 
     def _get_delta_table_uri(self) -> str:
         normalized_resource_name = NamingConvention().normalize_identifier(self._resource_name)
-        # Appended __v2 on to the end of the url so that data of the V2 pipeline isn't the same as V1
-        return f"{settings.BUCKET_URL}/{self._job.folder_path()}/{normalized_resource_name}__v2"
+        return f"{settings.BUCKET_URL}/{self._job.folder_path()}/{normalized_resource_name}"
 
     def _evolve_delta_schema(self, schema: pa.Schema) -> deltalake.DeltaTable:
         delta_table = self.get_delta_table()
@@ -83,6 +82,20 @@ class DeltaTableHelper:
                     return None
 
         return None
+
+    def reset_table(self):
+        table = self.get_delta_table()
+        if table is None:
+            return
+
+        delta_uri = self._get_delta_table_uri()
+
+        table.delete()
+
+        s3 = get_s3_client()
+        s3.delete(delta_uri, recursive=True)
+
+        self.get_delta_table.cache_clear()
 
     def write_to_deltalake(
         self, data: pa.Table, is_incremental: bool, chunk_index: int, primary_keys: Sequence[Any] | None

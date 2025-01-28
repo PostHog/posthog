@@ -1200,3 +1200,35 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             f"/api/projects/{self.team.id}/session_recordings/1/snapshots?",
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_400_when_invalid_list_query(self) -> None:
+        query_params = "&".join(
+            [
+                f'session_ids="invalid"',
+                "hogql_filtering=1",
+                "tomato=potato",
+                "version=2",
+            ]
+        )
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings?{query_params}",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "validation_errors": [
+                {
+                    "type": "list_type",
+                    "loc": ["session_ids"],
+                    "msg": "Input should be a valid list",
+                    "input": "invalid",
+                    "url": "https://errors.pydantic.dev/2.9/v/list_type",
+                },
+                {
+                    "type": "extra_forbidden",
+                    "loc": ["tomato"],
+                    "msg": "Extra inputs are not permitted",
+                    "input": "potato",
+                    "url": "https://errors.pydantic.dev/2.9/v/extra_forbidden",
+                },
+            ],
+        }

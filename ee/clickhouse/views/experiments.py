@@ -192,6 +192,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "type",
             "metrics",
             "metrics_secondary",
+            "stats_config",
         ]
         read_only_fields = [
             "id",
@@ -300,6 +301,9 @@ class ExperimentSerializer(serializers.ModelSerializer):
         feature_flag_serializer.is_valid(raise_exception=True)
         feature_flag = feature_flag_serializer.save()
 
+        if not validated_data.get("stats_config"):
+            validated_data["stats_config"] = {"version": 2}
+
         experiment = Experiment.objects.create(
             team_id=self.context["team_id"], feature_flag=feature_flag, **validated_data
         )
@@ -376,6 +380,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "holdout",
             "metrics",
             "metrics_secondary",
+            "stats_config",
         }
         given_keys = set(validated_data.keys())
         extra_keys = given_keys - expected_keys

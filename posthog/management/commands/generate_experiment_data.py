@@ -4,11 +4,22 @@ import random
 import time
 import uuid
 import json
+from typing import Any, Literal, Union
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
 import posthoganalytics
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, Field
+
+
+class NormalDistributionParams(BaseModel):
+    mean: float
+    stddev: float
+
+
+class Distribution(BaseModel):
+    distribution: Literal["normal"]
+    params: NormalDistributionParams
 
 
 class ActionConfig(BaseModel):
@@ -16,10 +27,16 @@ class ActionConfig(BaseModel):
     probability: float
     count: int = 1
     required_for_next: bool = False
+    properties: dict[str, Union[Distribution, object]] = Field(default_factory=dict)
 
     def model_post_init(self, __context) -> None:
         if self.required_for_next and self.count > 1:
             raise ValueError("'required_for_next' cannot be used with 'count' greater than 1")
+
+        # Convert any raw distribution dictionaries to Distribution objects
+        for key, value in self.properties.items():
+            if isinstance(value, dict) and "distribution" in value:
+                self.properties[key] = Distribution(**value)
 
 
 class VariantConfig(BaseModel):
@@ -76,12 +93,54 @@ def get_default_trend_experiment_config() -> ExperimentConfig:
     )
 
 
+def get_default_revenue_experiment_config() -> ExperimentConfig:
+    return ExperimentConfig(
+        number_of_users=2000,
+        start_timestamp=datetime.now() - timedelta(days=7),
+        end_timestamp=datetime.now(),
+        variants={
+            "control": VariantConfig(
+                weight=0.5,
+                actions=[
+                    ActionConfig(
+                        event="checkout completed",
+                        count=5,
+                        probability=0.25,
+                        properties={
+                            "revenue": Distribution(
+                                distribution="normal", params=NormalDistributionParams(mean=100, stddev=10)
+                            )
+                        },
+                    )
+                ],
+            ),
+            "test": VariantConfig(
+                weight=0.5,
+                actions=[
+                    ActionConfig(
+                        event="checkout completed",
+                        count=5,
+                        probability=0.35,
+                        properties={
+                            "revenue": Distribution(
+                                distribution="normal", params=NormalDistributionParams(mean=105, stddev=10)
+                            )
+                        },
+                    )
+                ],
+            ),
+        },
+    )
+
+
 def get_default_config(type) -> ExperimentConfig:
     match type:
         case "funnel":
             return get_default_funnel_experiment_config()
         case "trend":
             return get_default_trend_experiment_config()
+        case "revenue":
+            return get_default_revenue_experiment_config()
         case _:
             raise ValueError(f"Invalid experiment type: {type}")
 
@@ -93,7 +152,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--type",
             type=str,
-            choices=["trend", "funnel"],
+            choices=["trend", "funnel", "revenue"],
             default="trend",
             help="Type of experiment data to generate or configuration to initialize.",
         )
@@ -172,13 +231,27 @@ class Command(BaseCommand):
             for action in experiment_config.variants[variant].actions:
                 for _ in range(action.count):
                     if random.random() < action.probability:
+                        # Prepare properties dictionary
+                        properties: dict[str, Any] = {
+                            f"$feature/{experiment_id}": variant,
+                        }
+
+                        # Add custom properties, sampling from distributions if needed
+                        for prop_name, prop_value in action.properties.items():
+                            if isinstance(prop_value, Distribution):
+                                # Sample from normal distribution
+                                if prop_value.distribution == "normal":
+                                    properties[prop_name] = random.gauss(
+                                        prop_value.params.mean, prop_value.params.stddev
+                                    )
+                            else:
+                                properties[prop_name] = prop_value
+
                         posthoganalytics.capture(
                             distinct_id=distinct_id,
                             event=action.event,
                             timestamp=random_timestamp + timedelta(minutes=1),
-                            properties={
-                                f"$feature/{experiment_id}": variant,
-                            },
+                            properties=properties,
                         )
                     else:
                         if action.required_for_next:

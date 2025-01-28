@@ -10,6 +10,7 @@ import {
     chatResponseChunk,
     CONVERSATION_ID,
     failureChunk,
+    formChunk,
     generationFailureChunk,
     humanMessage,
 } from './__mocks__/chatResponse.mocks'
@@ -188,6 +189,22 @@ export const ThreadWithRateLimit: StoryFn = () => {
 
     useEffect(() => {
         askMax('Is Bielefeld real?')
+    }, [])
+
+    return <Template conversationId={CONVERSATION_ID} />
+}
+
+export const ThreadWithForm: StoryFn = () => {
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) => res(ctx.text(formChunk)),
+        },
+    })
+
+    const { askMax } = useActions(maxLogic({ conversationId: CONVERSATION_ID }))
+
+    useEffect(() => {
+        askMax(humanMessage.content)
     }, [])
 
     return <Template conversationId={CONVERSATION_ID} />

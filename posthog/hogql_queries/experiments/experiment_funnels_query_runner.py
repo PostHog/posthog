@@ -51,7 +51,7 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
         if self.experiment.holdout:
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
 
-        self.stats_version = self.query.stats_version or 1
+        self.stats_version = self.experiment.get_stats_config("version") or 1
 
         self.prepared_funnels_query = self._prepare_funnel_query()
         self.funnels_query_runner = FunnelsQueryRunner(
@@ -175,16 +175,12 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
 
     def _validate_event_variants(self, funnels_result: FunnelsQueryResponse):
         errors = {
-            ExperimentNoResultsErrorKeys.NO_EVENTS: True,
-            ExperimentNoResultsErrorKeys.NO_FLAG_INFO: True,
             ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
             ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
         }
 
         if not funnels_result.results or not funnels_result.results:
             raise ValidationError(code="no-results", detail=json.dumps(errors))
-
-        errors[ExperimentNoResultsErrorKeys.NO_EVENTS] = False
 
         # Funnels: the first step must be present for *any* results to show up
         eventsWithOrderZero = []
@@ -199,7 +195,6 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
             event_variant = event.get("breakdown_value", [None])[0]
             if event_variant == "control":
                 errors[ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT] = False
-                errors[ExperimentNoResultsErrorKeys.NO_FLAG_INFO] = False
                 break
 
         # Check if at least one of the test variants is present
@@ -208,7 +203,6 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
             event_variant = event.get("breakdown_value", [None])[0]
             if event_variant in test_variants:
                 errors[ExperimentNoResultsErrorKeys.NO_TEST_VARIANT] = False
-                errors[ExperimentNoResultsErrorKeys.NO_FLAG_INFO] = False
                 break
 
         has_errors = any(errors.values())

@@ -45,13 +45,6 @@
     background: var(--bg-light);
     border-radius: var(--radius);
 
-    &--with-details {
-        .CardMeta__top {
-            // Reduced height so that, considering the padding set above, CardMeta__top doesn't have too much margin
-            height: 1.5rem;
-        }
-    }
-
     h5 {
         margin-bottom: 0;
         overflow: hidden;
@@ -163,7 +156,7 @@
     align-items: center;
     align-self: stretch;
     justify-content: space-between;
-    height: 2rem;
+    height: 1.5rem;
 
     .LemonButton {
         height: 1.75rem;

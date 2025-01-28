@@ -22,3 +22,4 @@ pub const SKIPPED_DUE_TO_TEAM_FILTER: &str = "prop_defs_skipped_due_to_team_filt
 pub const ISSUE_FAILED: &str = "prop_defs_issue_failed";
 pub const CHUNK_SIZE: &str = "prop_defs_chunk_size";
 pub const DUPLICATES_IN_BATCH: &str = "prop_defs_duplicates_in_batch";
+pub const SINGLE_UPDATE_ISSUE_TIME: &str = "prop_defs_single_update_issue_time_ms";

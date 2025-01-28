@@ -1,6 +1,7 @@
 import { Settings } from 'luxon'
 import { Message, MessageHeader } from 'node-rdkafka'
 
+import { KafkaProducerWrapper } from '../../../../src/kafka/producer'
 import {
     allSettledWithConcurrency,
     getLagMultiplier,
@@ -9,7 +10,6 @@ import {
     parseKafkaBatch,
     parseKafkaMessage,
 } from '../../../../src/main/ingestion-queues/session-recording/utils'
-import { KafkaProducerWrapper } from '../../../../src/utils/db/kafka-producer-wrapper'
 import { UUIDT } from '../../../../src/utils/utils'
 
 describe('session-recording utils', () => {
@@ -69,7 +69,7 @@ describe('session-recording utils', () => {
         let fakeProducer: KafkaProducerWrapper
         beforeEach(() => {
             Settings.now = () => new Date('2023-08-30T19:15:54.887316+00:00').getTime()
-            fakeProducer = { queueMessage: jest.fn() } as unknown as KafkaProducerWrapper
+            fakeProducer = { queueMessages: jest.fn(() => Promise.resolve()) } as unknown as KafkaProducerWrapper
         })
 
         it('can parse a message correctly', async () => {
@@ -212,16 +212,13 @@ describe('session-recording utils', () => {
                 [
                     [
                         {
-                            kafkaMessage: {
-                                messages: [
-                                    expectedIngestionWarningMessage({
-                                        libVersion: '1.74.0',
-                                        parsedVersion: { major: 1, minor: 74 },
-                                    }),
-                                ],
-                                topic: 'clickhouse_ingestion_warnings_test',
-                            },
-                            waitForAck: false,
+                            messages: [
+                                expectedIngestionWarningMessage({
+                                    libVersion: '1.74.0',
+                                    parsedVersion: { major: 1, minor: 74 },
+                                }),
+                            ],
+                            topic: 'clickhouse_ingestion_warnings_test',
                         },
                     ],
                 ],
@@ -232,16 +229,13 @@ describe('session-recording utils', () => {
                 [
                     [
                         {
-                            kafkaMessage: {
-                                messages: [
-                                    expectedIngestionWarningMessage({
-                                        libVersion: '1.32.0',
-                                        parsedVersion: { major: 1, minor: 32 },
-                                    }),
-                                ],
-                                topic: 'clickhouse_ingestion_warnings_test',
-                            },
-                            waitForAck: false,
+                            messages: [
+                                expectedIngestionWarningMessage({
+                                    libVersion: '1.32.0',
+                                    parsedVersion: { major: 1, minor: 32 },
+                                }),
+                            ],
+                            topic: 'clickhouse_ingestion_warnings_test',
                         },
                     ],
                 ],
@@ -254,7 +248,7 @@ describe('session-recording utils', () => {
                 () => Promise.resolve({ teamId: 1, consoleLogIngestionEnabled: false }),
                 fakeProducer
             )
-            expect(jest.mocked(fakeProducer.queueMessage).mock.calls).toEqual(expectedCalls)
+            expect(jest.mocked(fakeProducer.queueMessages).mock.calls).toEqual(expectedCalls)
         })
 
         describe('team token must be in header *not* body', () => {
@@ -349,7 +343,7 @@ describe('session-recording utils', () => {
         let fakeProducer: KafkaProducerWrapper
         beforeEach(() => {
             Settings.now = () => new Date('2023-08-30T19:15:54.887316+00:00').getTime()
-            fakeProducer = { queueMessage: jest.fn() } as unknown as KafkaProducerWrapper
+            fakeProducer = { queueMessages: jest.fn(() => Promise.resolve()) } as unknown as KafkaProducerWrapper
         })
 
         it('can parse and reduce a batch of messages', async () => {

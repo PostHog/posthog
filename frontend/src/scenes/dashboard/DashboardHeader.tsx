@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ExportButton, ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
@@ -26,8 +27,16 @@ import { userLogic } from 'scenes/userLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { notebooksModel } from '~/models/notebooksModel'
 import { tagsModel } from '~/models/tagsModel'
-import { DashboardMode, DashboardType, ExporterFormat, QueryBasedInsightModel } from '~/types'
+import {
+    AccessControlResourceType,
+    DashboardMode,
+    DashboardType,
+    ExporterFormat,
+    QueryBasedInsightModel,
+} from '~/types'
 
+import { AddInsightToDashboardModal } from './AddInsightToDashboardModal'
+import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
 import { dashboardLogic } from './dashboardLogic'
@@ -53,7 +62,7 @@ export function DashboardHeader(): JSX.Element | null {
     const { asDashboardTemplate } = useValues(dashboardLogic)
     const { updateDashboard, pinDashboard, unpinDashboard } = useActions(dashboardsModel)
     const { createNotebookFromDashboard } = useActions(notebooksModel)
-
+    const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { setDashboardTemplate, openDashboardTemplateEditor } = useActions(dashboardTemplateEditorLogic)
 
     const { user } = useValues(userLogic)
@@ -114,6 +123,7 @@ export function DashboardHeader(): JSX.Element | null {
                     )}
                     {canEditDashboard && <DeleteDashboardModal />}
                     {canEditDashboard && <DuplicateDashboardModal />}
+                    {canEditDashboard && <AddInsightToDashboardModal />}
                 </>
             )}
 
@@ -257,8 +267,12 @@ export function DashboardHeader(): JSX.Element | null {
                                             >
                                                 Create notebook from dashboard
                                             </LemonButton>
+
                                             {canEditDashboard && (
-                                                <LemonButton
+                                                <AccessControlledLemonButton
+                                                    userAccessLevel={dashboard.user_access_level}
+                                                    minAccessLevel="editor"
+                                                    resourceType={AccessControlResourceType.Dashboard}
                                                     onClick={() => {
                                                         showDeleteDashboardModal(dashboard.id)
                                                     }}
@@ -266,7 +280,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                     fullWidth
                                                 >
                                                     Delete dashboard
-                                                </LemonButton>
+                                                </AccessControlledLemonButton>
                                             )}
                                         </>
                                     ) : undefined
@@ -289,17 +303,22 @@ export function DashboardHeader(): JSX.Element | null {
                                 </>
                             )}
                             {dashboard ? (
-                                <LemonButton
-                                    to={urls.insightNew(undefined, dashboard.id)}
+                                <AccessControlledLemonButton
+                                    userAccessLevel={dashboard.user_access_level}
+                                    minAccessLevel="editor"
+                                    resourceType={AccessControlResourceType.Dashboard}
+                                    onClick={showAddInsightToDashboardModal}
                                     type="primary"
                                     data-attr="dashboard-add-graph-header"
-                                    disabledReason={canEditDashboard ? null : DASHBOARD_CANNOT_EDIT_MESSAGE}
                                     sideAction={{
                                         dropdown: {
                                             placement: 'bottom-end',
                                             overlay: (
                                                 <>
-                                                    <LemonButton
+                                                    <AccessControlledLemonButton
+                                                        userAccessLevel={dashboard.user_access_level}
+                                                        minAccessLevel="editor"
+                                                        resourceType={AccessControlResourceType.Dashboard}
                                                         fullWidth
                                                         onClick={() => {
                                                             push(urls.dashboardTextTile(dashboard.id, 'new'))
@@ -307,7 +326,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                         data-attr="add-text-tile-to-dashboard"
                                                     >
                                                         Add text card
-                                                    </LemonButton>
+                                                    </AccessControlledLemonButton>
                                                 </>
                                             ),
                                         },
@@ -316,7 +335,7 @@ export function DashboardHeader(): JSX.Element | null {
                                     }}
                                 >
                                     Add insight
-                                </LemonButton>
+                                </AccessControlledLemonButton>
                             ) : null}
                         </>
                     )

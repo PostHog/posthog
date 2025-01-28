@@ -1,8 +1,6 @@
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { TAILWIND_BREAKPOINTS } from 'lib/constants'
-import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useLayoutEffect, useRef } from 'react'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
@@ -10,6 +8,7 @@ import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 
+import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { getQueryFromInsightLike } from '~/queries/nodes/InsightViz/utils'
 
 import { tabToName } from './constants'
@@ -25,10 +24,10 @@ type SearchResultProps = {
 export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps): JSX.Element => {
     const { aggregationLabel } = useValues(searchBarLogic)
     const { setActiveResultIndex, openResult } = useActions(searchBarLogic)
+    const { mobileLayout } = useValues(navigation3000Logic)
+    const { hideNavOnMobile } = useActions(navigation3000Logic)
 
     const ref = useRef<HTMLDivElement | null>(null)
-
-    const { width } = useWindowSize()
 
     useLayoutEffect(() => {
         if (focused) {
@@ -38,7 +37,9 @@ export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps
             if ((ref.current as any)?.scrollIntoViewIfNeeded) {
                 ;(ref.current as any).scrollIntoViewIfNeeded(false)
             } else {
-                ref.current?.scrollIntoView()
+                ref.current?.scrollIntoView({
+                    block: 'nearest',
+                })
             }
         }
     }, [focused])
@@ -48,14 +49,16 @@ export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps
             <div
                 className={clsx(
                     'w-full px-2 hover:bg-bg-3000 border-l-4 border-b cursor-pointer',
-                    focused ? 'bg-bg-3000 border-l-primary-3000' : 'bg-bg-light'
+                    focused ? 'bg-bg-3000 border-l-accent-primary' : 'bg-bg-light'
                 )}
                 onClick={() => {
-                    if (width && width <= TAILWIND_BREAKPOINTS.md) {
-                        openResult(resultIndex)
-                    } else {
-                        setActiveResultIndex(resultIndex)
+                    if (mobileLayout) {
+                        hideNavOnMobile()
                     }
+                    openResult(resultIndex)
+                }}
+                onMouseOver={() => {
+                    setActiveResultIndex(resultIndex)
                 }}
                 ref={ref}
             >

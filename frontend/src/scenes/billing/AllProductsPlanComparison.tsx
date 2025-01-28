@@ -331,6 +331,7 @@ export const AllProductsPlanComparison = ({
             <h3>Product features breakdown:</h3>
             <LemonCollapse
                 defaultActiveKey={product.type}
+                size="large"
                 panels={
                     sortedProducts.map((currentProduct) => ({
                         header: (

@@ -9,7 +9,7 @@ import tsj from 'ts-json-schema-generator'
 /** @type {import('ts-json-schema-generator/dist/src/Config').Config} */
 const config = {
     ...tsj.DEFAULT_CONFIG,
-    path: 'frontend/src/queries/schema.ts',
+    path: 'frontend/src/queries/schema/index.ts',
     tsconfig: 'tsconfig.json',
     discriminatorType: 'open-api',
     skipTypeCheck: true,

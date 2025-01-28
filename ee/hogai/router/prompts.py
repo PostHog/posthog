@@ -11,6 +11,9 @@ A: The insight type is "funnels". The request explicitly asks for a conversion r
 
 Q: What is the ratio of $identify divided by page views?
 A: The insight type is "trends". The request asks for a custom formula, which the trends visualization supports.
+
+Q: How many users returned to the product after signing up?
+A: The insight type is "retention". The request asks for a retention analysis.
 """
 
 ROUTER_INSIGHT_DESCRIPTION_PROMPT = f"""
@@ -36,6 +39,15 @@ Examples of use cases include:
 - Drop off steps.
 - Steps with the highest friction and time to convert.
 - If product changes are improving their funnel over time.
+
+## `retention`
+
+A retention insight visualizes how many users return to the product after performing some action. They're useful for understanding user engagement and retention.
+
+Examples of use cases include:
+- How many users come back and perform an action after their first visit.
+- How many users come back to perform action X after performing action Y.
+- How often users return to use a specific feature.
 """
 
 ROUTER_USER_PROMPT = """

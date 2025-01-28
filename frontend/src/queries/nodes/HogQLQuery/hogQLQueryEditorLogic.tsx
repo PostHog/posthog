@@ -19,7 +19,7 @@ import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWare
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
-import { DataNode, HogQLQuery, NodeKind } from '~/queries/schema'
+import { DataNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 
 import type { hogQLQueryEditorLogicType } from './hogQLQueryEditorLogicType'
 

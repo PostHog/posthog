@@ -73,6 +73,7 @@ class TestSignupAPI(APIBaseTest):
                 "redirect_url": "/",
                 "is_email_verified": False,
                 "hedgehog_config": None,
+                "role_at_organization": "product",
             },
         )
 
@@ -80,6 +81,7 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(user.first_name, "John")
         self.assertEqual(user.last_name, "Doe")
         self.assertEqual(user.email, "hedgehog@posthog.com")
+        self.assertEqual(user.role_at_organization, "product")
         self.assertTrue(user.is_staff)  # True because this is the first user in the instance
         self.assertFalse(user.is_email_verified)
 
@@ -143,6 +145,7 @@ class TestSignupAPI(APIBaseTest):
                 "redirect_url": f"/verify_email/{user.uuid}",
                 "is_email_verified": False,
                 "hedgehog_config": None,
+                "role_at_organization": "product",
             },
         )
 
@@ -193,6 +196,7 @@ class TestSignupAPI(APIBaseTest):
                 "redirect_url": "/",
                 "is_email_verified": False,
                 "hedgehog_config": None,
+                "role_at_organization": "product",
             },
         )
         mock_is_email_available.assert_called()
@@ -297,6 +301,7 @@ class TestSignupAPI(APIBaseTest):
                 "first_name": "Jane",
                 "email": "hedgehog2@posthog.com",
                 "password": VALID_TEST_PASSWORD,
+                "role_at_organization": "product",
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -315,6 +320,7 @@ class TestSignupAPI(APIBaseTest):
                 "redirect_url": "/",
                 "is_email_verified": False,
                 "hedgehog_config": None,
+                "role_at_organization": "product",
             },
         )
 
@@ -322,6 +328,7 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(user.first_name, "Jane")
         self.assertEqual(user.email, "hedgehog2@posthog.com")
         self.assertEqual(organization.name, f"{user.first_name}'s Organization")
+        self.assertEqual(user.role_at_organization, "product")
         self.assertTrue(user.is_staff)  # True because this is the first user in the instance
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
@@ -475,6 +482,7 @@ class TestSignupAPI(APIBaseTest):
                 "first_name": "Jane",
                 "email": "hedgehog75@posthog.com",
                 "password": VALID_TEST_PASSWORD,
+                "role_at_organization": "product",
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -493,6 +501,7 @@ class TestSignupAPI(APIBaseTest):
                 "redirect_url": "/",
                 "is_email_verified": False,
                 "hedgehog_config": None,
+                "role_at_organization": "product",
             },
         )
 
@@ -1079,6 +1088,7 @@ class TestInviteSignupAPI(APIBaseTest):
                 "redirect_url": "/",
                 "is_email_verified": False,
                 "hedgehog_config": None,
+                "role_at_organization": "Engineering",
             },
         )
 
@@ -1096,6 +1106,7 @@ class TestInviteSignupAPI(APIBaseTest):
         # Assert that the user was properly created
         self.assertEqual(user.first_name, "Alice")
         self.assertEqual(user.email, "test+99@posthog.com")
+        self.assertEqual(user.role_at_organization, "Engineering")
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_capture.assert_called_once()
@@ -1314,7 +1325,7 @@ class TestInviteSignupAPI(APIBaseTest):
     def test_existing_user_can_sign_up_to_a_new_organization(
         self, mock_update_billing_organization_users, mock_capture
     ):
-        user = self._create_user("test+159@posthog.com", VALID_TEST_PASSWORD)
+        user = self._create_user("test+159@posthog.com", VALID_TEST_PASSWORD, role_at_organization="product")
         new_org = Organization.objects.create(name="TestCo")
         new_team = Team.objects.create(organization=new_org)
         invite: OrganizationInvite = OrganizationInvite.objects.create(
@@ -1351,6 +1362,7 @@ class TestInviteSignupAPI(APIBaseTest):
                 "redirect_url": "/",
                 "is_email_verified": None,
                 "hedgehog_config": None,
+                "role_at_organization": "product",
             },
         )
 
@@ -1370,6 +1382,7 @@ class TestInviteSignupAPI(APIBaseTest):
         self.assertEqual(user.first_name, "")
         self.assertEqual(user.email, "test+159@posthog.com")
         self.assertFalse(user.is_staff)  # Not first user in the instance
+        self.assertEqual(user.role_at_organization, "product")
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_capture.assert_called_once_with(
@@ -1428,6 +1441,7 @@ class TestInviteSignupAPI(APIBaseTest):
                 "redirect_url": "/",
                 "is_email_verified": None,
                 "hedgehog_config": None,
+                "role_at_organization": None,
             },  # note the unchanged attributes
         )
 

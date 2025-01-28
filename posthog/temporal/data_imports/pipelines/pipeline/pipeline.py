@@ -1,16 +1,20 @@
 import gc
 import time
 from typing import Any
+import os
 import pyarrow as pa
+import subprocess
 from dlt.sources import DltSource, DltResource
 import deltalake as deltalake
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
+    _handle_null_columns_with_definitions,
     _update_incremental_state,
     _get_primary_keys,
     _evolve_pyarrow_schema,
     _append_debug_column_to_pyarrows_table,
     _update_job_row_count,
+    _update_last_synced_at_sync,
     table_from_py_list,
 )
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
@@ -27,11 +31,14 @@ class PipelineNonDLT:
     _schema: ExternalDataSchema
     _logger: FilteringBoundLogger
     _is_incremental: bool
+    _reset_pipeline: bool
     _delta_table_helper: DeltaTableHelper
     _internal_schema = HogQLSchema()
     _load_id: int
 
-    def __init__(self, source: DltSource, logger: FilteringBoundLogger, job_id: str, is_incremental: bool) -> None:
+    def __init__(
+        self, source: DltSource, logger: FilteringBoundLogger, job_id: str, is_incremental: bool, reset_pipeline: bool
+    ) -> None:
         resources = list(source.resources.items())
         assert len(resources) == 1
         resource_name, resource = resources[0]
@@ -40,6 +47,7 @@ class PipelineNonDLT:
         self._resource_name = resource_name
         self._job = ExternalDataJob.objects.prefetch_related("schema").get(id=job_id)
         self._is_incremental = is_incremental
+        self._reset_pipeline = reset_pipeline
         self._logger = logger
         self._load_id = time.time_ns()
 
@@ -57,6 +65,13 @@ class PipelineNonDLT:
             chunk_size = 5000
             row_count = 0
             chunk_index = 0
+
+            if self._reset_pipeline:
+                self._logger.debug("Deleting existing table due to reset_pipeline being set")
+                self._delta_table_helper.reset_table()
+
+                self._schema.sync_type_config.pop("reset_pipeline", None)
+                self._schema.save()
 
             for item in self._resource:
                 py_table = None
@@ -119,6 +134,7 @@ class PipelineNonDLT:
 
         pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
         pa_table = _evolve_pyarrow_schema(pa_table, delta_table.schema() if delta_table is not None else None)
+        pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
 
         table_primary_keys = _get_primary_keys(self._resource)
         delta_table = self._delta_table_helper.write_to_deltalake(
@@ -137,16 +153,35 @@ class PipelineNonDLT:
             self._logger.debug("No deltalake table, not continuing with post-run ops")
             return
 
-        self._logger.debug("Skipping compact and vacuuming")
-        # self._logger.info("Compacting delta table")
-        # delta_table.optimize.compact()
-        # delta_table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
+        self._logger.debug("Spawning new process for deltatable compact and vacuuming")
+        try:
+            process = subprocess.Popen(
+                [
+                    "python",
+                    f"{os.getcwd()}/posthog/temporal/data_imports/pipelines/pipeline/delta_table_subprocess.py",
+                    "--table_uri",
+                    self._delta_table_helper._get_delta_table_uri(),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                close_fds=True,
+            )
+            stdout, stderr = process.communicate()
+
+            if process.returncode != 0:
+                raise Exception(f"Delta subprocess failed: {stderr.decode()}")
+        finally:
+            if process.poll() is not None:
+                process.kill()
 
         file_uris = delta_table.file_uris()
-        self._logger.info(f"Preparing S3 files - total parquet files: {len(file_uris)}")
+        self._logger.debug(f"Preparing S3 files - total parquet files: {len(file_uris)}")
         prepare_s3_files_for_querying(
             self._job.folder_path(), self._resource_name, file_uris, ExternalDataJob.PipelineVersion.V2
         )
+
+        self._logger.debug("Updating last synced at timestamp on schema")
+        _update_last_synced_at_sync(self._schema, self._job)
 
         self._logger.debug("Validating schema and updating table")
 

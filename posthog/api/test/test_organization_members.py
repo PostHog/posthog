@@ -50,8 +50,9 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json(), self.permission_denied_response())
 
+    @patch("posthoganalytics.capture")
     @patch("posthog.models.user.User.update_billing_organization_users")
-    def test_delete_organization_member(self, mock_update_billing_organization_users):
+    def test_delete_organization_member(self, mock_update_billing_organization_users, mock_capture):
         user = User.objects.create_and_join(self.organization, "test@x.com", None, "X")
         membership_queryset = OrganizationMembership.objects.filter(user=user, organization=self.organization)
         self.assertTrue(membership_queryset.exists())
@@ -66,19 +67,45 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, 204)
         self.assertFalse(membership_queryset.exists(), False)
 
+        mock_capture.assert_called_with(
+            self.user.distinct_id,  # requesting user
+            "organization member removed",
+            properties={
+                "removed_member_id": user.distinct_id,
+                "removed_by_id": self.user.distinct_id,
+                "organization_id": self.organization.id,
+                "organization_name": self.organization.name,
+                "removal_type": "removed_by_other",
+            },
+            groups={"instance": "http://localhost:8010", "organization": str(self.organization.id)},
+        )
         assert mock_update_billing_organization_users.call_count == 2
         assert mock_update_billing_organization_users.call_args_list == [
             call(self.organization),
             call(self.organization),
         ]
 
+    @patch("posthoganalytics.capture")
     @patch("posthog.models.user.User.update_billing_organization_users")
-    def test_leave_organization(self, mock_update_billing_organization_users):
+    def test_leave_organization(self, mock_update_billing_organization_users, mock_capture):
         membership_queryset = OrganizationMembership.objects.filter(user=self.user, organization=self.organization)
         self.assertEqual(membership_queryset.count(), 1)
         response = self.client.delete(f"/api/organizations/@current/members/{self.user.uuid}/")
         self.assertEqual(response.status_code, 204)
         self.assertEqual(membership_queryset.count(), 0)
+
+        mock_capture.assert_called_with(
+            self.user.distinct_id,
+            "organization member removed",
+            properties={
+                "removed_member_id": self.user.distinct_id,
+                "removed_by_id": self.user.distinct_id,
+                "organization_id": self.organization.id,
+                "organization_name": self.organization.name,
+                "removal_type": "self_removal",
+            },
+            groups={"instance": "http://localhost:8010", "organization": str(self.organization.id)},
+        )
 
         assert mock_update_billing_organization_users.call_count == 1
         assert mock_update_billing_organization_users.call_args_list == [
@@ -118,6 +145,7 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
                     "email": user.email,
                     "is_email_verified": None,
                     "hedgehog_config": None,
+                    "role_at_organization": None,
                 },
                 "level": OrganizationMembership.Level.ADMIN.value,
             },

@@ -20,22 +20,22 @@ export function MetricSourceModal({
         closePrimaryMetricSourceModal,
         closeSecondaryMetricSourceModal,
         openPrimaryMetricModal,
-        openPrimarySavedMetricModal,
+        openPrimarySharedMetricModal,
         openSecondaryMetricModal,
-        openSecondarySavedMetricModal,
+        openSecondarySharedMetricModal,
     } = useActions(experimentLogic({ experimentId }))
 
     const metricsField = isSecondary ? 'metrics_secondary' : 'metrics'
     const isOpen = isSecondary ? isSecondaryMetricSourceModalOpen : isPrimaryMetricSourceModalOpen
     const closeCurrentModal = isSecondary ? closeSecondaryMetricSourceModal : closePrimaryMetricSourceModal
     const openMetricModal = isSecondary ? openSecondaryMetricModal : openPrimaryMetricModal
-    const openSavedMetricModal = isSecondary ? openSecondarySavedMetricModal : openPrimarySavedMetricModal
+    const openSharedMetricModal = isSecondary ? openSecondarySharedMetricModal : openPrimarySharedMetricModal
 
     return (
         <LemonModal isOpen={isOpen} onClose={closeCurrentModal} width={1000} title="Choose metric source">
             <div className="flex gap-4 mb-4">
                 <div
-                    className="flex-1 cursor-pointer p-4 rounded border hover:border-primary-3000"
+                    className="flex-1 cursor-pointer p-4 rounded border hover:border-accent-primary"
                     onClick={() => {
                         closeCurrentModal()
 
@@ -47,17 +47,17 @@ export function MetricSourceModal({
                     }}
                 >
                     <div className="font-semibold">
-                        <span>Custom</span>
+                        <span>Single-use</span>
                     </div>
                     <div className="text-muted text-sm leading-relaxed">
                         Create a new metric specific to this experiment.
                     </div>
                 </div>
                 <div
-                    className="flex-1 cursor-pointer p-4 rounded border hover:border-primary-3000"
+                    className="flex-1 cursor-pointer p-4 rounded border hover:border-accent-primary"
                     onClick={() => {
                         closeCurrentModal()
-                        openSavedMetricModal(null)
+                        openSharedMetricModal(null)
                     }}
                 >
                     <div className="font-semibold">

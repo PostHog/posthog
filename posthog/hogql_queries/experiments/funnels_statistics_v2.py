@@ -21,28 +21,41 @@ def calculate_probabilities_v2(
     for funnel conversion rates.
 
     This function computes the probability that each variant is the best (i.e., has the highest
-    conversion rate) compared to all other variants, including the control. It uses samples
-    drawn from the posterior Beta distributions of each variant's conversion rate.
+    conversion rate) compared to all other variants, including the control. It uses a Beta
+    distribution as the "conjugate prior" for binomial (success/failure) data, and starts with
+    Beta(1,1) as a minimally informative prior distribution. The "conjugate prior" means that
+    the prior and posterior distributions are the same family, and the posterior is easy
+    to compute.
 
     Parameters:
     -----------
     control : ExperimentVariantFunnelsBaseStats
-        Statistics for the control group, including success and failure counts
+        Statistics for the control group, containing success_count and failure_count
     variants : list[ExperimentVariantFunnelsBaseStats]
         List of statistics for test variants to compare against the control
 
     Returns:
     --------
     list[float]
-        A list of probabilities where:
+        A list of probabilities that sum to 1, where:
         - The first element is the probability that the control variant is the best
         - Subsequent elements are the probabilities that each test variant is the best
 
     Notes:
     ------
-    - Uses a Bayesian approach with Beta distributions as the posterior
-    - Uses Beta(1,1) as the prior, which is uniform over [0,1]
-    - Draws 10,000 samples from each variant's posterior distribution
+    - Uses a Bayesian approach with Beta distributions as conjugate prior for binomial data
+    - Uses Beta(1,1) as minimally informative prior (uniform over [0,1])
+    - Draws SAMPLE_SIZE (10,000) samples from each variant's posterior distribution
+    - Calculates win probability as frequency of samples where variant is maximum
+
+    Example:
+    --------
+    >>> from posthog.schema import ExperimentVariantFunnelsBaseStats
+    >>> from posthog.hogql_queries.experiments.funnels_statistics_v2 import calculate_probabilities_v2
+    >>> control = ExperimentVariantFunnelsBaseStats(key="control", success_count=100, failure_count=900)
+    >>> test = ExperimentVariantFunnelsBaseStats(key="test", success_count=150, failure_count=850)
+    >>> calculate_probabilities_v2(control, [test])
+    >>> # Returns: [0.001, 0.999] indicating the test variant is very likely to be best
     """
     all_variants = [control, *variants]
 
@@ -179,27 +192,40 @@ def calculate_credible_intervals_v2(variants: list[ExperimentVariantFunnelsBaseS
     Calculate Bayesian credible intervals for conversion rates of each variant.
 
     This function computes the 95% credible intervals for the true conversion rate
-    of each variant, representing the range where we believe the true rate lies
-    with 95% probability.
+    of each variant using a Beta model. The interval represents the range where we
+    believe the true conversion rate lies with 95% probability.
 
     Parameters:
     -----------
     variants : list[ExperimentVariantFunnelsBaseStats]
-        List of all variants including control, containing success and failure counts
+        List of all variants (including control), each containing success_count and failure_count
 
     Returns:
     --------
     dict[str, list[float]]
         Dictionary mapping variant keys to [lower, upper] credible intervals, where:
-        - lower is the 2.5th percentile of the posterior distribution
-        - upper is the 97.5th percentile of the posterior distribution
+        - lower is the 2.5th percentile of the Beta posterior distribution
+        - upper is the 97.5th percentile of the Beta posterior distribution
+        - intervals represent conversion rates between 0 and 1
 
     Notes:
     ------
-    - Uses Beta distribution as the posterior
-    - Uses Beta(1,1) as the prior, which is uniform over [0,1]
-    - Returns 95% credible intervals
-    - Intervals become narrower with larger sample sizes
+    - Uses Beta distribution as conjugate prior for binomial data
+    - Uses Beta(1,1) as minimally informative prior (uniform over [0,1])
+    - Computes 95% credible intervals (2.5th to 97.5th percentiles)
+    - Intervals become narrower with more data (larger success_count + failure_count)
+    - Returns empty dict if any calculations fail
+
+    Example:
+    --------
+    >>> from posthog.schema import ExperimentVariantFunnelsBaseStats
+    >>> from posthog.hogql_queries.experiments.funnels_statistics_v2 import calculate_credible_intervals_v2
+    >>> variants = [
+    ...     ExperimentVariantFunnelsBaseStats(key="control", success_count=100, failure_count=900),
+    ...     ExperimentVariantFunnelsBaseStats(key="test", success_count=150, failure_count=850)
+    ... ]
+    >>> calculate_credible_intervals_v2(variants)
+    >>> # Returns: {"control": [0.083, 0.120], "test": [0.129, 0.173]}
     """
     intervals = {}
 

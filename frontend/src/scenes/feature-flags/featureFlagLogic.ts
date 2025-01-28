@@ -9,9 +9,10 @@ import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagL
 import { sum, toParams } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { ProductIntentContext } from 'lib/utils/product-intents'
+import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
-import { NEW_EARLY_ACCESS_FEATURE } from 'scenes/early-access-features/earlyAccessFeatureLogic'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { featureFlagsLogic, FeatureFlagsTab } from 'scenes/feature-flags/featureFlagsLogic'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
@@ -102,6 +103,7 @@ const NEW_FLAG: FeatureFlagType = {
     can_edit: true,
     user_access_level: 'editor',
     tags: [],
+    is_remote_configuration: false,
 }
 const NEW_VARIANT = {
     key: '',
@@ -125,6 +127,14 @@ export function validateFeatureFlagKey(key: string): string | undefined {
         : !key.match?.(/^([A-z]|[a-z]|[0-9]|-|_)+$/)
         ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
         : undefined
+}
+
+function validatePayloadRequired(payload: JsonType, is_remote_configuration: boolean): string | undefined {
+    if (!is_remote_configuration) {
+        return undefined
+    }
+
+    return payload === undefined ? 'Payload is required for remote configuration flags.' : undefined
 }
 
 export interface FeatureFlagLogicProps {
@@ -214,29 +224,10 @@ export const getRecordingFilterForFlagVariant = (
                                   ],
                               }
                             : {
-                                  id: '$feature_flag_called',
-                                  name: '$feature_flag_called',
-                                  type: 'events',
-                                  properties: [
-                                      {
-                                          key: '$feature/' + flagKey,
-                                          type: PropertyFilterType.Event,
-                                          value: [variantKey ? variantKey : 'false'],
-                                          operator: variantKey ? PropertyOperator.Exact : PropertyOperator.IsNot,
-                                      },
-                                      {
-                                          key: '$feature/' + flagKey,
-                                          type: PropertyFilterType.Event,
-                                          value: 'is_set',
-                                          operator: PropertyOperator.IsSet,
-                                      },
-                                      {
-                                          key: '$feature_flag',
-                                          type: PropertyFilterType.Event,
-                                          value: flagKey,
-                                          operator: PropertyOperator.Exact,
-                                      },
-                                  ],
+                                  type: PropertyFilterType.Event,
+                                  key: `$feature/${flagKey}`,
+                                  operator: PropertyOperator.Exact,
+                                  value: [variantKey ? variantKey : 'true'],
                               },
                     ],
                 },
@@ -252,7 +243,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     connect((props: FeatureFlagLogicProps) => ({
         values: [
             teamLogic,
-            ['currentTeamId'],
+            ['currentTeam', 'currentTeamId'],
             projectLogic,
             ['currentProjectId'],
             groupsModel,
@@ -286,6 +277,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         removeRollbackCondition: (index: number) => ({ index }),
         deleteFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
         restoreFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
+        setRemoteConfigEnabled: (enabled: boolean) => ({ enabled }),
         setMultivariateEnabled: (enabled: boolean) => ({ enabled }),
         setMultivariateOptions: (multivariateOptions: MultivariateFlagOptions | null) => ({ multivariateOptions }),
         addVariant: true,
@@ -306,11 +298,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             errors?: any
         ) => ({ filters, active, errors }),
         setScheduledChangeOperation: (changeType: ScheduledChangeOperationType) => ({ changeType }),
+        setAccessDeniedToFeatureFlag: true,
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
-            defaults: { ...NEW_FLAG },
-            errors: ({ key, filters }) => {
+            defaults: {
+                ...NEW_FLAG,
+                ensure_experience_continuity: values.currentTeam?.flags_persistence_default || false,
+            },
+            errors: ({ key, filters, is_remote_configuration }) => {
                 return {
                     key: validateFeatureFlagKey(key),
                     filters: {
@@ -325,6 +321,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             FeatureFlagGroupType,
                             ValidationErrorType
                         >[],
+                        payloads: {
+                            true: validatePayloadRequired(filters?.payloads['true'], is_remote_configuration),
+                        } as unknown as DeepPartialMap<Record<string, JsonType>, ValidationErrorType> | undefined,
+                        // Forced cast necessary to prevent Kea's typechecking from raising "Type instantiation
+                        // is excessively deep and possibly infinite" error
                     },
                 }
             },
@@ -365,6 +366,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         return state
                     }
                     return { ...state, filters: { ...state.filters, multivariate: multivariateOptions } }
+                },
+                setRemoteConfigEnabled: (state, { enabled }) => {
+                    if (!state) {
+                        return state
+                    }
+
+                    return {
+                        ...state,
+                        is_remote_configuration: enabled,
+                    }
                 },
                 addVariant: (state) => {
                     if (!state) {
@@ -468,6 +479,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
             },
         ],
+        accessDeniedToFeatureFlag: [false, { setAccessDeniedToFeatureFlag: () => true }],
         propertySelectErrors: [
             null as any,
             {
@@ -546,12 +558,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     try {
                         const retrievedFlag: FeatureFlagType = await api.featureFlags.get(props.id)
                         return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
-                    } catch (e) {
-                        actions.setFeatureFlagMissing()
+                    } catch (e: any) {
+                        if (e.status === 403 && e.code === 'permission_denied') {
+                            actions.setAccessDeniedToFeatureFlag()
+                        } else {
+                            actions.setFeatureFlagMissing()
+                        }
                         throw e
                     }
                 }
-                return NEW_FLAG
+                return {
+                    ...NEW_FLAG,
+                    ensure_experience_continuity: values.currentTeam?.flags_persistence_default ?? false,
+                }
             },
             saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
                 const { created_at, id, ...flag } = updatedFlag
@@ -568,7 +587,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         if (values.roleBasedAccessEnabled && savedFlag.id) {
                             featureFlagPermissionsLogic({ flagId: null })?.actions.addAssociatedRoles(savedFlag.id)
                         }
-                        actions.addProductIntent({ product_type: ProductKey.FEATURE_FLAGS })
+                        actions.addProductIntent({
+                            product_type: ProductKey.FEATURE_FLAGS,
+                            intent_context: ProductIntentContext.FEATURE_FLAG_CREATED,
+                        })
                     } else {
                         savedFlag = await api.update(
                             `api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}`,
@@ -933,12 +955,38 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.loadScheduledChanges()
             }
         },
+        setRemoteConfigEnabled: ({ enabled }) => {
+            if (enabled) {
+                actions.setFeatureFlagFilters(
+                    {
+                        ...values.featureFlag.filters,
+                        groups: [
+                            {
+                                variant: null,
+                                properties: [],
+                                rollout_percentage: 100,
+                            },
+                        ],
+                    },
+                    {}
+                )
+            }
+        },
     })),
     selectors({
         sentryErrorCount: [(s) => [s.sentryStats], (stats) => stats.total_count],
         sentryIntegrationEnabled: [(s) => [s.sentryStats], (stats) => !!stats.sentry_integration_enabled],
         props: [() => [(_, props) => props], (props) => props],
         multivariateEnabled: [(s) => [s.featureFlag], (featureFlag) => !!featureFlag?.filters.multivariate],
+        flagType: [
+            (s) => [s.featureFlag],
+            (featureFlag) =>
+                featureFlag?.is_remote_configuration
+                    ? 'remote_config'
+                    : featureFlag?.filters.multivariate
+                    ? 'multivariate'
+                    : 'boolean',
+        ],
         roleBasedAccessEnabled: [
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.ROLE_BASED_ACCESS),

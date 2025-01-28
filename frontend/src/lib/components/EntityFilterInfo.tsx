@@ -40,7 +40,7 @@ export function EntityFilterInfo({
     if (!filter?.custom_name) {
         return (
             // eslint-disable-next-line react/forbid-dom-props
-            <span className={!allowWrap ? 'flex items-center' : ''} style={style}>
+            <span className={!allowWrap ? 'flex truncate  items-center' : ''} style={style}>
                 <span
                     className={clsx('EntityFilterInfo max-w-100', !allowWrap && 'whitespace-nowrap truncate')}
                     title={titleToDisplay}

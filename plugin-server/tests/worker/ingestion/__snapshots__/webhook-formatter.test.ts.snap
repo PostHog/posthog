@@ -20,7 +20,7 @@ exports[`WebhookFormatter webhook formatting options {
 exports[`WebhookFormatter webhook formatting options {
   messageFormat: '[person.properties.pizza_ingredient_ranking]',
   personProperties: [Object]
-} 1`] = `"[\\"pineapple\\",\\"broccoli\\",\\"aubergine\\"\\\\]"`;
+} 1`] = `"["pineapple","broccoli","aubergine"\\]"`;
 
 exports[`WebhookFormatter webhook formatting options {
   messageFormat: '[person]',
@@ -49,7 +49,7 @@ exports[`WebhookFormatter webhook formatting options { messageFormat: '[event.uu
 
 exports[`WebhookFormatter webhook formatting options { messageFormat: '[event]' } 1`] = `"[$pageview](http://localhost:8000/project/123/events/123/2021-10-31T00%253A44%253A00.000Z)"`;
 
-exports[`WebhookFormatter webhook formatting options { messageFormat: '[event]', event: [Object] } 1`] = `"[text\\\\]\\\\(yes\\\\!\\\\), \\\\[new link](http://localhost:8000/project/123/events/\\\\*\\\\*\\\\)/2021-10-31T00%253A44%253A00.000Z)"`;
+exports[`WebhookFormatter webhook formatting options { messageFormat: '[event]', event: [Object] } 1`] = `"[text\\]\\(yes\\!\\), \\[new link](http://localhost:8000/project/123/events/\\*\\*\\)/2021-10-31T00%253A44%253A00.000Z)"`;
 
 exports[`WebhookFormatter webhook formatting options { messageFormat: '[groups.missing]' } 1`] = `"(event without 'missing')"`;
 

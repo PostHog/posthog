@@ -37,6 +37,7 @@ export function QueryWindow(): JSX.Element {
 
     const { allTabs, activeModelUri, queryInput, editingView, sourceQuery } = useValues(logic)
     const {
+        renameTab,
         selectTab,
         deleteTab,
         createTab,
@@ -50,12 +51,13 @@ export function QueryWindow(): JSX.Element {
 
     return (
         <div className="flex flex-1 flex-col h-full overflow-hidden">
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto px-1">
                 <QueryTabs
                     models={allTabs}
                     onClick={selectTab}
                     onClear={deleteTab}
                     onAdd={createTab}
+                    onRename={renameTab}
                     activeModelUri={activeModelUri}
                 />
             </div>

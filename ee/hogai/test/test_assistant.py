@@ -11,9 +11,10 @@ from langgraph.types import StateSnapshot
 from pydantic import BaseModel
 
 from ee.hogai.funnels.nodes import FunnelsSchemaGeneratorOutput
+from ee.hogai.memory import prompts as memory_prompts
 from ee.hogai.router.nodes import RouterOutput
 from ee.hogai.trends.nodes import TrendsSchemaGeneratorOutput
-from ee.models.assistant import Conversation
+from ee.models.assistant import Conversation, CoreMemory
 from posthog.schema import (
     AssistantFunnelsEventsNode,
     AssistantFunnelsQuery,
@@ -25,18 +26,37 @@ from posthog.schema import (
     RouterMessage,
     VisualizationMessage,
 )
-from posthog.test.base import NonAtomicBaseTest
+from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, _create_person
 
 from ..assistant import Assistant
 from ..graph import AssistantGraph, AssistantNodeName
 
 
-class TestAssistant(NonAtomicBaseTest):
+class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def setUp(self):
         super().setUp()
         self.conversation = Conversation.objects.create(team=self.team, user=self.user)
+        self.core_memory = CoreMemory.objects.create(
+            team=self.team,
+            text="Initial memory.",
+            initial_text="Initial memory.",
+            scraping_status=CoreMemory.ScrapingStatus.COMPLETED,
+        )
+
+    def _set_up_onboarding_tests(self):
+        self.core_memory.delete()
+        _create_person(
+            distinct_ids=["person1"],
+            team=self.team,
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="person1",
+            team=self.team,
+            properties={"$host": "us.posthog.com"},
+        )
 
     def _parse_stringified_message(self, message: str) -> tuple[str, Any]:
         event_line, data_line, *_ = cast(str, message).split("\n")
@@ -77,7 +97,7 @@ class TestAssistant(NonAtomicBaseTest):
 
     @patch(
         "ee.hogai.trends.nodes.TrendsPlannerNode.run",
-        return_value={"intermediate_steps": [(AgentAction(tool="final_answer", tool_input="", log=""), None)]},
+        return_value={"intermediate_steps": [(AgentAction(tool="final_answer", tool_input="Plan", log=""), None)]},
     )
     @patch(
         "ee.hogai.summarizer.nodes.SummarizerNode.run", return_value={"messages": [AssistantMessage(content="Foobar")]}
@@ -148,7 +168,7 @@ class TestAssistant(NonAtomicBaseTest):
                     None,
                 ),
                 (AgentAction(tool="handle_incorrect_response", tool_input="", log=""), None),
-                (AgentAction(tool="final_answer", tool_input="", log=""), None),
+                (AgentAction(tool="final_answer", tool_input="Plan", log=""), None),
             ]
         },
     )
@@ -426,7 +446,8 @@ class TestAssistant(NonAtomicBaseTest):
     @patch("ee.hogai.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
     @patch("ee.hogai.router.nodes.RouterNode._model")
-    def test_full_trends_flow(self, router_mock, planner_mock, generator_mock, summarizer_mock):
+    @patch("ee.hogai.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
+    def test_full_trends_flow(self, memory_collector_mock, router_mock, planner_mock, generator_mock, summarizer_mock):
         router_mock.return_value = RunnableLambda(lambda _: RouterOutput(visualization_type="trends"))
         planner_mock.return_value = RunnableLambda(
             lambda _: messages.AIMessage(
@@ -476,7 +497,8 @@ class TestAssistant(NonAtomicBaseTest):
     @patch("ee.hogai.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
     @patch("ee.hogai.router.nodes.RouterNode._model")
-    def test_full_funnel_flow(self, router_mock, planner_mock, generator_mock, summarizer_mock):
+    @patch("ee.hogai.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
+    def test_full_funnel_flow(self, memory_collector_mock, router_mock, planner_mock, generator_mock, summarizer_mock):
         router_mock.return_value = RunnableLambda(lambda _: RouterOutput(visualization_type="funnel"))
         planner_mock.return_value = RunnableLambda(
             lambda _: messages.AIMessage(
@@ -526,3 +548,145 @@ class TestAssistant(NonAtomicBaseTest):
         actual_output = self._run_assistant_graph(is_new_conversation=False)
         self.assertConversationEqual(actual_output, expected_output[1:])
         self.assertEqual(actual_output[0][1]["id"], actual_output[6][1]["initiator"])
+
+    @patch("ee.hogai.memory.nodes.MemoryInitializerInterruptNode._model")
+    @patch("ee.hogai.memory.nodes.MemoryInitializerNode._model")
+    def test_onboarding_flow_accepts_memory(self, model_mock, interruption_model_mock):
+        self._set_up_onboarding_tests()
+
+        # Mock the memory initializer to return a product description
+        model_mock.return_value = RunnableLambda(lambda _: "PostHog is a product analytics platform.")
+        interruption_model_mock.return_value = RunnableLambda(lambda _: "PostHog is a product analytics platform.")
+
+        # Create a graph with memory initialization flow
+        graph = AssistantGraph(self.team).add_memory_initializer(AssistantNodeName.END).compile()
+
+        # First run - get the product description
+        output = self._run_assistant_graph(graph, is_new_conversation=True)
+        expected_output = [
+            ("conversation", {"id": str(self.conversation.id)}),
+            ("message", HumanMessage(content="Hello")),
+            (
+                "message",
+                AssistantMessage(
+                    content=memory_prompts.SCRAPING_INITIAL_MESSAGE,
+                ),
+            ),
+            ("message", AssistantMessage(content="PostHog is a product analytics platform.")),
+            ("message", AssistantMessage(content=memory_prompts.SCRAPING_VERIFICATION_MESSAGE)),
+        ]
+        self.assertConversationEqual(output, expected_output)
+
+        # Second run - accept the memory
+        output = self._run_assistant_graph(
+            graph,
+            message=memory_prompts.SCRAPING_CONFIRMATION_MESSAGE,
+            is_new_conversation=False,
+        )
+        expected_output = [
+            ("message", HumanMessage(content=memory_prompts.SCRAPING_CONFIRMATION_MESSAGE)),
+            (
+                "message",
+                AssistantMessage(content=memory_prompts.SCRAPING_MEMORY_SAVED_MESSAGE),
+            ),
+            ("message", ReasoningMessage(content="Identifying type of analysis")),
+        ]
+        self.assertConversationEqual(output, expected_output)
+
+        # Verify the memory was saved
+        core_memory = CoreMemory.objects.get(team=self.team)
+        self.assertEqual(core_memory.scraping_status, CoreMemory.ScrapingStatus.COMPLETED)
+        self.assertIsNotNone(core_memory.text)
+
+    @patch("ee.hogai.memory.nodes.MemoryInitializerNode._model")
+    def test_onboarding_flow_rejects_memory(self, model_mock):
+        self._set_up_onboarding_tests()
+
+        # Mock the memory initializer to return a product description
+        model_mock.return_value = RunnableLambda(lambda _: "PostHog is a product analytics platform.")
+
+        # Create a graph with memory initialization flow
+        graph = AssistantGraph(self.team).add_memory_initializer(AssistantNodeName.END).compile()
+
+        # First run - get the product description
+        output = self._run_assistant_graph(graph, is_new_conversation=True)
+        expected_output = [
+            ("conversation", {"id": str(self.conversation.id)}),
+            ("message", HumanMessage(content="Hello")),
+            (
+                "message",
+                AssistantMessage(
+                    content=memory_prompts.SCRAPING_INITIAL_MESSAGE,
+                ),
+            ),
+            ("message", AssistantMessage(content="PostHog is a product analytics platform.")),
+            ("message", AssistantMessage(content=memory_prompts.SCRAPING_VERIFICATION_MESSAGE)),
+        ]
+        self.assertConversationEqual(output, expected_output)
+
+        # Second run - reject the memory
+        output = self._run_assistant_graph(
+            graph,
+            message=memory_prompts.SCRAPING_REJECTION_MESSAGE,
+            is_new_conversation=False,
+        )
+        expected_output = [
+            ("message", HumanMessage(content=memory_prompts.SCRAPING_REJECTION_MESSAGE)),
+            (
+                "message",
+                AssistantMessage(
+                    content=memory_prompts.SCRAPING_TERMINATION_MESSAGE,
+                ),
+            ),
+            ("message", ReasoningMessage(content="Identifying type of analysis")),
+        ]
+        self.assertConversationEqual(output, expected_output)
+
+        # Verify the memory was skipped
+        core_memory = CoreMemory.objects.get(team=self.team)
+        self.assertEqual(core_memory.scraping_status, CoreMemory.ScrapingStatus.SKIPPED)
+        self.assertEqual(core_memory.text, "")
+
+    @patch("ee.hogai.memory.nodes.MemoryCollectorNode._model")
+    def test_memory_collector_flow(self, model_mock):
+        # Create a graph with just memory collection
+        graph = (
+            AssistantGraph(self.team).add_memory_collector(AssistantNodeName.END).add_memory_collector_tools().compile()
+        )
+
+        # Mock the memory collector to first analyze and then append memory
+        def memory_collector_side_effect(prompt):
+            prompt_messages = prompt.to_messages()
+            if len(prompt_messages) == 2:  # First run
+                return messages.AIMessage(
+                    content="Let me analyze that.",
+                    tool_calls=[
+                        {
+                            "id": "1",
+                            "name": "core_memory_append",
+                            "args": {"memory_content": "The product uses a subscription model."},
+                        }
+                    ],
+                )
+            else:  # Second run
+                return messages.AIMessage(content="Processing complete. [Done]")
+
+        model_mock.return_value = RunnableLambda(memory_collector_side_effect)
+
+        # First run - analyze and append memory
+        output = self._run_assistant_graph(
+            graph,
+            message="We use a subscription model",
+            is_new_conversation=True,
+        )
+        expected_output = [
+            ("conversation", {"id": str(self.conversation.id)}),
+            ("message", HumanMessage(content="We use a subscription model")),
+            ("message", AssistantMessage(content="Let me analyze that.")),
+            ("message", AssistantMessage(content="Memory appended.")),
+        ]
+        self.assertConversationEqual(output, expected_output)
+
+        # Verify memory was appended
+        self.core_memory.refresh_from_db()
+        self.assertIn("The product uses a subscription model.", self.core_memory.text)

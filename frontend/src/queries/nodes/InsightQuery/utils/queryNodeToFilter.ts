@@ -16,7 +16,7 @@ import {
     RetentionFilterLegacy,
     StickinessFilterLegacy,
     TrendsFilterLegacy,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import {
     isActionsNode,
     isDataWarehouseNode,

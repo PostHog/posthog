@@ -20,24 +20,26 @@ MathType = Literal[
     "monthly_active",
     "unique_group",
     "unique_session",
-    # TODO: When we are finally on Python 3.11+, inline the below as *PROPERTY_MATH_FUNCTIONS.keys()
+    "hogql",
+    # Equivalent to *PROPERTY_MATH_FUNCTIONS.keys(),
     "sum",
     "min",
     "max",
     "avg",
     "median",
+    "p75",
     "p90",
     "p95",
     "p99",
-    # TODO: When we are finally on Python 3.11+, inline the below as *COUNT_PER_ACTOR_MATH_FUNCTIONS.keys()
+    # Equivalent to *COUNT_PER_ACTOR_MATH_FUNCTIONS.keys()
     "min_count_per_actor",
     "max_count_per_actor",
     "avg_count_per_actor",
     "median_count_per_actor",
+    "p75_count_per_actor",
     "p90_count_per_actor",
     "p95_count_per_actor",
     "p99_count_per_actor",
-    "hogql",
 ]
 
 

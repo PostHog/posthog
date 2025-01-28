@@ -27,7 +27,6 @@ from . import (
     comments,
     dead_letter_queue,
     debug_ch_queries,
-    early_access_feature,
     error_tracking,
     event_definition,
     exports,
@@ -49,7 +48,6 @@ from . import (
     personal_api_key,
     plugin,
     plugin_log_entry,
-    property_definition,
     proxy_record,
     query,
     scheduled_change,
@@ -60,7 +58,10 @@ from . import (
     team,
     uploaded_media,
     user,
+    user_group,
 )
+import products.early_access_features.backend.api as early_access_feature
+from ..taxonomy import property_definition_api
 from .dashboards import dashboard, dashboard_templates
 from .data_management import DataManagementViewSet
 from .session import SessionViewSet
@@ -264,7 +265,7 @@ projects_router.register(
 )
 projects_router.register(
     r"property_definitions",
-    property_definition.PropertyDefinitionViewSet,
+    property_definition_api.PropertyDefinitionViewSet,
     "project_property_definitions",
     ["project_id"],
 )
@@ -513,18 +514,25 @@ projects_router.register(
     ["team_id"],
 )
 
-# projects_router.register(
-#     r"error_tracking",
-#     error_tracking.ErrorTrackingGroupViewSet,
-#     "project_error_tracking",
-#     ["team_id"],
-# )
+projects_router.register(
+    r"error_tracking/issue",
+    error_tracking.ErrorTrackingIssueViewSet,
+    "project_error_tracking_issue",
+    ["team_id"],
+)
 
 projects_router.register(
     r"error_tracking/stack_frames",
     error_tracking.ErrorTrackingStackFrameViewSet,
     "project_error_tracking_stack_frames",
     ["project_id"],
+)
+
+projects_router.register(
+    r"user_groups",
+    user_group.UserGroupViewSet,
+    "project_user_groups",
+    ["team_id"],
 )
 
 projects_router.register(

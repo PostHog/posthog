@@ -55,6 +55,45 @@ def _setup(team: Team, job_inputs: dict[Any, Any]) -> ImportDataActivityInputs:
 
 
 @pytest.mark.django_db(transaction=True)
+def test_job_inputs_with_whitespace(activity_environment, team, **kwargs):
+    job_inputs = {
+        "host": " host.com   ",
+        "port": 5432,
+        "user": "Username   ",
+        "password": "   password",
+        "database": "  database",
+        "schema": "schema       ",
+    }
+
+    activity_inputs = _setup(team, job_inputs)
+
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.pipelines.sql_database_v2.sql_source_for_type"
+        ) as sql_source_for_type,
+        mock.patch("posthog.temporal.data_imports.workflow_activities.import_data_sync._run"),
+    ):
+        activity_environment.run(import_data_activity_sync, activity_inputs)
+
+        sql_source_for_type.assert_called_once_with(
+            source_type=ExternalDataSource.Type.POSTGRES,
+            host="host.com",
+            port="5432",
+            user="Username",
+            password="password",
+            database="database",
+            sslmode="prefer",
+            schema="schema",
+            table_names=["table_1"],
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            team_id=team.id,
+            using_ssl=True,
+        )
+
+
+@pytest.mark.django_db(transaction=True)
 def test_postgres_source_without_ssh_tunnel(activity_environment, team, **kwargs):
     job_inputs = {
         "host": "host.com",

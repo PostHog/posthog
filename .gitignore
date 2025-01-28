@@ -56,10 +56,10 @@ gen/
 # Local files generated for the ANTLR VS Code extension (https://github.com/mike-lischke/vscode-antlr4)
 .antlr
 upgrade/
-hogvm/typescript/dist
-hogvm/typescript/.parcel-cache
+common/hogvm/typescript/dist
+common/hogvm/typescript/.parcel-cache
 .wokeignore
-plugin-transpiler/dist
+common/plugin_transpiler/dist
 *-esbuild-meta.json
 *-esbuild-bundle-visualization.html
 .dlt
@@ -68,6 +68,13 @@ plugin-transpiler/dist
 *.log
 # pyright config (keep this until we have a standardized one)
 pyrightconfig.json
+
+# Max-specific entries
+ee/support_sidebar_max/max-venv/
+ee/support_sidebar_max/.vscode
+ee/support_sidebar_max/.vscode/settings.json
+max-test-venv/
+ee/support_sidebar_max/.env
 # Assistant Evaluation with Deepeval
 .deepeval
 .deepeval-cache.json
@@ -76,3 +83,8 @@ pyrightconfig.json
 temp_test_run_data.json
 .temp-deepeval-cache.json
 .eslintcache
+
+# ignore all dagster tmp directories that may be created
+tmp*/
+
+frontend/@posthog/apps-common/dist/

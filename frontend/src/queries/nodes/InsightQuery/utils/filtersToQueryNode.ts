@@ -33,7 +33,7 @@ import {
     RetentionFilter,
     StickinessFilter,
     TrendsFilter,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import {
     isFunnelsQuery,
     isInsightQueryWithBreakdown,

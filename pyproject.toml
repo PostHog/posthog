@@ -100,3 +100,9 @@ combine-as-imports = true
 "./posthog/management/commands/test_migrations_are_safe.py" = ["T201"]
 "./posthog/management/commands/api_keys.py" = ["T201"]
 "./posthog/demo/matrix/manager.py" = ["T201"]
+
+[tool.dagster]
+python_version = "3.11"
+module_name = "dags.definitions"
+code_location_name = "dags"
+home = "/tmp/posthog-dagster/"

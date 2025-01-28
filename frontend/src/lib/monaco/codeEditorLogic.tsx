@@ -24,7 +24,7 @@ import {
     HogQLMetadataResponse,
     HogQLNotice,
     NodeKind,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 
 import type { codeEditorLogicType } from './codeEditorLogicType'
 

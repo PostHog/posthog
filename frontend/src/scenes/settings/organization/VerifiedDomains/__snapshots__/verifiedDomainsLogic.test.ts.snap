@@ -73,8 +73,10 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
           "data-attr",
         ],
         "effective_membership_level": 8,
+        "flags_persistence_default": false,
         "has_group_types": true,
         "heatmaps_opt_in": true,
+        "human_friendly_comparison_periods": false,
         "id": 997,
         "ingested_event": true,
         "is_demo": false,
@@ -94,6 +96,9 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "recording_domains": [
           "https://recordings.posthog.com/",
         ],
+        "revenue_tracking_config": {
+          "events": [],
+        },
         "session_recording_linked_flag": null,
         "session_recording_minimum_duration_milliseconds": null,
         "session_recording_network_payload_capture_config": {

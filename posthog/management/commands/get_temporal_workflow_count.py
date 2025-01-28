@@ -1,8 +1,9 @@
 import asyncio
+import logging
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
-from prometheus_client import Gauge
+from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
 
 from posthog.temporal.common.client import connect
 
@@ -90,11 +91,18 @@ class Command(BaseCommand):
             client.count_workflows(query=f'`TaskQueue`="{task_queue}" AND `ExecutionStatus`="{execution_status}"')
         )
 
-        if track_gauge:
+        if track_gauge and settings.PROM_PUSHGATEWAY_ADDRESS is not None:
+            logging.debug(f"Tracking count in Gauge: {track_gauge}")
+            registry = CollectorRegistry()
             gauge = Gauge(
                 track_gauge,
-                f"Number of Temporal Workflow executions in '{task_queue}' with status '{execution_status}'.",
+                f"Number of current Temporal Workflow executions.",
+                labelnames=["task_queue", "status"],
+                registry=registry,
             )
-            gauge.set(result.count)
+            gauge.labels(task_queue=task_queue, status=execution_status.lower()).set(result.count)
+            push_to_gateway(settings.PROM_PUSHGATEWAY_ADDRESS, job="get_temporal_workflow_count", registry=registry)
+
+        logging.info(f"Count of '{execution_status.lower()}' workflows in '{task_queue}': {result.count}")
 
         return str(result.count)

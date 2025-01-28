@@ -35,6 +35,7 @@ export interface DateFilterProps {
     dateOptions?: DateMappingOption[]
     isDateFormatted?: boolean
     size?: LemonButtonProps['size']
+    type?: LemonButtonProps['type']
     dropdownPlacement?: Placement
     /* True when we're not dealing with ranges, but a single date / relative date */
     isFixedDateMode?: boolean
@@ -60,6 +61,7 @@ export function DateFilter({
     dateOptions = dateMapping,
     isDateFormatted = true,
     size,
+    type,
     dropdownPlacement = 'bottom-start',
     max,
     isFixedDateMode = false,
@@ -242,7 +244,7 @@ export function DateFilter({
             <LemonButton
                 id="daterange_selector"
                 size={size ?? 'small'}
-                type="secondary"
+                type={type ?? 'secondary'}
                 disabledReason={disabledReason}
                 data-attr="date-filter"
                 icon={<IconCalendar />}

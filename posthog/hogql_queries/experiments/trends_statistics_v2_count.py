@@ -23,35 +23,38 @@ def calculate_probabilities_v2_count(
     Calculate the win probabilities for each variant in an experiment using Bayesian analysis.
 
     This function computes the probability that each variant is the best (i.e., has the highest
-    conversion rate) compared to all other variants, including the control. It uses samples
-    drawn from the posterior distributions of each variant's conversion rate.
+    rate) compared to all other variants, including the control. It uses a Gamma-Poisson model
+    where samples are drawn from the posterior Gamma distributions of each variant's rate.
 
     Parameters:
     -----------
     control_variant : ExperimentVariantTrendsBaseStats
-        Statistics for the control group, including count (successes) and exposure (total trials)
+        Statistics for the control group, including count (events) and absolute_exposure
     test_variants : list[ExperimentVariantTrendsBaseStats]
         List of statistics for test variants to compare against the control
 
     Returns:
     --------
     list[float]
-        A list of probabilities where:
+        A list of probabilities that sum to 1, where:
         - The first element is the probability that the control variant is the best
         - Subsequent elements are the probabilities that each test variant is the best
 
     Notes:
     ------
-    - Uses a Bayesian approach with a Beta distribution as the posterior
-    - Assumes a minimally informative prior (alpha=1, beta=1)
+    - Uses a Bayesian approach with a Gamma distribution as the posterior
+    - Assumes a minimally informative Gamma prior (alpha=1, beta=1)
     - Draws samples from the posterior to estimate win probabilities
+    - Suitable for count/rate data following a Poisson distribution
 
     Example:
     --------
-    >>> control = ExperimentVariantTrendsBaseStats(key="control", count=100, exposure=1000, absolute_exposure=1000)
-    >>> test = ExperimentVariantTrendsBaseStats(key="test", count=120, exposure=1000, absolute_exposure=1000)
-    >>> probabilities = calculate_probabilities_v2(control, [test])
-    >>> # Returns: [0.085, 0.915] indicating the test variant is more likely to be the best
+    >>> from posthog.schema import ExperimentVariantTrendsBaseStats
+    >>> from posthog.hogql_queries.experiments.trends_statistics_v2_count import calculate_probabilities_v2_count
+    >>> control = ExperimentVariantTrendsBaseStats(key="control", count=100, exposure=1, absolute_exposure=1000)
+    >>> test = ExperimentVariantTrendsBaseStats(key="test", count=120, exposure=1, absolute_exposure=1000)
+    >>> calculate_probabilities_v2_count(control, [test])
+    >>> # Returns: [0.088, 0.920] indicating the test variant is more likely to be the best
     """
     if len(test_variants) >= 10:
         raise ValidationError("Can't calculate experiment results for more than 10 variants", code="too_much_data")
@@ -96,28 +99,38 @@ def are_results_significant_v2_count(
     probabilities: list[Probability],
 ) -> tuple[ExperimentSignificanceCode, Probability]:
     """
-    Determines if experiment results are statistically significant using Bayesian analysis.
+    Determines if experiment results are statistically significant.
 
-    This function evaluates the win probabilities of each variant to determine if any variant
-    is significantly better than the others. The method:
-    1. Checks if sample sizes meet minimum threshold requirements
-    2. Evaluates win probabilities from the posterior distributions
-    3. Calculates expected loss for the winning variant
+    This function evaluates whether any variant can be confidently declared as best by:
+    1. Checking if variants have sufficient exposure (minimum threshold)
+    2. Evaluating if the highest win probability exceeds the significance threshold
+    3. For the variant with highest rate, calculating expected loss compared to alternatives
 
     Parameters:
     -----------
     control_variant : ExperimentVariantTrendsBaseStats
-        Statistics for the control group, including count and exposure data
+        Statistics for the control group, including count and absolute_exposure
     test_variants : list[ExperimentVariantTrendsBaseStats]
         List of statistics for test variants to compare against control
     probabilities : list[Probability]
-        List of win probabilities for each variant, as calculated by calculate_probabilities
+        Win probabilities for each variant (must sum to 1), as calculated by calculate_probabilities_v2_count
 
     Returns:
     --------
     tuple[ExperimentSignificanceCode, Probability]
-        - ExperimentSignificanceCode indicating the significance status
-        - Expected loss value for significant results, 1.0 for non-significant results
+        - ExperimentSignificanceCode indicating result status:
+          * NOT_ENOUGH_EXPOSURE: if any variant has exposure below threshold
+          * LOW_WIN_PROBABILITY: if no variant exceeds probability threshold
+          * HIGH_LOSS: if expected loss is too high for best variant
+          * SIGNIFICANT: if a variant is confidently best
+        - Expected loss value (between 0 and 1) for significant results, 1.0 for non-significant results
+
+    Notes:
+    ------
+    - Uses FF_DISTRIBUTION_THRESHOLD for minimum exposure check
+    - Uses MIN_PROBABILITY_FOR_SIGNIFICANCE (default 0.9) for win probability threshold
+    - Uses EXPECTED_LOSS_SIGNIFICANCE_LEVEL for maximum acceptable expected loss
+    - Expected loss represents the expected rate difference between chosen variant and potential better alternatives
     """
     # Check exposure thresholds
     for variant in test_variants:
@@ -151,17 +164,16 @@ def are_results_significant_v2_count(
 
 def calculate_credible_intervals_v2_count(variants, lower_bound=0.025, upper_bound=0.975):
     """
-    Calculate Bayesian credible intervals for each variant's conversion rate.
+    Calculate Bayesian credible intervals for each variant's rate using a Gamma-Poisson model.
 
-    Credible intervals represent the range where we believe the true conversion rate lies
-    with a specified probability (default 95%). Unlike frequentist confidence intervals,
-    these have a direct probabilistic interpretation: "There is a 95% probability that
-    the true conversion rate lies within this interval."
+    Credible intervals represent the range where we believe the true rate lies
+    with a specified probability (default 95%). These intervals have a direct probabilistic
+    interpretation: "There is a 95% probability that the true rate lies within this interval."
 
     Parameters:
     -----------
     variants : list[ExperimentVariantTrendsBaseStats]
-        List of variants containing count (successes) and exposure (total trials) data
+        List of variants containing count (number of events) and absolute_exposure data
     lower_bound : float, optional (default=0.025)
         Lower percentile for the credible interval (2.5% for 95% CI)
     upper_bound : float, optional (default=0.975)
@@ -171,22 +183,25 @@ def calculate_credible_intervals_v2_count(variants, lower_bound=0.025, upper_bou
     --------
     dict[str, tuple[float, float]]
         Dictionary mapping variant keys to their credible intervals
-        Each interval is a tuple of (lower_bound, upper_bound)
+        Each interval is a tuple of (lower_bound, upper_bound) representing rates
 
     Notes:
     ------
-    - Uses a Gamma distribution as the posterior distribution
-    - Assumes a minimally informative prior (alpha=1, beta=1)
-    - Intervals are calculated for visualization purposes, not for significance testing
+    - Uses a Gamma distribution as the posterior for the rate parameter
+    - Assumes a minimally informative Gamma prior (alpha=1, beta=1)
+    - Suitable for count/rate data following a Poisson distribution
     - Returns empty dict if any calculations fail
+    - Intervals represent rates (events per exposure)
 
     Example:
     --------
+    >>> from posthog.schema import ExperimentVariantTrendsBaseStats
+    >>> from posthog.hogql_queries.experiments.trends_statistics_v2_count import calculate_credible_intervals_v2_count
     >>> variants = [
-    ...     ExperimentVariantTrendsBaseStats(key="control", count=100, exposure=1000, absolute_exposure=1000),
-    ...     ExperimentVariantTrendsBaseStats(key="test", count=150, exposure=1000, absolute_exposure=1000)
+    ...     ExperimentVariantTrendsBaseStats(key="control", count=100, exposure=1, absolute_exposure=1000),
+    ...     ExperimentVariantTrendsBaseStats(key="test", count=150, exposure=1, absolute_exposure=1000)
     ... ]
-    >>> intervals = calculate_credible_intervals_v2(variants)
+    >>> calculate_credible_intervals_v2_count(variants)
     >>> # Returns: {"control": (0.082, 0.122), "test": (0.128, 0.176)}
     """
     intervals = {}

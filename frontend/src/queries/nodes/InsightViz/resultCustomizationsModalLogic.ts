@@ -10,7 +10,7 @@ import { getFunnelDatasetKey, getTrendResultCustomizationKey } from 'scenes/insi
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
-import { ResultCustomizationBy, TrendsFilter } from '~/queries/schema'
+import { ResultCustomizationBy, TrendsFilter } from '~/queries/schema/schema-general'
 import { FlattenedFunnelStepByBreakdown, InsightLogicProps } from '~/types'
 
 import type { resultCustomizationsModalLogicType } from './resultCustomizationsModalLogicType'

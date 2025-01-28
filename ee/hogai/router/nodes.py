@@ -16,11 +16,13 @@ from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import HumanMessage, RouterMessage
 
-RouteName = Literal["trends", "funnel"]
+RouteName = Literal["trends", "funnel", "retention"]
 
 
 class RouterOutput(BaseModel):
-    visualization_type: Literal["trends", "funnel"] = Field(..., description=ROUTER_INSIGHT_DESCRIPTION_PROMPT)
+    visualization_type: Literal["trends", "funnel", "retention"] = Field(
+        ..., description=ROUTER_INSIGHT_DESCRIPTION_PROMPT
+    )
 
 
 class RouterNode(AssistantNode):

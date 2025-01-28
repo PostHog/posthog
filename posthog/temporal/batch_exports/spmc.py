@@ -7,16 +7,19 @@ import typing
 import uuid
 
 import pyarrow as pa
-import structlog
 import temporalio.common
 from django.conf import settings
 
+from posthog.temporal.batch_exports.batch_exports import (
+    wait_for_delta_past_data_interval_end,
+)
 from posthog.temporal.batch_exports.heartbeat import BatchExportRangeHeartbeatDetails
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
     get_rows_exported_metric,
 )
 from posthog.temporal.batch_exports.sql import (
+    SELECT_FROM_DISTRIBUTED_EVENTS_RECENT,
     SELECT_FROM_EVENTS_VIEW,
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
     SELECT_FROM_EVENTS_VIEW_RECENT,
@@ -40,10 +43,9 @@ from posthog.temporal.batch_exports.utils import (
     cast_record_batch_json_columns,
     cast_record_batch_schema_json_columns,
 )
-from posthog.temporal.common.clickhouse import ClickHouseClient
+from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
-
-logger = structlog.get_logger()
+from posthog.temporal.common.logger import get_internal_logger
 
 
 class RecordBatchQueue(asyncio.Queue):
@@ -123,6 +125,7 @@ async def raise_on_task_failure(task: asyncio.Task) -> None:
         return
 
     exc = task.exception()
+    logger = get_internal_logger()
     await logger.aexception("%s task failed", task.get_name(), exc_info=exc)
     raise RecordBatchTaskError() from exc
 
@@ -187,7 +190,7 @@ class Consumer:
         self.data_interval_start = data_interval_start
         self.data_interval_end = data_interval_end
         self.writer_format = writer_format
-        self.logger = logger
+        self.logger = get_internal_logger()
 
     @property
     def rows_exported_counter(self) -> temporalio.common.MetricCounter:
@@ -209,6 +212,7 @@ class Consumer:
         multiple_files: bool = False,
         include_inserted_at: bool = False,
         task_name: str = "record_batch_consumer",
+        max_file_size_bytes: int = 0,
         **kwargs,
     ) -> asyncio.Task:
         """Create a record batch consumer task."""
@@ -221,6 +225,7 @@ class Consumer:
                 json_columns=json_columns,
                 multiple_files=multiple_files,
                 include_inserted_at=include_inserted_at,
+                max_file_size_bytes=max_file_size_bytes,
                 **kwargs,
             ),
             name=task_name,
@@ -264,6 +269,7 @@ class Consumer:
         json_columns: collections.abc.Sequence[str],
         multiple_files: bool = False,
         include_inserted_at: bool = False,
+        max_file_size_bytes: int = 0,
         **kwargs,
     ) -> int:
         """Start consuming record batches from queue.
@@ -281,7 +287,14 @@ class Consumer:
             Total number of records in all consumed record batches.
         """
         schema = cast_record_batch_schema_json_columns(schema, json_columns=json_columns)
-        writer = get_batch_export_writer(self.writer_format, self.flush, schema=schema, max_bytes=max_bytes, **kwargs)
+        writer = get_batch_export_writer(
+            self.writer_format,
+            self.flush,
+            schema=schema,
+            max_bytes=max_bytes,
+            max_file_size_bytes=max_file_size_bytes,
+            **kwargs,
+        )
 
         record_batches_count = 0
         record_batches_count_total = 0
@@ -298,22 +311,23 @@ class Consumer:
 
             await writer.write_record_batch(record_batch, flush=False, include_inserted_at=include_inserted_at)
 
-            if writer.should_flush():
+            if writer.should_flush() or writer.should_hard_flush():
                 await self.logger.adebug(
                     "Flushing %s records from %s record batches", writer.records_since_last_flush, record_batches_count
                 )
 
                 records_count += writer.records_since_last_flush
 
-                if multiple_files:
-                    await writer.close_temporary_file()
-                    writer._batch_export_file = await asyncio.to_thread(writer.create_temporary_file)
+                if multiple_files or writer.should_hard_flush():
+                    await writer.hard_flush()
                 else:
                     await writer.flush()
 
                 for _ in range(record_batches_count):
                     queue.task_done()
                 record_batches_count = 0
+
+            self.heartbeater.set_from_heartbeat_details(self.heartbeat_details)
 
         records_count += writer.records_since_last_flush
 
@@ -324,9 +338,14 @@ class Consumer:
         )
 
         await writer.close_temporary_file()
+        await self.close()
 
         self.heartbeater.set_from_heartbeat_details(self.heartbeat_details)
         return records_count
+
+    async def close(self):
+        """This method can be overridden by subclasses to perform any additional cleanup."""
+        pass
 
     async def generate_record_batches_from_queue(
         self,
@@ -379,6 +398,7 @@ async def run_consumer(
     multiple_files: bool = False,
     writer_file_kwargs: collections.abc.Mapping[str, typing.Any] | None = None,
     include_inserted_at: bool = False,
+    max_file_size_bytes: int = 0,
     **kwargs,
 ) -> int:
     """Run one record batch consumer.
@@ -418,7 +438,7 @@ async def run_consumer(
         consumer_tasks_pending.remove(task)
         consumer_tasks_done.add(task)
 
-    await logger.adebug("Starting record batch consumer")
+    await consumer.logger.adebug("Starting record batch consumer")
 
     consumer_task = consumer.create_consumer_task(
         queue=queue,
@@ -428,6 +448,7 @@ async def run_consumer(
         json_columns=json_columns,
         multiple_files=multiple_files,
         include_inserted_at=include_inserted_at,
+        max_file_size_bytes=max_file_size_bytes,
         **writer_file_kwargs or {},
     )
     consumer_tasks_pending.add(consumer_task)
@@ -442,7 +463,7 @@ async def run_consumer(
             raise consumer_task_exception
 
     await raise_on_task_failure(producer_task)
-    await logger.adebug("Successfully finished record batch consumer")
+    await consumer.logger.adebug("Successfully finished record batch consumer")
 
     consumer.complete_heartbeat()
 
@@ -480,6 +501,28 @@ def default_fields() -> list[BatchExportField]:
     ]
 
 
+def is_5_min_batch_export(full_range: tuple[dt.datetime | None, dt.datetime]) -> bool:
+    start_at, end_at = full_range
+    if start_at:
+        return (end_at - start_at) == dt.timedelta(seconds=300)
+    return False
+
+
+def use_distributed_events_recent_table(is_backfill: bool, team_id: int) -> bool:
+    if is_backfill:
+        return False
+
+    events_recent_rollout: float = settings.BATCH_EXPORT_DISTRIBUTED_EVENTS_RECENT_ROLLOUT
+    # sanity check
+    if events_recent_rollout < 0:
+        events_recent_rollout = 0
+    elif events_recent_rollout > 1:
+        events_recent_rollout = 1
+
+    bucket = team_id % 10
+    return bucket < events_recent_rollout * 10
+
+
 class Producer:
     """Async producer for batch exports.
 
@@ -488,9 +531,9 @@ class Producer:
         _task: Used to keep track of producer background task.
     """
 
-    def __init__(self, clickhouse_client: ClickHouseClient):
-        self.clickhouse_client = clickhouse_client
+    def __init__(self):
         self._task: asyncio.Task | None = None
+        self.logger = get_internal_logger()
 
     @property
     def task(self) -> asyncio.Task:
@@ -509,6 +552,8 @@ class Producer:
         fields: list[BatchExportField] | None = None,
         destination_default_fields: list[BatchExportField] | None = None,
         use_latest_schema: bool = False,
+        max_record_batch_size_bytes: int = 0,
+        min_records_per_batch: int = 100,
         **parameters,
     ) -> asyncio.Task:
         if fields is None:
@@ -539,20 +584,24 @@ class Producer:
             else:
                 parameters["include_events"] = []
 
-            start_at, end_at = full_range
-
-            if start_at:
-                is_5_min_batch_export = (end_at - start_at) == dt.timedelta(seconds=300)
-            else:
-                is_5_min_batch_export = False
-
-            if is_5_min_batch_export and not is_backfill:
+            # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag, but
+            # may not be able to handle the load from all batch exports
+            if is_5_min_batch_export(full_range=full_range) and not is_backfill:
+                self.logger.info("Using events_recent table for 5 min batch export")
                 query_template = SELECT_FROM_EVENTS_VIEW_RECENT
+            # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
+            # which is a distributed table that sits in front of the `events_recent` table
+            elif use_distributed_events_recent_table(is_backfill=is_backfill, team_id=team_id):
+                self.logger.info("Using distributed_events_recent table for batch export")
+                query_template = SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
             elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
+                self.logger.info("Using events_batch_export_unbounded view for batch export")
                 query_template = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
             elif is_backfill:
+                self.logger.info("Using events_batch_export_backfill view for batch export")
                 query_template = SELECT_FROM_EVENTS_VIEW_BACKFILL
             else:
+                self.logger.info("Using events_batch_export view for batch export")
                 query_template = SELECT_FROM_EVENTS_VIEW
                 lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(
                     team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS
@@ -575,7 +624,15 @@ class Producer:
 
         self._task = asyncio.create_task(
             self.produce_batch_export_record_batches_from_range(
-                query=query, full_range=full_range, done_ranges=done_ranges, queue=queue, query_parameters=parameters
+                query=query,
+                full_range=full_range,
+                done_ranges=done_ranges,
+                queue=queue,
+                query_parameters=parameters,
+                max_record_batch_size_bytes=max_record_batch_size_bytes,
+                min_records_per_batch=min_records_per_batch,
+                team_id=team_id,
+                is_backfill=is_backfill,
             ),
             name="record_batch_producer",
         )
@@ -589,16 +646,107 @@ class Producer:
         done_ranges: collections.abc.Sequence[tuple[dt.datetime, dt.datetime]],
         queue: RecordBatchQueue,
         query_parameters: dict[str, typing.Any],
+        team_id: int,
+        is_backfill: bool,
+        max_record_batch_size_bytes: int = 0,
+        min_records_per_batch: int = 100,
     ):
-        for interval_start, interval_end in generate_query_ranges(full_range, done_ranges):
-            if interval_start is not None:
-                query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
-            query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
-            query_id = uuid.uuid4()
+        """Produce Arrow record batches for a given date range into `queue`.
 
-            await self.clickhouse_client.aproduce_query_as_arrow_record_batches(
-                query, queue=queue, query_parameters=query_parameters, query_id=str(query_id)
-            )
+        Arguments:
+            query: The ClickHouse query used to obtain record batches. The query should be have a
+                `FORMAT ArrowStream` clause, although we do not enforce this.
+            full_range: The full date range of record batches to produce.
+            done_ranges: Date ranges of record batches that have already been exported, and thus
+                should be skipped.
+            queue: The queue where to produce record batches.
+            query_parameters: Additional query parameters.
+            team_id: The team ID of the batch export.
+            is_backfill: Whether the batch export is a backfill.
+            max_record_batch_size_bytes: The max size in bytes of a record batch to insert in `queue`.
+                If a record batch is larger than this, `slice_record_batch` will be used to slice it
+                into smaller record batches.
+            min_records_batch_per_batch: If slicing a record batch, each slice should contain at least
+                this number of records.
+        """
+        clickhouse_url = None
+        # 5 min batch exports should query a single node, which is known to have zero replication lag
+        if is_5_min_batch_export(full_range=full_range):
+            clickhouse_url = settings.CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST
+
+        # Data can sometimes take a while to settle, so for 5 min batch exports we wait several seconds just to be safe.
+        # For all other batch exports we wait for 1 minute since we're querying the events_recent table using a
+        # distributed table and setting `max_replica_delay_for_distributed_queries` to 1 minute
+        if is_5_min_batch_export(full_range):
+            delta = dt.timedelta(seconds=30)
+        else:
+            delta = dt.timedelta(minutes=1)
+        end_at = full_range[1]
+        await wait_for_delta_past_data_interval_end(end_at, delta)
+
+        async with get_client(team_id=team_id, clickhouse_url=clickhouse_url) as client:
+            if not await client.is_alive():
+                raise ConnectionError("Cannot establish connection to ClickHouse")
+
+            for interval_start, interval_end in generate_query_ranges(full_range, done_ranges):
+                if interval_start is not None:
+                    query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
+                query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
+                query_id = uuid.uuid4()
+
+                try:
+                    async for record_batch in client.astream_query_as_arrow(
+                        query, query_parameters=query_parameters, query_id=str(query_id)
+                    ):
+                        for record_batch_slice in slice_record_batch(
+                            record_batch, max_record_batch_size_bytes, min_records_per_batch
+                        ):
+                            await queue.put(record_batch_slice)
+
+                except Exception as e:
+                    await self.logger.aexception("Unexpected error occurred while producing record batches", exc_info=e)
+                    raise
+
+
+def slice_record_batch(
+    record_batch: pa.RecordBatch, max_record_batch_size_bytes: int = 0, min_records_per_batch: int = 100
+) -> typing.Iterator[pa.RecordBatch]:
+    """Slice a large Arrow record batch into one or more record batches.
+
+    The underlying call to `pa.RecordBatch.slice` is a zero-copy operation, so the
+    memory footprint of slicing is very low, beyond some additional metadata
+    required for the slice.
+
+    Arguments:
+        record_batch: The record batch to slice.
+        max_record_batch_size_bytes: The max size in bytes of a record batch to
+            yield. If the provided `record_batch` is larger than this, then it
+            will be sliced into multiple record batches.
+        min_records_batch_per_batch: Each slice yielded should contain at least
+            this number of records.
+    """
+    total_rows = record_batch.num_rows
+    yielded_rows = 0
+    offset = 0
+    length = total_rows
+
+    if max_record_batch_size_bytes <= 0 or max_record_batch_size_bytes > record_batch.nbytes:
+        yield record_batch
+        return
+
+    while yielded_rows < total_rows:
+        sliced_record_batch = record_batch.slice(offset=offset, length=length)
+        current_rows = sliced_record_batch.num_rows
+
+        if max_record_batch_size_bytes < sliced_record_batch.nbytes and min_records_per_batch < current_rows:
+            length -= 1
+            continue
+
+        yield sliced_record_batch
+
+        yielded_rows += current_rows
+        offset = offset + length
+        length = total_rows - yielded_rows
 
 
 def generate_query_ranges(

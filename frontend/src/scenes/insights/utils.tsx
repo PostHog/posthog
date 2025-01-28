@@ -24,7 +24,7 @@ import {
     ResultCustomizationBy,
     ResultCustomizationByPosition,
     ResultCustomizationByValue,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { isDataWarehouseNode, isEventsNode } from '~/queries/utils'
 import {
     ActionFilter,
@@ -219,7 +219,7 @@ export function isOtherBreakdown(breakdown_value: string | number | null | undef
     )
 }
 
-export function isNullBreakdown(breakdown_value: string | number | null | undefined): boolean {
+export function isNullBreakdown(breakdown_value: string | number | bigint | null | undefined): boolean {
     return (
         breakdown_value === BREAKDOWN_NULL_STRING_LABEL ||
         breakdown_value === BREAKDOWN_NULL_NUMERIC_LABEL ||
@@ -241,7 +241,7 @@ function isValidJsonArray(maybeJson: string): boolean {
 }
 
 function formatNumericBreakdownLabel(
-    breakdown_value: number,
+    breakdown_value: number | bigint,
     breakdownFilter: BreakdownFilter | null | undefined,
     formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction | undefined,
     multipleBreakdownIndex: number | undefined
@@ -332,10 +332,14 @@ export function formatBreakdownLabel(
         )
     }
 
-    const maybeNumericValue = Number(breakdown_value)
-    if (!Number.isNaN(maybeNumericValue)) {
+    // stringified numbers
+    if (!Number.isNaN(Number(breakdown_value))) {
+        const numericValue =
+            Number.isInteger(Number(breakdown_value)) && !Number.isSafeInteger(Number(breakdown_value))
+                ? BigInt(breakdown_value!)
+                : Number(breakdown_value)
         return formatNumericBreakdownLabel(
-            maybeNumericValue,
+            numericValue,
             breakdownFilter,
             formatPropertyValueForDisplay,
             multipleBreakdownIndex

@@ -26,6 +26,7 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.product_intent.product_intent import calculate_product_activation
@@ -141,6 +142,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "surveys_opt_in",
             "heatmaps_opt_in",
             "capture_dead_clicks",
+            "flags_persistence_default",
         ]
         read_only_fields = fields
 
@@ -202,6 +204,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "live_events_columns",
             "recording_domains",
             "cookieless_server_hash_mode",
+            "human_friendly_comparison_periods",
             "person_on_events_querying_enabled",
             "inject_web_apps",
             "extra_settings",
@@ -210,11 +213,13 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "has_completed_onboarding_for",
             "surveys_opt_in",
             "heatmaps_opt_in",
+            "flags_persistence_default",
             "live_events_token",
             "product_intents",
             "capture_dead_clicks",
             "user_access_level",
             "default_data_theme",
+            "revenue_tracking_config",
         )
         read_only_fields = (
             "id",
@@ -232,6 +237,15 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "live_events_token",
             "user_access_level",
         )
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        # fallback to the default posthog data theme id, if the color feature isn't available e.g. after a downgrade
+        if not instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
+            representation["default_data_theme"] = (
+                DataColorTheme.objects.filter(team_id__isnull=True).values_list("id", flat=True).first()
+            )
+        return representation
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
         # TODO: Map from user_access_controls
@@ -615,9 +629,13 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         current_url = request.headers.get("Referer")
         session_id = request.headers.get("X-Posthog-Session-Id")
         should_report_product_intent = False
+        metadata = request.data.get("metadata", {})
 
         if not product_type:
             return response.Response({"error": "product_type is required"}, status=400)
+
+        if not isinstance(metadata, dict):
+            return response.Response({"error": "'metadata' must be a dictionary"}, status=400)
 
         product_intent, created = ProductIntent.objects.get_or_create(team=team, product_type=product_type)
 
@@ -640,6 +658,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                 user,
                 "user showed product intent",
                 {
+                    **metadata,
                     "product_key": product_type,
                     "$set_once": {"first_onboarding_product_selected": product_type},
                     "$current_url": current_url,

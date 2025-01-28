@@ -12,10 +12,12 @@ export enum Scene {
     ErrorTracking = 'ErrorTracking',
     ErrorTrackingIssue = 'ErrorTrackingIssue',
     ErrorTrackingConfiguration = 'ErrorTrackingConfiguration',
+    ErrorTrackingAlert = 'ErrorTrackingAlert',
     Dashboards = 'Dashboards',
     Dashboard = 'Dashboard',
     Insight = 'Insight',
     WebAnalytics = 'WebAnalytics',
+    WebAnalyticsWebVitals = 'WebAnalyticsWebVitals',
     Cohort = 'Cohort',
     Activity = 'Activity',
     DataManagement = 'DataManagement',
@@ -36,14 +38,12 @@ export enum Scene {
     Group = 'Group',
     Action = 'Action',
     Experiments = 'Experiments',
-    ExperimentsSavedMetrics = 'ExperimentsSavedMetrics',
-    ExperimentsSavedMetric = 'ExperimentsSavedMetric',
+    ExperimentsSharedMetrics = 'ExperimentsSharedMetrics',
+    ExperimentsSharedMetric = 'ExperimentsSharedMetric',
     Experiment = 'Experiment',
     FeatureManagement = 'FeatureManagement',
     FeatureFlags = 'FeatureFlags',
     FeatureFlag = 'FeatureFlag',
-    EarlyAccessFeatures = 'EarlyAccessFeatures',
-    EarlyAccessFeature = 'EarlyAccessFeature',
     Surveys = 'Surveys',
     Survey = 'Survey',
     SurveyTemplates = 'SurveyTemplates',
@@ -136,7 +136,7 @@ export interface SceneConfig {
      * If `plain`, there's no navigation present, and the scene has no padding.
      * @default 'app'
      */
-    layout?: 'app' | 'app-raw' | 'app-canvas' | 'app-container' | 'app-raw-no-header' | 'plain'
+    layout?: 'app' | 'app-raw' | 'app-container' | 'app-raw-no-header' | 'plain'
     /** Hides project notice (ProjectNotice.tsx). */
     hideProjectNotice?: boolean
     /** Hides billing notice (BillingAlertsV2.tsx). */

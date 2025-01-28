@@ -32,10 +32,10 @@ class Command(BaseCommand):
         # len(insights)
         for insight in insights[0:500]:
             for event in insight.filters.get("events", []):
-                if event.get("math") in ("median", "p90", "p95", "p99"):
+                if event.get("math") in ("median", "p75", "p90", "p95", "p99"):
                     event["math"] = "sum"
             for event in insight.filters.get("actions", []):
-                if event.get("math") in ("median", "p90", "p95", "p99"):
+                if event.get("math") in ("median", "p75", "p90", "p95", "p99"):
                     event["math"] = "sum"
             try:
                 print(  # noqa: T201
