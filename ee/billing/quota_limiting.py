@@ -187,26 +187,6 @@ def org_quota_limited_until(
         )
         return None
 
-    # 1c. feature flag to retain data past quota limit
-    # Note: this is rarely used but we want to keep it around for now
-    if posthoganalytics.feature_enabled(
-        QUOTA_LIMIT_DATA_RETENTION_FLAG,
-        str(organization.id),
-        groups={"organization": str(organization.id)},
-        group_properties={"organization": {"id": str(organization.id)}},
-    ):
-        # Don't drop data for this org but record that they would have been limited.
-        report_organization_action(
-            organization,
-            "quota limiting suspended",
-            properties={
-                "current_usage": usage + todays_usage,
-                "resource": resource.value,
-                "feature_flag": QUOTA_LIMIT_DATA_RETENTION_FLAG,
-            },
-        )
-        return None
-
     team_tokens = get_team_attribute_by_quota_resource(organization)
     team_being_limited = any(x in previously_quota_limited_team_tokens for x in team_tokens)
 
@@ -225,6 +205,26 @@ def org_quota_limited_until(
             "quota_limited_until": billing_period_end,
             "quota_limiting_suspended_until": None,
         }
+
+    # 1c. feature flag to retain data past quota limit
+    # Note: this is rarely used but we want to keep it around for now and this is after check if they are already being limited
+    if posthoganalytics.feature_enabled(
+        QUOTA_LIMIT_DATA_RETENTION_FLAG,
+        str(organization.id),
+        groups={"organization": str(organization.id)},
+        group_properties={"organization": {"id": str(organization.id)}},
+    ):
+        # Don't drop data for this org but record that they would have been limited.
+        report_organization_action(
+            organization,
+            "quota limiting suspended",
+            properties={
+                "current_usage": usage + todays_usage,
+                "resource": resource.value,
+                "feature_flag": QUOTA_LIMIT_DATA_RETENTION_FLAG,
+            },
+        )
+        return None
 
     _, today_end = get_current_day()
 
