@@ -1,6 +1,7 @@
 import { LemonBanner, LemonTabs, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -50,12 +51,13 @@ const Tiles = (): JSX.Element => {
 
     return (
         <div className="mt-2 grid grid-cols-1 @xl/dashboard:grid-cols-2 @4xl/dashboard:grid-cols-6 gap-4">
-            {tiles.map(({ title, description, query }, i) => (
+            {tiles.map(({ title, description, query, context }, i) => (
                 <QueryCard
                     key={i}
                     title={title}
                     description={description}
                     query={{ kind: NodeKind.InsightVizNode, source: query } as InsightVizNode}
+                    context={context}
                     className={clsx(
                         'h-96',
                         /* Second row is the only one to have 2 tiles in the xl layout */
@@ -127,6 +129,7 @@ function LLMObservabilityGenerations(): JSX.Element {
 
 export function LLMObservabilityScene(): JSX.Element {
     const { activeTab } = useValues(llmObservabilityLogic)
+    const { searchParams } = useValues(router)
 
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_OBSERVABILITY_DATA_COLLECTION_NODE_ID }}>
@@ -138,19 +141,19 @@ export function LLMObservabilityScene(): JSX.Element {
                         key: 'dashboard',
                         label: 'Dashboard',
                         content: <LLMObservabilityDashboard />,
-                        link: urls.llmObservability('dashboard'),
+                        link: combineUrl(urls.llmObservabilityDashboard(), searchParams).url,
                     },
                     {
                         key: 'traces',
                         label: 'Traces',
                         content: <LLMObservabilityTraces />,
-                        link: urls.llmObservability('traces'),
+                        link: combineUrl(urls.llmObservabilityTraces(), searchParams).url,
                     },
                     {
                         key: 'generations',
                         label: 'Generations',
                         content: <LLMObservabilityGenerations />,
-                        link: urls.llmObservability('generations'),
+                        link: combineUrl(urls.llmObservabilityGenerations(), searchParams).url,
                     },
                 ]}
             />
