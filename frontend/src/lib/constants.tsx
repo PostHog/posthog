@@ -318,6 +318,7 @@ export const SESSION_REPLAY_MINIMUM_DURATION_OPTIONS: LemonSelectOptions<number 
 ]
 
 export const UNSUBSCRIBE_SURVEY_ID = '018b6e13-590c-0000-decb-c727a2b3f462'
+export const SESSION_RECORDING_OPT_OUT_SURVEY_ID = '0194a7a6-cdb8-0000-001d-e2015bc2948b'
 
 export const TAILWIND_BREAKPOINTS = {
     sm: 526,
