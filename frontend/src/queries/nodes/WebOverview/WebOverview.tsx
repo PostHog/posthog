@@ -2,6 +2,7 @@ import { IconTrending } from '@posthog/icons'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { getColorVar } from 'lib/colors'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -46,7 +47,10 @@ export function WebOverview(props: {
 
     const samplingRate = webOverviewQueryResponse?.samplingRate
 
-    const numSkeletons = props.query.conversionGoal ? 4 : 5
+    let numSkeletons = props.query.conversionGoal ? 4 : 5
+    if (useFeatureFlag('WEB_REVENUE_TRACKING')) {
+        numSkeletons += 1
+    }
 
     return (
         <>

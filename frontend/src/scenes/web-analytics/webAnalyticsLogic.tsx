@@ -180,7 +180,7 @@ export enum GraphsTab {
     TOTAL_CONVERSIONS = 'TOTAL_CONVERSIONS',
     CONVERSION_RATE = 'CONVERSION_RATE',
     REVENUE_EVENTS = 'REVENUE_EVENTS',
-    REVENUE_CONVERSION = 'REVENUE_CONVERSION',
+    CONVERSION_REVENUE = 'CONVERSION_REVENUE',
 }
 
 export enum SourceTab {
@@ -706,6 +706,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                           }))
                         : []
 
+                const conversionRevenueSeries =
+                    conversionGoal && 'customEventName' in conversionGoal && includeRevenue
+                        ? revenueEventsSeries.filter((e) => e.event === conversionGoal.customEventName)
+                        : []
+
                 const createInsightProps = (tile: TileId, tab?: string): InsightLogicProps => {
                     return {
                         dashboardItemId: getDashboardItemId(tile, tab, false),
@@ -948,23 +953,23 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           sessionsSeries,
                                       ])
                                     : null,
-                                !conversionGoal &&
-                                    revenueEventsSeries?.length &&
-                                    createGraphsTrendsTab(
-                                        GraphsTab.REVENUE_EVENTS,
-                                        'Revenue',
-                                        'Revenue',
-                                        revenueEventsSeries,
-                                        {
-                                            display:
-                                                revenueEventsSeries.length > 1
-                                                    ? ChartDisplayType.ActionsAreaGraph
-                                                    : ChartDisplayType.ActionsLineGraph,
-                                        },
-                                        {
-                                            compareFilter: revenueEventsSeries.length > 1 ? undefined : compareFilter,
-                                        }
-                                    ),
+                                !conversionGoal && revenueEventsSeries?.length
+                                    ? createGraphsTrendsTab(
+                                          GraphsTab.REVENUE_EVENTS,
+                                          'Revenue',
+                                          'Revenue',
+                                          revenueEventsSeries,
+                                          {
+                                              display:
+                                                  revenueEventsSeries.length > 1
+                                                      ? ChartDisplayType.ActionsAreaGraph
+                                                      : ChartDisplayType.ActionsLineGraph,
+                                          },
+                                          {
+                                              compareFilter: revenueEventsSeries.length > 1 ? undefined : compareFilter,
+                                          }
+                                      )
+                                    : null,
                                 conversionGoal && uniqueConversionsSeries
                                     ? createGraphsTrendsTab(
                                           GraphsTab.UNIQUE_CONVERSIONS,
@@ -991,6 +996,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               formula: 'A / B',
                                               aggregationAxisFormat: 'percentage_scaled',
                                           }
+                                      )
+                                    : null,
+                                conversionGoal && conversionRevenueSeries.length
+                                    ? createGraphsTrendsTab(
+                                          GraphsTab.CONVERSION_REVENUE,
+                                          'Conversion revenue',
+                                          'Conversion revenue',
+                                          conversionRevenueSeries
                                       )
                                     : null,
                             ] as (TabsTileTab | null)[]
