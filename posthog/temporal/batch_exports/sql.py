@@ -156,7 +156,7 @@ FROM (
         nullIf(JSONExtractString(properties, '$set'), '') AS set,
         nullIf(JSONExtractString(properties, '$set_once'), '') AS set_once
     FROM
-        events_recent
+        events_recent AS events
     PREWHERE
         events_recent.inserted_at >= {{interval_start:DateTime64}}
         AND events_recent.inserted_at < {{interval_end:DateTime64}}
@@ -197,7 +197,7 @@ FROM (
         nullIf(JSONExtractString(properties, '$$set'), '') AS set,
         nullIf(JSONExtractString(properties, '$$set_once'), '') AS set_once
     FROM
-        distributed_events_recent
+        distributed_events_recent AS events
     PREWHERE
         distributed_events_recent.inserted_at >= {interval_start}::DateTime64
         AND distributed_events_recent.inserted_at < {interval_end}::DateTime64
