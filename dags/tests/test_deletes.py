@@ -8,10 +8,8 @@ from dagster import build_op_context
 from posthog.models.async_deletion import DeletionType
 from dags.deletes import (
     PendingPersonEventDeletesTable,
-    PersonEventDeletesDictionary,
     Mutation,
     load_pending_person_deletions,
-    create_pending_deletes_dictionary,
     delete_person_events,
     cleanup_delete_assets,
 )
@@ -55,14 +53,6 @@ def test_mutation_is_done(mock_client):
 
     mock_client.execute.return_value = []
     assert mutation.is_done(mock_client) is False
-
-
-def test_person_event_deletes_dictionary():
-    table = PendingPersonEventDeletesTable(timestamp=datetime.now())
-    dictionary = PersonEventDeletesDictionary(source=table)
-
-    assert dictionary.name.startswith("pending_person_deletes_")
-    assert "CREATE DICTIONARY IF NOT EXISTS" in dictionary.create_statement(shards=1, max_execution_time=3600)
 
 
 @patch("dags.deletes.Client")
@@ -111,32 +101,26 @@ def test_load_pending_person_deletions_without_team_id(mock_async_deletion, mock
     mock_client.execute.assert_called()
 
 
-def test_create_pending_deletes_dictionary(mock_cluster):
-    table = PendingPersonEventDeletesTable(timestamp=datetime.now())
-
-    result = create_pending_deletes_dictionary(mock_cluster, table)
-    assert isinstance(result, PersonEventDeletesDictionary)
-    mock_cluster.any_host.assert_called()
-
-
 def test_delete_person_events_no_pending_deletes(mock_cluster):
     context = build_op_context()
-    dictionary = PersonEventDeletesDictionary(source=PendingPersonEventDeletesTable(timestamp=datetime.now()))
+    table = PendingPersonEventDeletesTable(timestamp=datetime.now())
 
-    # Mock no pending deletes
+    # Mock no pending deletes - return 0 for the count query
+    mock_client = MagicMock()
+    mock_client.execute.return_value = [[0]]
     mock_cluster.any_host.return_value.result.return_value = 0
+    mock_cluster.map_all_hosts.return_value.result.return_value = None
 
-    result = delete_person_events(context, mock_cluster, dictionary)
+    result = delete_person_events(context, mock_cluster, table)
     assert isinstance(result, tuple)
     assert result[1] == {}  # No mutations when no pending deletes
 
 
 def test_cleanup_delete_assets(mock_cluster):
     table = PendingPersonEventDeletesTable(timestamp=datetime.now())
-    dictionary = PersonEventDeletesDictionary(source=table)
 
     with patch("dags.deletes.AsyncDeletion.objects") as mock_async_deletion:
-        result = cleanup_delete_assets(mock_cluster, table, dictionary)
+        result = cleanup_delete_assets(mock_cluster, table, table)
         assert result is True
         mock_async_deletion.filter.assert_called_with(
             deletion_type=DeletionType.Person,
