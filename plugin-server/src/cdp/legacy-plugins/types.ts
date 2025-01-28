@@ -1,4 +1,4 @@
-import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { PluginConfigSchema, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
 import { Response, trackedFetch } from '~/src/utils/fetch'
 
@@ -19,6 +19,10 @@ export type LegacyPluginMeta = {
 
 export type LegacyPlugin = {
     id: string
+    metadata: {
+        name: string
+        config: PluginConfigSchema[]
+    }
     onEvent(event: ProcessedPluginEvent, meta: LegacyPluginMeta): Promise<void>
     setupPlugin?: (meta: LegacyPluginMeta) => Promise<void>
 }

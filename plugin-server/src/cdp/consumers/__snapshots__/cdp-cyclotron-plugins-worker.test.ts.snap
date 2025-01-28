@@ -43,3 +43,49 @@ exports[`CdpCyclotronWorkerPlugins onEvent should handle and collect errors 3`] 
   },
 ]
 `;
+
+exports[`CdpCyclotronWorkerPlugins smoke tests should run the plugin: { name: 'customer-io', plugin: [Object] } 1`] = `
+[
+  {
+    "level": "debug",
+    "message": "Executing plugin customer-io",
+  },
+  {
+    "level": "info",
+    "message": "Successfully authenticated with Customer.io. Completing setupPlugin.",
+  },
+  {
+    "level": "debug",
+    "message": "Detected email:, test@posthog.com",
+  },
+  {
+    "level": "debug",
+    "message": "{"status":{},"email":"test@posthog.com"}",
+  },
+  {
+    "level": "debug",
+    "message": "Should customer be tracked:, true",
+  },
+  {
+    "level": "debug",
+    "message": "Execution successful",
+  },
+]
+`;
+
+exports[`CdpCyclotronWorkerPlugins smoke tests should run the plugin: { name: 'intercom', plugin: [Object] } 1`] = `
+[
+  {
+    "level": "debug",
+    "message": "Executing plugin intercom",
+  },
+  {
+    "level": "info",
+    "message": "Contact test@posthog.com in Intercom not found",
+  },
+  {
+    "level": "debug",
+    "message": "Execution successful",
+  },
+]
+`;

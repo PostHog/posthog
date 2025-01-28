@@ -276,13 +276,19 @@ class PluginAttachment(models.Model):
     contents = models.BinaryField()
 
     def parse_contents(self) -> str | None:
-        if self.content_type == "application/json":
-            return json.loads(self.contents)
+        contents: bytes | None = self.contents
+        if not contents:
+            return None
 
-        if self.content_type == "text/plain":
-            return self.contents.decode("utf-8")
+        try:
+            if self.content_type == "application/json":
+                return json.loads(contents)
 
-        return None
+            if self.content_type == "text/plain":
+                return contents.decode("utf-8")
+            return None
+        except Exception:
+            return None
 
 
 class PluginStorage(models.Model):

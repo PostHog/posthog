@@ -44,6 +44,8 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
                 to_data("unique conversions", "unit", self._unsample(row[4]), self._unsample(row[5])),
                 to_data("conversion rate", "percentage", row[6], row[7]),
             ]
+            if self.query.includeRevenue:
+                results.append(to_data("conversion revenue", "currency", row[8], row[9]))
         else:
             results = [
                 to_data("visitors", "unit", self._unsample(row[0]), self._unsample(row[1])),
@@ -52,6 +54,8 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
                 to_data("session duration", "duration_s", row[6], row[7]),
                 to_data("bounce rate", "percentage", row[8], row[9], is_increase_bad=True),
             ]
+            if self.query.includeRevenue:
+                results.append(to_data("revenue", "currency", row[10], row[11]))
 
         return WebOverviewQueryResponse(
             results=results,
@@ -79,28 +83,25 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
 
     @cached_property
     def pageview_count_expression(self) -> ast.Expr:
-        if self.conversion_goal_expr:
-            return ast.Call(
-                name="countIf",
-                args=[
-                    ast.Or(
-                        exprs=[
-                            ast.CompareOperation(
-                                left=ast.Field(chain=["event"]),
-                                op=ast.CompareOperationOp.Eq,
-                                right=ast.Constant(value="$pageview"),
-                            ),
-                            ast.CompareOperation(
-                                left=ast.Field(chain=["event"]),
-                                op=ast.CompareOperationOp.Eq,
-                                right=ast.Constant(value="$screen"),
-                            ),
-                        ]
-                    )
-                ],
-            )
-        else:
-            return ast.Call(name="count", args=[])
+        return ast.Call(
+            name="countIf",
+            args=[
+                ast.Or(
+                    exprs=[
+                        ast.CompareOperation(
+                            left=ast.Field(chain=["event"]),
+                            op=ast.CompareOperationOp.Eq,
+                            right=ast.Constant(value="$pageview"),
+                        ),
+                        ast.CompareOperation(
+                            left=ast.Field(chain=["event"]),
+                            op=ast.CompareOperationOp.Eq,
+                            right=ast.Constant(value="$screen"),
+                        ),
+                    ]
+                )
+            ],
+        )
 
     @cached_property
     def inner_select(self) -> ast.SelectQuery:
@@ -134,6 +135,11 @@ HAVING {inside_start_timestamp_period}
         if self.conversion_count_expr and self.conversion_person_id_expr:
             parsed_select.select.append(ast.Alias(alias="conversion_count", expr=self.conversion_count_expr))
             parsed_select.select.append(ast.Alias(alias="conversion_person_id", expr=self.conversion_person_id_expr))
+            if self.query.includeRevenue:
+                parsed_select.select.append(
+                    ast.Alias(alias="session_conversion_revenue", expr=self.conversion_revenue_expr)
+                )
+
         else:
             parsed_select.select.append(
                 ast.Alias(
@@ -141,14 +147,19 @@ HAVING {inside_start_timestamp_period}
                     expr=ast.Call(name="any", args=[ast.Field(chain=["session", "$session_duration"])]),
                 )
             )
-            parsed_select.select.append(
-                ast.Alias(alias="filtered_pageview_count", expr=ast.Call(name="count", args=[]))
-            )
+            parsed_select.select.append(ast.Alias(alias="filtered_pageview_count", expr=self.pageview_count_expression))
             parsed_select.select.append(
                 ast.Alias(
                     alias="is_bounce", expr=ast.Call(name="any", args=[ast.Field(chain=["session", "$is_bounce"])])
                 )
             )
+            if self.query.includeRevenue:
+                parsed_select.select.append(
+                    ast.Alias(
+                        alias="session_revenue",
+                        expr=self.revenue_sum_expression,
+                    )
+                )
 
         return parsed_select
 
@@ -205,6 +216,13 @@ HAVING {inside_start_timestamp_period}
                     ),
                 ),
             ]
+            if self.query.includeRevenue:
+                select.extend(
+                    [
+                        current_period_aggregate("sum", "session_conversion_revenue", "conversion_revenue"),
+                        previous_period_aggregate("sum", "session_conversion_revenue", "previous_conversion_revenue"),
+                    ]
+                )
         else:
             select = [
                 current_period_aggregate("uniq", "person_id", "unique_users"),
@@ -218,6 +236,13 @@ HAVING {inside_start_timestamp_period}
                 current_period_aggregate("avg", "is_bounce", "bounce_rate"),
                 previous_period_aggregate("avg", "is_bounce", "prev_bounce_rate"),
             ]
+            if self.query.includeRevenue:
+                select.extend(
+                    [
+                        current_period_aggregate("sum", "session_revenue", "revenue"),
+                        previous_period_aggregate("sum", "session_revenue", "previous_revenue"),
+                    ]
+                )
 
         query = ast.SelectQuery(
             select=select,

@@ -550,9 +550,13 @@ export async function startPluginsServer(
 
         if (capabilities.cdpCyclotronWorkerPlugins) {
             const hub = await setupHub()
-            const worker = new CdpCyclotronWorkerPlugins(hub)
-            await worker.start()
-            services.push(worker.service)
+            if (!hub.CYCLOTRON_DATABASE_URL) {
+                status.error('💥', 'Cyclotron database URL not set.')
+            } else {
+                const worker = new CdpCyclotronWorkerPlugins(hub)
+                await worker.start()
+                services.push(worker.service)
+            }
         }
 
         if (capabilities.http) {

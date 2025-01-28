@@ -20,8 +20,13 @@ def migrate_legacy_plugins(dry_run=True, team_ids=None, test_mode=True):
             continue
 
         print("Attempting to migrate plugin", plugin_config)  # noqa: T201
+        url: str = plugin_config.plugin.url or ""
 
-        plugin_id = plugin_config.plugin.url.replace("inline://", "").replace("https://github.com/PostHog/", "")
+        if not url:
+            print("Skipping plugin", plugin_config.plugin.name, "as it doesn't have a url")  # noqa: T201
+            continue
+
+        plugin_id = url.replace("inline://", "").replace("https://github.com/PostHog/", "")
         plugin_name = plugin_config.plugin.name
 
         if test_mode:

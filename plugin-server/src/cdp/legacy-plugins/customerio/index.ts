@@ -4,6 +4,7 @@ import { RetryError } from '@posthog/plugin-scaffold'
 import { Response } from '~/src/utils/fetch'
 
 import { LegacyPlugin, LegacyPluginMeta } from '../types'
+import metadata from './plugin.json'
 
 const DEFAULT_HOST = 'track.customer.io'
 const DEFAULT_SEND_EVENTS_FROM_ANONYMOUS_USERS = 'Send all events'
@@ -128,7 +129,7 @@ export const onEvent = async (event: ProcessedPluginEvent, meta: CustomerIoMeta)
 
     const customer: Customer = syncCustomerMetadata(meta, event)
     logger.debug(customer)
-    logger.debug(shouldCustomerBeTracked(customer, global.eventsConfig))
+    logger.debug('Should customer be tracked:', shouldCustomerBeTracked(customer, global.eventsConfig))
     if (!shouldCustomerBeTracked(customer, global.eventsConfig)) {
         return
     }
@@ -147,7 +148,7 @@ function syncCustomerMetadata(meta: CustomerIoMeta, event: ProcessedPluginEvent)
     const { logger } = meta
     const email = getEmailFromEvent(event)
     const customerStatus = new Set() as Customer['status']
-    logger.debug(email)
+    logger.debug('Detected email:', email)
 
     // Update customer status
     customerStatus.add('seen')
@@ -256,6 +257,7 @@ function getEmailFromEvent(event: ProcessedPluginEvent): string | null {
 
 export const customerioPlugin: LegacyPlugin = {
     id: 'customer-io',
+    metadata: metadata as any,
     setupPlugin: setupPlugin as any,
     onEvent,
 }

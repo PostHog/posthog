@@ -46,7 +46,15 @@ describe('CdpCyclotronWorkerPlugins', () => {
 
         await processor.start()
 
-        processor.fetch = mockFetch = jest.fn(() => Promise.resolve({} as any))
+        processor.fetch = mockFetch = jest.fn(() =>
+            Promise.resolve({
+                status: 200,
+                json: () =>
+                    Promise.resolve({
+                        status: 200,
+                    }),
+            } as any)
+        )
 
         jest.spyOn(processor['cyclotronWorker']!, 'updateJob').mockImplementation(() => {})
         jest.spyOn(processor['cyclotronWorker']!, 'releaseJob').mockImplementation(() => Promise.resolve())
@@ -99,7 +107,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
         it('should setup a plugin on first call', async () => {
             jest.spyOn(PLUGINS_BY_ID['intercom'] as any, 'setupPlugin')
 
-            const results = processor.processInvocations([
+            const results = processor.processBatch([
                 createInvocation(fn, globals),
                 createInvocation(fn, globals),
                 createInvocation(fn, globals),
@@ -144,7 +152,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
                 json: () => Promise.resolve({ total_count: 1 }),
             })
 
-            await processor.processInvocations([invocation])
+            await processor.processBatch([invocation])
 
             expect(PLUGINS_BY_ID['intercom'].onEvent).toHaveBeenCalledTimes(1)
             expect(forSnapshot(jest.mocked(PLUGINS_BY_ID['intercom'].onEvent!).mock.calls[0][0]))
@@ -220,7 +228,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
                 email: 'test@posthog.com',
             }
 
-            await processor.processInvocations([invocation])
+            await processor.processBatch([invocation])
 
             expect(mockFetch).toHaveBeenCalledTimes(0)
 
@@ -248,7 +256,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
 
             mockFetch.mockRejectedValue(new Error('Test error'))
 
-            const res = await processor.processInvocations([invocation])
+            const res = await processor.processBatch([invocation])
 
             expect(PLUGINS_BY_ID['intercom'].onEvent).toHaveBeenCalledTimes(1)
 
@@ -265,6 +273,51 @@ describe('CdpCyclotronWorkerPlugins', () => {
             `)
 
             expect(forSnapshot(getProducedKafkaMessages())).toMatchSnapshot()
+        })
+    })
+
+    describe('smoke tests', () => {
+        const testCases = Object.entries(PLUGINS_BY_ID).map(([pluginId, plugin]) => ({
+            name: pluginId,
+            plugin,
+        }))
+
+        it.each(testCases)('should run the plugin: %s', async ({ name, plugin }) => {
+            globals.event.event = '$identify' // Many plugins filter for this
+            const invocation = createInvocation(fn, globals)
+
+            invocation.hogFunction.template_id = `plugin-${plugin.id}`
+
+            const inputs: Record<string, any> = {}
+
+            for (const input of plugin.metadata.config) {
+                if (!input.key) {
+                    continue
+                }
+
+                if (input.default) {
+                    inputs[input.key] = input.default
+                    continue
+                }
+
+                if (input.type === 'choice') {
+                    inputs[input.key] = input.choices[0]
+                } else if (input.type === 'string') {
+                    inputs[input.key] = 'test'
+                }
+            }
+
+            invocation.hogFunction.name = name
+            await processor.processBatch([invocation])
+
+            expect(
+                forSnapshot(
+                    getProducedKafkaMessagesForTopic('log_entries_test').map((m) => ({
+                        message: m.value.message,
+                        level: m.value.level,
+                    }))
+                )
+            ).toMatchSnapshot()
         })
     })
 })
