@@ -17,9 +17,13 @@ def migrate_legacy_plugins(dry_run=True, team_ids=None, test_mode=True):
     hog_functions = []
 
     for plugin_config in legacy_plugins:
-        print(plugin_config.plugin.name)  # noqa: T201
-        print(plugin_config.config)  # noqa: T201
-        print(plugin_config.plugin.config_schema)  # noqa: T201
+        methods = plugin_config.plugin.capabilities.get("methods", [])
+
+        if "onEvent" not in methods or "composeWebhook" not in methods:
+            print("Skipping plugin", plugin_config.plugin.name, "as it doesn't have onEvent or composeWebhook")  # noqa: T201
+            continue
+
+        print("Attempting to migrate plugin", plugin_config)  # noqa: T201
 
         plugin_id = plugin_config.plugin.url.replace("inline://", "").replace("https://github.com/PostHog/", "")
         plugin_name = plugin_config.plugin.name
@@ -86,8 +90,7 @@ def migrate_legacy_plugins(dry_run=True, team_ids=None, test_mode=True):
             "icon_url": plugin_config.plugin.icon,
         }
 
-        print("Attempting to create hog function", data)  # noqa: T201
-        print(json.dumps(data, indent=2))  # noqa: T201
+        print("Attempting to create hog function...")  # noqa: T201
 
         serializer = HogFunctionSerializer(
             data=data,
@@ -97,6 +100,10 @@ def migrate_legacy_plugins(dry_run=True, team_ids=None, test_mode=True):
         hog_functions.append(HogFunction(**serializer.validated_data))
 
     print(hog_functions)  # noqa: T201
+
+    if not hog_functions:
+        print("No hog functions to create")  # noqa: T201
+        return []
 
     if dry_run:
         print("Dry run, not creating hog functions")  # noqa: T201
