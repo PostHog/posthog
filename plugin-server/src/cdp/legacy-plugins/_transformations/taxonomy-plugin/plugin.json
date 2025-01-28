@@ -9,13 +9,7 @@
             "hint": "",
             "name": "Select your default naming pattern",
             "type": "choice",
-            "choices": [
-                "camelCase",
-                "PascalCase",
-                "snake_case",
-                "kebab-case",
-                "spaces in between"
-            ],
+            "choices": ["camelCase", "PascalCase", "snake_case", "kebab-case", "spaces in between"],
             "order": 1,
             "default": "camelCase",
             "required": true
