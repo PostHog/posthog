@@ -214,6 +214,73 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert field.type == "string"
         assert field.schema_valid is True
 
+    def test_serialize_database_warehouse_table_source_query_count(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id_1",
+            connection_id="connection_id_1",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSource.Type.STRIPE,
+        )
+        credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
+        warehouse_table = DataWarehouseTable.objects.create(
+            name="table_1",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            external_data_source_id=source.id,
+            credential=credentials,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            name="table_1",
+            source=source,
+            table=warehouse_table,
+            should_sync=True,
+            last_synced_at="2024-01-01",
+        )
+
+        database = create_hogql_database(team_id=self.team.pk)
+
+        with self.assertNumQueries(3):
+            serialize_database(HogQLContext(team_id=self.team.pk, database=database))
+
+        for i in range(5):
+            source = ExternalDataSource.objects.create(
+                team=self.team,
+                source_id=f"source_id_{i+2}",
+                connection_id=f"connection_id_{i+2}",
+                status=ExternalDataSource.Status.COMPLETED,
+                source_type=ExternalDataSource.Type.STRIPE,
+            )
+            warehouse_table = DataWarehouseTable.objects.create(
+                name=f"table_{i+2}",
+                format="Parquet",
+                team=self.team,
+                external_data_source=source,
+                external_data_source_id=source.id,
+                credential=credentials,
+                url_pattern="https://bucket.s3/data/*",
+                columns={
+                    "id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}
+                },
+            )
+            ExternalDataSchema.objects.create(
+                team=self.team,
+                name=f"table_{i+2}",
+                source=source,
+                table=warehouse_table,
+                should_sync=True,
+                last_synced_at="2024-01-01",
+            )
+
+        database = create_hogql_database(team_id=self.team.pk)
+
+        with self.assertNumQueries(3):
+            serialize_database(HogQLContext(team_id=self.team.pk, database=database))
+
     @patch("posthog.hogql.query.sync_execute", return_value=([], []))
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_database_with_warehouse_tables(self, patch_execute):

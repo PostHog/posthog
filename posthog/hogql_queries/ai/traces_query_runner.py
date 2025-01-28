@@ -216,13 +216,13 @@ class TracesQueryRunner(QueryRunner):
                     round(toFloat(sum(properties.$ai_latency)), 2) as total_latency,
                     sum(properties.$ai_input_tokens) as input_tokens,
                     sum(properties.$ai_output_tokens) as output_tokens,
-                    round(toFloat(sum(properties.$ai_input_cost_usd)), 4) as input_cost,
-                    round(toFloat(sum(properties.$ai_output_cost_usd)), 4) as output_cost,
-                    round(toFloat(sum(properties.$ai_total_cost_usd)), 4) as total_cost,
+                    round(sum(toFloat(properties.$ai_input_cost_usd)), 4) as input_cost,
+                    round(sum(toFloat(properties.$ai_output_cost_usd)), 4) as output_cost,
+                    round(sum(toFloat(properties.$ai_total_cost_usd)), 4) as total_cost,
                     arraySort(x -> x.3, groupArray(tuple(uuid, event, timestamp, properties))) as events,
                     {filter_conditions}
                 FROM events
-                WHERE event IN ('$ai_generation', '$ai_metric', '$ai_feedback') AND {common_conditions}
+                WHERE event IN ('$ai_span', '$ai_generation', '$ai_metric', '$ai_feedback') AND {common_conditions}
                 GROUP BY id
             ) AS generations
             LEFT JOIN (
@@ -230,7 +230,7 @@ class TracesQueryRunner(QueryRunner):
                     properties.$ai_trace_id as id,
                     argMin(properties.$ai_input_state, timestamp) as input_state,
                     argMin(properties.$ai_output_state, timestamp) as output_state,
-                    argMin(properties.$ai_trace_name, timestamp) as trace_name,
+                    argMin(ifNull(properties.$ai_span_name, properties.$ai_trace_name), timestamp) as trace_name,
                     {filter_conditions}
                 FROM events
                 WHERE event = '$ai_trace' AND {common_conditions}

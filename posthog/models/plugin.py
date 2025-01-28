@@ -274,6 +274,18 @@ class PluginAttachment(models.Model):
     file_size = models.IntegerField()
     contents = models.BinaryField()
 
+    def parse_contents(self) -> str | None:
+        contents: bytes | None = self.contents
+        if not contents:
+            return None
+
+        try:
+            if self.content_type == "application/json" or self.content_type == "text/plain":
+                return contents.decode("utf-8")
+            return None
+        except Exception:
+            return None
+
 
 class PluginStorage(models.Model):
     plugin_config = models.ForeignKey("PluginConfig", on_delete=models.CASCADE)

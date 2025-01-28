@@ -8,7 +8,12 @@ import pydantic
 from clickhouse_driver import Client
 
 from posthog import settings
-from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
+from posthog.clickhouse.cluster import (
+    ClickhouseCluster,
+    Mutation,
+    MutationRunner,
+    get_cluster,
+)
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 
@@ -92,28 +97,6 @@ class PersonOverridesSnapshotTable:
 
 
 @dataclass
-class Mutation:
-    table: str
-    mutation_id: str
-
-    def is_done(self, client: Client) -> bool:
-        [[is_done]] = client.execute(
-            f"""
-            SELECT is_done
-            FROM system.mutations
-            WHERE database = %(database)s AND table = %(table)s AND mutation_id = %(mutation_id)s
-            ORDER BY create_time DESC
-            """,
-            {"database": settings.CLICKHOUSE_DATABASE, "table": self.table, "mutation_id": self.mutation_id},
-        )
-        return is_done
-
-    def wait(self, client: Client) -> None:
-        while not self.is_done(client):
-            time.sleep(15.0)
-
-
-@dataclass
 class PersonOverridesSnapshotDictionary:
     source: PersonOverridesSnapshotTable
 
@@ -194,75 +177,28 @@ class PersonOverridesSnapshotDictionary:
         [[checksum]] = results
         return checksum
 
-    def __find_existing_mutation(self, client: Client, table: str, command_kind: str) -> Mutation | None:
-        results = client.execute(
+    @property
+    def person_id_update_mutation_runner(self) -> MutationRunner:
+        return MutationRunner(
+            EVENTS_DATA_TABLE(),
             f"""
-            SELECT mutation_id
-            FROM system.mutations
-            WHERE
-                database = %(database)s
-                AND table = %(table)s
-                AND startsWith(command, %(command_kind)s)
-                AND command like concat('%%', %(name)s, '%%')
-                AND NOT is_killed  -- ok to restart a killed mutation
-            ORDER BY create_time DESC
-            """,
-            {
-                "database": settings.CLICKHOUSE_DATABASE,
-                "table": table,
-                "command_kind": command_kind,
-                "name": self.qualified_name,
-            },
-        )
-        if not results:
-            return None
-        else:
-            assert len(results) == 1
-            [[mutation_id]] = results
-            return Mutation(table, mutation_id)
-
-    def enqueue_person_id_update_mutation(self, client: Client) -> Mutation:
-        table = EVENTS_DATA_TABLE()
-
-        # if this mutation already exists, don't start it again
-        # NOTE: this is theoretically subject to replication lag and accuracy of this result is not a guarantee
-        if mutation := self.__find_existing_mutation(client, table, "UPDATE"):
-            return mutation
-
-        client.execute(
-            f"""
-            ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{table}
             UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id))
             WHERE dictHas(%(name)s, (team_id, distinct_id))
             """,
             {"name": self.qualified_name},
         )
 
-        mutation = self.__find_existing_mutation(client, table, "UPDATE")
-        assert mutation is not None
-        return mutation
-
-    def enqueue_overrides_delete_mutation(self, client: Client) -> Mutation:
-        table = PERSON_DISTINCT_ID_OVERRIDES_TABLE
-
-        # if this mutation already exists, don't start it again
-        # NOTE: this is theoretically subject to replication lag and accuracy of this result is not a guarantee
-        if mutation := self.__find_existing_mutation(client, table, "DELETE"):
-            return mutation
-
-        client.execute(
+    @property
+    def overrides_delete_mutation_runner(self) -> MutationRunner:
+        return MutationRunner(
+            PERSON_DISTINCT_ID_OVERRIDES_TABLE,
             f"""
-            ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{table}
             DELETE WHERE
                 isNotNull(dictGetOrNull(%(name)s, 'version', (team_id, distinct_id)) as snapshot_version)
                 AND snapshot_version >= version
             """,
             {"name": self.qualified_name},
         )
-
-        mutation = self.__find_existing_mutation(client, table, "DELETE")
-        assert mutation is not None
-        return mutation
 
 
 # Snapshot Table Management
@@ -375,7 +311,7 @@ def start_person_id_update_mutations(
     shard_mutations = {
         host.shard_num: mutation
         for host, mutation in (
-            cluster.map_one_host_per_shard(dictionary.enqueue_person_id_update_mutation).result().items()
+            cluster.map_one_host_per_shard(dictionary.person_id_update_mutation_runner.enqueue).result().items()
         )
     }
     return (dictionary, shard_mutations)
@@ -401,7 +337,7 @@ def start_overrides_delete_mutations(
     dictionary: PersonOverridesSnapshotDictionary,
 ) -> tuple[PersonOverridesSnapshotDictionary, Mutation]:
     """Start the mutation to remove overrides contained within the snapshot from the overrides table."""
-    mutation = cluster.any_host(dictionary.enqueue_overrides_delete_mutation).result()
+    mutation = cluster.any_host(dictionary.overrides_delete_mutation_runner.enqueue).result()
     return (dictionary, mutation)
 
 
