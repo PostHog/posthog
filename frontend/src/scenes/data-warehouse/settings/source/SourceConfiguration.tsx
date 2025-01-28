@@ -1,4 +1,4 @@
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { SourceFormComponent, SourceFormProps } from 'scenes/data-warehouse/external/forms/SourceForm'
@@ -26,9 +26,23 @@ interface UpdateSourceConnectionFormContainerProps extends SourceFormProps {
     id: string
 }
 
+const supportedEditingSourceTypes = ['MSSQL', 'MySQL', 'Postgres', 'Stripe']
+
 function UpdateSourceConnectionFormContainer(props: UpdateSourceConnectionFormContainerProps): JSX.Element {
     const { source, sourceLoading } = useValues(dataWarehouseSourceSettingsLogic({ id: props.id }))
     const { setSourceConfigValue } = useActions(dataWarehouseSourceSettingsLogic)
+
+    if (!source?.source_type || !supportedEditingSourceTypes.includes(source?.source_type)) {
+        return (
+            <LemonBanner type="warning" className="mt-2">
+                <p>
+                    Only {supportedEditingSourceTypes.slice(0, -1).join(', ')}, and {supportedEditingSourceTypes.at(-1)}{' '}
+                    are configurable. Please delete and recreate your source if you need to connect to a new source of
+                    the same type.
+                </p>
+            </LemonBanner>
+        )
+    }
 
     return (
         <>

@@ -391,7 +391,8 @@ class TestExternalDataSource(APIBaseTest):
         assert len(results) == 1
 
         result = results[0]
-        assert result.get("job_inputs") is None
+        # we should scrape out `stripe_secret_key` from job_inputs
+        assert result.get("job_inputs") == {}
 
     def test_get_external_data_source_with_schema(self):
         source = self._create_external_data_source()
@@ -412,6 +413,7 @@ class TestExternalDataSource(APIBaseTest):
                 "prefix",
                 "last_run_at",
                 "schemas",
+                "job_inputs",
             ],
         )
         self.assertEqual(
@@ -825,8 +827,8 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "source_type": "Stripe",
                 "payload": {
-                    "client_secret": "  sk_test_123   ",
-                    "account_id": "  blah   ",
+                    "stripe_secret_key": "  sk_test_123   ",
+                    "stripe_account_id": "  blah   ",
                     "schemas": [
                         {"name": "BalanceTransaction", "should_sync": True, "sync_type": "full_refresh"},
                     ],
