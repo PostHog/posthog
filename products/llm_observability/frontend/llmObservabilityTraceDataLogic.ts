@@ -95,10 +95,10 @@ export function restoreTree(events: LLMTraceEvent[], traceId: string): TraceTree
     const idMap = new Map<any, LLMTraceEvent>()
 
     // Map all events with parents to their parent IDs
-    events.forEach((event) => {
+    for (const event of events) {
         // Exclude all metric and feedback events.
         if (FEEDBACK_EVENTS.has(event.event)) {
-            return
+            continue
         }
 
         const eventId = event.properties.$ai_generation_id ?? event.properties.$ai_span_id ?? event.id
@@ -115,7 +115,7 @@ export function restoreTree(events: LLMTraceEvent[], traceId: string): TraceTree
                 childrenMap.set(parentId, [eventId])
             }
         }
-    })
+    }
 
     function traverse(spanId: any): TraceTreeNode {
         const children = childrenMap.get(spanId)

@@ -164,17 +164,17 @@ function TraceSidebar({
             <h3 className="font-medium text-sm px-2 my-2">Tree</h3>
             <LemonDivider className="m-0" />
             <NestingGroup>
-                <TraceNode topLevelTrace={trace} item={trace} isSelected={!eventId || eventId === trace.id} />
-                <RecursiveTreeDisplay tree={tree} trace={trace} selectedEventId={eventId} />
+                <TraceLeaf topLevelTrace={trace} item={trace} isSelected={!eventId || eventId === trace.id} />
+                <li>
+                    <TreeNode tree={tree} trace={trace} selectedEventId={eventId} />
+                </li>
             </NestingGroup>
         </aside>
     )
 }
 
 function NestingGroup({ level = 0, children }: { level?: number; children: React.ReactNode }): JSX.Element {
-    const listEl = (
-        <ul className={!level ? 'hide-scrollbar overflow-y-auto p-1 first:*:mt-0 h-full' : 'flex-1'}>{children}</ul>
-    )
+    const listEl = <ul className={!level ? 'overflow-y-auto p-1 first:*:mt-0 h-full' : 'flex-1'}>{children}</ul>
 
     if (!level) {
         return listEl
@@ -190,68 +190,65 @@ function NestingGroup({ level = 0, children }: { level?: number; children: React
     )
 }
 
-const TraceNode = React.memo(
-    ({
-        topLevelTrace,
-        item,
-        isSelected,
-    }: {
-        topLevelTrace: LLMTrace
-        item: LLMTrace | LLMTraceEvent
-        isSelected: boolean
-    }): JSX.Element => {
-        const totalCost = 'properties' in item ? item.properties.$ai_total_cost_usd : item.totalCost
-        const latency = 'properties' in item ? item.properties.$ai_latency : item.totalLatency
-        const usage = formatLLMUsage(item)
+const TraceLeaf = React.memo(function TraceNode({
+    topLevelTrace,
+    item,
+    isSelected,
+}: {
+    topLevelTrace: LLMTrace
+    item: LLMTrace | LLMTraceEvent
+    isSelected: boolean
+}): JSX.Element {
+    const totalCost = 'properties' in item ? item.properties.$ai_total_cost_usd : item.totalCost
+    const latency = 'properties' in item ? item.properties.$ai_latency : item.totalLatency
+    const usage = formatLLMUsage(item)
 
-        const children = [
-            isLLMTraceEvent(item) && item.properties.$ai_is_error && (
-                <LemonTag key="error-tag" type="warning">
-                    Error
-                </LemonTag>
-            ),
-            latency >= 0.01 && (
-                <LemonTag key="latency-tag" type="muted">
-                    {formatLLMLatency(latency)}
-                </LemonTag>
-            ),
-            (usage != null || totalCost != null) && (
-                <span key="usage-tag">
-                    {usage}
-                    {usage != null && totalCost != null && <span>{' / '}</span>}
-                    {totalCost != null && formatLLMCost(totalCost)}
-                </span>
-            ),
-        ]
-        const hasChildren = children.find((child) => !!child)
+    const children = [
+        isLLMTraceEvent(item) && item.properties.$ai_is_error && (
+            <LemonTag key="error-tag" type="warning">
+                Error
+            </LemonTag>
+        ),
+        latency >= 0.01 && (
+            <LemonTag key="latency-tag" type="muted">
+                {formatLLMLatency(latency)}
+            </LemonTag>
+        ),
+        (usage != null || totalCost != null) && (
+            <span key="usage-tag">
+                {usage}
+                {usage != null && totalCost != null && <span>{' / '}</span>}
+                {totalCost != null && formatLLMCost(totalCost)}
+            </span>
+        ),
+    ]
+    const hasChildren = children.some((child) => !!child)
 
-        return (
-            <li key={item.id} className="mt-0.5">
-                <Link
-                    to={urls.llmObservabilityTrace(topLevelTrace.id, {
-                        event: item.id,
-                        timestamp: removeMilliseconds(topLevelTrace.createdAt),
-                    })}
-                    className={classNames(
-                        'flex flex-col gap-1 p-1 text-xs rounded min-h-8 justify-center hover:bg-accent-primary-highlight',
-                        isSelected && 'bg-accent-primary-highlight'
-                    )}
-                >
-                    <div className="flex flex-row items-center gap-1.5">
-                        <EventTypeTag event={item} size="small" />
-                        <span className="flex-1 truncate">{formatLLMEventTitle(item)}</span>
-                    </div>
-                    {hasChildren && (
-                        <div className="flex flex-row flex-wrap text-muted items-center gap-1.5">{children}</div>
-                    )}
-                </Link>
-            </li>
-        )
-    }
-)
-TraceNode.displayName = 'TraceNode'
+    return (
+        <li key={item.id} className="mt-0.5">
+            <Link
+                to={urls.llmObservabilityTrace(topLevelTrace.id, {
+                    event: item.id,
+                    timestamp: removeMilliseconds(topLevelTrace.createdAt),
+                })}
+                className={classNames(
+                    'flex flex-col gap-1 p-1 text-xs rounded min-h-8 justify-center hover:bg-accent-primary-highlight',
+                    isSelected && 'bg-accent-primary-highlight'
+                )}
+            >
+                <div className="flex flex-row items-center gap-1.5">
+                    <EventTypeTag event={item} size="small" />
+                    <span className="flex-1 truncate">{formatLLMEventTitle(item)}</span>
+                </div>
+                {hasChildren && (
+                    <div className="flex flex-row flex-wrap text-muted items-center gap-1.5">{children}</div>
+                )}
+            </Link>
+        </li>
+    )
+})
 
-function RecursiveTreeDisplay({
+function TreeNode({
     tree,
     trace,
     selectedEventId,
@@ -264,16 +261,16 @@ function RecursiveTreeDisplay({
         <NestingGroup level={1}>
             {tree.map(({ event, children }) => (
                 <React.Fragment key={event.id}>
-                    <TraceNode
+                    <TraceLeaf
                         topLevelTrace={trace}
                         item={event}
                         isSelected={!!selectedEventId && selectedEventId === event.id}
                     />
-                    <li>
-                        {children && (
-                            <RecursiveTreeDisplay tree={children} trace={trace} selectedEventId={selectedEventId} />
-                        )}
-                    </li>
+                    {children && (
+                        <li>
+                            <TreeNode tree={children} trace={trace} selectedEventId={selectedEventId} />
+                        </li>
+                    )}
                 </React.Fragment>
             ))}
         </NestingGroup>
@@ -304,7 +301,7 @@ function EventContentDisplay({
                 <div
                     className={cn(
                         'p-2 text-xs border rounded',
-                        !raisedError ? 'bg-[var(--bg-fill-success-tertiary)]' : 'bg-[var(--bg-fill-warning-tertiary)]'
+                        !raisedError ? 'bg-[var(--bg-fill-success-tertiary)]' : 'bg-[var(--bg-fill-error-tertiary)]'
                     )}
                 >
                     {isObject(output) ? (
@@ -320,7 +317,7 @@ function EventContentDisplay({
 
 function EventContent({ event }: { event: LLMTrace | LLMTraceEvent | null }): JSX.Element {
     return (
-        <div className="hide-scrollbar flex-1 bg-bg-light max-h-fit border rounded flex flex-col border-border p-4 overflow-y-auto">
+        <div className="flex-1 bg-bg-light max-h-fit border rounded flex flex-col border-border p-4 overflow-y-auto">
             {!event ? (
                 <InsightEmptyState heading="Event not found" detail="Check if the event ID is correct." />
             ) : (
@@ -334,7 +331,7 @@ function EventContent({ event }: { event: LLMTrace | LLMTraceEvent | null }): JS
                         </div>
                         {isLLMTraceEvent(event) ? (
                             <MetadataHeader
-                                hasError={event.properties.$ai_is_error}
+                                isError={event.properties.$ai_is_error}
                                 inputTokens={event.properties.$ai_input_tokens}
                                 outputTokens={event.properties.$ai_output_tokens}
                                 totalCostUsd={event.properties.$ai_total_cost_usd}

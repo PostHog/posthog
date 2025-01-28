@@ -11,19 +11,19 @@ export function MetadataHeader({
     model,
     latency,
     className,
-    hasError,
+    isError,
 }: {
     inputTokens?: number
     outputTokens?: number
     totalCostUsd?: number
     model?: string
     latency?: number
-    hasError?: boolean
+    isError?: boolean
     className?: string
 }): JSX.Element {
     return (
         <div className={classNames('flex flex-wrap gap-2', className)}>
-            {hasError && <LemonTag type="warning">Error</LemonTag>}
+            {isError && <LemonTag type="warning">Error</LemonTag>}
             {typeof latency === 'number' && (
                 <MetadataTag label="Latency">{`${Math.round(latency * 10e2) / 10e2} s of latency`}</MetadataTag>
             )}
