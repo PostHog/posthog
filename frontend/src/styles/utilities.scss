@@ -40,13 +40,13 @@
 
 @each $name, $hex in $colors {
     .hover\:text-#{$name}:hover {
-        color: $hex !important;
+        color: var(--#{$name}) !important;
     }
     .hover\:bg-#{$name}:hover {
-        background-color: $hex !important;
+        background-color: var(--#{$name}) !important;
     }
     .hover\:border-#{$name}:hover {
-        border-color: $hex !important;
+        border-color: var(--#{$name}) !important;
     }
 }
 
