@@ -39,9 +39,9 @@ function titleColumn(): LemonTableColumn<NotebookListItemType, 'title'> {
 }
 
 export function NotebooksTable(): JSX.Element {
-    const { notebooksAndTemplates, filters, notebooksResponseLoading, notebookTemplates, sortValue, pagination } =
+    const { notebooksAndTemplates, filters, notebooksResponseLoading, notebookTemplates, tableSorting, pagination } =
         useValues(notebooksTableLogic)
-    const { loadNotebooks, setFilters, setSortValue } = useActions(notebooksTableLogic)
+    const { loadNotebooks, setFilters, tableSortingChanged } = useActions(notebooksTableLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
 
     useEffect(() => {
@@ -132,13 +132,10 @@ export function NotebooksTable(): JSX.Element {
                 rowKey="short_id"
                 columns={columns}
                 loading={notebooksResponseLoading}
-                defaultSorting={{ columnKey: '-created_at', order: 1 }}
+                defaultSorting={tableSorting}
                 emptyState="No notebooks matching your filters!"
                 nouns={['notebook', 'notebooks']}
-                sorting={sortValue ? { columnKey: sortValue, order: sortValue.startsWith('-') ? -1 : 1 } : undefined}
-                onSort={(newSorting) =>
-                    setSortValue(newSorting ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}` : null)
-                }
+                onSort={tableSortingChanged}
             />
         </div>
     )

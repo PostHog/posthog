@@ -13,7 +13,7 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
-from .types import AIMessageUnion, AssistantMessageUnion
+from .types import AssistantMessageUnion
 
 
 def remove_line_breaks(line: str) -> str:
@@ -22,7 +22,7 @@ def remove_line_breaks(line: str) -> str:
 
 def filter_messages(
     messages: Sequence[AssistantMessageUnion],
-    entity_filter: Union[tuple[type[AIMessageUnion], ...], type[AIMessageUnion]] = (
+    entity_filter: Union[tuple[type[AssistantMessageUnion], ...], type[AssistantMessageUnion]] = (
         AssistantMessage,
         VisualizationMessage,
     ),

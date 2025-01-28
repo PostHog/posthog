@@ -289,6 +289,7 @@ def zendesk_source(
     endpoint: str,
     team_id: int,
     job_id: str,
+    db_incremental_field_last_value: Optional[Any],
     is_incremental: bool = False,
 ):
     config: RESTAPIConfig = {
@@ -312,7 +313,7 @@ def zendesk_source(
         "resources": [get_resource(endpoint, is_incremental)],
     }
 
-    yield from rest_api_resources(config, team_id, job_id)
+    yield from rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
 
 
 def validate_credentials(subdomain: str, api_key: str, email_address: str) -> bool:

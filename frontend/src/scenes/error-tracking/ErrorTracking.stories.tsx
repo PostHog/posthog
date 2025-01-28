@@ -5,7 +5,7 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 
 import { errorTrackingEventsQueryResponse, errorTrackingQueryResponse } from './__mocks__/error_tracking_query'
 

@@ -134,3 +134,7 @@ The action input you previously provided didn't pass the validation and raised a
 
 You must fix the exception and try again.
 """
+
+CORE_MEMORY_INSTRUCTIONS = """
+You have access to the core memory in the <core_memory> tag, which stores information about the user's company and product.
+""".strip()

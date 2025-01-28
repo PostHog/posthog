@@ -717,27 +717,31 @@ class TestProperty(BaseTest):
         action_mock = MagicMock()
         with patch("posthog.models.Action.objects.get", return_value=action_mock):
             entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_ACTIONS, "id": 123})
-            result = entity_to_expr(entity)
+            result = entity_to_expr(entity, self.team)
             self.assertIsInstance(result, ast.Expr)
 
     def test_entity_to_expr_events_type_with_id(self):
         entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_EVENTS, "id": "event_id"})
-        result = entity_to_expr(entity)
-        expected = ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["events", "event"]),
-            right=ast.Constant(value="event_id"),
+        result = entity_to_expr(entity, self.team)
+        expected = ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["events", "event"]),
+                    right=ast.Constant(value="event_id"),
+                )
+            ]
         )
         self.assertEqual(result, expected)
 
     def test_entity_to_expr_events_type_without_id(self):
         entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_EVENTS, "id": None})
-        result = entity_to_expr(entity)
+        result = entity_to_expr(entity, self.team)
         self.assertEqual(result, ast.Constant(value=True))
 
     def test_entity_to_expr_default_case(self):
         entity = RetentionEntity()
-        result = entity_to_expr(entity)
+        result = entity_to_expr(entity, self.team)
         self.assertEqual(result, ast.Constant(value=True))
 
     def test_session_duration(self):

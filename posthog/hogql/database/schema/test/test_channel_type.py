@@ -426,6 +426,74 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
             )
             == "Test2"
         )
+        # custom channel type using pathname
+        assert (
+            self._get_session_channel_type(
+                {
+                    "$current_url": "https://www.google.com/some/path",
+                },
+                custom_channel_rules=[
+                    CustomChannelRule(
+                        items=[CustomChannelCondition(key="pathname", op="exact", value="/some/path", id="1")],
+                        channel_type="Test",
+                        combiner=FilterLogicalOperator.AND_,
+                        id="a",
+                    ),
+                ],
+            )
+            == "Test"
+        )
+        # custom channel type using hostname
+        assert (
+            self._get_session_channel_type(
+                {
+                    "$current_url": "https://google.com/some/path",
+                },
+                custom_channel_rules=[
+                    CustomChannelRule(
+                        items=[CustomChannelCondition(key="hostname", op="exact", value="google.com", id="1")],
+                        channel_type="Test",
+                        combiner=FilterLogicalOperator.AND_,
+                        id="a",
+                    ),
+                ],
+            )
+            == "Test"
+        )
+        # custom channel type using hostname with port
+        assert (
+            self._get_session_channel_type(
+                {
+                    "$current_url": "https://google.com:3000/some/path",
+                },
+                custom_channel_rules=[
+                    CustomChannelRule(
+                        items=[CustomChannelCondition(key="hostname", op="exact", value="google.com", id="1")],
+                        channel_type="Test",
+                        combiner=FilterLogicalOperator.AND_,
+                        id="a",
+                    ),
+                ],
+            )
+            == "Test"
+        )
+        # custom channel type using url
+        assert (
+            self._get_session_channel_type(
+                {
+                    "$current_url": "https://www.google.com/some/path",
+                },
+                custom_channel_rules=[
+                    CustomChannelRule(
+                        items=[CustomChannelCondition(key="url", op="icontains", value="/some/path", id="1")],
+                        channel_type="Test",
+                        combiner=FilterLogicalOperator.AND_,
+                        id="a",
+                    ),
+                ],
+            )
+            == "Test"
+        )
 
     def _get_initial_channel_type_from_wild_clicks(self, url: str, referrer: str):
         session_id = str(uuid7())
@@ -631,6 +699,16 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
             self._get_initial_channel_type_from_wild_clicks(
                 "https://www.temu.com/uk/kuiper/un2.html?_p_rfs=1&subj=un-search1&_p_jump_id=831&_x_vst_scene=adg&search_key=.%20shoes&_x_ads_sub_channel=search&_x_ads_channel=bing&_x_ads_account=176202190&_x_ads_set=519193183&_x_ads_id=1316117718217619&_x_ads_creative_id=82257583982288&_x_ns_source=s&_x_ns_msclkid=0c97748ea8581c0fa51611f9afccba18&_x_ns_match_type=e&_x_ns_bid_match_type=be&_x_ns_query=shoes&_x_ns_keyword=.%20shoes&_x_ns_device=c&_x_ns_targetid=kwd-82258273368290%3Aloc-188&_x_ns_extensionid=&msclkid=0c97748ea8581c0fa51611f9afccba18&utm_source=bing&utm_medium=cpc&utm_campaign=0725_WJJ_UK_KW_web-app-purchase-offline%7Cweb-purchase-offline_UK%E9%AB%98%E8%8A%B1%E8%B4%B9%E8%AF%8D9533&utm_term=.%20shoes&utm_content=0725_WJJ-%E9%80%9A%E6%8A%95-UK_UK_%E7%BB%9F%E4%B8%80%E6%90%9C%E7%B4%A2%E9%A1%B5%20%E3%80%90%E7%9B%B4%E6%8E%A5%E6%8A%95%E6%94%BE%E7%94%A8%E3%80%91_webtoapp_EXACT_UK%E9%AB%98%E8%8A%B1%E8%B4%B9%E8%AF%8D4977&adg_ctx=f-939d4ecb",
                 "https://duckduckgo.com/",
+            ),
+        )
+
+    def test_fbclid_only(self):
+        # no reproduction, this just came from a support ticket, see https://posthoghelp.zendesk.com/agent/tickets/23328
+        self.assertEqual(
+            "Organic Social",
+            self._get_initial_channel_type_from_wild_clicks(
+                "https://xyz.com/?fbclid=ABC",
+                "",
             ),
         )
 

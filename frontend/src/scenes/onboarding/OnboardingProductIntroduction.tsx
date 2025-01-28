@@ -2,6 +2,7 @@ import { IconCheck, IconMap, IconMessage, IconStack } from '@posthog/icons'
 import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { WavingHog } from 'lib/components/hedgehogs'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import React from 'react'
 import { convertLargeNumberToWords } from 'scenes/billing/billing-utils'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
@@ -65,7 +66,7 @@ const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.E
                             setTeamPropertiesForProduct(product.type as ProductKey)
                             addProductIntent({
                                 product_type: product.type as ProductKey,
-                                intent_context: 'onboarding product selected',
+                                intent_context: ProductIntentContext.ONBOARDING_PRODUCT_SELECTED_PRIMARY,
                             })
                             goToNextStep()
                         }}
@@ -85,7 +86,7 @@ const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.E
                             setTeamPropertiesForProduct(product.type as ProductKey)
                             addProductIntent({
                                 product_type: product.type as ProductKey,
-                                intent_context: 'onboarding product selected',
+                                intent_context: ProductIntentContext.ONBOARDING_PRODUCT_SELECTED_SECONDARY,
                             })
                             completeOnboarding()
                         }}
@@ -100,7 +101,7 @@ const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.E
                                 setTeamPropertiesForProduct(product.type as ProductKey)
                                 addProductIntent({
                                     product_type: product.type as ProductKey,
-                                    intent_context: 'onboarding product selected',
+                                    intent_context: ProductIntentContext.ONBOARDING_PRODUCT_SELECTED_SECONDARY,
                                 })
                                 goToNextStep()
                             }}
@@ -195,7 +196,7 @@ export function OnboardingProductIntroduction({ stepKey }: { stepKey: Onboarding
     return (
         <OnboardingStep title="Product Intro" stepKey={stepKey} continueOverride={<></>} hideHeader>
             {billingProduct ? (
-                <div className="unsubscribed-product-landing-page -m-6 -mt-8">
+                <div className="unsubscribed-product-landing-page -m-scene-padding -mt-8">
                     <header className="bg-primary-alt-highlight border-b border-t border-border flex justify-center p-8">
                         <div className="grid md:grid-cols-2 items-center gap-8 w-full max-w-screen-xl">
                             <div className="">

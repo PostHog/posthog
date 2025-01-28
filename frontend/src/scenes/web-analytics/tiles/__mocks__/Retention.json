@@ -1,0 +1,188 @@
+{
+    "cache_key": "cache_aba8c07511e89a6429bd57b150a564af",
+    "cache_target_age": "2025-01-21T09:41:32.060989Z",
+    "calculation_trigger": null,
+    "error": null,
+    "hogql": "SELECT\n    [actor_activity.breakdown_values] AS breakdown_values,\n    actor_activity.intervals_from_base AS intervals_from_base,\n    count(DISTINCT actor_activity.actor_id) AS count\nFROM\n    (SELECT\n        events.person_id AS actor_id,\n        if(has(arraySort(groupUniqArrayIf(toStartOfWeek(events.timestamp, 3), and(equals(events.event, '$pageview'), and(greaterOrEquals(events.timestamp, toStartOfWeek(toDateTime('2024-12-02 00:00:00.000000'), 3)), lessOrEquals(events.timestamp, toDateTime('2025-01-27 00:00:00.000000')))))) AS _target_timestamps, toStartOfWeek(minIf(events.timestamp, equals(events.event, '$pageview')))), _target_timestamps, []) AS target_timestamps,\n        arraySort(groupUniqArrayIf(toStartOfWeek(events.timestamp, 3), equals(events.event, '$pageview'))) AS returning_timestamps,\n        arrayMap(x -> plus(toStartOfWeek(assumeNotNull(toDateTime('2024-12-02 00:00:00'))), toIntervalWeek(x)), range(0, 8)) AS date_range,\n        arrayJoin(arrayFilter(x -> greater(x, -1), arrayMap((_breakdown_value, breakdown_value_timestamp) -> if(equals(target_timestamps[1], breakdown_value_timestamp), minus(_breakdown_value, 1), -1), arrayEnumerate(date_range), date_range))) AS breakdown_values,\n        arrayJoin(arrayConcat(if(equals(target_timestamps[1], date_range[plus(breakdown_values, 1)]), [0], []), arrayFilter(x -> greater(x, 0), arrayMap(_timestamp -> minus(indexOf(arraySlice(date_range, plus(breakdown_values, 1)), _timestamp), 1), returning_timestamps)))) AS intervals_from_base\n    FROM\n        events\n    WHERE\n        in(event, tuple('$pageview', '$pageview'))\n    GROUP BY\n        actor_id) AS actor_activity\nGROUP BY\n    breakdown_values,\n    intervals_from_base\nORDER BY\n    breakdown_values ASC,\n    intervals_from_base ASC\nLIMIT 10000",
+    "is_cached": true,
+    "last_refresh": "2025-01-20T21:41:32.060989Z",
+    "modifiers": {
+        "bounceRateDurationSeconds": null,
+        "bounceRatePageViewMode": "uniq_page_screen_autocaptures",
+        "customChannelTypeRules": [],
+        "dataWarehouseEventsModifiers": null,
+        "debug": null,
+        "inCohortVia": "auto",
+        "materializationMode": "legacy_null_as_null",
+        "optimizeJoinedFilters": false,
+        "personsArgMaxVersion": "auto",
+        "personsJoinMode": null,
+        "personsOnEventsMode": "person_id_override_properties_on_events",
+        "propertyGroupsMode": "optimized",
+        "s3TableUseInvalidColumns": null,
+        "sessionTableVersion": "auto",
+        "useMaterializedViews": true
+    },
+    "next_allowed_client_refresh": "2025-01-20T21:56:32.060989Z",
+    "query_status": null,
+    "results": [
+        {
+            "date": "2024-12-02T00:00:00-08:00",
+            "label": "Week 0",
+            "values": [
+                {
+                    "count": 52839
+                },
+                {
+                    "count": 2501
+                },
+                {
+                    "count": 1610
+                },
+                {
+                    "count": 859
+                },
+                {
+                    "count": 845
+                },
+                {
+                    "count": 1135
+                },
+                {
+                    "count": 1081
+                },
+                {
+                    "count": 287
+                }
+            ]
+        },
+        {
+            "date": "2024-12-09T00:00:00-08:00",
+            "label": "Week 1",
+            "values": [
+                {
+                    "count": 51654
+                },
+                {
+                    "count": 2449
+                },
+                {
+                    "count": 1044
+                },
+                {
+                    "count": 1015
+                },
+                {
+                    "count": 1304
+                },
+                {
+                    "count": 1193
+                },
+                {
+                    "count": 304
+                }
+            ]
+        },
+        {
+            "date": "2024-12-16T00:00:00-08:00",
+            "label": "Week 2",
+            "values": [
+                {
+                    "count": 46686
+                },
+                {
+                    "count": 1557
+                },
+                {
+                    "count": 1205
+                },
+                {
+                    "count": 1453
+                },
+                {
+                    "count": 1251
+                },
+                {
+                    "count": 338
+                }
+            ]
+        },
+        {
+            "date": "2024-12-23T00:00:00-08:00",
+            "label": "Week 3",
+            "values": [
+                {
+                    "count": 36137
+                },
+                {
+                    "count": 1208
+                },
+                {
+                    "count": 887
+                },
+                {
+                    "count": 704
+                },
+                {
+                    "count": 173
+                }
+            ]
+        },
+        {
+            "date": "2024-12-30T00:00:00-08:00",
+            "label": "Week 4",
+            "values": [
+                {
+                    "count": 38690
+                },
+                {
+                    "count": 1751
+                },
+                {
+                    "count": 1083
+                },
+                {
+                    "count": 264
+                }
+            ]
+        },
+        {
+            "date": "2025-01-06T00:00:00-08:00",
+            "label": "Week 5",
+            "values": [
+                {
+                    "count": 54805
+                },
+                {
+                    "count": 2665
+                },
+                {
+                    "count": 543
+                }
+            ]
+        },
+        {
+            "date": "2025-01-13T00:00:00-08:00",
+            "label": "Week 6",
+            "values": [
+                {
+                    "count": 58006
+                },
+                {
+                    "count": 1008
+                }
+            ]
+        },
+        {
+            "date": "2025-01-20T00:00:00-08:00",
+            "label": "Week 7",
+            "values": [
+                {
+                    "count": 6656
+                }
+            ]
+        }
+    ],
+    "timezone": "US/Pacific",
+    "timings": []
+}

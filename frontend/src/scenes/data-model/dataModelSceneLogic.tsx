@@ -30,6 +30,10 @@ export const dataModelSceneLogic = kea<dataModelSceneLogicType>([
         traverseAncestors: async ({ viewId, level }) => {
             const result = await api.dataWarehouseSavedQueries.ancestors(viewId, level)
 
+            if (!values.nodeMap[viewId]?.savedQueryId) {
+                return
+            }
+
             result.ancestors.forEach((ancestor) => {
                 actions.setNodes({
                     ...values.nodeMap,

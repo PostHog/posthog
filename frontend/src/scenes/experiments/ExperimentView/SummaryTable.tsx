@@ -1,5 +1,5 @@
 import { IconInfo, IconRewindPlay } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
@@ -8,26 +8,33 @@ import { humanFriendlyNumber } from 'lib/utils'
 import posthog from 'posthog-js'
 import { urls } from 'scenes/urls'
 
+import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema'
 import {
     FilterLogicalOperator,
-    FunnelExperimentVariant,
     InsightType,
-    PropertyFilterType,
-    PropertyOperator,
     RecordingUniversalFilters,
     ReplayTabs,
     TrendExperimentVariant,
-    UniversalFiltersGroupValue,
 } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
+import { getViewRecordingFilters } from '../utils'
 import { VariantTag } from './components'
 
-export function SummaryTable(): JSX.Element {
+export function SummaryTable({
+    metric,
+    metricIndex = 0,
+    isSecondary = false,
+}: {
+    metric: ExperimentTrendsQuery | ExperimentFunnelsQuery
+    metricIndex?: number
+    isSecondary?: boolean
+}): JSX.Element {
     const {
         experimentId,
         experiment,
-        experimentResults,
+        metricResults,
+        secondaryMetricResults,
         tabularExperimentResults,
         getMetricType,
         exposureCountDataForVariant,
@@ -37,15 +44,15 @@ export function SummaryTable(): JSX.Element {
         getHighestProbabilityVariant,
         credibleIntervalForVariant,
     } = useValues(experimentLogic)
-    const metricType = getMetricType(0)
-
-    if (!experimentResults) {
+    const metricType = getMetricType(metric)
+    const result = isSecondary ? secondaryMetricResults?.[metricIndex] : metricResults?.[metricIndex]
+    if (!result) {
         return <></>
     }
 
-    const winningVariant = getHighestProbabilityVariant(experimentResults)
+    const winningVariant = getHighestProbabilityVariant(result)
 
-    const columns: LemonTableColumns<TrendExperimentVariant | FunnelExperimentVariant> = [
+    const columns: LemonTableColumns<any> = [
         {
             key: 'variants',
             title: 'Variant',
@@ -64,14 +71,14 @@ export function SummaryTable(): JSX.Element {
             key: 'counts',
             title: (
                 <div className="flex">
-                    {experimentResults.insight?.[0] && 'action' in experimentResults.insight[0] && (
-                        <EntityFilterInfo filter={experimentResults.insight[0].action} />
+                    {result.insight?.[0] && 'action' in result.insight[0] && (
+                        <EntityFilterInfo filter={result.insight[0].action} />
                     )}
                     <span className="pl-1">{experimentMathAggregationForTrends() ? 'metric' : 'count'}</span>
                 </div>
             ),
             render: function Key(_, variant): JSX.Element {
-                const count = countDataForVariant(experimentResults, variant.key)
+                const count = countDataForVariant(result, variant.key)
                 if (!count) {
                     return <>—</>
                 }
@@ -81,9 +88,24 @@ export function SummaryTable(): JSX.Element {
         })
         columns.push({
             key: 'exposure',
-            title: 'Exposure',
+            title: (
+                <div className="inline-flex items-center space-x-1">
+                    <div className="">Exposure</div>
+                    <Tooltip
+                        title={
+                            <div>
+                                The number of users who were exposed to this variant. By default, this is measured by
+                                the count of <LemonTag type="option">$feature_flag_called</LemonTag> events per unique
+                                user. Check your metric settings to confirm how this is measured.
+                            </div>
+                        }
+                    >
+                        <IconInfo className="text-muted-alt text-base" />
+                    </Tooltip>
+                </div>
+            ),
             render: function Key(_, variant): JSX.Element {
-                const exposure = exposureCountDataForVariant(experimentResults, variant.key)
+                const exposure = exposureCountDataForVariant(result, variant.key)
                 if (!exposure) {
                     return <>—</>
                 }
@@ -120,7 +142,7 @@ export function SummaryTable(): JSX.Element {
                     return <em>Baseline</em>
                 }
 
-                const controlVariant = (experimentResults.variants as TrendExperimentVariant[]).find(
+                const controlVariant = (result.variants as TrendExperimentVariant[]).find(
                     ({ key }) => key === 'control'
                 ) as TrendExperimentVariant
 
@@ -161,7 +183,7 @@ export function SummaryTable(): JSX.Element {
                     return <em>Baseline</em>
                 }
 
-                const credibleInterval = credibleIntervalForVariant(experimentResults || null, variant.key, metricType)
+                const credibleInterval = credibleIntervalForVariant(result || null, variant.key, metricType)
                 if (!credibleInterval) {
                     return <>—</>
                 }
@@ -181,7 +203,7 @@ export function SummaryTable(): JSX.Element {
             key: 'conversionRate',
             title: 'Conversion rate',
             render: function Key(_, item): JSX.Element {
-                const conversionRate = conversionRateForVariant(experimentResults, item.key)
+                const conversionRate = conversionRateForVariant(result, item.key)
                 if (!conversionRate) {
                     return <>—</>
                 }
@@ -204,8 +226,8 @@ export function SummaryTable(): JSX.Element {
                         return <em>Baseline</em>
                     }
 
-                    const controlConversionRate = conversionRateForVariant(experimentResults, 'control')
-                    const variantConversionRate = conversionRateForVariant(experimentResults, item.key)
+                    const controlConversionRate = conversionRateForVariant(result, 'control')
+                    const variantConversionRate = conversionRateForVariant(result, item.key)
 
                     if (!controlConversionRate || !variantConversionRate) {
                         return <>—</>
@@ -235,7 +257,7 @@ export function SummaryTable(): JSX.Element {
                         return <em>Baseline</em>
                     }
 
-                    const credibleInterval = credibleIntervalForVariant(experimentResults || null, item.key, metricType)
+                    const credibleInterval = credibleIntervalForVariant(result || null, item.key, metricType)
                     if (!credibleInterval) {
                         return <>—</>
                     }
@@ -254,15 +276,13 @@ export function SummaryTable(): JSX.Element {
         key: 'winProbability',
         title: 'Win probability',
         sorter: (a, b) => {
-            const aPercentage = (experimentResults?.probability?.[a.key] || 0) * 100
-            const bPercentage = (experimentResults?.probability?.[b.key] || 0) * 100
+            const aPercentage = (result?.probability?.[a.key] || 0) * 100
+            const bPercentage = (result?.probability?.[b.key] || 0) * 100
             return aPercentage - bPercentage
         },
         render: function Key(_, item): JSX.Element {
             const variantKey = item.key
-            const percentage =
-                experimentResults?.probability?.[variantKey] != undefined &&
-                experimentResults.probability?.[variantKey] * 100
+            const percentage = result?.probability?.[variantKey] != undefined && result.probability?.[variantKey] * 100
             const isWinning = variantKey === winningVariant
 
             return (
@@ -287,47 +307,16 @@ export function SummaryTable(): JSX.Element {
         title: '',
         render: function Key(_, item): JSX.Element {
             const variantKey = item.key
+
+            const filters = getViewRecordingFilters(metric, experiment.feature_flag_key, variantKey)
             return (
                 <LemonButton
                     size="xsmall"
                     icon={<IconRewindPlay />}
                     tooltip="Watch recordings of people who were exposed to this variant."
+                    disabledReason={filters.length === 0 ? 'Unable to identify recordings for this metric' : undefined}
                     type="secondary"
                     onClick={() => {
-                        const filters: UniversalFiltersGroupValue[] = [
-                            {
-                                id: '$feature_flag_called',
-                                name: '$feature_flag_called',
-                                type: 'events',
-                                properties: [
-                                    {
-                                        key: `$feature/${experiment.feature_flag_key}`,
-                                        type: PropertyFilterType.Event,
-                                        value: [variantKey],
-                                        operator: PropertyOperator.Exact,
-                                    },
-                                    {
-                                        key: `$feature/${experiment.feature_flag_key}`,
-                                        type: PropertyFilterType.Event,
-                                        value: 'is_set',
-                                        operator: PropertyOperator.IsSet,
-                                    },
-                                    {
-                                        key: '$feature_flag',
-                                        type: PropertyFilterType.Event,
-                                        value: experiment.feature_flag_key,
-                                        operator: PropertyOperator.Exact,
-                                    },
-                                ],
-                            },
-                        ]
-                        if (experiment.filters.insight === InsightType.FUNNELS) {
-                            if (experiment.filters?.events?.[0]) {
-                                filters.push(experiment.filters.events[0])
-                            } else if (experiment.filters?.actions?.[0]) {
-                                filters.push(experiment.filters.actions[0])
-                            }
-                        }
                         const filterGroup: Partial<RecordingUniversalFilters> = {
                             filter_group: {
                                 type: FilterLogicalOperator.And,
@@ -351,7 +340,7 @@ export function SummaryTable(): JSX.Element {
 
     return (
         <div className="mb-4">
-            <LemonTable loading={false} columns={columns} dataSource={tabularExperimentResults} />
+            <LemonTable loading={false} columns={columns} dataSource={tabularExperimentResults(0)} />
         </div>
     )
 }

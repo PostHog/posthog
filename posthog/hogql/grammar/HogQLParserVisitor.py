@@ -444,6 +444,11 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by HogQLParser#ColumnExprIntervalString.
+    def visitColumnExprIntervalString(self, ctx:HogQLParser.ColumnExprIntervalStringContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by HogQLParser#ColumnExprTrim.
     def visitColumnExprTrim(self, ctx:HogQLParser.ColumnExprTrimContext):
         return self.visitChildren(ctx)
@@ -556,6 +561,11 @@ class HogQLParserVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by HogQLParser#columnLambdaExpr.
     def visitColumnLambdaExpr(self, ctx:HogQLParser.ColumnLambdaExprContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#hogqlxChildElement.
+    def visitHogqlxChildElement(self, ctx:HogQLParser.HogqlxChildElementContext):
         return self.visitChildren(ctx)
 
 

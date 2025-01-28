@@ -1,12 +1,14 @@
 import 'react-data-grid/lib/styles.css'
 
 import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
+import { LemonButton, LemonTabs, Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useMemo } from 'react'
 import DataGrid from 'react-data-grid'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
@@ -32,29 +34,51 @@ import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogi
 import { multitabEditorLogic } from './multitabEditorLogic'
 import { outputPaneLogic, OutputTab } from './outputPaneLogic'
 import { InfoTab } from './OutputPaneTabs/InfoTab'
+import { LineageTab } from './OutputPaneTabs/lineageTab'
+import { lineageTabLogic } from './OutputPaneTabs/lineageTabLogic'
 
 export function OutputPane(): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
     const { variablesForInsight } = useValues(variablesLogic)
 
-    const { editingView, sourceQuery, exportContext, isValidView, error, editorKey } = useValues(multitabEditorLogic)
+    const { editingView, sourceQuery, exportContext, isValidView, error, editorKey, metadataLoading } =
+        useValues(multitabEditorLogic)
     const { saveAsInsight, saveAsView, setSourceQuery, runQuery } = useActions(multitabEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const { response, responseLoading, responseError, queryId, pollResponse } = useValues(dataNodeLogic)
-    const { dataWarehouseSavedQueriesLoading } = useValues(dataWarehouseViewsLogic)
+    const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
     const { updateDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
     const { visualizationType, queryCancelled } = useValues(dataVisualizationLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const vizKey = useMemo(() => `SQLEditorScene`, [])
 
     const columns = useMemo(() => {
+        const types = response?.types
+
         return (
-            response?.columns?.map((column: string) => ({
-                key: column,
-                name: column,
-                resizable: true,
-            })) ?? []
+            response?.columns?.map((column: string, index: number) => {
+                const type = types?.[index]?.[1]
+
+                // Hack to get bools to render in the data grid
+                if (type && type.indexOf('Bool') !== -1) {
+                    return {
+                        key: column,
+                        name: column,
+                        resizable: true,
+                        renderCell: (props: any) => {
+                            return props.row[column].toString()
+                        },
+                    }
+                }
+
+                return {
+                    key: column,
+                    name: column,
+                    resizable: true,
+                }
+            }) ?? []
         )
     }, [response])
 
@@ -91,10 +115,26 @@ export function OutputPane(): JSX.Element {
                             key: OutputTab.Visualization,
                             label: 'Visualization',
                         },
-                        {
-                            key: OutputTab.Info,
-                            label: 'Info',
-                        },
+                        ...(featureFlags[FEATURE_FLAGS.DATA_MODELING]
+                            ? [
+                                  {
+                                      key: OutputTab.Info,
+                                      label: (
+                                          <span className="flex flex-row items-center gap-2">
+                                              Info {metadataLoading ? <Spinner /> : null}
+                                          </span>
+                                      ),
+                                  },
+                                  {
+                                      key: OutputTab.Lineage,
+                                      label: (
+                                          <span className="flex flex-row items-center gap-2">
+                                              Lineage {metadataLoading ? <Spinner /> : null}
+                                          </span>
+                                      ),
+                                  },
+                              ]
+                            : []),
                     ]}
                 />
                 <div className="flex gap-4">
@@ -123,7 +163,7 @@ export function OutputPane(): JSX.Element {
                     {editingView ? (
                         <>
                             <LemonButton
-                                loading={dataWarehouseSavedQueriesLoading}
+                                loading={updatingDataWarehouseSavedQuery}
                                 type="secondary"
                                 onClick={() =>
                                     updateDataWarehouseSavedQuery({
@@ -157,24 +197,26 @@ export function OutputPane(): JSX.Element {
                 </div>
             </div>
             <div className="flex flex-1 relative bg-dark">
-                <Content
-                    activeTab={activeTab}
-                    responseError={responseError}
-                    responseLoading={responseLoading}
-                    response={response}
-                    sourceQuery={sourceQuery}
-                    queryCancelled={queryCancelled}
-                    columns={columns}
-                    rows={rows}
-                    isDarkModeOn={isDarkModeOn}
-                    vizKey={vizKey}
-                    setSourceQuery={setSourceQuery}
-                    exportContext={exportContext}
-                    saveAsInsight={saveAsInsight}
-                    queryId={queryId}
-                    pollResponse={pollResponse}
-                    editorKey={editorKey}
-                />
+                <BindLogic logic={lineageTabLogic} props={{ codeEditorKey: editorKey }}>
+                    <Content
+                        activeTab={activeTab}
+                        responseError={responseError}
+                        responseLoading={responseLoading}
+                        response={response}
+                        sourceQuery={sourceQuery}
+                        queryCancelled={queryCancelled}
+                        columns={columns}
+                        rows={rows}
+                        isDarkModeOn={isDarkModeOn}
+                        vizKey={vizKey}
+                        setSourceQuery={setSourceQuery}
+                        exportContext={exportContext}
+                        saveAsInsight={saveAsInsight}
+                        queryId={queryId}
+                        pollResponse={pollResponse}
+                        editorKey={editorKey}
+                    />
+                </BindLogic>
             </div>
             <div className="flex justify-end pr-2 border-t">
                 <ElapsedTime />
@@ -368,6 +410,10 @@ const Content = ({
                 <InfoTab codeEditorKey={editorKey} />
             </div>
         )
+    }
+
+    if (activeTab === OutputTab.Lineage) {
+        return <LineageTab />
     }
 
     return null

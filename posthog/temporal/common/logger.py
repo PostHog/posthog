@@ -1,24 +1,36 @@
 import asyncio
-from contextvars import copy_context
 import json
 import logging
+import queue as sync_queue
 import ssl
 import threading
 import uuid
-from kafka import KafkaProducer
-import queue as sync_queue
+from contextvars import copy_context
 
 import aiokafka
 import structlog
 import temporalio.activity
 import temporalio.workflow
 from django.conf import settings
+from kafka import KafkaProducer
 from structlog.processors import EventRenamer
 from structlog.typing import FilteringBoundLogger
 
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 
 BACKGROUND_LOGGER_TASKS = set()
+
+
+def get_internal_logger():
+    """Return a logger for internal use, where logs do not get sent to Kafka.
+
+    We attach the temporal context to the logger for easier debugging (for
+    example, we can track things like the workflow id across log entries).
+    """
+    logger = structlog.get_logger()
+    temporal_context = get_temporal_context()
+
+    return logger.new(**temporal_context)
 
 
 async def bind_temporal_worker_logger(team_id: int, destination: str | None = None) -> FilteringBoundLogger:

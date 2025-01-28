@@ -214,3 +214,38 @@ async def test_finish_batch_export_run_never_pauses_with_small_check_window(acti
     await sync_to_async(batch_export.refresh_from_db)()
 
     assert batch_export.paused is False
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_finish_batch_export_run_handles_nul_bytes(activity_environment, team, batch_export):
+    """Test if 'finish_batch_export_run' will not fail in the prescence of a NUL byte."""
+    start = dt.datetime(2023, 4, 24, tzinfo=dt.UTC)
+    end = dt.datetime(2023, 4, 25, tzinfo=dt.UTC)
+
+    inputs = StartBatchExportRunInputs(
+        team_id=team.id,
+        batch_export_id=str(batch_export.id),
+        data_interval_start=start.isoformat(),
+        data_interval_end=end.isoformat(),
+    )
+
+    batch_export_id = str(batch_export.id)
+
+    run_id = await activity_environment.run(start_batch_export_run, inputs)
+
+    finish_inputs = FinishBatchExportRunInputs(
+        id=str(run_id),
+        batch_export_id=batch_export_id,
+        status=BatchExportRun.Status.FAILED,
+        team_id=inputs.team_id,
+        latest_error="Oh No a NUL byte: \x00!",
+    )
+
+    await activity_environment.run(finish_batch_export_run, finish_inputs)
+
+    runs = BatchExportRun.objects.filter(id=run_id)
+    run = await sync_to_async(runs.first)()
+    assert run is not None
+    assert run.status == "Failed"
+    assert run.latest_error == "Oh No a NUL byte: !"

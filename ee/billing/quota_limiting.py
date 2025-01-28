@@ -68,6 +68,12 @@ def add_limited_team_tokens(resource: QuotaResource, tokens: Mapping[str, int], 
 
 
 def remove_limited_team_tokens(resource: QuotaResource, tokens: list[str], cache_key: QuotaLimitingCaches) -> None:
+    # This check exists because the * unpacking operator
+    # doesn't return anything with an empty list,
+    # so zrem only receives one argument and it fails.
+    if not tokens:
+        return
+
     redis_client = get_client()
     redis_client.zrem(f"{cache_key.value}{resource.value}", *tokens)
 
@@ -264,12 +270,11 @@ def sync_org_quota_limits(organization: Organization):
             remove_limited_team_tokens(resource, team_attributes, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY)
 
 
-def get_team_attribute_by_quota_resource(organization: Organization):
+def get_team_attribute_by_quota_resource(organization: Organization) -> list[str]:
     team_tokens: list[str] = [x for x in list(organization.teams.values_list("api_token", flat=True)) if x]
 
     if not team_tokens:
         capture_exception(Exception(f"quota_limiting: No team tokens found for organization: {organization.id}"))
-        return
 
     return team_tokens
 

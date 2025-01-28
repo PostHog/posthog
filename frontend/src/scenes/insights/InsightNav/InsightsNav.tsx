@@ -26,7 +26,13 @@ export function InsightsNav(): JSX.Element {
                     key: type,
                     label: (
                         <Link to={insightTypeURL[type]} preventClick data-attr={dataAttr}>
-                            <Tooltip placement="top" title={INSIGHT_TYPES_METADATA[type].description}>
+                            <Tooltip
+                                placement="top"
+                                title={
+                                    INSIGHT_TYPES_METADATA[type].tooltipDescription ||
+                                    INSIGHT_TYPES_METADATA[type].description
+                                }
+                            >
                                 <span>{label}</span>
                             </Tooltip>
                         </Link>

@@ -5,6 +5,8 @@ from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQuery
 from posthog.models.team import WeekStartDay
 from posthog.models.utils import UUIDT
 from posthog.schema import (
+    BreakdownFilter,
+    DashboardFilter,
     DateRange,
     IntervalType,
     LifecycleQuery,
@@ -616,6 +618,17 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             for timestamp in timestamps:
                 _create_event(team=self.team, event=event, distinct_id=id, timestamp=timestamp)
         return person_result
+
+    def _create_personless_events(self, data, event="$pageview"):
+        for id, timestamps in data:
+            for timestamp in timestamps:
+                _create_event(
+                    team=self.team,
+                    event=event,
+                    distinct_id=id,
+                    timestamp=timestamp,
+                    properties={"$process_person_profile": False},
+                )
 
     def _create_test_events(self):
         self._create_events(
@@ -1839,6 +1852,67 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ).calculate()
         counts = [r["count"] for r in response.results]
         assert counts == [0, 2, 3, -3]
+
+    def test_excludes_personless_events(self):
+        self._create_events(
+            data=[
+                (
+                    "p1",
+                    [
+                        "2020-01-11T12:00:00Z",
+                        "2020-01-12T12:00:00Z",
+                        "2020-01-13T12:00:00Z",
+                        "2020-01-14T12:00:00Z",
+                    ],
+                ),
+                ("p2", ["2020-01-11T12:00:00Z", "2020-01-12T12:00:00Z"]),
+            ]
+        )
+        self._create_personless_events(
+            data=[
+                (
+                    "p3",
+                    [
+                        "2020-01-11T12:00:00Z",
+                        "2020-01-12T12:00:00Z",
+                        "2020-01-13T12:00:00Z",
+                        "2020-01-14T12:00:00Z",
+                    ],
+                ),
+                ("p4", ["2020-01-11T12:00:00Z", "2020-01-12T12:00:00Z"]),
+            ]
+        )
+        flush_persons_and_events()
+
+        response = LifecycleQueryRunner(
+            team=self.team,
+            query=LifecycleQuery(
+                dateRange=DateRange(date_from="2020-01-11T00:00:00Z", date_to="2020-01-14T00:00:00Z"),
+                interval=IntervalType.DAY,
+                series=[EventsNode(event="$pageview")],
+            ),
+        ).calculate()
+        assert response.results[0]["data"] == [2, 0, 0, 0]  # new
+        assert response.results[2]["data"] == [0, 0, 0, 0]  # resurrecting
+
+    def test_dashboard_breakdown_filter_does_not_update_breakdown_filter(self):
+        query_runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+        )
+
+        assert not hasattr(query_runner.query, "breakdownFilter")
+
+        query_runner.apply_dashboard_filters(
+            DashboardFilter(
+                breakdown_filter=BreakdownFilter(
+                    breakdown="$feature/my-fabulous-feature", breakdown_type="event", breakdown_limit=10
+                )
+            )
+        )
+
+        assert not hasattr(query_runner.query, "breakdownFilter")
 
 
 def assertLifecycleResults(results, expected):

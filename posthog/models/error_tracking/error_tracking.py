@@ -4,6 +4,7 @@ from django.contrib.postgres.fields import ArrayField
 from posthog.models.utils import UUIDModel
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.models.user_group import UserGroup
 from posthog.models.error_tracking.sql import INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES
 
 from posthog.kafka_client.client import ClickhouseProducer
@@ -50,12 +51,10 @@ class ErrorTrackingIssue(UUIDModel):
 
 
 class ErrorTrackingIssueAssignment(UUIDModel):
-    issue = models.ForeignKey(ErrorTrackingIssue, on_delete=models.CASCADE)
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    issue = models.OneToOneField(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="assignment")
+    user = models.ForeignKey(User, null=True, on_delete=models.CASCADE)
+    user_group = models.ForeignKey(UserGroup, null=True, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        constraints = [models.UniqueConstraint(fields=["issue", "user"], name="unique_on_user_and_issue")]
 
 
 class ErrorTrackingIssueFingerprintV2(UUIDModel):

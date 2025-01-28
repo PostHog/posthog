@@ -23,7 +23,7 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
 
     actions({
         mergeIssues: (ids: string[]) => ({ ids }),
-        assignIssue: (id: string, assigneeId: number | null) => ({ id, assigneeId }),
+        assignIssue: (id: string, assignee: ErrorTrackingIssue['assignee']) => ({ id, assignee }),
     }),
 
     listeners(({ values, actions }) => ({
@@ -42,7 +42,7 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
                     ...values.response,
                     results: results
                         // remove merged issues
-                        .filter(({ id }) => !ids.includes(id))
+                        .filter(({ id }) => !mergingIds.includes(id))
                         .map((issue) =>
                             // replace primary issue
                             mergedIssue.id === issue.id ? mergedIssue : issue
@@ -52,18 +52,17 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
                 actions.loadData(true)
             }
         },
-        assignIssue: async ({ id, assigneeId }) => {
+        assignIssue: async ({ id, assignee }) => {
             const response = values.response
             if (response) {
-                const params = { assignee: assigneeId }
                 const results = response.results as ErrorTrackingIssue[]
                 const recordIndex = results.findIndex((r) => r.id === id)
                 if (recordIndex > -1) {
-                    const issue = { ...results[recordIndex], ...params }
+                    const issue = { ...results[recordIndex], assignee }
                     results.splice(recordIndex, 1, issue)
                     // optimistically update local results
                     actions.setResponse({ ...response, results: results })
-                    await api.errorTracking.updateIssue(issue.id, params)
+                    await api.errorTracking.assignIssue(issue.id, assignee)
                     actions.loadData(true)
                 }
             }

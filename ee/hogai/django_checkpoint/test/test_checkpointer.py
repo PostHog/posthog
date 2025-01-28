@@ -1,6 +1,7 @@
 # type: ignore
 
-from typing import Any, TypedDict
+import operator
+from typing import Annotated, Any, Optional, TypedDict
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import (
@@ -13,6 +14,7 @@ from langgraph.checkpoint.base.id import uuid6
 from langgraph.errors import NodeInterrupt
 from langgraph.graph import END, START
 from langgraph.graph.state import CompiledStateGraph, StateGraph
+from pydantic import BaseModel, Field
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.models.assistant import (
@@ -272,3 +274,152 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
         self.assertEqual(res, {"val": 3})
         snapshot = graph.get_state(config)
         self.assertFalse(snapshot.next)
+
+    def test_checkpoint_blobs_are_bound_to_thread(self):
+        class State(TypedDict, total=False):
+            messages: Annotated[list[str], operator.add]
+            string: Optional[str]
+
+        graph = StateGraph(State)
+
+        def handle_node1(state: State):
+            return
+
+        def handle_node2(state: State):
+            raise NodeInterrupt("test")
+
+        graph.add_node("node1", handle_node1)
+        graph.add_node("node2", handle_node2)
+
+        graph.add_edge(START, "node1")
+        graph.add_edge("node1", "node2")
+        graph.add_edge("node2", END)
+
+        compiled = graph.compile(checkpointer=DjangoCheckpointer())
+
+        thread = Conversation.objects.create(user=self.user, team=self.team)
+        config = {"configurable": {"thread_id": str(thread.id)}}
+        compiled.invoke({"messages": ["hello"], "string": "world"}, config=config)
+
+        snapshot = compiled.get_state(config)
+        self.assertIsNotNone(snapshot.next)
+        self.assertEqual(snapshot.tasks[0].interrupts[0].value, "test")
+        saved_state = snapshot.values
+        self.assertEqual(saved_state["messages"], ["hello"])
+        self.assertEqual(saved_state["string"], "world")
+
+    def test_checkpoint_can_save_and_load_pydantic_state(self):
+        class State(BaseModel):
+            messages: Annotated[list[str], operator.add]
+            string: Optional[str]
+
+        class PartialState(BaseModel):
+            messages: Optional[list[str]] = Field(default=None)
+            string: Optional[str] = Field(default=None)
+
+        graph = StateGraph(State)
+
+        def handle_node1(state: State):
+            return PartialState()
+
+        def handle_node2(state: State):
+            raise NodeInterrupt("test")
+
+        graph.add_node("node1", handle_node1)
+        graph.add_node("node2", handle_node2)
+
+        graph.add_edge(START, "node1")
+        graph.add_edge("node1", "node2")
+        graph.add_edge("node2", END)
+
+        compiled = graph.compile(checkpointer=DjangoCheckpointer())
+
+        thread = Conversation.objects.create(user=self.user, team=self.team)
+        config = {"configurable": {"thread_id": str(thread.id)}}
+        compiled.invoke({"messages": ["hello"], "string": "world"}, config=config)
+
+        snapshot = compiled.get_state(config)
+        self.assertIsNotNone(snapshot.next)
+        self.assertEqual(snapshot.tasks[0].interrupts[0].value, "test")
+        saved_state = snapshot.values
+        self.assertEqual(saved_state["messages"], ["hello"])
+        self.assertEqual(saved_state["string"], "world")
+
+    def test_saved_blobs(self):
+        class State(TypedDict, total=False):
+            messages: Annotated[list[str], operator.add]
+
+        graph = StateGraph(State)
+
+        def handle_node1(state: State):
+            return {"messages": ["world"]}
+
+        graph.add_node("node1", handle_node1)
+
+        graph.add_edge(START, "node1")
+        graph.add_edge("node1", END)
+
+        checkpointer = DjangoCheckpointer()
+        compiled = graph.compile(checkpointer=checkpointer)
+
+        thread = Conversation.objects.create(user=self.user, team=self.team)
+        config = {"configurable": {"thread_id": str(thread.id)}}
+        compiled.invoke({"messages": ["hello"]}, config=config)
+
+        snapshot = compiled.get_state(config)
+        self.assertFalse(snapshot.next)
+        saved_state = snapshot.values
+        self.assertEqual(saved_state["messages"], ["hello", "world"])
+
+        blobs = list(ConversationCheckpointBlob.objects.filter(thread=thread))
+        self.assertEqual(len(blobs), 7)
+
+        # Set initial state
+        self.assertEqual(blobs[0].channel, "__start__")
+        self.assertEqual(blobs[0].type, "msgpack")
+        self.assertEqual(
+            checkpointer.serde.loads_typed((blobs[0].type, blobs[0].blob)),
+            {"messages": ["hello"]},
+        )
+
+        # Set first node
+        self.assertEqual(blobs[1].channel, "__start__")
+        self.assertEqual(blobs[1].type, "empty")
+        self.assertIsNone(blobs[1].blob)
+
+        # Set value channels before start
+        self.assertEqual(blobs[2].channel, "messages")
+        self.assertEqual(blobs[2].type, "msgpack")
+        self.assertEqual(
+            checkpointer.serde.loads_typed((blobs[2].type, blobs[2].blob)),
+            ["hello"],
+        )
+
+        # Transition to node1
+        self.assertEqual(blobs[3].channel, "start:node1")
+        self.assertEqual(blobs[3].type, "msgpack")
+        self.assertEqual(
+            checkpointer.serde.loads_typed((blobs[3].type, blobs[3].blob)),
+            "__start__",
+        )
+
+        # Set new state for messages
+        self.assertEqual(blobs[4].channel, "messages")
+        self.assertEqual(blobs[4].type, "msgpack")
+        self.assertEqual(
+            checkpointer.serde.loads_typed((blobs[4].type, blobs[4].blob)),
+            ["hello", "world"],
+        )
+
+        # After setting a state
+        self.assertEqual(blobs[5].channel, "start:node1")
+        self.assertEqual(blobs[5].type, "empty")
+        self.assertIsNone(blobs[5].blob)
+
+        # Set last step
+        self.assertEqual(blobs[6].channel, "node1")
+        self.assertEqual(blobs[6].type, "msgpack")
+        self.assertEqual(
+            checkpointer.serde.loads_typed((blobs[6].type, blobs[6].blob)),
+            "node1",
+        )

@@ -24,7 +24,6 @@ import React, { useRef, useState } from 'react'
 
 export interface TooltipProps {
     title: string | React.ReactNode | (() => string)
-    children: JSX.Element
     delayMs?: number
     closeDelayMs?: number
     offset?: number
@@ -46,7 +45,7 @@ export function Tooltip({
     closeDelayMs = 100, // Slight delay to ensure smooth transition
     interactive = false,
     visible: controlledOpen,
-}: TooltipProps): JSX.Element {
+}: React.PropsWithChildren<TooltipProps>): JSX.Element {
     const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
     const [isHoveringTooltip, setIsHoveringTooltip] = useState(false) // Track tooltip hover state
     const caretRef = useRef(null)
@@ -109,7 +108,11 @@ export function Tooltip({
         })
     )
 
-    return title ? (
+    if (!title) {
+        return <>{children}</>
+    }
+
+    return (
         <>
             {clonedChild}
             {open && (
@@ -146,7 +149,5 @@ export function Tooltip({
                 </FloatingPortal>
             )}
         </>
-    ) : (
-        children
     )
 }

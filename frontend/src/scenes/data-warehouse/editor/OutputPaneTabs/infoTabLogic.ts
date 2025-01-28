@@ -8,6 +8,7 @@ import type { infoTabLogicType } from './infoTabLogicType'
 export interface InfoTableRow {
     name: string
     type: 'source' | 'table'
+    view_id?: string
     status?: string
     last_run_at?: string
 }
@@ -44,6 +45,7 @@ export const infoTabLogic = kea<infoTabLogicType>([
                             return {
                                 name: table_name,
                                 type: 'table',
+                                view_id: view.id,
                                 status: view.status,
                                 last_run_at: view.last_run_at || 'never',
                             }

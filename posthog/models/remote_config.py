@@ -152,7 +152,9 @@ class RemoteConfig(UUIDModel):
         # TODO: Support the domain based check for recordings (maybe do it client side)?
         if team.session_recording_opt_in:
             capture_console_logs = True if team.capture_console_log_opt_in else False
-            sample_rate = str(team.session_recording_sample_rate) if team.session_recording_sample_rate else None
+            sample_rate = (
+                str(team.session_recording_sample_rate) if team.session_recording_sample_rate is not None else None
+            )
 
             if sample_rate == "1.00":
                 sample_rate = None
@@ -261,7 +263,7 @@ class RemoteConfig(UUIDModel):
             config = get_site_config_from_schema(site_app.config_schema, site_app.config)
             site_apps_js.append(
                 indent_js(
-                    f"\n{{\n  id: '{site_app.token}',\n  init: function(config) {{\n    {indent_js(site_app.source, indent=4)}().inject({{ config:{json.dumps(config)}, posthog:config.posthog }});\n    config.callback();\n  }}\n}}"
+                    f"\n{{\n  id: '{site_app.token}',\n  init: function(config) {{\n    {indent_js(site_app.source, indent=4)}().inject({{ config:{json.dumps(config)}, posthog:config.posthog }});\n    config.callback(); return {{}}  }}\n}}"
                 )
             )
         site_functions = (

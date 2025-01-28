@@ -58,7 +58,7 @@ export function FunnelTooltip({
                     {formatBreakdownLabel(
                         series.breakdown_value,
                         breakdownFilter,
-                        cohorts,
+                        cohorts.results,
                         formatPropertyValueForDisplay
                     )}
                 </strong>

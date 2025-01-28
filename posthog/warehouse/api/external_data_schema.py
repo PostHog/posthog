@@ -141,12 +141,16 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             payload = instance.sync_type_config
             payload["incremental_field"] = data.get("incremental_field")
             payload["incremental_field_type"] = data.get("incremental_field_type")
+            payload["incremental_field_last_value"] = None
+            payload["incremental_field_last_value_v2"] = None
 
             validated_data["sync_type_config"] = payload
         else:
             payload = instance.sync_type_config
             payload.pop("incremental_field", None)
             payload.pop("incremental_field_type", None)
+            payload.pop("incremental_field_last_value", None)
+            payload.pop("incremental_field_last_value_v2", None)
 
             validated_data["sync_type_config"] = payload
 
@@ -180,9 +184,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             sync_external_data_job_workflow(instance, create=False)
 
         if trigger_refresh:
-            source: ExternalDataSource = instance.source
-            source.job_inputs.update({"reset_pipeline": True})
-            source.save()
+            instance.sync_type_config.update({"reset_pipeline": True})
+            validated_data["sync_type_config"].update({"reset_pipeline": True})
+
             trigger_external_data_workflow(instance)
 
         return super().update(instance, validated_data)
@@ -262,9 +266,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
         if latest_running_job and latest_running_job.workflow_id and latest_running_job.status == "Running":
             cancel_external_data_workflow(latest_running_job.workflow_id)
 
-        source: ExternalDataSource = instance.source
-        source.job_inputs.update({"reset_pipeline": True})
-        source.save()
+        instance.sync_type_config.update({"reset_pipeline": True})
 
         try:
             trigger_external_data_workflow(instance)

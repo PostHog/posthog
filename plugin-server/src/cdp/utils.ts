@@ -11,13 +11,15 @@ import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
 import { safeClickhouseString } from '../utils/db/utils'
 import { status } from '../utils/status'
 import { castTimestampOrNow, clickHouseTimestampToISO, UUIDT } from '../utils/utils'
+import { CdpInternalEvent } from './schema'
 import {
     HogFunctionCapturedEvent,
     HogFunctionFilterGlobals,
     HogFunctionInvocation,
     HogFunctionInvocationGlobals,
+    HogFunctionInvocationGlobalsWithInputs,
+    HogFunctionInvocationLogEntry,
     HogFunctionInvocationQueueParameters,
-    HogFunctionInvocationResult,
     HogFunctionInvocationSerialized,
     HogFunctionLogEntrySerialized,
     HogFunctionType,
@@ -83,6 +85,47 @@ export function convertToHogFunctionInvocationGlobals(
             properties,
             timestamp: eventTimestamp,
             url: `${projectUrl}/events/${encodeURIComponent(event.uuid)}/${encodeURIComponent(eventTimestamp)}`,
+        },
+        person,
+    }
+
+    return context
+}
+
+export function convertInternalEventToHogFunctionInvocationGlobals(
+    data: CdpInternalEvent,
+    team: Team,
+    siteUrl: string
+): HogFunctionInvocationGlobals {
+    const projectUrl = `${siteUrl}/project/${team.id}`
+
+    let person: HogFunctionInvocationGlobals['person']
+
+    if (data.person) {
+        const personDisplayName = getPersonDisplayName(team, data.event.distinct_id, data.person.properties)
+
+        person = {
+            id: data.person.id,
+            properties: data.person.properties,
+            name: personDisplayName,
+            url: data.person.url ?? '',
+        }
+    }
+
+    const context: HogFunctionInvocationGlobals = {
+        project: {
+            id: team.id,
+            name: team.name,
+            url: projectUrl,
+        },
+        event: {
+            uuid: data.event.uuid,
+            event: data.event.event,
+            elements_chain: '', // Not applicable but left here for compatibility
+            distinct_id: data.event.distinct_id,
+            properties: data.event.properties,
+            timestamp: data.event.timestamp,
+            url: data.event.url ?? '',
         },
         person,
     }
@@ -236,13 +279,8 @@ export const unGzipObject = async <T extends object>(data: string): Promise<T> =
     return JSON.parse(res.toString())
 }
 
-export const prepareLogEntriesForClickhouse = (
-    result: HogFunctionInvocationResult
-): HogFunctionLogEntrySerialized[] => {
+export const fixLogDeduplication = (logs: HogFunctionInvocationLogEntry[]): HogFunctionLogEntrySerialized[] => {
     const preparedLogs: HogFunctionLogEntrySerialized[] = []
-    const logs = result.logs
-    result.logs = [] // Clear it to ensure it isn't passed on anywhere else
-
     const sortedLogs = logs.sort((a, b) => a.timestamp.toMillis() - b.timestamp.toMillis())
 
     if (sortedLogs.length === 0) {
@@ -263,10 +301,6 @@ export const prepareLogEntriesForClickhouse = (
 
         const sanitized: HogFunctionLogEntrySerialized = {
             ...logEntry,
-            team_id: result.invocation.teamId,
-            log_source: 'hog_function',
-            log_source_id: result.invocation.hogFunction.id,
-            instance_id: result.invocation.id,
             timestamp: castTimestampOrNow(logEntry.timestamp, TimestampFormat.ClickHouse),
         }
         preparedLogs.push(sanitized)
@@ -276,22 +310,13 @@ export const prepareLogEntriesForClickhouse = (
 }
 
 export function createInvocation(
-    globals: HogFunctionInvocationGlobals,
+    globals: HogFunctionInvocationGlobalsWithInputs,
     hogFunction: HogFunctionType,
     functionToExecute?: [string, any[]]
 ): HogFunctionInvocation {
-    // Add the source of the trigger to the globals
-    const modifiedGlobals: HogFunctionInvocationGlobals = {
-        ...globals,
-        source: {
-            name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
-            url: `${globals.project.url}/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
-        },
-    }
-
     return {
         id: new UUIDT().toString(),
-        globals: modifiedGlobals,
+        globals,
         teamId: hogFunction.team_id,
         hogFunction,
         queue: 'hog',

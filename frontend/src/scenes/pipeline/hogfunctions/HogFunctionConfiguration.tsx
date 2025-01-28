@@ -6,7 +6,6 @@ import {
     LemonDropdown,
     LemonInput,
     LemonLabel,
-    LemonSelect,
     LemonSwitch,
     LemonTag,
     LemonTextArea,
@@ -19,8 +18,8 @@ import { Form } from 'kea-forms'
 import { combineUrl } from 'kea-router'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
+import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { Sparkline } from 'lib/components/Sparkline'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
@@ -35,16 +34,29 @@ import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInputs } from './HogFunctionInputs'
 import { HogFunctionStatusIndicator } from './HogFunctionStatusIndicator'
 import { HogFunctionTest, HogFunctionTestPlaceholder } from './HogFunctionTest'
-import { HogFunctionMapping } from './mapping/HogFunctionMapping'
-
-const EVENT_THRESHOLD_ALERT_LEVEL = 8000
+import { HogFunctionMappings } from './mapping/HogFunctionMappings'
+import { HogFunctionEventEstimates } from './metrics/HogFunctionEventEstimates'
 
 export interface HogFunctionConfigurationProps {
     templateId?: string | null
     id?: string | null
+
+    displayOptions?: {
+        showFilters?: boolean
+        showExpectedVolume?: boolean
+        showStatus?: boolean
+        showEnabled?: boolean
+        showTesting?: boolean
+        canEditSource?: boolean
+        showPersonsCount?: boolean
+    }
 }
 
-export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigurationProps): JSX.Element {
+export function HogFunctionConfiguration({
+    templateId,
+    id,
+    displayOptions = {},
+}: HogFunctionConfigurationProps): JSX.Element {
     const logicProps = { templateId, id }
     const logic = hogFunctionConfigurationLogic(logicProps)
     const {
@@ -60,16 +72,14 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
         globalsWithInputs,
         showPaygate,
         hasAddon,
-        sparkline,
-        sparklineLoading,
         personsCount,
         personsCountLoading,
         personsListQuery,
         template,
-        subTemplate,
         templateHasChanged,
-        forcedSubTemplateId,
         type,
+        usesGroups,
+        hasGroupsAddon,
     } = useValues(logic)
     const {
         submitConfiguration,
@@ -80,7 +90,6 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
         duplicateFromTemplate,
         setConfigurationValue,
         deleteHogFunction,
-        setSubTemplateId,
     } = useActions(logic)
 
     if (loading && !loaded) {
@@ -152,13 +161,24 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
         return <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
     }
 
-    const showFilters = ['destination', 'site_destination', 'broadcast', 'transformation'].includes(type)
-    const showExpectedVolume = ['destination', 'site_destination'].includes(type)
-    const showStatus = ['destination', 'email', 'transformation'].includes(type)
-    const showEnabled = ['destination', 'email', 'site_destination', 'site_app', 'transformation'].includes(type)
-    const canEditSource = ['destination', 'email', 'site_destination', 'site_app', 'transformation'].includes(type)
-    const showPersonsCount = ['broadcast'].includes(type)
-    const showTesting = ['destination', 'transformation', 'broadcast', 'email'].includes(type)
+    const showFilters =
+        displayOptions.showFilters ??
+        ['destination', 'internal_destination', 'site_destination', 'broadcast', 'transformation'].includes(type)
+    const showExpectedVolume = displayOptions.showExpectedVolume ?? ['destination', 'site_destination'].includes(type)
+    const showStatus =
+        displayOptions.showStatus ?? ['destination', 'internal_destination', 'email', 'transformation'].includes(type)
+    const showEnabled =
+        displayOptions.showEnabled ??
+        ['destination', 'internal_destination', 'email', 'site_destination', 'site_app', 'transformation'].includes(
+            type
+        )
+    const canEditSource =
+        displayOptions.canEditSource ??
+        ['destination', 'email', 'site_destination', 'site_app', 'transformation'].includes(type)
+    const showPersonsCount = displayOptions.showPersonsCount ?? ['broadcast'].includes(type)
+    const showTesting =
+        displayOptions.showTesting ??
+        ['destination', 'internal_destination', 'transformation', 'broadcast', 'email'].includes(type)
 
     return (
         <div className="space-y-3">
@@ -317,85 +337,26 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                                 </div>
                             )}
 
-                            {showExpectedVolume && (
-                                <div className="relative p-3 space-y-2 border rounded bg-bg-light">
-                                    <LemonLabel>Expected volume</LemonLabel>
-                                    {sparkline && !sparklineLoading ? (
-                                        <>
-                                            {sparkline.count > EVENT_THRESHOLD_ALERT_LEVEL ? (
-                                                <LemonBanner type="warning">
-                                                    <b>Warning:</b> This destination would have triggered{' '}
-                                                    <strong>
-                                                        {sparkline.count ?? 0} time{sparkline.count !== 1 ? 's' : ''}
-                                                    </strong>{' '}
-                                                    in the last 7 days. Consider the impact of this function on your
-                                                    destination.
-                                                </LemonBanner>
-                                            ) : (
-                                                <p>
-                                                    This destination would have triggered{' '}
-                                                    <strong>
-                                                        {sparkline.count ?? 0} time{sparkline.count !== 1 ? 's' : ''}
-                                                    </strong>{' '}
-                                                    in the last 7 days.
-                                                </p>
-                                            )}
-                                            <Sparkline
-                                                type="bar"
-                                                className="w-full h-20"
-                                                data={sparkline.data}
-                                                labels={sparkline.labels}
-                                            />
-                                        </>
-                                    ) : sparklineLoading ? (
-                                        <div className="min-h-20">
-                                            <SpinnerOverlay />
-                                        </div>
-                                    ) : (
-                                        <p>The expected volume could not be calculated</p>
-                                    )}
-                                </div>
-                            )}
+                            {showExpectedVolume ? <HogFunctionEventEstimates /> : null}
                         </div>
 
                         <div className="space-y-4 flex-2 min-w-100">
-                            {!forcedSubTemplateId && template?.sub_templates && (
-                                <>
-                                    <div className="p-3 space-y-2 border rounded bg-bg-light">
-                                        <div className="flex items-center gap-2">
-                                            <LemonLabel className="flex-1">Choose template</LemonLabel>
-                                            <LemonSelect
-                                                size="small"
-                                                options={[
-                                                    {
-                                                        value: null,
-                                                        label: 'Default',
-                                                    },
-                                                    ...template.sub_templates.map((subTemplate) => ({
-                                                        value: subTemplate.id,
-                                                        label: subTemplate.name,
-                                                        labelInMenu: (
-                                                            <div className="my-1 space-y-1 max-w-120">
-                                                                <div className="font-semibold">{subTemplate.name}</div>
-                                                                <div className="font-sans text-xs text-muted">
-                                                                    {subTemplate.description}
-                                                                </div>
-                                                            </div>
-                                                        ),
-                                                    })),
-                                                ]}
-                                                value={subTemplate?.id}
-                                                onChange={(value) => {
-                                                    setSubTemplateId(value)
-                                                }}
-                                            />
-                                        </div>
-                                    </div>
-                                </>
-                            )}
-
                             <div className="p-3 space-y-2 border rounded bg-bg-light">
                                 <div className="space-y-2">
+                                    {usesGroups && !hasGroupsAddon ? (
+                                        <LemonBanner type="warning">
+                                            <span className="flex items-center gap-2">
+                                                This function appears to use Groups but you do not have the Groups
+                                                Analytics addon. Without it, you may see empty values where you use
+                                                templates like {'"{groups.kind.properties}"'}
+                                                <PayGateButton
+                                                    feature={AvailableFeature.GROUP_ANALYTICS}
+                                                    type="secondary"
+                                                />
+                                            </span>
+                                        </LemonBanner>
+                                    ) : null}
+
                                     <HogFunctionInputs
                                         configuration={configuration}
                                         setConfigurationValue={setConfigurationValue}
@@ -424,7 +385,7 @@ export function HogFunctionConfiguration({ templateId, id }: HogFunctionConfigur
                                 </div>
                             </div>
 
-                            <HogFunctionMapping />
+                            <HogFunctionMappings />
 
                             {canEditSource && (
                                 <div

@@ -46,7 +46,7 @@ export function WebOverview(props: {
 
     const samplingRate = webOverviewQueryResponse?.samplingRate
 
-    const numSkeletons = props.query.conversionGoal ? 4 : 6
+    const numSkeletons = props.query.conversionGoal ? 4 : 5
 
     return (
         <>
@@ -59,11 +59,10 @@ export function WebOverview(props: {
                     : webOverviewQueryResponse?.results?.map((item) => (
                           <WebOverviewItemCell key={item.key} item={item} />
                       )) || []}
-                {}
             </EvenlyDistributedRows>
             {samplingRate && !(samplingRate.numerator === 1 && (samplingRate.denominator ?? 1) === 1) ? (
                 <LemonBanner type="info" className="my-4">
-                    These results using a sampling factor of {samplingRate.numerator}
+                    These results are using a sampling factor of {samplingRate.numerator}
                     {samplingRate.denominator ?? 1 !== 1 ? `/${samplingRate.denominator}` : ''}. Sampling is currently
                     in beta.
                 </LemonBanner>
@@ -149,13 +148,35 @@ const formatUnit = (x: number, options?: { precise?: boolean }): string => {
     return humanFriendlyLargeNumber(x)
 }
 
-const formatItem = (value: number | undefined, kind: WebOverviewItemKind, options?: { precise?: boolean }): string => {
+const getCurrencySymbol = (currency: string): { symbol: string; isPrefix: boolean } => {
+    const formatter = new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: currency,
+    })
+    const parts = formatter.formatToParts(0)
+    const symbol = parts.find((part) => part.type === 'currency')?.value
+
+    const isPrefix = symbol ? parts[0].type === 'currency' : true
+
+    return { symbol: symbol ?? currency, isPrefix }
+}
+
+const formatItem = (
+    value: number | undefined,
+    kind: WebOverviewItemKind,
+    options?: { precise?: boolean; currency?: string }
+): string => {
     if (value == null) {
         return '-'
     } else if (kind === 'percentage') {
-        return formatPercentage(value, options)
+        return formatPercentage(value, { precise: options?.precise })
     } else if (kind === 'duration_s') {
         return humanFriendlyDuration(value, { secondsPrecision: 3 })
+    } else if (kind === 'currency') {
+        const { symbol, isPrefix } = getCurrencySymbol(options?.currency ?? 'USD')
+        return `${isPrefix ? symbol : ''}${formatUnit(value, { precise: options?.precise })}${
+            isPrefix ? '' : ' ' + symbol
+        }`
     }
     return formatUnit(value, options)
 }

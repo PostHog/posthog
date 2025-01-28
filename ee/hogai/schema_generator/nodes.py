@@ -55,7 +55,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4o", temperature=0.2, streaming=True).with_structured_output(
+        return ChatOpenAI(model="gpt-4o", temperature=0, streaming=True, stream_usage=True).with_structured_output(
             self.OUTPUT_SCHEMA,
             method="function_calling",
             include_raw=False,
@@ -96,7 +96,8 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
                             content=f"Oops! It looks like I’m having trouble generating this {self.INSIGHT_NAME} insight. Could you please try again?"
                         )
                     ],
-                    intermediate_steps=None,
+                    intermediate_steps=[],
+                    plan="",
                 )
 
             return PartialAssistantState(
@@ -106,16 +107,17 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
                 ],
             )
 
+        final_message = VisualizationMessage(
+            plan=generated_plan,
+            answer=message.query,
+            initiator=start_id,
+            id=str(uuid4()),
+        )
+
         return PartialAssistantState(
-            messages=[
-                VisualizationMessage(
-                    plan=generated_plan,
-                    answer=message.query,
-                    initiator=start_id,
-                    id=str(uuid4()),
-                )
-            ],
-            intermediate_steps=None,
+            messages=[final_message],
+            intermediate_steps=[],
+            plan="",
         )
 
     def router(self, state: AssistantState):

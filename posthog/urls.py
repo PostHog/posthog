@@ -19,7 +19,7 @@ from drf_spectacular.views import (
     SpectacularRedocView,
     SpectacularSwaggerView,
 )
-from revproxy.views import ProxyView
+
 from sentry_sdk import last_event_id
 from two_factor.urls import urlpatterns as tf_urls
 
@@ -40,7 +40,7 @@ from posthog.api import (
 )
 from .api.web_experiment import web_experiments
 from .api.utils import hostname_in_allowed_url_list
-from posthog.api.early_access_feature import early_access_features
+from products.early_access_features.backend.api import early_access_features
 from posthog.api.survey import surveys
 from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.demo.legacy import demo_route
@@ -247,9 +247,6 @@ if settings.DEBUG:
     # external clients cannot see them. See the gunicorn setup for details on
     # what we do.
     urlpatterns.append(path("_metrics", ExportToDjangoView))
-
-    # Reverse-proxy all of /i/* to capture-rs on port 3000 when running the local devenv
-    urlpatterns.append(re_path(r"(?P<path>^i/.*)", ProxyView.as_view(upstream="http://localhost:3000")))
 
 
 if settings.TEST:

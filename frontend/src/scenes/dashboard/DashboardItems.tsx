@@ -155,6 +155,7 @@ export function DashboardItems(): JSX.Element {
                                     loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
                                     variablesOverride={temporaryVariables}
                                     {...commonTileProps}
+                                    // NOTE: ReactGridLayout additionally injects its resize handles as `children`!
                                 />
                             )
                         }

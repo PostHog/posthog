@@ -230,7 +230,17 @@ export const preflightLogic = kea<preflightLogicType>([
                     // http://localhost:6006, but in the local dockerized setup http://host.docker.internal:6006
                     return false
                 }
-                return !!preflight && (!preflight.site_url || preflight.site_url != window.location.origin)
+                const isMismatchPresent =
+                    !!preflight && (!preflight.site_url || preflight.site_url != window.location.origin)
+                if (
+                    isMismatchPresent &&
+                    preflight.site_url === 'http://localhost:8010' &&
+                    window.location.origin === 'http://localhost:8000'
+                ) {
+                    // Local development setup using the old port - we have a warning in DebugNotice for this
+                    return false
+                }
+                return isMismatchPresent
             },
         ],
         configOptions: [

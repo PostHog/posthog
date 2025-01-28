@@ -1,5 +1,8 @@
 import FastPriorityQueue from 'fastpriorityqueue'
 import { promiseResolveReject } from 'lib/utils'
+
+// Note that this file also exists in the plugin-server, please keep them in sync as the tests only exist for this version
+
 class ConcurrencyControllerItem<T> {
     _debugTag?: string
     _runFn: () => Promise<void>
@@ -8,7 +11,7 @@ class ConcurrencyControllerItem<T> {
     constructor(
         concurrencyController: ConcurrencyController,
         userFn: () => Promise<T>,
-        abortController: AbortController,
+        abortController: AbortController | undefined,
         priority: number = Infinity,
         debugTag: string | undefined
     ) {
@@ -17,7 +20,7 @@ class ConcurrencyControllerItem<T> {
         const { promise, resolve, reject } = promiseResolveReject<T>()
         this._promise = promise
         this._runFn = async () => {
-            if (abortController.signal.aborted) {
+            if (abortController?.signal.aborted) {
                 reject(new FakeAbortError(abortController.signal.reason || 'AbortError'))
                 return
             }
@@ -32,7 +35,7 @@ class ConcurrencyControllerItem<T> {
                 reject(error)
             }
         }
-        abortController.signal.addEventListener('abort', () => {
+        abortController?.signal.addEventListener('abort', () => {
             reject(new FakeAbortError(abortController.signal.reason || 'AbortError'))
         })
         promise
@@ -76,7 +79,7 @@ export class ConcurrencyController {
     }: {
         fn: () => Promise<T>
         priority?: number
-        abortController: AbortController
+        abortController?: AbortController
         debugTag?: string
     }): Promise<T> => {
         const item = new ConcurrencyControllerItem(this, fn, abortController, priority, debugTag)

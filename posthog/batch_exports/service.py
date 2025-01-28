@@ -1,3 +1,4 @@
+import collections.abc
 import datetime as dt
 import typing
 from dataclasses import asdict, dataclass, fields
@@ -24,6 +25,7 @@ from posthog.batch_exports.models import (
     BatchExportDestination,
     BatchExportRun,
 )
+from posthog.clickhouse.client import sync_execute
 from posthog.constants import BATCH_EXPORTS_TASK_QUEUE, SYNC_BATCH_EXPORTS_TASK_QUEUE
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
@@ -79,6 +81,7 @@ class S3BatchExportInputs:
         region: The AWS region where the bucket is located.
         prefix: A prefix for the file name to be created in S3.
             For example, for one hour batches, this should be 3600.
+        max_file_size_mb: The maximum file size in MB for each file to be uploaded.
         data_interval_end: For manual runs, the end date of the batch. This should be set to `None` for regularly
             scheduled runs and for backfills.
     """
@@ -99,10 +102,15 @@ class S3BatchExportInputs:
     kms_key_id: str | None = None
     endpoint_url: str | None = None
     file_format: str = "JSONLines"
+    max_file_size_mb: int | None = None
     is_backfill: bool = False
     is_earliest_backfill: bool = False
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
+
+    def __post_init__(self):
+        if self.max_file_size_mb:
+            self.max_file_size_mb = int(self.max_file_size_mb)
 
 
 @dataclass
@@ -111,14 +119,17 @@ class SnowflakeBatchExportInputs:
 
     batch_export_id: str
     team_id: int
-    user: str
-    password: str
     account: str
+    user: str
     database: str
     warehouse: str
     schema: str
     interval: str = "hour"
     table_name: str = "events"
+    authentication_type: str = "password"
+    password: str | None = None
+    private_key: str | None = None
+    private_key_passphrase: str | None = None
     data_interval_end: str | None = None
     role: str | None = None
     exclude_events: list[str] | None = None
@@ -152,6 +163,14 @@ class PostgresBatchExportInputs:
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
 
+    def __post_init__(self):
+        if self.has_self_signed_cert == "True":  # type: ignore
+            self.has_self_signed_cert = True
+        elif self.has_self_signed_cert == "False":  # type: ignore
+            self.has_self_signed_cert = False
+
+        self.port = int(self.port)
+
 
 @dataclass
 class RedshiftBatchExportInputs(PostgresBatchExportInputs):
@@ -183,6 +202,12 @@ class BigQueryBatchExportInputs:
 
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
+
+    def __post_init__(self):
+        if self.use_json_type == "True":  # type: ignore
+            self.use_json_type = True
+        elif self.use_json_type == "False":  # type: ignore
+            self.use_json_type = False
 
 
 @dataclass
@@ -492,10 +517,7 @@ async def start_backfill_batch_export_workflow(
         "backfill-batch-export",
         inputs,
         id=workflow_id,
-        # TODO: Backfills could also run in async queue.
-        # But tests expect them not to, so we keep them in sync
-        # queue after everything is migrated.
-        task_queue=SYNC_BATCH_EXPORTS_TASK_QUEUE,
+        task_queue=BATCH_EXPORTS_TASK_QUEUE,
     )
 
     return workflow_id
@@ -646,11 +668,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
 
     destination_config_fields = {field.name for field in fields(workflow_inputs)}
     destination_config = {k: v for k, v in batch_export.destination.config.items() if k in destination_config_fields}
-    task_queue = (
-        BATCH_EXPORTS_TASK_QUEUE
-        if batch_export.destination.type in ("BigQuery", "Redshift")
-        else SYNC_BATCH_EXPORTS_TASK_QUEUE
-    )
+    task_queue = SYNC_BATCH_EXPORTS_TASK_QUEUE if batch_export.destination.type == "HTTP" else BATCH_EXPORTS_TASK_QUEUE
 
     temporal = sync_connect()
     schedule = Schedule(
@@ -687,7 +705,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
             start_at=batch_export.start_at,
             end_at=batch_export.end_at,
             intervals=[ScheduleIntervalSpec(every=batch_export.interval_time_delta)],
-            jitter=min(dt.timedelta(minutes=1), (batch_export.interval_time_delta / 6)),
+            jitter=max(dt.timedelta(minutes=1), (batch_export.interval_time_delta / 6)),
             time_zone_name=batch_export.team.timezone,
         ),
         state=state,
@@ -834,3 +852,71 @@ async def afetch_batch_export_runs_in_range(
     ).order_by("data_interval_start")
 
     return [run async for run in queryset]
+
+
+def fetch_earliest_backfill_start_at(
+    *,
+    team_id: int,
+    model: str,
+    interval_time_delta: dt.timedelta,
+    exclude_events: collections.abc.Iterable[str] | None = None,
+    include_events: collections.abc.Iterable[str] | None = None,
+) -> dt.datetime | None:
+    """Get the earliest start_at for a batch export backfill.
+
+    If there is no data for the given model, return None.
+    """
+    interval_seconds = int(interval_time_delta.total_seconds())
+    if model == "events":
+        exclude_events = exclude_events or []
+        include_events = include_events or []
+        query = """
+            SELECT toStartOfInterval(MIN(timestamp), INTERVAL %(interval_seconds)s SECONDS)
+            FROM events
+            WHERE team_id = %(team_id)s
+            AND (length(%(include_events)s::Array(String)) = 0 OR event IN %(include_events)s::Array(String))
+            AND (length(%(exclude_events)s::Array(String)) = 0 OR event NOT IN %(exclude_events)s::Array(String))
+        """
+        query_args = {
+            "team_id": team_id,
+            "include_events": include_events,
+            "exclude_events": exclude_events,
+            "interval_seconds": interval_seconds,
+        }
+        result = sync_execute(query, query_args)[0][0]
+        # if no data, ClickHouse returns 1970-01-01 00:00:00
+        # (we just compare the year rather than the whole object because in some cases the timestamp returned by
+        # ClickHouse has a timezone and sometimes it doesn't)
+        if result.year == 1970:
+            return None
+        return result
+    elif model == "persons":
+        # In the case of persons, we need to check 2 tables: person and person_distinct_id2
+        # It's more efficient querying both tables separately and taking the minimum timestamp, rather than trying to
+        # join them together.
+        # In some cases we might have invalid timestamps, so we use an arbitrary date in the past to filter these out.
+        query = """
+            SELECT toStartOfInterval(MIN(_timestamp), INTERVAL %(interval_seconds)s SECONDS)
+            FROM person
+            WHERE team_id = %(team_id)s
+            AND _timestamp > '2000-01-01'
+            UNION ALL
+            SELECT toStartOfInterval(MIN(_timestamp), INTERVAL %(interval_seconds)s SECONDS)
+            FROM person_distinct_id2
+            WHERE team_id = %(team_id)s
+            AND _timestamp > '2000-01-01'
+        """
+        query_args = {
+            "team_id": team_id,
+            "interval_seconds": interval_seconds,
+        }
+        results = sync_execute(query, query_args)
+        # if no data, ClickHouse returns 1970-01-01 00:00:00
+        # (we just compare the year rather than the whole object because in some cases the timestamp returned by
+        # ClickHouse has a timezone and sometimes it doesn't)
+        results = [result[0] for result in results if result[0].year != 1970]
+        if not results:
+            return None
+        return min(results)
+    else:
+        raise ValueError(f"Invalid model: {model}")

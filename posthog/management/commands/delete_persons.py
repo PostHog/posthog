@@ -55,19 +55,25 @@ def run(options):
     delete_query_person_distinct_ids = f"""
     WITH to_delete AS ({select_query})
     DELETE FROM posthog_persondistinctid
-    WHERE team_id = %(team_id)s AND person_id IN (SELECT id FROM to_delete);
+    WHERE person_id IN (SELECT id FROM to_delete);
     """
 
     delete_query_person_override = f"""
     WITH to_delete AS ({select_query})
     DELETE FROM posthog_personoverride
-    WHERE team_id = %(team_id)s AND (old_person_id IN (SELECT id FROM to_delete) OR override_person_id IN (SELECT id FROM to_delete));
+    WHERE (old_person_id IN (SELECT id FROM to_delete) OR override_person_id IN (SELECT id FROM to_delete));
+    """
+
+    delete_query_cohort_people = f"""
+    WITH to_delete AS ({select_query})
+    DELETE FROM posthog_cohortpeople
+    WHERE person_id IN (SELECT id FROM to_delete);
     """
 
     delete_query_person = f"""
     WITH to_delete AS ({select_query})
     DELETE FROM posthog_person
-    WHERE team_id = %(team_id)s AND id IN (SELECT id FROM to_delete);
+    WHERE id IN (SELECT id FROM to_delete);
     """
 
     with connection.cursor() as cursor:
@@ -77,6 +83,9 @@ def run(options):
         prepared_person_override_query = cursor.mogrify(
             delete_query_person_override, {"team_id": team_id, "limit": batch_size, "person_ids": person_ids}
         )
+        prepared_cohort_people_query = cursor.mogrify(
+            delete_query_cohort_people, {"team_id": team_id, "limit": batch_size, "person_ids": person_ids}
+        )
         prepared_person_query = cursor.mogrify(
             delete_query_person, {"team_id": team_id, "limit": batch_size, "person_ids": person_ids}
         )
@@ -84,6 +93,7 @@ def run(options):
     logger.info(f"Delete query to run:")
     logger.info(prepared_person_distinct_ids_query)
     logger.info(prepared_person_override_query)
+    logger.info(prepared_cohort_people_query)
     logger.info(prepared_person_query)
 
     if not live_run:
@@ -109,6 +119,12 @@ def run(options):
                 delete_query_person_override, {"team_id": team_id, "limit": batch_size, "person_ids": person_ids}
             )
             logger.info(f"Deleted {cursor.rowcount} person overrides")
+
+            cursor.execute(
+                delete_query_cohort_people, {"team_id": team_id, "limit": batch_size, "person_ids": person_ids}
+            )
+            logger.info(f"Deleted {cursor.rowcount} cohort people")
+
             cursor.execute(delete_query_person, {"team_id": team_id, "limit": batch_size, "person_ids": person_ids})
             logger.info(f"Deleted {cursor.rowcount} persons")
 

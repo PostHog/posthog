@@ -7,13 +7,13 @@ import { Survey } from '~/types'
 import { NewSurvey } from './constants'
 import { surveysLogic } from './surveysLogic'
 
-export function SurveyAppearancePreview({
-    survey,
-    previewPageIndex,
-}: {
+interface Props {
     survey: Survey | NewSurvey
     previewPageIndex: number
-}): JSX.Element {
+    onPreviewSubmit?: (res: string | string[] | number | null) => void
+}
+
+export function SurveyAppearancePreview({ survey, previewPageIndex, onPreviewSubmit = () => {} }: Props): JSX.Element {
     const surveyPreviewRef = useRef<HTMLDivElement>(null)
     const feedbackWidgetPreviewRef = useRef<HTMLDivElement>(null)
 
@@ -26,6 +26,7 @@ export function SurveyAppearancePreview({
                 parentElement: surveyPreviewRef.current,
                 previewPageIndex,
                 forceDisableHtml: !surveysHTMLAvailable,
+                onPreviewSubmit,
             })
         }
 
@@ -36,11 +37,10 @@ export function SurveyAppearancePreview({
                 forceDisableHtml: !surveysHTMLAvailable,
             })
         }
-    }, [survey, previewPageIndex, surveysHTMLAvailable])
+    }, [survey, previewPageIndex, surveysHTMLAvailable, onPreviewSubmit])
     return (
         <>
             <div ref={surveyPreviewRef} />
-            <div ref={feedbackWidgetPreviewRef} />
         </>
     )
 }

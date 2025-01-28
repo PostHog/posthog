@@ -12,8 +12,8 @@ import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryN
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getDefaultQuery, queryFromKind } from '~/queries/nodes/InsightViz/utils'
 import { queryExportContext } from '~/queries/query'
-import { DataVisualizationNode, InsightVizNode, Node, NodeKind } from '~/queries/schema'
-import { isDataTableNode, isDataVisualizationNode, isHogQuery, isInsightVizNode } from '~/queries/utils'
+import { DataVisualizationNode, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
+import { isDataTableNode, isDataVisualizationNode, isHogQLQuery, isHogQuery, isInsightVizNode } from '~/queries/utils'
 import { ExportContext, InsightLogicProps, InsightType } from '~/types'
 
 import { teamLogic } from '../teamLogic'
@@ -171,8 +171,16 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
 
         hogQL: [
-            (s) => [s.insightData],
-            (insightData): string | null => {
+            (s) => [s.insightData, s.query],
+            (insightData, query): string | null => {
+                // Try to get it from the query itself, so we don't have to wait for the response
+                if (isDataVisualizationNode(query) && isHogQLQuery(query.source)) {
+                    return query.source.query
+                }
+                if (isHogQLQuery(query)) {
+                    return query.query
+                }
+                // Otherwise, get it from the response
                 if (insightData && 'hogql' in insightData && insightData.hogql !== '') {
                     return insightData.hogql
                 }
@@ -219,6 +227,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             if (isQueryTooLarge(query)) {
                 localStorage.removeItem(`draft-query-${values.currentTeamId}`)
             }
+
             localStorage.setItem(
                 `draft-query-${values.currentTeamId}`,
                 crushDraftQueryForLocalStorage(query, Date.now())

@@ -61,6 +61,7 @@ LOG_RATE_LIMITER = Limiter(
     storage=MemoryStorage(),
 )
 
+
 # These event names are reserved for internal use and refer to non-analytics
 # events that are ingested via a separate path than analytics events. They have
 # fewer restrictions on e.g. the order they need to be processed in.
@@ -128,6 +129,10 @@ REPLAY_MESSAGE_PRODUCTION_TIMER = Histogram(
     "Time taken to produce a set of replay messages",
 )
 
+# This flag tells us to use the cookieless mode, and that we can't use distinct id as the partition key
+COOKIELESS_MODE_FLAG_PROPERTY = "$cookieless_mode"
+
+
 # This is a heuristic of ids we have seen used as anonymous. As they frequently
 # have significantly more traffic than non-anonymous distinct_ids, and likely
 # don't refer to the same underlying person we prefer to partition them randomly
@@ -155,6 +160,20 @@ LIKELY_ANONYMOUS_IDS = {
 }
 
 OVERFLOWING_REDIS_KEY = "@posthog/capture-overflow/"
+
+TOKEN_DISTINCT_ID_PAIRS_TO_DROP: Optional[set[str]] = None
+
+
+def get_tokens_to_drop() -> set[str]:
+    global TOKEN_DISTINCT_ID_PAIRS_TO_DROP
+
+    if TOKEN_DISTINCT_ID_PAIRS_TO_DROP is None:
+        TOKEN_DISTINCT_ID_PAIRS_TO_DROP = set()
+        if settings.DROPPED_KEYS:
+            # DROPPED_KEYS is a semicolon separated list of <team_id:distinct_id> pairs
+            TOKEN_DISTINCT_ID_PAIRS_TO_DROP = set(settings.DROPPED_KEYS.split(";"))
+
+    return TOKEN_DISTINCT_ID_PAIRS_TO_DROP
 
 
 class InputType(Enum):
@@ -508,6 +527,7 @@ def get_event(request):
 
         try:
             processed_events = list(preprocess_events(events))
+
         except ValueError as e:
             return cors_response(
                 request,
@@ -519,10 +539,22 @@ def get_event(request):
     with start_span(op="kafka.produce") as span:
         span.set_tag("event.count", len(processed_events))
         for event, event_uuid, distinct_id in processed_events:
+            if f"{token}:{distinct_id}" in get_tokens_to_drop():
+                logger.warning("Dropping event", token=token, distinct_id=distinct_id)
+                continue
+
             try:
                 futures.append(
                     capture_internal(
-                        event, distinct_id, ip, site_url, now, sent_at, event_uuid, token, historical=historical
+                        event,
+                        distinct_id,
+                        ip,
+                        site_url,
+                        now,
+                        sent_at,
+                        event_uuid,
+                        token,
+                        historical=historical,
                     )
                 )
             except Exception as exc:
@@ -838,6 +870,8 @@ def capture_internal(
     if extra_headers is None:
         extra_headers = []
 
+    headers = [("token", token), ("distinct_id", distinct_id), *extra_headers]
+
     parsed_event = build_kafka_event_data(
         distinct_id=distinct_id,
         ip=ip,
@@ -851,7 +885,6 @@ def capture_internal(
 
     if event["event"] in SESSION_RECORDING_EVENT_NAMES:
         session_id = event["properties"]["$session_id"]
-        headers = [("token", token), *extra_headers]
 
         overflowing = False
         if token in settings.REPLAY_OVERFLOW_FORCED_TOKENS:
@@ -871,6 +904,11 @@ def capture_internal(
     # overriding this to deal with hot partitions in specific cases.
     # Setting the partition key to None means using random partitioning.
     candidate_partition_key = f"{token}:{distinct_id}"
+    if event.get("properties", {}).get(COOKIELESS_MODE_FLAG_PROPERTY):
+        # In cookieless mode, the distinct id is meaningless, so we can't use it as the partition key.
+        # Instead, use the IP address as the partition key.
+        candidate_partition_key = f"{token}:{ip}"
+
     if (
         not historical
         and settings.CAPTURE_ALLOW_RANDOM_PARTITIONING
@@ -880,7 +918,9 @@ def capture_internal(
     else:
         kafka_partition_key = candidate_partition_key
 
-    return log_event(parsed_event, event["event"], partition_key=kafka_partition_key, historical=historical)
+    return log_event(
+        parsed_event, event["event"], partition_key=kafka_partition_key, historical=historical, headers=headers
+    )
 
 
 def is_randomly_partitioned(candidate_partition_key: str) -> bool:

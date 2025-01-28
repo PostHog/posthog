@@ -52,6 +52,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         threshold_type: InsightThresholdType,
         lower: Optional[float] = None,
         upper: Optional[float] = None,
+        check_ongoing_interval: bool = False,
     ) -> dict:
         alert = self.client.post(
             f"/api/projects/{self.team.id}/alerts",
@@ -62,6 +63,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
                 "config": {
                     "type": "TrendsAlertConfig",
                     "series_index": series_index,
+                    "check_ongoing_interval": check_ongoing_interval,
                 },
                 "condition": {"type": condition_type},
                 "calculation_interval": AlertCalculationInterval.DAILY,
@@ -72,7 +74,9 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         return alert
 
     def create_time_series_trend_insight(
-        self, interval: IntervalType, breakdown: Optional[BreakdownFilter] = None
+        self,
+        interval: IntervalType,
+        breakdown: Optional[BreakdownFilter] = None,
     ) -> dict[str, Any]:
         query_dict = TrendsQuery(
             series=[
@@ -1578,6 +1582,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             condition_type=AlertConditionType.RELATIVE_INCREASE,
             threshold_type=InsightThresholdType.ABSOLUTE,
             upper=1,
+            check_ongoing_interval=True,
         )
 
         # alert if sign ups increase by more than 20%
@@ -1587,6 +1592,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             condition_type=AlertConditionType.RELATIVE_INCREASE,
             threshold_type=InsightThresholdType.PERCENTAGE,
             upper=0.2,
+            check_ongoing_interval=True,
         )
 
         # FROZEN_TIME is on Tue, insight has weekly interval
@@ -1681,7 +1687,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ["The insight value (signed_up) for current week (200.00%) increased more than upper threshold (20.00%)"],
         )
 
-    def test_current_interval_relative_increase_fallback_upper_threshold_breached(
+    def test_current_interval_relative_increase_does_not_fallback_to_previous_interval(
         self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
     ) -> None:
         insight = self.create_time_series_trend_insight(interval=IntervalType.WEEK)
@@ -1693,6 +1699,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             condition_type=AlertConditionType.RELATIVE_INCREASE,
             threshold_type=InsightThresholdType.ABSOLUTE,
             upper=1,
+            check_ongoing_interval=True,
         )
 
         # alert if sign ups increase by more than 20%
@@ -1702,6 +1709,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             condition_type=AlertConditionType.RELATIVE_INCREASE,
             threshold_type=InsightThresholdType.PERCENTAGE,
             upper=0.2,
+            check_ongoing_interval=True,
         )
 
         # FROZEN_TIME is on Tue, insight has weekly interval
@@ -1758,7 +1766,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         check_alert(absolute_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=absolute_alert["id"])
-        assert updated_alert.state == AlertState.FIRING
+        assert updated_alert.state == AlertState.NOT_FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
         assert updated_alert.next_check_at
@@ -1767,20 +1775,16 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         alert_check = AlertCheck.objects.filter(alert_configuration=absolute_alert["id"]).latest("created_at")
 
-        assert alert_check.calculated_value == 2
-        assert alert_check.state == AlertState.FIRING
+        # decrease of 2 events compared to week before
+        # shouln't look a previous interval which had increase of 2
+        assert alert_check.calculated_value == -2
+        assert alert_check.state == AlertState.NOT_FIRING
         assert alert_check.error is None
-
-        # should be 'previous' week as we haven't breached for current week
-        # so logic fallback to previous week
-        mock_send_breaches.assert_called_once_with(
-            ANY, ["The insight value (signed_up) for previous week (2) increased more than upper threshold (1.0)"]
-        )
 
         check_alert(percentage_alert["id"])
 
         updated_alert = AlertConfiguration.objects.get(pk=percentage_alert["id"])
-        assert updated_alert.state == AlertState.FIRING
+        assert updated_alert.state == AlertState.NOT_FIRING
 
         next_check = (FROZEN_TIME + dateutil.relativedelta.relativedelta(days=1)).replace(hour=1, tzinfo=pytz.UTC)
         assert updated_alert.next_check_at
@@ -1789,14 +1793,9 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         alert_check = AlertCheck.objects.filter(alert_configuration=percentage_alert["id"]).latest("created_at")
 
-        assert alert_check.calculated_value == 2
-        assert alert_check.state == AlertState.FIRING
+        assert alert_check.calculated_value == -2 / 3
+        assert alert_check.state == AlertState.NOT_FIRING
         assert alert_check.error is None
-
-        mock_send_breaches.assert_called_with(
-            ANY,
-            ["The insight value (signed_up) for previous week (200.00%) increased more than upper threshold (20.00%)"],
-        )
 
     def test_relative_increase_when_previous_value_is_0(
         self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock

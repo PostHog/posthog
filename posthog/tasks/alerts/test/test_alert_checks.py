@@ -64,6 +64,12 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
             data={"threshold": {"configuration": {"type": "absolute", "bounds": {"lower": lower, "upper": upper}}}},
         )
 
+    def skip_weekend(self, skip: bool) -> None:
+        self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{self.alert['id']}",
+            data={"skip_weekend": skip},
+        )
+
     def get_breach_description(self, mock_send_notifications_for_breaches: MagicMock, call_index: int) -> list[str]:
         return mock_send_notifications_for_breaches.call_args_list[call_index].args[1]
 
@@ -130,7 +136,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         assert mock_send_notifications_for_breaches.call_count == 1
         anomalies = self.get_breach_description(mock_send_notifications_for_breaches, call_index=0)
-        assert "The insight value ($pageview) for previous interval (0) is less than lower threshold (1.0)" in anomalies
+        assert "The insight value ($pageview) for current interval (0) is less than lower threshold (1.0)" in anomalies
 
     def test_alert_triggers_but_does_not_send_notification_during_firing(
         self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
@@ -318,7 +324,7 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         assert mock_send_notifications_for_breaches.call_count == 1
         anomalies = self.get_breach_description(mock_send_notifications_for_breaches, call_index=0)
-        assert "The insight value ($pageview) for previous interval (0) is less than lower threshold (1.0)" in anomalies
+        assert "The insight value ($pageview) for current interval (0) is less than lower threshold (1.0)" in anomalies
 
     @patch("posthog.tasks.alerts.utils.EmailMessage")
     def test_send_emails(
@@ -389,3 +395,27 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
         assert mock_send_notifications_for_breaches.call_count == 1
         second_check = AlertCheck.objects.filter(alert_configuration=self.alert["id"]).latest("created_at")
         assert first_check.id == second_check.id
+
+    def test_alert_is_not_checked_on_weekend_when_skip_weekends_is_true(
+        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
+        self.skip_weekend(True)
+
+        # run on weekend
+        with freeze_time("2024-12-21T07:55:00.000Z"):
+            check_alert(self.alert["id"])
+
+        checks = AlertCheck.objects.filter(alert_configuration=self.alert["id"])
+        assert len(checks) == 0
+
+    def test_alert_is_checked_on_weekday_when_skip_weekends_is_true(
+        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
+        self.skip_weekend(True)
+
+        # run on week day
+        with freeze_time("2024-12-19T07:55:00.000Z"):
+            check_alert(self.alert["id"])
+
+        checks = AlertCheck.objects.filter(alert_configuration=self.alert["id"])
+        assert len(checks) == 1

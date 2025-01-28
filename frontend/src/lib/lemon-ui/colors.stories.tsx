@@ -182,6 +182,24 @@ const threeThousand = [
     'primary-alt',
 ]
 
+const dataColors = [
+    'data-color-1',
+    'data-color-2',
+    'data-color-3',
+    'data-color-4',
+    'data-color-5',
+    'data-color-6',
+    'data-color-7',
+    'data-color-8',
+    'data-color-9',
+    'data-color-10',
+    'data-color-11',
+    'data-color-12',
+    'data-color-13',
+    'data-color-14',
+    'data-color-15',
+]
+
 export function ColorPalette(): JSX.Element {
     const [hover, setHover] = useState<string>()
     return (
@@ -270,6 +288,56 @@ export function AllThreeThousandColorOptions(): JSX.Element {
                         return (
                             <div className="bg-bg-3000-dark flex items-center justify-center border rounded h-16 w-16">
                                 <div className={`bg-${color as string} border rounded h-8 w-8`} />
+                            </div>
+                        )
+                    },
+                },
+            ]}
+        />
+    )
+}
+
+export function DataColors(): JSX.Element {
+    return (
+        <LemonTable
+            dataSource={dataColors.map((color) => ({ name: color, color }))}
+            columns={[
+                {
+                    title: 'Class name',
+                    key: 'name',
+                    dataIndex: 'name',
+                    render: function RenderName(name) {
+                        return name
+                    },
+                },
+                {
+                    title: 'Light mode',
+                    key: 'light',
+                    dataIndex: 'color',
+                    render: function RenderColor(color) {
+                        return (
+                            <div className="bg-bg-3000-light flex items-center justify-center border rounded h-16 w-16">
+                                <div
+                                    className="border rounded h-8 w-8"
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={{ backgroundColor: `var(--${color})` }}
+                                />
+                            </div>
+                        )
+                    },
+                },
+                {
+                    title: 'Dark mode',
+                    key: 'dark',
+                    dataIndex: 'color',
+                    render: function RenderColor(color) {
+                        return (
+                            <div className="bg-bg-3000-dark flex items-center justify-center border rounded h-16 w-16">
+                                <div
+                                    className="border rounded h-8 w-8"
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={{ backgroundColor: `var(--${color})` }}
+                                />
                             </div>
                         )
                     },

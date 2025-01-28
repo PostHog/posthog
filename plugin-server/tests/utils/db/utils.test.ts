@@ -31,7 +31,7 @@ describe('personInitialAndUTMProperties()', () => {
         }
 
         expect(personInitialAndUTMProperties(properties)).toMatchInlineSnapshot(`
-            Object {
+            {
               "$app_build": 2,
               "$app_name": "my app",
               "$app_namespace": "com.posthog.myapp",
@@ -39,14 +39,14 @@ describe('personInitialAndUTMProperties()', () => {
               "$browser": "Chrome",
               "$browser_version": "95",
               "$current_url": "https://test.com",
-              "$elements": Array [
-                Object {
+              "$elements": [
+                {
                   "attr__class": "btn btn-sm",
                   "nth_child": 1,
                   "nth_of_type": 2,
                   "tag_name": "a",
                 },
-                Object {
+                {
                   "$el_text": "💻",
                   "nth_child": 1,
                   "nth_of_type": 2,
@@ -57,7 +57,7 @@ describe('personInitialAndUTMProperties()', () => {
               "$os_version": "10.15.7",
               "$referrer": "https://google.com/?q=posthog",
               "$referring_domain": "https://google.com",
-              "$set": Object {
+              "$set": {
                 "$app_build": 2,
                 "$app_name": "my app",
                 "$app_namespace": "com.posthog.myapp",
@@ -73,7 +73,7 @@ describe('personInitialAndUTMProperties()', () => {
                 "msclkid": "BING ADS ID",
                 "utm_medium": "twitter",
               },
-              "$set_once": Object {
+              "$set_once": {
                 "$initial_app_build": 2,
                 "$initial_app_name": "my app",
                 "$initial_app_namespace": "com.posthog.myapp",

@@ -6,6 +6,7 @@ export enum OutputTab {
     Results = 'results',
     Visualization = 'visualization',
     Info = 'info',
+    Lineage = 'lineage',
 }
 
 export const outputPaneLogic = kea<outputPaneLogicType>([

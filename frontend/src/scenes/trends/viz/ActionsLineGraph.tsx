@@ -41,6 +41,7 @@ export function ActionsLineGraph({
         hiddenLegendIndexes,
         querySource,
         yAxisScaleType,
+        goalLines,
     } = useValues(trendsDataLogic(insightProps))
 
     const { alertThresholdLines } = useValues(
@@ -112,7 +113,7 @@ export function ActionsLineGraph({
             isArea={display === ChartDisplayType.ActionsAreaGraph}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             legend={legend}
-            alertLines={alertThresholdLines}
+            goalLines={[...alertThresholdLines, ...(goalLines || [])]}
             onClick={
                 !showPersonsModal || isMultiSeriesFormula(formula) || isDataWarehouseSeries
                     ? undefined

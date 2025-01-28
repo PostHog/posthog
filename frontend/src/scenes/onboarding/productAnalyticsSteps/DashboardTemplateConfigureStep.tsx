@@ -136,7 +136,7 @@ export const SiteChooser = (): JSX.Element => {
                     ) : combinedSnippetAndLiveEventsHosts.length > 0 ? (
                         <>
                             <p>
-                                Not seeing the site you want? Try clikcing around on your site to trigger a few events.
+                                Not seeing the site you want? Try clicking around on your site to trigger a few events.
                                 If you haven't yet,{' '}
                                 <Link onClick={() => setStepKey(OnboardingStepKey.INSTALL)}>install posthog-js</Link> or
                                 the HTML snippet wherever you want to track events, then come back here.

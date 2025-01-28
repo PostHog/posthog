@@ -10,6 +10,8 @@ from django.core import mail
 from django.core.cache import cache
 from django.utils import timezone
 from django.utils.text import slugify
+from django_otp.plugins.otp_static.models import StaticDevice
+from django_otp.plugins.otp_totp.models import TOTPDevice
 from freezegun.api import freeze_time
 from rest_framework import status
 
@@ -18,8 +20,6 @@ from posthog.models import Dashboard, Team, User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.test.base import APIBaseTest
-from django_otp.plugins.otp_static.models import StaticDevice
-from django_otp.plugins.otp_totp.models import TOTPDevice
 
 
 def create_user(email: str, password: str, organization: Organization):
@@ -80,6 +80,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response_data["team"]["api_token"], "token123")
         self.assertNotIn("test_account_filters", response_data["team"])  # Ensure we're not returning the full `Team`
         self.assertNotIn("event_names", response_data["team"])
+        self.assertEqual(response_data["role_at_organization"], self.user.role_at_organization)
 
         self.assertEqual(response_data["organization"]["name"], self.organization.name)
         self.assertEqual(response_data["organization"]["membership_level"], 1)
@@ -191,6 +192,7 @@ class TestUserAPI(APIBaseTest):
                 "id": 1,  # should be ignored
                 "organization": str(another_org.id),  # should be ignored
                 "team": str(another_team.id),  # should be ignored
+                "role_at_organization": "engineering",
             },
         )
 
@@ -204,6 +206,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response_data["organization"]["id"], str(self.organization.id))
         self.assertEqual(response_data["team"]["id"], self.team.id)
         self.assertEqual(response_data["has_seen_product_intro_for"], {"feature_flags": True})
+        self.assertEqual(response_data["role_at_organization"], "engineering")
 
         user.refresh_from_db()
         self.assertNotEqual(user.pk, 1)
@@ -212,6 +215,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(user.anonymize_data, True)
         self.assertDictContainsSubset({"plugin_disabled": False}, user.notification_settings)
         self.assertEqual(user.has_seen_product_intro_for, {"feature_flags": True})
+        self.assertEqual(user.role_at_organization, "engineering")
 
         mock_capture.assert_called_once_with(
             user.distinct_id,
@@ -223,6 +227,7 @@ class TestUserAPI(APIBaseTest):
                     "first_name",
                     "has_seen_product_intro_for",
                     "partial_notification_settings",
+                    "role_at_organization",
                 ],
                 "$set": mock.ANY,
             },
@@ -858,11 +863,11 @@ class TestUserAPI(APIBaseTest):
     def test_redirect_user_to_site_with_toolbar(self, patched_token):
         patched_token.return_value = "tokenvalue"
 
-        self.team.app_urls = ["http://127.0.0.1:8000"]
+        self.team.app_urls = ["http://127.0.0.1:8010"]
         self.team.save()
 
         response = self.client.get(
-            "/api/user/redirect_to_site/?userIntent=add-action&appUrl=http%3A%2F%2F127.0.0.1%3A8000"
+            "/api/user/redirect_to_site/?userIntent=add-action&appUrl=http%3A%2F%2F127.0.0.1%3A8010"
         )
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         locationHeader = response.headers.get("location", "not found")
@@ -870,18 +875,18 @@ class TestUserAPI(APIBaseTest):
         self.maxDiff = None
         self.assertEqual(
             unquote(locationHeader),
-            'http://127.0.0.1:8000#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": null, "userIntent": "add-action", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}',
+            'http://127.0.0.1:8010#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": null, "userIntent": "add-action", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}',
         )
 
     @patch("posthog.api.user.secrets.token_urlsafe")
     def test_redirect_user_to_site_with_experiments_toolbar(self, patched_token):
         patched_token.return_value = "tokenvalue"
 
-        self.team.app_urls = ["http://127.0.0.1:8000"]
+        self.team.app_urls = ["http://127.0.0.1:8010"]
         self.team.save()
 
         response = self.client.get(
-            "/api/user/redirect_to_site/?userIntent=edit-experiment&experimentId=12&appUrl=http%3A%2F%2F127.0.0.1%3A8000"
+            "/api/user/redirect_to_site/?userIntent=edit-experiment&experimentId=12&appUrl=http%3A%2F%2F127.0.0.1%3A8010"
         )
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         locationHeader = response.headers.get("location", "not found")
@@ -889,7 +894,7 @@ class TestUserAPI(APIBaseTest):
         self.maxDiff = None
         self.assertEqual(
             unquote(locationHeader),
-            'http://127.0.0.1:8000#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": "12", "userIntent": "edit-experiment", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}',
+            'http://127.0.0.1:8010#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": "12", "userIntent": "edit-experiment", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}',
         )
 
     @patch("posthog.api.user.secrets.token_urlsafe")
@@ -942,6 +947,102 @@ class TestUserAPI(APIBaseTest):
             assert (
                 response.json()[field] == initial_user[field]
             ), f"Updating field '{field}' to '{value}' worked when it shouldn't! Was {initial_user[field]} and is now {response.json()[field]}"
+
+    def test_can_update_notification_settings(self):
+        response = self.client.patch(
+            "/api/users/@me/",
+            {
+                "notification_settings": {
+                    "plugin_disabled": False,
+                    "project_weekly_digest_disabled": {123: True},
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(
+            response_data["notification_settings"],
+            {
+                "plugin_disabled": False,
+                "project_weekly_digest_disabled": {"123": True},  # Note: JSON converts int keys to strings
+                "all_weekly_digest_disabled": False,
+            },
+        )
+
+        self.user.refresh_from_db()
+        self.assertEqual(
+            self.user.partial_notification_settings,
+            {
+                "plugin_disabled": False,
+                "project_weekly_digest_disabled": {"123": True},
+                "all_weekly_digest_disabled": False,
+            },
+        )
+
+    def test_notification_settings_project_settings_are_merged_not_replaced(self):
+        # First update
+        response = self.client.patch(
+            "/api/users/@me/", {"notification_settings": {"project_weekly_digest_disabled": {123: True}}}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Second update with different project
+        response = self.client.patch(
+            "/api/users/@me/", {"notification_settings": {"project_weekly_digest_disabled": {456: True}}}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_data = response.json()
+        self.assertEqual(
+            response_data["notification_settings"]["project_weekly_digest_disabled"], {"123": True, "456": True}
+        )
+
+    def test_invalid_notification_settings_returns_error(self):
+        response = self.client.patch("/api/users/@me/", {"notification_settings": {"invalid_key": True}})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Key invalid_key is not valid as a key for notification settings",
+                "attr": "notification_settings",
+            },
+        )
+
+    def test_notification_settings_wrong_type_returns_error(self):
+        response = self.client.patch(
+            "/api/users/@me/",
+            {
+                "notification_settings": {
+                    "project_weekly_digest_disabled": {"123": "not a boolean"}  # This should be True or False
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Project notification setting values must be boolean, got <class 'str'> instead",
+                "attr": "notification_settings",
+            },
+        )
+
+    def test_can_disable_all_notifications(self):
+        response = self.client.patch("/api/users/@me/", {"notification_settings": {"all_weekly_digest_disabled": True}})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(
+            response_data["notification_settings"],
+            {
+                "plugin_disabled": True,  # Default value
+                "project_weekly_digest_disabled": {},  # Default value
+                "all_weekly_digest_disabled": True,
+            },
+        )
 
 
 class TestUserSlackWebhook(APIBaseTest):

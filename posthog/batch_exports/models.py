@@ -5,6 +5,7 @@ from datetime import timedelta
 from django.db import models
 
 from posthog.client import sync_execute
+from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.utils import UUIDModel
 
 
@@ -31,7 +32,7 @@ class BatchExportDestination(UUIDModel):
 
     secret_fields = {
         "S3": {"aws_access_key_id", "aws_secret_access_key"},
-        "Snowflake": {"user", "password"},
+        "Snowflake": {"user", "password", "private_key", "private_key_passphrase"},
         "Postgres": {"user", "password"},
         "Redshift": {"user", "password"},
         "BigQuery": {"private_key", "private_key_id", "client_email", "token_uri"},
@@ -44,8 +45,9 @@ class BatchExportDestination(UUIDModel):
         max_length=64,
         help_text="A choice of supported BatchExportDestination types.",
     )
-    config = models.JSONField(
+    config = EncryptedJSONField(
         default=dict,
+        ignore_decrypt_errors=True,
         blank=True,
         help_text="A JSON field to store all configuration parameters required to access a BatchExportDestination.",
     )

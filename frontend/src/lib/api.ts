@@ -37,6 +37,7 @@ import {
     DashboardTemplateListParams,
     DashboardTemplateType,
     DashboardType,
+    DataColorThemeModel,
     DataWarehouseSavedQuery,
     DataWarehouseTable,
     DataWarehouseViewLink,
@@ -56,10 +57,12 @@ import {
     FeatureFlagAssociatedRoleType,
     FeatureFlagStatusResponse,
     FeatureFlagType,
+    GoogleAdsConversionActionType,
     Group,
     GroupListParams,
     HogFunctionIconResponse,
     HogFunctionStatus,
+    HogFunctionSubTemplateIdType,
     HogFunctionTemplateType,
     HogFunctionType,
     HogFunctionTypeType,
@@ -108,6 +111,7 @@ import {
     Survey,
     TeamType,
     UserBasicType,
+    UserGroup,
     UserType,
 } from '~/types'
 
@@ -124,6 +128,7 @@ import {
     EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
     LOGS_PORTION_LIMIT,
 } from './constants'
+import type { ProductIntentProperties } from './utils/product-intents'
 
 /**
  * WARNING: Be very careful importing things here. This file is heavily used and can trigger a lot of cyclic imports
@@ -327,7 +332,7 @@ class ApiRequest {
         return this.projects().addPathComponent(id)
     }
 
-    // # Projects
+    // # Environments
     public environments(): ApiRequest {
         return this.addPathComponent('environments')
     }
@@ -729,6 +734,10 @@ class ApiRequest {
         return this.errorTrackingIssue(into).addPathComponent('merge')
     }
 
+    public errorTrackingAssignIssue(into: ErrorTrackingIssue['id']): ApiRequest {
+        return this.errorTrackingIssue(into).addPathComponent('assign')
+    }
+
     public errorTrackingSymbolSets(teamId?: TeamType['id']): ApiRequest {
         return this.errorTracking(teamId).addPathComponent('symbol_sets')
     }
@@ -795,8 +804,40 @@ class ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('channels')
     }
 
+    public integrationGoogleAdsAccounts(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId).addPathComponent(id).addPathComponent('google_accessible_accounts')
+    }
+
+    public integrationGoogleAdsConversionActions(
+        id: IntegrationType['id'],
+        customerId: string,
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.integrations(teamId)
+            .addPathComponent(id)
+            .addPathComponent('google_conversion_actions')
+            .withQueryString({ customerId })
+    }
+
     public media(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('uploaded_media')
+    }
+
+    // # UserGroups
+    public userGroups(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('user_groups')
+    }
+
+    public userGroup(id: UserGroup['id']): ApiRequest {
+        return this.userGroups().addPathComponent(id)
+    }
+
+    public userGroupAddMember(id: UserGroup['id']): ApiRequest {
+        return this.userGroup(id).addPathComponent('add')
+    }
+
+    public userGroupRemoveMember(id: UserGroup['id']): ApiRequest {
+        return this.userGroup(id).addPathComponent('remove')
     }
 
     // # Alerts
@@ -942,6 +983,19 @@ class ApiRequest {
 
     public async delete(): Promise<any> {
         return await api.delete(this.assembleFullUrl())
+    }
+
+    // Data color themes
+    public dataColorThemes(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_color_themes')
+    }
+
+    public dataColorTheme(id: DataColorThemeModel['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_color_themes').addPathComponent(id)
+    }
+
+    public addProductIntent(): ApiRequest {
+        return this.environments().current().addPathComponent('add_product_intent')
     }
 }
 
@@ -1477,15 +1531,20 @@ const api = {
         async duplicate(cohortId: CohortType['id']): Promise<CohortType> {
             return await new ApiRequest().cohortsDuplicate(cohortId).get()
         },
-        async list(): Promise<PaginatedResponse<CohortType>> {
-            // TODO: Remove hard limit and paginate cohorts
-            return await new ApiRequest().cohorts().withQueryString('limit=600').get()
-        },
         determineDeleteEndpoint(): string {
             return new ApiRequest().cohorts().assembleEndpointUrl()
         },
         determineListUrl(cohortId: number | 'new', params: PersonListParams): string {
             return `/api/cohort/${cohortId}/persons?${toParams(params)}`
+        },
+        async listPaginated(
+            params: {
+                limit?: number
+                offset?: number
+                search?: string
+            } = {}
+        ): Promise<CountedPaginatedResponse<CohortType>> {
+            return await new ApiRequest().cohorts().withQueryString(toParams(params)).get()
         },
     },
 
@@ -1824,13 +1883,15 @@ const api = {
         ): Promise<AppMetricsTotalsV2Response> {
             return await new ApiRequest().hogFunction(id).withAction('metrics/totals').withQueryString(params).get()
         },
-        async listTemplates(
-            type?: HogFunctionTypeType | HogFunctionTypeType[]
-        ): Promise<PaginatedResponse<HogFunctionTemplateType>> {
-            return new ApiRequest()
-                .hogFunctionTemplates()
-                .withQueryString(Array.isArray(type) ? { types: type.join(',') } : { type: type ?? 'destination' })
-                .get()
+        async listTemplates(params: {
+            types: HogFunctionTypeType[]
+            sub_template_id?: HogFunctionSubTemplateIdType
+        }): Promise<PaginatedResponse<HogFunctionTemplateType>> {
+            const finalParams = {
+                ...params,
+                types: params.types.join(','),
+            }
+            return new ApiRequest().hogFunctionTemplates().withQueryString(finalParams).get()
         },
         async getTemplate(id: HogFunctionTemplateType['id']): Promise<HogFunctionTemplateType> {
             return await new ApiRequest().hogFunctionTemplate(id).get()
@@ -1893,6 +1954,13 @@ const api = {
             return await new ApiRequest().errorTrackingIssue(id).update({ data })
         },
 
+        async assignIssue(
+            id: ErrorTrackingIssue['id'],
+            assignee: ErrorTrackingIssue['assignee']
+        ): Promise<{ content: string }> {
+            return await new ApiRequest().errorTrackingAssignIssue(id).update({ data: { assignee } })
+        },
+
         async mergeInto(
             primaryIssueId: ErrorTrackingIssue['id'],
             mergingIssueIds: ErrorTrackingIssue['id'][]
@@ -1924,6 +1992,28 @@ const api = {
             raw_ids: ErrorTrackingStackFrame['raw_id'][]
         ): Promise<{ results: ErrorTrackingStackFrameRecord[] }> {
             return await new ApiRequest().errorTrackingStackFrames({ raw_ids }).get()
+        },
+    },
+
+    userGroups: {
+        async list(): Promise<{ results: UserGroup[] }> {
+            return await new ApiRequest().userGroups().get()
+        },
+
+        async delete(id: UserGroup['id']): Promise<void> {
+            return await new ApiRequest().userGroup(id).delete()
+        },
+
+        async create(name: UserGroup['name']): Promise<UserGroup> {
+            return await new ApiRequest().userGroups().create({ data: { name } })
+        },
+
+        async addMember(id: UserGroup['id'], userId: UserBasicType['id']): Promise<UserGroup> {
+            return await new ApiRequest().userGroupAddMember(id).create({ data: { userId } })
+        },
+
+        async removeMember(id: UserGroup['id'], userId: UserBasicType['id']): Promise<UserGroup> {
+            return await new ApiRequest().userGroupRemoveMember(id).create({ data: { userId } })
         },
     },
 
@@ -2376,6 +2466,9 @@ const api = {
         async delete(viewId: DataWarehouseViewLink['id']): Promise<void> {
             await new ApiRequest().dataWarehouseViewLink(viewId).delete()
         },
+        determineDeleteEndpoint(): string {
+            return new ApiRequest().dataWarehouseViewLinks().assembleEndpointUrl()
+        },
         async update(
             viewId: DataWarehouseViewLink['id'],
             data: Pick<
@@ -2453,6 +2546,17 @@ const api = {
         async slackChannels(id: IntegrationType['id']): Promise<{ channels: SlackChannelType[] }> {
             return await new ApiRequest().integrationSlackChannels(id).get()
         },
+        async googleAdsAccounts(
+            id: IntegrationType['id']
+        ): Promise<{ accessibleAccounts: { id: string; name: string }[] }> {
+            return await new ApiRequest().integrationGoogleAdsAccounts(id).get()
+        },
+        async googleAdsConversionActions(
+            id: IntegrationType['id'],
+            customerId: string
+        ): Promise<{ conversionActions: GoogleAdsConversionActionType[] }> {
+            return await new ApiRequest().integrationGoogleAdsConversionActions(id, customerId).get()
+        },
     },
 
     resourcePermissions: {
@@ -2517,6 +2621,23 @@ const api = {
         },
     },
 
+    dataColorThemes: {
+        async list(): Promise<DataColorThemeModel[]> {
+            return await new ApiRequest().dataColorThemes().get()
+        },
+        async create(data: Partial<DataColorThemeModel>): Promise<DataColorThemeModel> {
+            return await new ApiRequest().dataColorThemes().create({ data })
+        },
+        async update(id: DataColorThemeModel['id'], data: Partial<DataColorThemeModel>): Promise<DataColorThemeModel> {
+            return await new ApiRequest().dataColorTheme(id).update({ data })
+        },
+    },
+    productIntents: {
+        async update(data: ProductIntentProperties): Promise<TeamType> {
+            return await new ApiRequest().addProductIntent().update({ data })
+        },
+    },
+
     queryURL: (): string => {
         return new ApiRequest().query().assembleFullUrl(true)
     },
@@ -2548,7 +2669,7 @@ const api = {
     },
 
     conversations: {
-        async create(data: { content: string; conversation?: string | null }): Promise<Response> {
+        async create(data: { content: string; conversation?: string | null; trace_id: string }): Promise<Response> {
             return api.createResponse(new ApiRequest().conversations().assembleFullUrl(), data)
         },
     },
@@ -2677,7 +2798,7 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
         error = e
     }
 
-    apiStatusLogic.findMounted()?.actions.onApiResponse(response, error)
+    apiStatusLogic.findMounted()?.actions.onApiResponse(response?.clone(), error)
 
     if (error || !response) {
         if (error && (error as any).name === 'AbortError') {

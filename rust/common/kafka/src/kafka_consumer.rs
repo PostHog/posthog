@@ -47,7 +47,11 @@ impl SingleTopicConsumer {
         client_config
             .set("bootstrap.servers", &common_config.kafka_hosts)
             .set("statistics.interval.ms", "10000")
-            .set("group.id", consumer_config.kafka_consumer_group);
+            .set("group.id", consumer_config.kafka_consumer_group)
+            .set(
+                "auto.offset.reset",
+                &consumer_config.kafka_consumer_offset_reset,
+            );
 
         client_config.set("enable.auto.offset.store", "false");
 
