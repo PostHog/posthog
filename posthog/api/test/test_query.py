@@ -1055,6 +1055,10 @@ class TestAsyncQuery(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(f"/api/environments/{self.team.id}/query_async/", {"query": query.dict()})
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
 
+    def test_get_returns_405(self):
+        response = self.client.get(f"/api/environments/{self.team.id}/query_async/")
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED, response.content)
+
 
 class TestQueryRetrieve(APIBaseTest):
     def setUp(self):
