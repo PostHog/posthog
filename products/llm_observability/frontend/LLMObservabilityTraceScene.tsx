@@ -1,13 +1,14 @@
 import { IconAIText, IconReceipt } from '@posthog/icons'
 import { LemonDivider, LemonTag, LemonTagProps, Link, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 import classNames from 'classnames'
+import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { NotFound } from 'lib/components/NotFound'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
-import { isObject, range } from 'lib/utils'
+import { isObject, pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
-import React from 'react'
+import React, { useState } from 'react'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -160,29 +161,37 @@ function TraceSidebar({
         <aside className="border-border max-h-fit bg-surface-primary border rounded overflow-hidden flex flex-col md:w-80">
             <h3 className="font-medium text-sm px-2 my-2">Tree</h3>
             <LemonDivider className="m-0" />
-            <NestingGroup>
+            <ul className="overflow-y-auto p-1 first:*:mt-0 overflow-x-hidden">
                 <TreeNode topLevelTrace={trace} item={trace} isSelected={!eventId || eventId === trace.id} />
                 <TreeNodeChildren tree={tree} trace={trace} selectedEventId={eventId} />
-            </NestingGroup>
+            </ul>
         </aside>
     )
 }
 
-function NestingGroup({ level = 0, children }: { level?: number; children: React.ReactNode }): JSX.Element {
-    const listEl = (
-        <ul className={!level ? 'overflow-y-auto p-1 first:*:mt-0 overflow-x-hidden' : 'flex-1 min-w-0'}>{children}</ul>
-    )
-
-    if (!level) {
-        return listEl
-    }
-
+function NestingGroup({
+    onToggle,
+    isCollapsed,
+    children,
+}: {
+    onToggle?: () => void
+    isCollapsed?: boolean
+    children: React.ReactNode
+}): JSX.Element {
     return (
-        <li className="flex items-stretch min-w-0">
-            {range(level).map((i) => (
-                <LemonDivider key={i} vertical className="mt-0 mb-1 mx-2" />
-            ))}
-            {listEl}
+        <li className={clsx('flex items-stretch min-w-0', isCollapsed && 'text-border hover:text-muted')}>
+            <div
+                className={clsx('mb-1 ml-1 cursor-pointer', !isCollapsed && 'text-border hover:text-muted')}
+                onClick={onToggle}
+            >
+                <div
+                    className={clsx(
+                        'w-0 h-full my-0 ml-1 mr-2 border-l border-current',
+                        isCollapsed && 'border-dashed'
+                    )}
+                />
+            </div>
+            <ul className="flex-1 min-w-0">{children}</ul>
         </li>
     )
 }
@@ -256,18 +265,31 @@ function TreeNodeChildren({
     trace: LLMTrace
     selectedEventId?: string | null
 }): JSX.Element {
+    const [isCollapsed, setIsCollapsed] = useState(false)
+
     return (
-        <NestingGroup level={1}>
-            {tree.map(({ event, children }) => (
-                <React.Fragment key={event.id}>
-                    <TreeNode
-                        topLevelTrace={trace}
-                        item={event}
-                        isSelected={!!selectedEventId && selectedEventId === event.id}
-                    />
-                    {children && <TreeNodeChildren tree={children} trace={trace} selectedEventId={selectedEventId} />}
-                </React.Fragment>
-            ))}
+        <NestingGroup isCollapsed={isCollapsed} onToggle={() => setIsCollapsed(!isCollapsed)}>
+            {!isCollapsed ? (
+                tree.map(({ event, children }) => (
+                    <React.Fragment key={event.id}>
+                        <TreeNode
+                            topLevelTrace={trace}
+                            item={event}
+                            isSelected={!!selectedEventId && selectedEventId === event.id}
+                        />
+                        {children && (
+                            <TreeNodeChildren tree={children} trace={trace} selectedEventId={selectedEventId} />
+                        )}
+                    </React.Fragment>
+                ))
+            ) : (
+                <div
+                    className="text-muted hover:text-default text-xxs cursor-pointer p-1"
+                    onClick={() => setIsCollapsed(false)}
+                >
+                    Show {pluralize(tree.length, 'collapsed child', 'collapsed children')}
+                </div>
+            )}
         </NestingGroup>
     )
 }
