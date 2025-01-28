@@ -566,6 +566,11 @@ impl FeatureFlagMatcher {
                     }
                     Err(e) => {
                         errors_while_computing_flags = true;
+                        // TODO add posthog error tracking
+                        error!(
+                            "Error evaluating feature flag '{}' for distinct_id '{}': {:?}",
+                            flag.key, self.distinct_id, e
+                        );
                         let reason = parse_exception_for_prometheus_label(&e);
                         inc(
                             FLAG_EVALUATION_ERROR_COUNTER,
@@ -701,30 +706,6 @@ impl FeatureFlagMatcher {
         property_overrides: Option<HashMap<String, Value>>,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<FeatureFlagMatch, FlagError> {
-        // First check if we actually need person properties for this flag
-        let needs_person_properties = flag.filters.groups.iter().any(|group| {
-            group.properties.as_ref().map_or(false, |props| {
-                props.iter().any(|prop| prop.prop_type == "person")
-            })
-        });
-
-        // If we need person properties but can't find the person, treat as non-match
-        if needs_person_properties {
-            match self.get_person_properties(None, &[]).await {
-                Ok(_) => (), // Person exists, continue normally
-                Err(FlagError::PersonNotFound) => {
-                    return Ok(FeatureFlagMatch {
-                        matches: false,
-                        variant: None,
-                        reason: FeatureFlagMatchReason::NoConditionMatch,
-                        condition_index: None,
-                        payload: None,
-                    });
-                }
-                Err(e) => return Err(e), // Other errors should still propagate
-            }
-        }
-
         if self
             .hashed_identifier(flag, hash_key_overrides.clone())
             .await?
@@ -962,19 +943,14 @@ impl FeatureFlagMatcher {
                     &[("type".to_string(), "person_id".to_string())],
                     1,
                 );
-                match self.get_person_id_from_db().await {
-                    Ok(id) => {
-                        self.properties_cache.person_id = Some(id);
-                        Ok(id)
-                    }
-                    Err(e) => {
-                        error!(
-                            "Failed to fetch person_id for distinct_id {}: {:?}",
-                            self.distinct_id, e
-                        );
-                        Err(e)
-                    }
-                }
+                let id = self.get_person_id_from_db().await?;
+                inc(
+                    DB_PERSON_PROPERTIES_READS_COUNTER,
+                    &[("team_id".to_string(), self.team_id.to_string())],
+                    1,
+                );
+                self.properties_cache.person_id = Some(id);
+                Ok(id)
             }
         }
     }
