@@ -57,7 +57,8 @@ def get_driver() -> webdriver.Chrome:
     )  # Removes the "Chrome is being controlled by automated test software" bar
 
     if os.environ.get("CHROMEDRIVER_BIN"):
-        return webdriver.Chrome(os.environ["CHROMEDRIVER_BIN"], options=options)
+        service = webdriver.ChromeService(executable_path=os.environ["CHROMEDRIVER_BIN"])
+        return webdriver.Chrome(service=service, options=options)
 
     return webdriver.Chrome(
         service=Service(ChromeDriverManager(chrome_type=ChromeType.GOOGLE).install()),
