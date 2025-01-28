@@ -1,11 +1,11 @@
 import datetime as dt
 from typing import Any, TypedDict, cast
-from loginas.utils import is_impersonated_session
 
 import posthoganalytics
 import structlog
 from django.db import transaction
 from django.utils.timezone import now
+from loginas.utils import is_impersonated_session
 from rest_framework import filters, request, response, serializers, viewsets
 from rest_framework.exceptions import (
     NotAuthenticated,
@@ -28,6 +28,7 @@ from posthog.batch_exports.service import (
     backfill_export,
     cancel_running_batch_export_run,
     disable_and_delete_export,
+    fetch_earliest_backfill_start_at,
     pause_batch_export,
     sync_batch_export,
     unpause_batch_export,
@@ -261,6 +262,23 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
         return attrs
 
+    def validate_destination(self, destination_attrs: dict):
+        destination_type = destination_attrs["type"]
+        if destination_type == BatchExportDestination.Destination.SNOWFLAKE:
+            config = destination_attrs["config"]
+            # for updates, get the existing config
+            self.instance: BatchExport | None
+            if self.instance is not None:
+                existing_config = self.instance.destination.config
+            else:
+                existing_config = {}
+            merged_config = {**existing_config, **config}
+            if config.get("authentication_type") == "password" and merged_config.get("password") is None:
+                raise serializers.ValidationError("Password is required if authentication type is password")
+            if config.get("authentication_type") == "keypair" and merged_config.get("private_key") is None:
+                raise serializers.ValidationError("Private key is required if authentication type is key pair")
+        return destination_attrs
+
     def create(self, validated_data: dict) -> BatchExport:
         """Create a BatchExport."""
         destination_data = validated_data.pop("destination")
@@ -421,6 +439,34 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
             end_at = validate_date_input(end_at_input, self.team)
         else:
             end_at = None
+
+        if start_at is not None or end_at is not None:
+            earliest_backfill_start_at = fetch_earliest_backfill_start_at(
+                team_id=self.team_id,
+                model=batch_export.model,
+                interval_time_delta=batch_export.interval_time_delta,
+                exclude_events=batch_export.destination.config.get("exclude_events", []),
+                include_events=batch_export.destination.config.get("include_events", []),
+            )
+            if earliest_backfill_start_at is None:
+                raise ValidationError("There is no data to backfill for this model.")
+
+            earliest_backfill_start_at = earliest_backfill_start_at.astimezone(self.team.timezone_info)
+
+            if end_at is not None and end_at < earliest_backfill_start_at:
+                raise ValidationError(
+                    "The provided backfill date range contains no data. The earliest possible backfill start date is "
+                    f"{earliest_backfill_start_at.strftime('%Y-%m-%d %H:%M:%S')}",
+                )
+
+            if start_at is not None and start_at < earliest_backfill_start_at:
+                logger.info(
+                    "Backfill start_at '%s' is before the earliest possible backfill start_at '%s', setting start_at "
+                    "to earliest_backfill_start_at",
+                    start_at,
+                    earliest_backfill_start_at,
+                )
+                start_at = earliest_backfill_start_at
 
         if start_at is None or end_at is None:
             backfill_id = backfill_export(temporal, str(batch_export.pk), self.team_id, start_at, end_at)

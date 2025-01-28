@@ -17,10 +17,10 @@
     &.LemonRow--status-highlighted {
         font-weight: 600;
         color: var(--text-3000);
-        background: var(--primary-highlight);
+        background: var(--accent-primary-highlight);
 
         .LemonRow__icon {
-            color: var(--primary-3000);
+            color: var(--accent-primary);
         }
     }
 

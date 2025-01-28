@@ -8,6 +8,12 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getAppContext } from 'lib/utils/getAppContext'
+import {
+    addProductIntent,
+    addProductIntentForCrossSell,
+    type ProductCrossSellProperties,
+    type ProductIntentProperties,
+} from 'lib/utils/product-intents'
 
 import { CorrelationConfigType, ProductKey, ProjectType, TeamPublicType, TeamType } from '~/types'
 
@@ -148,17 +154,9 @@ export const teamLogic = kea<teamLogicType>([
                 /**
                  * If adding a product intent that also represents regular product usage, see explainer in posthog.models.product_intent.product_intent.py.
                  */
-                addProductIntent: async ({
-                    product_type,
-                    intent_context,
-                }: {
-                    product_type: ProductKey
-                    intent_context?: string | null
-                }) =>
-                    await api.update(`api/environments/${values.currentTeamId}/add_product_intent`, {
-                        product_type,
-                        intent_context: intent_context ?? undefined,
-                    }),
+                addProductIntent: async (properties: ProductIntentProperties) => await addProductIntent(properties),
+                addProductIntentForCrossSell: async (properties: ProductCrossSellProperties) =>
+                    await addProductIntentForCrossSell(properties),
                 recordProductIntentOnboardingComplete: async ({ product_type }: { product_type: ProductKey }) =>
                     await api.update(`api/environments/${values.currentTeamId}/complete_product_onboarding`, {
                         product_type,

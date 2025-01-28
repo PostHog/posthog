@@ -128,6 +128,7 @@ import {
     EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
     LOGS_PORTION_LIMIT,
 } from './constants'
+import type { ProductIntentProperties } from './utils/product-intents'
 
 /**
  * WARNING: Be very careful importing things here. This file is heavily used and can trigger a lot of cyclic imports
@@ -995,6 +996,10 @@ class ApiRequest {
 
     public dataColorTheme(id: DataColorThemeModel['id'], teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('data_color_themes').addPathComponent(id)
+    }
+
+    public addProductIntent(): ApiRequest {
+        return this.environments().current().addPathComponent('add_product_intent')
     }
 }
 
@@ -2465,6 +2470,9 @@ const api = {
         async delete(viewId: DataWarehouseViewLink['id']): Promise<void> {
             await new ApiRequest().dataWarehouseViewLink(viewId).delete()
         },
+        determineDeleteEndpoint(): string {
+            return new ApiRequest().dataWarehouseViewLinks().assembleEndpointUrl()
+        },
         async update(
             viewId: DataWarehouseViewLink['id'],
             data: Pick<
@@ -2628,6 +2636,11 @@ const api = {
             return await new ApiRequest().dataColorTheme(id).update({ data })
         },
     },
+    productIntents: {
+        async update(data: ProductIntentProperties): Promise<TeamType> {
+            return await new ApiRequest().addProductIntent().update({ data })
+        },
+    },
 
     queryURL: (): string => {
         return new ApiRequest().query().assembleFullUrl(true)
@@ -2686,7 +2699,7 @@ const api = {
     },
 
     conversations: {
-        async create(data: { content: string; conversation?: string | null }): Promise<Response> {
+        async create(data: { content: string; conversation?: string | null; trace_id: string }): Promise<Response> {
             return api.createResponse(new ApiRequest().conversations().assembleFullUrl(), data)
         },
     },

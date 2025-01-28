@@ -28,6 +28,7 @@ import {
     PathsFilterType,
     PersonPropertyFilter,
     PropertyGroupFilter,
+    PropertyGroupFilterValue,
     PropertyMathType,
     PropertyOperator,
     RetentionFilterType,
@@ -1183,6 +1184,10 @@ export interface StickinessQuery
      * @default day
      */
     interval?: IntervalType
+    /**
+     * How many intervals comprise a period. Only used for cohorts, otherwise default 1.
+     */
+    intervalCount?: integer
     /** Events and actions to include */
     series: AnyEntityNode[]
     /** Properties specific to the stickiness insight */
@@ -1390,11 +1395,11 @@ export type CachedActorsQueryResponse = CachedQueryResponse<ActorsQueryResponse>
 
 export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
     kind: NodeKind.ActorsQuery
-    source?: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | HogQLQuery
+    source?: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | StickinessActorsQuery | HogQLQuery
     select?: HogQLExpression[]
     search?: string
     /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
-    properties?: AnyPersonScopeFilter[]
+    properties?: AnyPersonScopeFilter[] | PropertyGroupFilterValue
     /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
     fixedProperties?: AnyPersonScopeFilter[]
     orderBy?: string[]
@@ -1445,6 +1450,7 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
         forceSamplingRate?: SamplingRate
     }
     filterTestAccounts?: boolean
+    includeRevenue?: boolean
     /** @deprecated ignored, always treated as enabled **/
     useSessionsTable?: boolean
 }
@@ -1453,7 +1459,7 @@ export interface WebOverviewQuery extends WebAnalyticsQueryBase<WebOverviewQuery
     kind: NodeKind.WebOverviewQuery
 }
 
-export type WebOverviewItemKind = 'unit' | 'duration_s' | 'percentage'
+export type WebOverviewItemKind = 'unit' | 'duration_s' | 'percentage' | 'currency'
 export interface WebOverviewItem {
     key: string
     value?: number
@@ -1789,6 +1795,10 @@ export interface InsightActorsQuery<S extends InsightsQueryBase<AnalyticsQueryRe
     compare?: 'current' | 'previous'
 }
 
+export interface StickinessActorsQuery extends InsightActorsQuery {
+    operator?: StickinessOperator
+}
+
 export interface FunnelsActorsQuery extends InsightActorsQueryBase {
     kind: NodeKind.FunnelsActorsQuery
     source: FunnelsQuery
@@ -1913,7 +1923,7 @@ export type CachedInsightActorsQueryOptionsResponse = CachedQueryResponse<Insigh
 
 export interface InsightActorsQueryOptions extends Node<InsightActorsQueryOptionsResponse> {
     kind: NodeKind.InsightActorsQueryOptions
-    source: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery
+    source: InsightActorsQuery | FunnelsActorsQuery | FunnelCorrelationActorsQuery | StickinessActorsQuery
 }
 
 export interface DatabaseSchemaSchema {
@@ -2251,6 +2261,9 @@ export interface LLMTrace {
     inputCost?: number
     outputCost?: number
     totalCost?: number
+    inputState?: any
+    outputState?: any
+    traceName?: string
     events: LLMTraceEvent[]
 }
 
@@ -2273,3 +2286,12 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
 }
 
 export type CachedTracesQueryResponse = CachedQueryResponse<TracesQueryResponse>
+
+export interface RevenueTrackingEventItem {
+    eventName: string
+    revenueProperty: string
+}
+
+export interface RevenueTrackingConfig {
+    events: RevenueTrackingEventItem[]
+}

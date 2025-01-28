@@ -1,3 +1,5 @@
+import { dayjs } from 'lib/dayjs'
+
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema'
 
 import {
@@ -39,6 +41,10 @@ const usdFormatter = new Intl.NumberFormat('en-US', {
 
 export function formatLLMCost(cost: number): string {
     return usdFormatter.format(cost)
+}
+
+export function isLLMTraceEvent(item: LLMTrace | LLMTraceEvent): item is LLMTraceEvent {
+    return 'properties' in item
 }
 
 export function isOpenAICompatToolCall(input: unknown): input is OpenAIToolCall {
@@ -219,4 +225,8 @@ export function normalizeMessages(output: unknown, defaultRole?: string): Compat
     }
 
     return null
+}
+
+export function removeMilliseconds(timestamp: string): string {
+    return dayjs(timestamp).utc().format('YYYY-MM-DDTHH:mm:ss[Z]')
 }

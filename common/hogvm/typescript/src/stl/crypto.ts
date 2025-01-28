@@ -1,7 +1,9 @@
 import { ExecOptions } from '../types'
 
 export function sha256Hex(data: string | null, options?: ExecOptions): string | null {
-    if (data === null) { return null }
+    if (data === null) {
+        return null
+    }
     const crypto = options?.external?.crypto
     if (!crypto) {
         throw new Error('The crypto module is required for "sha256Hex" to work.')
@@ -10,7 +12,9 @@ export function sha256Hex(data: string | null, options?: ExecOptions): string | 
 }
 
 export function md5Hex(data: string | null, options?: ExecOptions): string | null {
-    if (data === null) { return null }
+    if (data === null) {
+        return null
+    }
     const crypto = options?.external?.crypto
     if (!crypto) {
         throw new Error('The crypto module is required for "md5Hex" to work.')

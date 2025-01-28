@@ -9,9 +9,8 @@ import { status } from '../../../utils/status'
 import { ConfiguredLimiter, LoggingLimiter } from '../../../utils/token-bucket'
 import { EventPipelineRunner } from '../../../worker/ingestion/event-pipeline/runner'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
-import { ingestionPartitionKeyOverflowed } from '../analytics-events-ingestion-consumer'
 import { IngestionConsumer } from '../kafka-queue'
-import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
+import { eventDroppedCounter, ingestionPartitionKeyOverflowed, latestOffsetTimestampGauge } from '../metrics'
 import {
     ingestEventBatchingBatchCountSummary,
     ingestEventBatchingDistinctIdBatchLengthSummary,
@@ -168,12 +167,10 @@ export async function eachBatchParallelIngestion(
                 // Process every message sequentially, stash promises to await on later
                 for (const { message, pluginEvent } of currentBatch) {
                     try {
+                        // TODO: this is the old way of doing it, we don't need to pass the hogTransformer down
+                        // TODO: as we will switch to the new ingestion flow and this will be removed
+                        const runner = new EventPipelineRunner(queue.pluginsServer, pluginEvent, null)
                         const result = (await retryIfRetriable(async () => {
-                            const runner = new EventPipelineRunner(
-                                queue.pluginsServer,
-                                pluginEvent,
-                                queue.eventsProcessor
-                            )
                             return await runner.runEventPipeline(pluginEvent)
                         })) as IngestResult
 

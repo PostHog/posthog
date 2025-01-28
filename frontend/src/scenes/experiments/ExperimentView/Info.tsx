@@ -98,7 +98,7 @@ export function Info(): JSX.Element {
 
                 <div className="w-1/2 flex flex-col justify-end">
                     <div className="ml-auto inline-flex space-x-8">
-                        {lastRefresh && (
+                        {experiment.start_date && (
                             <div className="block">
                                 <div className="text-xs font-semibold uppercase tracking-wide">Last refreshed</div>
                                 <div className="inline-flex space-x-2">
