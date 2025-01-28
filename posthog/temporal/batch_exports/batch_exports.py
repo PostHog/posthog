@@ -1,4 +1,3 @@
-import asyncio
 import collections
 import collections.abc
 import dataclasses
@@ -33,6 +32,7 @@ from posthog.temporal.batch_exports.metrics import (
     get_export_finished_metric,
     get_export_started_metric,
 )
+from posthog.temporal.batch_exports.spmc import compose_filters_clause
 from posthog.temporal.batch_exports.sql import SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
@@ -301,6 +301,16 @@ async def iter_records_from_model_view(
     use_latest_schema: bool = False,
     **parameters,
 ) -> AsyncRecordsGenerator:
+    extra_query_parameters = parameters.pop("extra_query_parameters", {}) or {}
+    filters = parameters.pop("filters", None) or None
+
+    if filters is not None:
+        filters_str, extra_query_parameters = await database_sync_to_async(compose_filters_clause)(
+            filters, team_id=team_id, values=extra_query_parameters
+        )
+    else:
+        filters_str, extra_query_parameters = "", extra_query_parameters
+
     if model_name == "persons":
         if is_backfill and interval_start is None:
             if use_latest_schema:
@@ -327,6 +337,8 @@ async def iter_records_from_model_view(
             interval_start=interval_start,
             interval_end=interval_end,
             fields=fields,
+            filters_str=filters_str,
+            extra_query_parameters=extra_query_parameters,
             **parameters,
         ):
             yield record_batch
@@ -374,7 +386,7 @@ async def iter_records_from_model_view(
 
         query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
 
-        view = query_template.substitute(fields=query_fields)
+        view = query_template.substitute(fields=query_fields, filters=filters_str)
 
     if interval_start is not None:
         parameters["interval_start"] = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
@@ -383,7 +395,6 @@ async def iter_records_from_model_view(
 
     parameters["team_id"] = team_id
     parameters["interval_end"] = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
-    extra_query_parameters = parameters.pop("extra_query_parameters") or {}
     parameters = {**parameters, **extra_query_parameters}
 
     async for record_batch in client.astream_query_as_arrow(
@@ -391,56 +402,6 @@ async def iter_records_from_model_view(
         query_parameters=parameters,
     ):
         yield record_batch
-
-
-class RecordBatchQueue(asyncio.Queue):
-    """A queue of pyarrow RecordBatch instances limited by bytes."""
-
-    def __init__(self, max_size_bytes=0):
-        super().__init__(maxsize=max_size_bytes)
-        self._bytes_size = 0
-        self._schema_set = asyncio.Event()
-        self.record_batch_schema = None
-        # This is set by `asyncio.Queue.__init__` calling `_init`
-        self._queue: collections.deque
-
-    def _get(self) -> pa.RecordBatch:
-        """Override parent `_get` to keep track of bytes."""
-        item = self._queue.popleft()
-        self._bytes_size -= item.get_total_buffer_size()
-        return item
-
-    def _put(self, item: pa.RecordBatch) -> None:
-        """Override parent `_put` to keep track of bytes."""
-        self._bytes_size += item.get_total_buffer_size()
-
-        if not self._schema_set.is_set():
-            self.set_schema(item)
-
-        self._queue.append(item)
-
-    def set_schema(self, record_batch: pa.RecordBatch) -> None:
-        """Used to keep track of schema of events in queue."""
-        self.record_batch_schema = record_batch.schema
-        self._schema_set.set()
-
-    async def get_schema(self) -> pa.Schema:
-        """Return the schema of events in queue.
-
-        Currently, this is not enforced. It's purely for reporting to users of
-        the queue what do the record batches look like. It's up to the producer
-        to ensure all record batches have the same schema.
-        """
-        await self._schema_set.wait()
-        return self.record_batch_schema
-
-    def qsize(self) -> int:
-        """Size in bytes of record batches in the queue.
-
-        This is used to determine when the queue is full, so it returns the
-        number of bytes.
-        """
-        return self._bytes_size
 
 
 class RecordBatchProducerError(Exception):
@@ -455,29 +416,6 @@ class TaskNotDoneError(Exception):
 
     def __init__(self, task: str):
         super().__init__(f"Expected task '{task}' to be done by now")
-
-
-async def produce_batch_export_record_batches_from_range(
-    client: ClickHouseClient,
-    query: str,
-    full_range: tuple[dt.datetime | None, dt.datetime],
-    done_ranges: collections.abc.Sequence[tuple[dt.datetime, dt.datetime]],
-    queue: RecordBatchQueue,
-    query_parameters: dict[str, typing.Any],
-):
-    """Produce all record batches into `queue` required to complete `full_range`.
-
-    This function will skip over any already completed `done_ranges`.
-    """
-    for interval_start, interval_end in generate_query_ranges(full_range, done_ranges):
-        if interval_start is not None:
-            query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
-        query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
-        query_id = uuid.uuid4()
-
-        await client.aproduce_query_as_arrow_record_batches(
-            query, queue=queue, query_parameters=query_parameters, query_id=str(query_id)
-        )
 
 
 def generate_query_ranges(
@@ -543,23 +481,6 @@ def generate_query_ranges(
         yield (candidate_start_at, candidate_end_at)
 
 
-async def raise_on_produce_task_failure(produce_task: asyncio.Task) -> None:
-    """Raise `RecordBatchProducerError` if a produce task failed.
-
-    We will also raise a `TaskNotDone` if the producer is not done, as this
-    should only be called after producer is done to check its exception.
-    """
-    if not produce_task.done():
-        raise TaskNotDoneError("produce")
-
-    if produce_task.exception() is None:
-        return
-
-    exc = produce_task.exception()
-    await logger.aexception("Produce task failed", exc_info=exc)
-    raise RecordBatchProducerError() from exc
-
-
 def use_distributed_events_recent_table(is_backfill: bool, team_id: int) -> bool:
     if is_backfill:
         return False
@@ -583,6 +504,7 @@ def iter_records(
     exclude_events: collections.abc.Iterable[str] | None = None,
     include_events: collections.abc.Iterable[str] | None = None,
     fields: list[BatchExportField] | None = None,
+    filters_str: str | None = None,
     extra_query_parameters: dict[str, typing.Any] | None = None,
     is_backfill: bool = False,
 ) -> RecordsGenerator:
@@ -662,7 +584,7 @@ def iter_records(
         lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
         base_query_parameters["lookback_days"] = lookback_days
 
-    query_str = query.substitute(fields=query_fields)
+    query_str = query.substitute(fields=query_fields, filters=filters_str or "")
 
     if extra_query_parameters is not None:
         query_parameters = base_query_parameters | extra_query_parameters
@@ -1159,20 +1081,3 @@ async def execute_batch_export_insert_activity(
                 non_retryable_error_types=["NotNullViolation", "IntegrityError"],
             ),
         )
-
-
-async def wait_for_delta_past_data_interval_end(
-    data_interval_end: dt.datetime, delta: dt.timedelta = dt.timedelta(seconds=30)
-) -> None:
-    """Wait for some time after `data_interval_end` before querying ClickHouse."""
-    if settings.TEST:
-        return
-
-    target = data_interval_end.astimezone(dt.UTC)
-    now = dt.datetime.now(dt.UTC)
-
-    while target + delta > now:
-        now = dt.datetime.now(dt.UTC)
-        remaining = (target + delta) - now
-        # Sleep between 1-10 seconds, there shouldn't ever be the need to wait too long.
-        await asyncio.sleep(min(max(remaining.total_seconds(), 1), 10))

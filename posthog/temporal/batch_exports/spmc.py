@@ -17,9 +17,6 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.property import property_to_expr
 from posthog.schema import EventPropertyFilter
-from posthog.temporal.batch_exports.batch_exports import (
-    wait_for_delta_past_data_interval_end,
-)
 from posthog.temporal.batch_exports.heartbeat import BatchExportRangeHeartbeatDetails, DateRange
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
@@ -880,3 +877,20 @@ def compose_filters_clause(
     )
 
     return printed, context.values
+
+
+async def wait_for_delta_past_data_interval_end(
+    data_interval_end: dt.datetime, delta: dt.timedelta = dt.timedelta(seconds=30)
+) -> None:
+    """Wait for some time after `data_interval_end` before querying ClickHouse."""
+    if settings.TEST:
+        return
+
+    target = data_interval_end.astimezone(dt.UTC)
+    now = dt.datetime.now(dt.UTC)
+
+    while target + delta > now:
+        now = dt.datetime.now(dt.UTC)
+        remaining = (target + delta) - now
+        # Sleep between 1-10 seconds, there shouldn't ever be the need to wait too long.
+        await asyncio.sleep(min(max(remaining.total_seconds(), 1), 10))
