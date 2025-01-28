@@ -1,12 +1,13 @@
 use crate::{
-    api::errors::FlagError,
-    api::types::FlagsResponse,
-    client::database::Client,
-    client::geoip::GeoIpClient,
+    api::{errors::FlagError, types::FlagsResponse},
+    client::{database::Client, geoip::GeoIpClient},
     cohort::cohort_cache_manager::CohortCacheManager,
-    flags::flag_matching::{FeatureFlagMatcher, GroupTypeMappingCache},
-    flags::flag_models::FeatureFlagList,
-    flags::flag_request::FlagRequest,
+    flags::{
+        flag_matching::{FeatureFlagMatcher, GroupTypeMappingCache},
+        flag_models::FeatureFlagList,
+        flag_request::FlagRequest,
+        flag_service::FlagService,
+    },
     router,
 };
 use axum::{extract::State, http::HeaderMap};
@@ -16,15 +17,16 @@ use derive_builder::Builder;
 use flate2::read::GzDecoder;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use serde_urlencoded;
 use std::{collections::HashMap, net::IpAddr};
 use std::{io::Read, sync::Arc};
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Compression {
-    #[serde(rename = "gzip")]
-    #[serde(alias = "gzip-js")]
+    #[serde(rename = "gzip", alias = "gzip-js")]
     Gzip,
+    #[serde(rename = "base64")]
     Base64,
     #[default]
     #[serde(other)]
@@ -41,7 +43,7 @@ impl Compression {
     }
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Clone, Deserialize, Default)]
 pub struct FlagsQueryParams {
     #[serde(alias = "v")]
     pub version: Option<String>,
@@ -59,6 +61,7 @@ pub struct RequestContext {
     pub state: State<router::State>,
     pub ip: IpAddr,
     pub headers: HeaderMap,
+    pub meta: FlagsQueryParams,
     pub body: Bytes,
 }
 
@@ -96,24 +99,32 @@ pub struct FeatureFlagEvaluationContext {
 /// - Maintains error context through the FlagError enum
 /// - Individual flag evaluation failures don't fail the entire request
 pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, FlagError> {
+    // Destructure context
     let RequestContext {
         state,
         ip,
         headers,
+        meta,
         body,
     } = context;
 
-    let request = decode_request(&headers, body)?;
-    let token = request
-        .extract_and_verify_token(state.redis.clone(), state.reader.clone())
-        .await?;
+    // Initialize services
+    let flag_service = FlagService::new(state.redis.clone(), state.reader.clone());
 
-    let team = request
-        .get_team_from_cache_or_pg(&token, state.redis.clone(), state.reader.clone())
-        .await?;
-
+    // Process request and authentication
+    let request = decode_request(&headers, body, &meta)?;
     let distinct_id = request.extract_distinct_id()?;
+    // NB: this method will fail before hitting any of the services if the token is not correctly set in the request,
+    // saving us from hitting the services with an invalid token
+    let token = request.extract_token()?;
+
+    let verified_token = flag_service.verify_token(&token).await?;
+    let team = flag_service
+        .get_team_from_cache_or_pg(&verified_token)
+        .await?;
     let team_id = team.id;
+
+    // Process properties and overrides
     let person_property_overrides = get_person_property_overrides(
         !request.geoip_disable.unwrap_or(false),
         request.person_properties.clone(),
@@ -124,10 +135,10 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
     let groups = request.groups.clone();
     let group_property_overrides =
         process_group_property_overrides(groups.clone(), request.group_properties.clone());
-
     let hash_key_override = request.anon_distinct_id.clone();
 
-    let feature_flags_from_cache_or_pg = request
+    // Get and evaluate flags
+    let feature_flags_from_cache_or_pg = flag_service
         .get_flags_from_cache_or_pg(team_id, &state.redis, &state.reader)
         .await?;
 
@@ -220,29 +231,30 @@ fn process_group_property_overrides(
 }
 
 /// Decode a request into a `FlagRequest`
-/// - Currently only supports JSON requests
-// TODO support all supported content types
-fn decode_request(headers: &HeaderMap, body: Bytes) -> Result<FlagRequest, FlagError> {
+pub fn decode_request(
+    headers: &HeaderMap,
+    body: Bytes,
+    query: &FlagsQueryParams,
+) -> Result<FlagRequest, FlagError> {
+    let decoded_body = match query.compression {
+        Some(Compression::Gzip) => decompress_gzip(body)?,
+        Some(Compression::Base64) => {
+            let decoded = general_purpose::STANDARD.decode(body).map_err(|e| {
+                FlagError::RequestDecodingError(format!("Base64 decoding error: {}", e))
+            })?;
+            Bytes::from(decoded)
+        }
+        Some(Compression::Unsupported) => {
+            return Err(FlagError::RequestDecodingError(
+                "Unsupported compression type".to_string(),
+            ))
+        }
+        None => body,
+    };
+
     let content_type = headers
         .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-
-    let content_encoding = headers
-        .get("content-encoding")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-
-    let decoded_body = match content_encoding {
-        "gzip" => decompress_gzip(body)?,
-        "" => body,
-        encoding => {
-            return Err(FlagError::RequestDecodingError(format!(
-                "unsupported content encoding: {}",
-                encoding
-            )))
-        }
-    };
+        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
 
     match content_type {
         "application/json" => FlagRequest::from_bytes(decoded_body),
@@ -254,6 +266,32 @@ fn decode_request(headers: &HeaderMap, body: Bytes) -> Result<FlagRequest, FlagE
                 })?;
             FlagRequest::from_bytes(Bytes::from(decoded))
         }
+        "application/x-www-form-urlencoded" => {
+            let form_data = String::from_utf8(decoded_body.to_vec()).map_err(|e| {
+                FlagError::RequestDecodingError(format!("Invalid UTF-8 in form data: {}", e))
+            })?;
+
+            #[derive(Deserialize)]
+            struct FormData {
+                data: String,
+            }
+
+            let form: FormData = serde_urlencoded::from_str(&form_data).map_err(|e| {
+                FlagError::RequestDecodingError(format!("Failed to parse form data: {}", e))
+            })?;
+
+            // URL-decode the base64 string if needed
+            let data = urlencoding::decode(&form.data)
+                .map_err(|e| {
+                    FlagError::RequestDecodingError(format!("Failed to URL-decode data: {}", e))
+                })?
+                .into_owned();
+
+            let decoded = general_purpose::STANDARD.decode(data).map_err(|e| {
+                FlagError::RequestDecodingError(format!("Base64 decoding error: {}", e))
+            })?;
+            FlagRequest::from_bytes(Bytes::from(decoded))
+        }
         ct => Err(FlagError::RequestDecodingError(format!(
             "unsupported content type: {}",
             ct
@@ -263,7 +301,7 @@ fn decode_request(headers: &HeaderMap, body: Bytes) -> Result<FlagRequest, FlagE
 
 /// Evaluate feature flags for a given distinct_id
 /// - Returns a map of feature flag keys to their values
-/// - If an error occurs while evaluating a flag, we'll set `error_while_computing_flags` to true be logged,
+/// - If an error occurs while evaluating a flag, we'll set `errors_while_computing_flags` to true be logged,
 ///   and that flag will be omitted from the result (we will still attempt to evaluate other flags)
 // TODO: it could be a cool idea to store the errors as a tuple instead of top-level, so that users can see
 // which flags failed to evaluate
@@ -460,7 +498,7 @@ mod tests {
 
         let result = evaluate_feature_flags(evaluation_context).await;
 
-        assert!(!result.error_while_computing_flags);
+        assert!(!result.errors_while_computing_flags);
         assert!(result.feature_flags.contains_key("test_flag"));
         assert_eq!(result.feature_flags["test_flag"], FlagValue::Boolean(true));
     }
@@ -469,10 +507,10 @@ mod tests {
     fn test_decode_request() {
         let mut headers = HeaderMap::new();
         headers.insert("content-type", "application/json".parse().unwrap());
-
         let body = Bytes::from(r#"{"token": "test_token", "distinct_id": "user123"}"#);
+        let meta = FlagsQueryParams::default();
 
-        let result = decode_request(&headers, body);
+        let result = decode_request(&headers, body, &meta);
 
         assert!(result.is_ok());
         let request = result.unwrap();
@@ -484,21 +522,27 @@ mod tests {
     fn test_decode_request_unsupported_content_encoding() {
         let mut headers = HeaderMap::new();
         headers.insert("content-type", "application/json".parse().unwrap());
-        headers.insert("content-encoding", "deflate".parse().unwrap());
         let body = Bytes::from_static(b"{\"token\": \"test_token\", \"distinct_id\": \"user123\"}");
-        let result = decode_request(&headers, body);
+        let meta = FlagsQueryParams {
+            compression: Some(Compression::Unsupported),
+            ..Default::default()
+        };
+
+        let result = decode_request(&headers, body, &meta);
         assert!(matches!(result, Err(FlagError::RequestDecodingError(_))));
     }
 
     #[test]
     fn test_decode_request_invalid_base64() {
         let mut headers = HeaderMap::new();
-        headers.insert(
-            "content-type",
-            "application/json; encoding=base64".parse().unwrap(),
-        );
+        headers.insert("content-type", "application/json".parse().unwrap());
         let body = Bytes::from_static(b"invalid_base64==");
-        let result = decode_request(&headers, body);
+        let meta = FlagsQueryParams {
+            compression: Some(Compression::Base64),
+            ..Default::default()
+        };
+
+        let result = decode_request(&headers, body, &meta);
         assert!(matches!(result, Err(FlagError::RequestDecodingError(_))));
     }
 
@@ -541,7 +585,9 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("content-type", "text/plain".parse().unwrap());
         let body = Bytes::from_static(b"test");
-        let result = decode_request(&headers, body);
+        let meta = FlagsQueryParams::default();
+
+        let result = decode_request(&headers, body, &meta);
         assert!(matches!(result, Err(FlagError::RequestDecodingError(_))));
     }
 
@@ -550,12 +596,29 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("content-type", "application/json".parse().unwrap());
         let body = Bytes::from_static(b"{invalid json}");
-        let result = decode_request(&headers, body);
-        // If the actual implementation doesn't return a RequestDecodingError,
-        // we should adjust our expectation. Let's check if it's an error at all:
+        let meta = FlagsQueryParams::default();
+
+        let result = decode_request(&headers, body, &meta);
         assert!(result.is_err(), "Expected an error, but got Ok");
-        // If you want to check for a specific error type, you might need to adjust
-        // the FlagError enum or the decode_request function.
+    }
+
+    #[test]
+    fn test_decode_request_form_urlencoded() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "content-type",
+            "application/x-www-form-urlencoded".parse().unwrap(),
+        );
+        let body = Bytes::from(
+            "data=eyJ0b2tlbiI6InRlc3RfdG9rZW4iLCJkaXN0aW5jdF9pZCI6InVzZXIxMjMifQ%3D%3D",
+        );
+        let meta = FlagsQueryParams::default();
+
+        let result = decode_request(&headers, body, &meta);
+        assert!(result.is_ok());
+        let request = result.unwrap();
+        assert_eq!(request.token, Some("test_token".to_string()));
+        assert_eq!(request.distinct_id, Some("user123".to_string()));
     }
 
     #[tokio::test]
@@ -620,7 +683,7 @@ mod tests {
 
         let result = evaluate_feature_flags(evaluation_context).await;
 
-        assert!(!result.error_while_computing_flags);
+        assert!(!result.errors_while_computing_flags);
         assert_eq!(result.feature_flags["flag_1"], FlagValue::Boolean(true));
         assert_eq!(result.feature_flags["flag_2"], FlagValue::Boolean(false));
     }
@@ -723,7 +786,7 @@ mod tests {
         let result = evaluate_feature_flags(evaluation_context).await;
 
         assert!(
-            !result.error_while_computing_flags,
+            !result.errors_while_computing_flags,
             "Error while computing flags"
         );
         assert!(
@@ -784,7 +847,7 @@ mod tests {
 
         let result = evaluate_feature_flags(evaluation_context).await;
 
-        assert!(!result.error_while_computing_flags);
+        assert!(!result.errors_while_computing_flags);
         assert_eq!(result.feature_flags["test_flag"], FlagValue::Boolean(true));
     }
 

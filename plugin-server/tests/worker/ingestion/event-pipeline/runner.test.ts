@@ -4,6 +4,7 @@ import { DateTime } from 'luxon'
 import { KafkaProducerWrapper } from '../../../../src/kafka/producer'
 import { ISOTimestamp, Person, PipelineEvent, PreIngestionEvent, RawKafkaEvent } from '../../../../src/types'
 import { createEventsToDropByToken } from '../../../../src/utils/db/hub'
+import { cookielessServerHashStep } from '../../../../src/worker/ingestion/event-pipeline/cookielessServerHashStep'
 import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/createEventStep'
 import { emitEventStep } from '../../../../src/worker/ingestion/event-pipeline/emitEventStep'
 import * as metrics from '../../../../src/worker/ingestion/event-pipeline/metrics'
@@ -16,6 +17,7 @@ import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipe
 import { EventsProcessor } from '../../../../src/worker/ingestion/process-event'
 
 jest.mock('../../../../src/worker/ingestion/event-pipeline/populateTeamDataStep')
+jest.mock('../../../../src/worker/ingestion/event-pipeline/cookielessServerHashStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/pluginsProcessEventStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/processPersonsStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/prepareEventStep')
@@ -130,6 +132,7 @@ describe('EventPipelineRunner', () => {
         runner = new TestEventPipelineRunner(hub, pluginEvent, new EventsProcessor(hub))
 
         jest.mocked(populateTeamDataStep).mockResolvedValue(pluginEvent)
+        jest.mocked(cookielessServerHashStep).mockResolvedValue([pluginEvent])
         jest.mocked(pluginsProcessEventStep).mockResolvedValue(pluginEvent)
         jest.mocked(processPersonsStep).mockResolvedValue([
             pluginEvent,
@@ -147,7 +150,9 @@ describe('EventPipelineRunner', () => {
 
             expect(runner.steps).toEqual([
                 'populateTeamDataStep',
+                'cookielessServerHashStep',
                 'pluginsProcessEventStep',
+                'transformEventStep',
                 'normalizeEventStep',
                 'processPersonsStep',
                 'prepareEventStep',
@@ -176,7 +181,9 @@ describe('EventPipelineRunner', () => {
             await runner.runEventPipeline(event)
             expect(runner.steps).toEqual([
                 'populateTeamDataStep',
+                'cookielessServerHashStep',
                 'pluginsProcessEventStep',
+                'transformEventStep',
                 'normalizeEventStep',
                 'processPersonsStep',
                 'prepareEventStep',
@@ -204,7 +211,7 @@ describe('EventPipelineRunner', () => {
             const result = await runner.runEventPipeline(pipelineEvent)
             expect(result.error).toBeUndefined()
 
-            expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(8)
+            expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(10)
             expect(pipelineLastStepCounterSpy).toHaveBeenCalledTimes(1)
             expect(eventProcessedAndIngestedCounterSpy).toHaveBeenCalledTimes(1)
             expect(pipelineStepMsSummarySpy).toHaveBeenCalledWith('emitEventStep')
@@ -220,7 +227,11 @@ describe('EventPipelineRunner', () => {
             it('stops processing after step', async () => {
                 await runner.runEventPipeline(pipelineEvent)
 
-                expect(runner.steps).toEqual(['populateTeamDataStep', 'pluginsProcessEventStep'])
+                expect(runner.steps).toEqual([
+                    'populateTeamDataStep',
+                    'cookielessServerHashStep',
+                    'pluginsProcessEventStep',
+                ])
             })
 
             it('reports metrics and last step correctly', async () => {
@@ -230,7 +241,7 @@ describe('EventPipelineRunner', () => {
 
                 await runner.runEventPipeline(pipelineEvent)
 
-                expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(2)
+                expect(pipelineStepMsSummarySpy).toHaveBeenCalledTimes(3)
                 expect(pipelineLastStepCounterSpy).toHaveBeenCalledWith('pluginsProcessEventStep')
                 expect(pipelineStepErrorCounterSpy).not.toHaveBeenCalled()
             })
@@ -391,7 +402,9 @@ describe('EventPipelineRunner', () => {
 
                 expect(runner.steps).toEqual([
                     'populateTeamDataStep',
+                    'cookielessServerHashStep',
                     'pluginsProcessEventStep',
+                    'transformEventStep',
                     'normalizeEventStep',
                     'processPersonsStep',
                     'prepareEventStep',

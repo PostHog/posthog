@@ -17,7 +17,14 @@ pub enum FlagValue {
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FlagsResponse {
-    pub error_while_computing_flags: bool,
+    pub errors_while_computing_flags: bool,
     pub feature_flags: HashMap<String, FlagValue>,
-    pub feature_flag_payloads: HashMap<String, Value>, // flag key -> payload
+    pub feature_flag_payloads: HashMap<String, Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quota_limited: Option<Vec<String>>, // list of quota limited resources
+}
+
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct FlagsOptionsResponse {
+    pub status: FlagsResponseCode,
 }
