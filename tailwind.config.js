@@ -1,6 +1,9 @@
 /** @type {import('tailwindcss').Config} */
 
-const accentColors = {
+const commonColors = {
+    'inherit': 'inherit',
+    'current': 'currentColor',
+    'transparent': 'transparent',
     'accent-primary': 'var(--accent-primary)',
     'accent-primary-hover': 'var(--accent-primary-hover)',
     'accent-primary-active': 'var(--accent-primary-active)',
@@ -31,7 +34,7 @@ const config = {
             purple: '#B62AD9',
         },
         backgroundColor: {
-            ...accentColors,
+            ...commonColors,
             
             'fill-primary': 'var(--bg-fill-primary)',
             'fill-secondary': 'var(--bg-fill-secondary)',
@@ -46,7 +49,7 @@ const config = {
             'fill-success-tertiary': 'var(--bg-fill-success-tertiary)',
         },
         textColor: {
-            ...accentColors,
+            ...commonColors,
             
             'primary': 'var(--text-primary)',
             'on-warning-on-fill': 'var(--text-warning-on-bg-fill)',
@@ -54,7 +57,7 @@ const config = {
             'on-success-on-fill': 'var(--text-success-on-bg-fill)',
         },
         borderColor: {
-            ...accentColors,
+            ...commonColors,
 
             'primary': 'var(--border-primary)',
             'info': 'var(--border-info)',
