@@ -4,7 +4,7 @@
     --editor-panel-group-min-width: 24rem;
 
     flex-shrink: 0;
-    background: var(--bg-light);
+    background: var(--surface-primary);
 
     &:not(.EditorFiltersWrapper--embedded) {
         padding: 1rem;

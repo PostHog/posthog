@@ -60,7 +60,7 @@
             .PlayerSeekbar__segments__item {
                 float: left;
                 height: 100%;
-                background-color: var(--bg-light);
+                background-color: var(--surface-primary);
                 opacity: 0.5;
 
                 &--active {
@@ -77,7 +77,7 @@
             height: var(--thumb-size);
             margin-top: calc(var(--thumb-size) / 2 * -1);
             background-color: var(--accent-primary);
-            border: 2px solid var(--bg-light);
+            border: 2px solid var(--surface-primary);
             border-radius: 50%;
             transition: top 150ms ease-in-out;
             backface-visibility: hidden;

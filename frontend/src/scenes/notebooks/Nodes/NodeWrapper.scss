@@ -70,7 +70,7 @@
             z-index: var(--z-popover);
             pointer-events: none;
             visibility: hidden;
-            background-color: var(--bg-light);
+            background-color: var(--surface-primary);
         }
 
         .Notebook--editable & {

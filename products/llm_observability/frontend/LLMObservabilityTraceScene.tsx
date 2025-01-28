@@ -89,7 +89,7 @@ function Chip({
 }): JSX.Element {
     return (
         <Tooltip title={title}>
-            <LemonTag size="medium" className="bg-bg-light" icon={icon}>
+            <LemonTag size="medium" className="bg-surface-primary" icon={icon}>
                 <span className="sr-only">{title}</span>
                 {children}
             </LemonTag>
@@ -158,7 +158,7 @@ function TraceSidebar({
     tree: TraceTreeNode[]
 }): JSX.Element {
     return (
-        <aside className="border-border max-h-fit bg-bg-light border rounded overflow-hidden flex flex-col md:w-80">
+        <aside className="border-border max-h-fit bg-surface-primary border rounded overflow-hidden flex flex-col md:w-80">
             <h3 className="font-medium text-sm px-2 my-2">Tree</h3>
             <LemonDivider className="m-0" />
             <ul className="overflow-y-auto p-1 first:*:mt-0 overflow-x-hidden">
@@ -339,7 +339,7 @@ function EventContentDisplay({
 
 const EventContent = React.memo(({ event }: { event: LLMTrace | LLMTraceEvent | null }): JSX.Element => {
     return (
-        <div className="flex-1 bg-bg-light max-h-fit border rounded flex flex-col border-border p-4 overflow-y-auto">
+        <div className="flex-1 bg-surface-primary max-h-fit border rounded flex flex-col border-border p-4 overflow-y-auto">
             {!event ? (
                 <InsightEmptyState heading="Event not found" detail="Check if the event ID is correct." />
             ) : (

@@ -98,7 +98,7 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
                 >
                     <div className="flex items-start gap-4 flex-wrap">
                         <div className="flex flex-col flex-1 min-w-100 space-y-3">
-                            <div className="border bg-bg-light p-3 rounded space-y-2">
+                            <div className="border bg-surface-primary p-3 rounded space-y-2">
                                 <div className="flex flex-row gap-2 min-h-16 items-center">
                                     {configuration.destination ? (
                                         <>
@@ -279,7 +279,7 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
                         </div>
 
                         <div className="flex-2 gap-4 space-y-4 min-w-100">
-                            <div className="border bg-bg-light p-3 rounded">
+                            <div className="border bg-surface-primary p-3 rounded">
                                 <BatchExportConfigurationFields
                                     isNew={isNew}
                                     formValues={configuration as BatchExportConfigurationForm}

@@ -256,7 +256,7 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
                     </div>
                 </div>
             ) : (
-                <div className="border rounded bg-bg-light pt-6 pb-8 text-muted mt-2">
+                <div className="border rounded bg-surface-primary pt-6 pb-8 text-muted mt-2">
                     <div className="flex flex-col items-center mx-auto space-y-3">
                         <IconAreaChart fontSize="30" />
                         <div className="text-sm text-center text-balance">
