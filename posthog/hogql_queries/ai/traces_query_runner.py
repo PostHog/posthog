@@ -77,6 +77,7 @@ class TracesQueryRunner(QueryRunner):
                 placeholders={
                     "common_conditions": self._get_where_clause(),
                     "filter_conditions": self._get_properties_filter(),
+                    "return_full_trace": ast.Constant(value=1 if self.query.traceId is not None else 0),
                 },
                 team=self.team,
                 query_type=NodeKind.TRACES_QUERY,
@@ -101,7 +102,7 @@ class TracesQueryRunner(QueryRunner):
         return {
             **super().get_cache_payload(),
             # When the response schema changes, increment this version to invalidate the cache.
-            "schema_version": 1,
+            "schema_version": 2,
         }
 
     @cached_property
@@ -200,7 +201,7 @@ class TracesQueryRunner(QueryRunner):
                 generations.input_cost AS input_cost,
                 generations.output_cost AS output_cost,
                 generations.total_cost AS total_cost,
-                generations.events AS events,
+                if({return_full_trace}, generations.events, arrayFilter(x -> x.2 IN ('$ai_metric', '$ai_feedback'), generations.events)) as events,
                 traces.input_state AS input_state,
                 traces.output_state AS output_state,
                 traces.trace_name AS trace_name,
