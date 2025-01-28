@@ -250,13 +250,13 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         for i in range(5):
             source = ExternalDataSource.objects.create(
                 team=self.team,
-                source_id=f"source_id_{i+2}",
-                connection_id=f"connection_id_{i+2}",
+                source_id=f"source_id_{i + 2}",
+                connection_id=f"connection_id_{i + 2}",
                 status=ExternalDataSource.Status.COMPLETED,
                 source_type=ExternalDataSource.Type.STRIPE,
             )
             warehouse_table = DataWarehouseTable.objects.create(
-                name=f"table_{i+2}",
+                name=f"table_{i + 2}",
                 format="Parquet",
                 team=self.team,
                 external_data_source=source,
@@ -269,7 +269,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             )
             ExternalDataSchema.objects.create(
                 team=self.team,
-                name=f"table_{i+2}",
+                name=f"table_{i + 2}",
                 source=source,
                 table=warehouse_table,
                 should_sync=True,
