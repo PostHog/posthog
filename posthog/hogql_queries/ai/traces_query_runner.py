@@ -222,7 +222,7 @@ class TracesQueryRunner(QueryRunner):
                     arraySort(x -> x.3, groupArray(tuple(uuid, event, timestamp, properties))) as events,
                     {filter_conditions}
                 FROM events
-                WHERE event IN ('$ai_generation', '$ai_metric', '$ai_feedback') AND {common_conditions}
+                WHERE event IN ('$ai_span', '$ai_generation', '$ai_metric', '$ai_feedback') AND {common_conditions}
                 GROUP BY id
             ) AS generations
             LEFT JOIN (
@@ -230,7 +230,7 @@ class TracesQueryRunner(QueryRunner):
                     properties.$ai_trace_id as id,
                     argMin(properties.$ai_input_state, timestamp) as input_state,
                     argMin(properties.$ai_output_state, timestamp) as output_state,
-                    argMin(properties.$ai_trace_name, timestamp) as trace_name,
+                    argMin(ifNull(properties.$ai_span_name, properties.$ai_trace_name), timestamp) as trace_name,
                     {filter_conditions}
                 FROM events
                 WHERE event = '$ai_trace' AND {common_conditions}
