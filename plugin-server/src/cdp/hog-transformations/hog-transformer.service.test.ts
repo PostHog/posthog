@@ -10,6 +10,7 @@ import { createHogFunction } from '~/tests/cdp/fixtures'
 
 import { Hub } from '../../types'
 import { createHub } from '../../utils/db/hub'
+import { pluginFilterOutPluginTemplate } from '../legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { HogTransformerService } from './hog-transformer.service'
 
 let mockGetTeamHogFunctions: jest.Mock
@@ -29,6 +30,21 @@ jest.mock('../../cdp/services/hog-function-manager.service', () => ({
     })),
 }))
 
+const createPluginEvent = (event: Partial<PluginEvent> = {}): PluginEvent => {
+    return {
+        ip: '89.160.20.129',
+        site_url: 'http://localhost',
+        team_id: 1,
+        now: '2024-06-07T12:00:00.000Z',
+        uuid: 'event-id',
+        event: 'event-name',
+        distinct_id: 'distinct-id',
+        properties: { $current_url: 'https://example.com', $ip: '89.160.20.129' },
+        timestamp: '2024-01-01T00:00:00Z',
+        ...event,
+    }
+}
+
 describe('HogTransformer', () => {
     let hub: Hub
     let hogTransformer: HogTransformerService
@@ -39,6 +55,8 @@ describe('HogTransformer', () => {
         hub = await createHub()
         hub.mmdb = Reader.openBuffer(brotliDecompressSync(mmdbBrotliContents))
         hogTransformer = new HogTransformerService(hub)
+
+        jest.spyOn(hogTransformer['pluginExecutor'], 'execute')
     })
 
     describe('transformEvent', () => {
@@ -54,18 +72,7 @@ describe('HogTransformer', () => {
 
             mockGetTeamHogFunctions.mockReturnValue([geoIpFunction])
 
-            const event: PluginEvent = {
-                ip: '89.160.20.129',
-                site_url: 'http://localhost',
-                team_id: 1,
-                now: '2024-06-07T12:00:00.000Z',
-                uuid: 'event-id',
-                event: 'event-name',
-                distinct_id: 'distinct-id',
-                properties: { $current_url: 'https://example.com', $ip: '89.160.20.129' },
-                timestamp: '2024-01-01T00:00:00Z',
-            }
-
+            const event: PluginEvent = createPluginEvent()
             const result = await hogTransformer.transformEvent(event)
 
             expect(result.properties).toEqual({
@@ -117,6 +124,31 @@ describe('HogTransformer', () => {
                 $geoip_subdivision_1_code: 'E',
                 $geoip_subdivision_1_name: 'Östergötland County',
             })
+        })
+    })
+
+    describe('legacy plugins', () => {
+        it('handles legacy plugin transformation', async () => {
+            const filterOutPlugin = createHogFunction({
+                ...pluginFilterOutPluginTemplate,
+                type: 'transformation',
+                template_id: 'plugin-posthog-filter-out-plugin',
+                inputs: {
+                    eventsToDrop: {
+                        value: 'drop-me',
+                    },
+                },
+            })
+
+            mockGetTeamHogFunctions.mockReturnValue([filterOutPlugin])
+
+            const event: PluginEvent = createPluginEvent({
+                event: 'drop-me',
+            })
+            const result = await hogTransformer.transformEvent(event)
+
+            expect(hogTransformer['pluginExecutor'].execute).toHaveBeenCalledTimes(1)
+            expect(result).toBeNull()
         })
     })
 })
