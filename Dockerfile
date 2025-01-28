@@ -32,8 +32,7 @@ COPY patches/ patches/
 ENV PNPM_HOME /tmp/pnpm-store 
 RUN corepack enable && pnpm --version && \
     mkdir /tmp/pnpm-store && \
-    pnpm fetch --filter @posthog/frontend^... --store-dir /tmp/pnpm-store && \
-    pnpm fetch --filter @posthog/frontend --prod --store-dir /tmp/pnpm-store && \
+    pnpm fetch --filter @posthog/frontend... --store-dir /tmp/pnpm-store && \
     rm -rf /tmp/pnpm-store
 
 # Build the frontend.
