@@ -41,7 +41,7 @@ COPY products/ products/
 COPY ee/frontend/ ee/frontend/
 COPY ./bin/ ./bin/
 COPY babel.config.js tsconfig.json webpack.config.js tailwind.config.js ./
-RUN pnpx nx build frontend --verbose
+RUN pnpm nx build frontend --verbose
 
 #
 # ---------------------------------------------------------
@@ -81,7 +81,7 @@ RUN corepack enable && \
 # the cache hit ratio of the layers above.
 COPY ./plugin-server/src/ ./src/
 COPY ./plugin-server/tests/ ./tests/
-RUN pnpx nx build plugin-server --verbose
+RUN pnpm nx build plugin-server --verbose
 
 # As the plugin-server is now built, let’s keep
 # only prod dependencies in the node_module folder

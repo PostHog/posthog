@@ -17,6 +17,7 @@
     },
     "packageManager": "pnpm@8.10.5",
     "scripts": {
+        "nx": "./node_modules/@posthog/build/node_modules/.bin/nx",
         "copy-scripts": "mkdir -p frontend/dist/ && ./bin/copy-posthog-js",
         "test": "pnpm test:unit && pnpm test:visual",
         "test:unit": "jest --testPathPattern='(frontend/|products/|common/)'",
