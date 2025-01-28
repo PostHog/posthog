@@ -3,8 +3,12 @@ from zoneinfo import ZoneInfo
 from django.conf import settings
 from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql import ast
+from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.parser import parse_expr
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
-from posthog.hogql_queries.experiments.types import ExperimentMetricType
+from posthog.hogql_queries.experiments.types import ExperimentMetricType, ExperimentVariantQueryResult
 from posthog.hogql_queries.experiments.trends_statistics import (
     are_results_significant,
     calculate_credible_intervals,
@@ -20,9 +24,11 @@ from posthog.hogql_queries.experiments.trends_statistics_v2_continuous import (
     calculate_credible_intervals_v2_continuous,
     calculate_probabilities_v2_continuous,
 )
+from posthog.hogql_queries.experiments.types import ExperimentQueryResult
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models.experiment import Experiment
+from posthog.models.team.team import Team
 from posthog.queries.trends.util import ALL_SUPPORTED_MATH_FUNCTIONS
 from rest_framework.exceptions import ValidationError
 from posthog.schema import (
@@ -135,6 +141,129 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                 return ExperimentMetricType.CONTINUOUS
             case _:
                 return ExperimentMetricType.COUNT
+
+    def _prepare_new_experiment_query(self) -> ast.SelectQuery:
+        # Hack to get the feature flag key and metric event from the query
+        feature_flag_key = self.feature_flag.key
+        metric_event = self.query.count_query.series[0].event
+
+        exposure_query = ast.SelectQuery(
+            select=[
+                ast.Field(chain=["distinct_id"]),
+                parse_expr("replaceAll(JSONExtractRaw(properties, '$feature_flag_response'), '\"', '') AS variant"),
+                parse_expr("min(timestamp) as first_exposure_time"),
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=parse_expr(
+                f"event = '$feature_flag_called' and replaceAll(JSONExtractRaw(properties, '$feature_flag'), '\"', '') = '{feature_flag_key}' "
+            ),
+            group_by=[ast.Field(chain=["variant"]), ast.Field(chain=["distinct_id"])],
+        )
+
+        events_after_exposure_query = ast.SelectQuery(
+            select=[
+                ast.Field(chain=["events", "timestamp"]),
+                ast.Field(chain=["events", "distinct_id"]),
+                ast.Field(chain=["exposure", "variant"]),
+                ast.Field(chain=["events", "event"]),
+                parse_expr("1 as value"),
+            ],
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"]),
+                next_join=ast.JoinExpr(
+                    table=exposure_query,
+                    join_type="INNER JOIN",
+                    alias="exposure",
+                    constraint=ast.JoinConstraint(
+                        expr=ast.CompareOperation(
+                            left=ast.Field(chain=["events", "distinct_id"]),
+                            right=ast.Field(chain=["exposure", "distinct_id"]),
+                            op=ast.CompareOperationOp.Eq,
+                        ),
+                        constraint_type="ON",
+                    ),
+                ),
+            ),
+            where=ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        left=ast.Field(chain=["events", "timestamp"]),
+                        right=ast.Field(chain=["exposure", "first_exposure_time"]),
+                        op=ast.CompareOperationOp.GtEq,
+                    ),
+                    parse_expr(f"event = '{metric_event}'"),
+                ],
+            ),
+        )
+
+        metrics_aggregated_per_user_query = ast.SelectQuery(
+            select=[
+                ast.Field(chain=["base", "variant"]),
+                ast.Field(chain=["base", "distinct_id"]),
+                parse_expr("sum(coalesce(eae.value, 0)) as count"),
+            ],
+            select_from=ast.JoinExpr(
+                table=exposure_query,
+                alias="base",
+                next_join=ast.JoinExpr(
+                    table=events_after_exposure_query,
+                    join_type="LEFT JOIN",
+                    alias="eae",
+                    constraint=ast.JoinConstraint(
+                        expr=ast.And(
+                            exprs=[
+                                ast.CompareOperation(
+                                    left=ast.Field(chain=["base", "distinct_id"]),
+                                    right=ast.Field(chain=["eae", "distinct_id"]),
+                                    op=ast.CompareOperationOp.Eq,
+                                ),
+                                ast.CompareOperation(
+                                    left=ast.Field(chain=["base", "variant"]),
+                                    right=ast.Field(chain=["eae", "variant"]),
+                                    op=ast.CompareOperationOp.Eq,
+                                ),
+                            ]
+                        ),
+                        constraint_type="ON",
+                    ),
+                ),
+            ),
+            group_by=[
+                ast.Field(chain=["base", "variant"]),
+                ast.Field(chain=["base", "distinct_id"]),
+            ],
+        )
+
+        final_query = ast.SelectQuery(
+            select=[
+                ast.Field(chain=["maq", "variant"]),
+                parse_expr("count(maq.distinct_id) as num_users"),
+                parse_expr("sum(maq.count) as total_sum"),
+                parse_expr("sum(maq.count * maq.count) as total_sum_of_squares"),
+            ],
+            select_from=ast.JoinExpr(table=metrics_aggregated_per_user_query, alias="maq"),
+            group_by=[ast.Field(chain=["maq", "variant"])],
+        )
+
+        return final_query
+
+    def _evaluate_experiment_query(self) -> ExperimentQueryResult:
+        response = execute_hogql_query(
+            query=self._prepare_new_experiment_query(),
+            team=Team.objects.get(id=1),
+            timings=HogQLTimings(),
+            modifiers=create_default_modifiers_for_team(Team.objects.get(id=1)),
+        )
+
+        variants: dict[str, ExperimentVariantQueryResult] = {}
+        for result in response.results:
+            variants[result[0]] = {
+                "num_entities": result[1],
+                "sum_value": result[2],
+                "sum_of_squares": result[3],
+            }
+
+        return {"variants": variants}
 
     def _prepare_count_query(self) -> TrendsQuery:
         """
@@ -274,33 +403,46 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
         count_result = shared_results["count_result"]
         exposure_result = shared_results["exposure_result"]
-        if count_result is None or exposure_result is None:
+        experiment_result = self._evaluate_experiment_query()
+
+        if count_result is None or exposure_result is None or experiment_result is None:
             raise ValueError("One or both query runners failed to produce a response")
 
         self._validate_event_variants(count_result, exposure_result)
 
-        # Statistical analysis
+        # Get variants from experiment results
+        new_variants = list(experiment_result["variants"].values())
+        new_control_variant = experiment_result["variants"].get("control")
+        if not new_control_variant:
+            raise ValueError("Control variant not found in experiment results")
+
+        new_test_variants = [variant for key, variant in experiment_result["variants"].items() if key != "control"]
+        new_variant_keys = ["control", *[key for key in experiment_result["variants"].keys() if key != "control"]]
+
+        # Old code
         control_variant, test_variants = self._get_variants_with_base_stats(count_result, exposure_result)
+
+        # Statistical analysis
         if self.stats_version == 2:
             match self._get_metric_type():
                 case ExperimentMetricType.CONTINUOUS:
-                    probabilities = calculate_probabilities_v2_continuous(control_variant, test_variants)
+                    probabilities = calculate_probabilities_v2_continuous(new_control_variant, new_test_variants)
                     significance_code, p_value = are_results_significant_v2_continuous(
-                        control_variant, test_variants, probabilities
+                        new_control_variant, new_test_variants, probabilities
                     )
-                    credible_intervals = calculate_credible_intervals_v2_continuous([control_variant, *test_variants])
+                    credible_intervals = calculate_credible_intervals_v2_continuous(new_variants)
                 case ExperimentMetricType.COUNT:
-                    probabilities = calculate_probabilities_v2_count(control_variant, test_variants)
+                    probabilities = calculate_probabilities_v2_count(new_control_variant, new_test_variants)
                     significance_code, p_value = are_results_significant_v2_count(
-                        control_variant, test_variants, probabilities
+                        new_control_variant, new_test_variants, probabilities
                     )
-                    credible_intervals = calculate_credible_intervals_v2_count([control_variant, *test_variants])
+                    credible_intervals = calculate_credible_intervals_v2_count(new_variants)
                 case _:
                     raise ValueError(f"Unsupported metric type: {self._get_metric_type()}")
         else:
             probabilities = calculate_probabilities(control_variant, test_variants)
             significance_code, p_value = are_results_significant(control_variant, test_variants, probabilities)
-            credible_intervals = calculate_credible_intervals([control_variant, *test_variants])
+            credible_intervals = calculate_credible_intervals(test_variants)
 
         return ExperimentTrendsQueryResponse(
             kind="ExperimentTrendsQuery",
@@ -308,10 +450,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             count_query=self.prepared_count_query,
             exposure_query=self.prepared_exposure_query,
             variants=[variant.model_dump() for variant in [control_variant, *test_variants]],
-            probability={
-                variant.key: probability
-                for variant, probability in zip([control_variant, *test_variants], probabilities)
-            },
+            probability=dict(zip(new_variant_keys, probabilities)),  # Mapping variant keys to probabilities
             significant=significance_code == ExperimentSignificanceCode.SIGNIFICANT,
             significance_code=significance_code,
             stats_version=self.stats_version,
