@@ -117,7 +117,7 @@ async def test_record_batch_producer_uses_extra_query_parameters(clickhouse_clie
 
     queue = RecordBatchQueue()
     producer = Producer()
-    producer_task = producer.start(
+    producer_task = await producer.start(
         queue=queue,
         team_id=team_id,
         is_backfill=False,
