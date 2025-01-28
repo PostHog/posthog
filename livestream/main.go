@@ -21,7 +21,7 @@ func main() {
 
 	err := sentry.Init(sentry.ClientOptions{
 		Dsn:              viper.GetString("sentry.dsn"),
-		Debug:            isProd,
+		Debug:            !isProd,
 		AttachStacktrace: true,
 	})
 	if err != nil {
@@ -125,33 +125,35 @@ func main() {
 		return c.JSON(http.StatusOK, claims)
 	})
 
-	e.File("/debug", "./index.html")
-	e.GET("/debug/sse", func(c echo.Context) error {
-		e.Logger.Printf("Map client connected, ip: %v", c.RealIP())
+	if isProd {
+		e.File("/debug", "./index.html")
+		e.GET("/debug/sse", func(c echo.Context) error {
+			e.Logger.Printf("Map client connected, ip: %v", c.RealIP())
 
-		w := c.Response()
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
+			w := c.Response()
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-cache")
+			w.Header().Set("Connection", "keep-alive")
 
-		ticker := time.NewTicker(1 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-c.Request().Context().Done():
-				e.Logger.Printf("SSE client disconnected, ip: %v", c.RealIP())
-				return nil
-			case <-ticker.C:
-				event := Event{
-					Data: []byte("ping: " + time.Now().Format(time.RFC3339Nano)),
+			ticker := time.NewTicker(1 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-c.Request().Context().Done():
+					e.Logger.Printf("SSE client disconnected, ip: %v", c.RealIP())
+					return nil
+				case <-ticker.C:
+					event := Event{
+						Data: []byte("ping: " + time.Now().Format(time.RFC3339Nano)),
+					}
+					if err := event.WriteTo(w); err != nil {
+						return err
+					}
+					w.Flush()
 				}
-				if err := event.WriteTo(w); err != nil {
-					return err
-				}
-				w.Flush()
 			}
-		}
-	})
+		})
+	}
 
 	e.Logger.Fatal(e.Start(":8080"))
 }
