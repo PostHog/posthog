@@ -886,8 +886,8 @@ class ApiRequest {
         return apiRequest
     }
 
-    public queryAsync(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('query_async')
+    public queryAwaited(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('query_awaited')
     }
 
     // Conversations
@@ -2672,7 +2672,7 @@ const api = {
         })
     },
 
-    async queryAsync<T extends Record<string, any> = QuerySchema>(
+    async queryAwaited<T extends Record<string, any> = QuerySchema>(
         query: T,
         options?: ApiMethodOptions,
         queryId?: string,
@@ -2686,7 +2686,7 @@ const api = {
                 : T['response']
             : Record<string, any>
     > {
-        return await new ApiRequest().queryAsync().create({
+        return await new ApiRequest().queryAwaited().create({
             ...options,
             data: {
                 query,

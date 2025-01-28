@@ -1010,7 +1010,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response_with_dashboard_filters.results, [(1,)])
 
 
-class TestAsyncQuery(ClickhouseTestMixin, APIBaseTest):
+class TestQueryAwaited(ClickhouseTestMixin, APIBaseTest):
     def test_async_query_returns_something(self):
         query = HogQLQuery(query="select event, distinct_id, properties.key from events order by timestamp")
 
@@ -1027,7 +1027,7 @@ class TestAsyncQuery(ClickhouseTestMixin, APIBaseTest):
             )
 
             response = self.client.post(
-                f"/api/environments/{self.team.id}/query_async/", {"query": query.dict(), "refresh": "force_async"}
+                f"/api/environments/{self.team.id}/query_awaited/", {"query": query.dict(), "refresh": "force_async"}
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
             data = response.json()
@@ -1036,7 +1036,8 @@ class TestAsyncQuery(ClickhouseTestMixin, APIBaseTest):
     def test_sync_query_returns_something(self):
         query = HogQLQuery(query="select event, distinct_id, properties.key from events order by timestamp")
         response = self.client.post(
-            f"/api/environments/{self.team.id}/query_async/", {"query": query.dict(), "refresh": True, "async": False}
+            f"/api/environments/{self.team.id}/query_awaited/",
+            {"query": query.dict(), "refresh": True, "async": False},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         data = response.json()
@@ -1044,7 +1045,7 @@ class TestAsyncQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_async_query_invalid_json(self):
         response = self.client.post(
-            f"/api/environments/{self.team.pk}/query_async/", "invalid json", content_type="application/json"
+            f"/api/environments/{self.team.pk}/query_awaited/", "invalid json", content_type="application/json"
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["type"], "invalid_request")
@@ -1052,11 +1053,11 @@ class TestAsyncQuery(ClickhouseTestMixin, APIBaseTest):
     def test_async_auth(self):
         self.client.logout()
         query = HogQLQuery(query="select event, distinct_id, properties.key from events order by timestamp")
-        response = self.client.post(f"/api/environments/{self.team.id}/query_async/", {"query": query.dict()})
+        response = self.client.post(f"/api/environments/{self.team.id}/query_awaited/", {"query": query.dict()})
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
 
     def test_get_returns_405(self):
-        response = self.client.get(f"/api/environments/{self.team.id}/query_async/")
+        response = self.client.get(f"/api/environments/{self.team.id}/query_awaited/")
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED, response.content)
 
 

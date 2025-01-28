@@ -58,7 +58,7 @@ from .views import (
     stats,
 )
 from .year_in_posthog import year_in_posthog
-from posthog.api.query import query_async
+from posthog.api.query import query_awaited
 
 logger = structlog.get_logger(__name__)
 
@@ -172,7 +172,7 @@ urlpatterns = [
     # ee
     *ee_urlpatterns,
     # api
-    path("api/environments/<int:team_id>/query_async/", query_async),
+    path("api/environments/<int:team_id>/query_awaited/", query_awaited),
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/", include(router.urls)),
     path("", include(tf_urls)),

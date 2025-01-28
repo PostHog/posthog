@@ -197,7 +197,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 ASYNC_FALLBACK_TO_POLLING_TIMEOUT = 20
 
 
-async def query_async(request: Request, *args, **kwargs) -> HttpResponse:
+async def query_awaited(request: Request, *args, **kwargs) -> HttpResponse:
     """Async endpoint for handling event source queries."""
 
     # Call the create method on QueryViewSet

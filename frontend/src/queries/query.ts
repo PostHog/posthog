@@ -108,7 +108,7 @@ async function executeQuery<N extends DataNode>(
             refresh && isAsyncQuery ? 'force_async' : isAsyncQuery ? 'async' : refresh
         let response: NonNullable<N['response']>
         if (useOptimizedPolling) {
-            response = await api.queryAsync(
+            response = await api.queryAwaited(
                 queryNode,
                 methodOptions,
                 queryId,
