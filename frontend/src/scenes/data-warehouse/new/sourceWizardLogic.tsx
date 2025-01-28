@@ -234,7 +234,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                 placeholder: '3306',
             },
             {
-                name: 'dbname',
+                name: 'database',
                 label: 'Database',
                 type: 'text',
                 required: true,
@@ -383,7 +383,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                 placeholder: '1433',
             },
             {
-                name: 'dbname',
+                name: 'database',
                 label: 'Database',
                 type: 'text',
                 required: true,
