@@ -172,7 +172,9 @@ function TraceSidebar({
 }
 
 function NestingGroup({ level = 0, children }: { level?: number; children: React.ReactNode }): JSX.Element {
-    const listEl = <ul className={!level ? 'overflow-y-auto p-1 first:*:mt-0 h-full' : 'flex-1'}>{children}</ul>
+    const listEl = (
+        <ul className={!level ? 'hide-scrollbar overflow-y-auto p-1 first:*:mt-0 h-full' : 'flex-1'}>{children}</ul>
+    )
 
     if (!level) {
         return listEl
@@ -318,7 +320,7 @@ function EventContentDisplay({
 
 function EventContent({ event }: { event: LLMTrace | LLMTraceEvent | null }): JSX.Element {
     return (
-        <div className="flex-1 bg-bg-light max-h-fit border rounded flex flex-col border-border p-4 overflow-y-auto">
+        <div className="hide-scrollbar flex-1 bg-bg-light max-h-fit border rounded flex flex-col border-border p-4 overflow-y-auto">
             {!event ? (
                 <InsightEmptyState heading="Event not found" detail="Check if the event ID is correct." />
             ) : (
