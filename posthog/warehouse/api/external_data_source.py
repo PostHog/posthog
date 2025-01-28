@@ -188,33 +188,30 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
 
     """
     This method is used to remove sensitive fields from the response.
-    IMPORTANT: This method should be updated when a new source type is added with sensitive fields.
+    IMPORTANT: This method should be updated when a new source type is added to allow for editing of the new source.
     """
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
 
-        sensitive_keys = {
-            "api_key",
-            "client_secret",
-            "hubspot_refresh_token",
-            "hubspot_secret_key",
-            "passphrase",
-            "password",
-            "private_key",
-            "private_key_id",
-            "salesforce_integration_id",
-            "secret_token",
-            "ssh_tunnel_auth_type_passphrase",
-            "ssh_tunnel_auth_type_password",
-            "ssh_tunnel_auth_type_private_key",
-            "stripe_secret_key",
-            "zendesk_api_key",
+        # non-sensitive fields
+        whitelisted_keys = {
+            # stripe
+            "stripe_account_id",
+            # sql
+            "database",
+            "host",
+            "port",
+            "user",
+            "schema",
+            "ssh-tunnel",
+            "use_ssl",
         }
         job_inputs = representation.get("job_inputs", {})
         if isinstance(job_inputs, dict):
-            for key in sensitive_keys:
-                job_inputs.pop(key, None)
+            for key in list(job_inputs.keys()):  # Use list() to avoid modifying dict during iteration
+                if key not in whitelisted_keys:
+                    job_inputs.pop(key, None)
 
         return representation
 

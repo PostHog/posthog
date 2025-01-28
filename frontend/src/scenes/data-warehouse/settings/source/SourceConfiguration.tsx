@@ -3,6 +3,8 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { SourceFormComponent, SourceFormProps } from 'scenes/data-warehouse/external/forms/SourceForm'
 
+import { ExternalDataSourceType } from '~/types'
+
 import { dataWarehouseSourceSettingsLogic } from './dataWarehouseSourceSettingsLogic'
 
 interface SourceConfigurationProps {
@@ -26,7 +28,7 @@ interface UpdateSourceConnectionFormContainerProps extends SourceFormProps {
     id: string
 }
 
-const supportedEditingSourceTypes = ['MSSQL', 'MySQL', 'Postgres', 'Stripe']
+const supportedEditingSourceTypes: ExternalDataSourceType[] = ['MSSQL', 'MySQL', 'Postgres', 'Stripe']
 
 function UpdateSourceConnectionFormContainer(props: UpdateSourceConnectionFormContainerProps): JSX.Element {
     const { source, sourceLoading } = useValues(dataWarehouseSourceSettingsLogic({ id: props.id }))
