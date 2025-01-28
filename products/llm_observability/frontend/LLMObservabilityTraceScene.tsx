@@ -203,10 +203,18 @@ const TraceNode = React.memo(
         const usage = formatLLMUsage(item)
 
         const children = [
-            isLLMTraceEvent(item) && item.properties.$ai_is_error && <LemonTag type="danger">Error</LemonTag>,
-            latency >= 0.01 && <LemonTag type="muted">{formatLLMLatency(latency)}</LemonTag>,
+            isLLMTraceEvent(item) && item.properties.$ai_is_error && (
+                <LemonTag key="error-tag" type="danger">
+                    Error
+                </LemonTag>
+            ),
+            latency >= 0.01 && (
+                <LemonTag key="latency-tag" type="muted">
+                    {formatLLMLatency(latency)}
+                </LemonTag>
+            ),
             (usage != null || totalCost != null) && (
-                <span>
+                <span key="usage-tag">
                     {usage}
                     {usage != null && totalCost != null && <span>{' / '}</span>}
                     {totalCost != null && formatLLMCost(totalCost)}
@@ -282,7 +290,7 @@ function EventContentDisplay({
     return (
         <LLMInputOutput
             inputDisplay={
-                <div className="p-2 text-xs border rounded bg-[var(--bg-fill-tertiary)]">
+                <div className="p-2 text-xs border rounded bg-[var(--bg-fill-secondary)]">
                     {isObject(input) ? (
                         <JSONViewer src={input} collapsed={4} />
                     ) : (
