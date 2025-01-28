@@ -52,9 +52,9 @@ def get_driver() -> webdriver.Chrome:
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-gpu")
     options.add_argument("--disable-dev-shm-usage")  # This flag can make things slower but more reliable
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_argument("--disable-extensions")
-    options.add_argument("--disable-popup-blocking")
+    options.add_experimental_option(
+        "excludeSwitches", ["enable-automation"]
+    )  # Removes the "Chrome is being controlled by automated test software" bar
 
     if os.environ.get("CHROMEDRIVER_BIN"):
         return webdriver.Chrome(os.environ["CHROMEDRIVER_BIN"], options=options)
