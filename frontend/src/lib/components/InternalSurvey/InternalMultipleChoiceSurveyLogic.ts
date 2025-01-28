@@ -2,7 +2,9 @@
  * @fileoverview A logic that handles the internal multiple choice survey
  */
 import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
-import posthog, { Survey as PostHogSurvey } from 'posthog-js'
+import posthog from 'posthog-js'
+
+import { Survey, SurveyQuestion } from '~/types'
 
 import type { InternalMultipleChoiceSurveyLogicType } from './InternalMultipleChoiceSurveyLogicType'
 
@@ -17,12 +19,14 @@ export const InternalMultipleChoiceSurveyLogic = kea<InternalMultipleChoiceSurve
     actions({
         setSurveyId: (surveyId: string) => ({ surveyId }),
         getSurveys: () => ({}),
-        setSurvey: (survey: PostHogSurvey) => ({ survey }),
-        handleSurveys: (surveys: PostHogSurvey[]) => ({ surveys }),
+        setSurvey: (survey: Survey) => ({ survey }),
+        handleSurveys: (surveys: Survey[]) => ({ surveys }),
         handleSurveyResponse: () => ({}),
         handleChoiceChange: (choice: string, isAdded: boolean) => ({ choice, isAdded }),
         setShowThankYouMessage: (showThankYouMessage: boolean) => ({ showThankYouMessage }),
         setThankYouMessage: (thankYouMessage: string) => ({ thankYouMessage }),
+        setOpenChoice: (openChoice: string) => ({ openChoice }),
+        setQuestions: (questions: SurveyQuestion[]) => ({ questions }),
     }),
     reducers({
         surveyId: [
@@ -32,9 +36,15 @@ export const InternalMultipleChoiceSurveyLogic = kea<InternalMultipleChoiceSurve
             },
         ],
         survey: [
-            null as PostHogSurvey | null,
+            null as Survey | null,
             {
                 setSurvey: (_, { survey }) => survey,
+            },
+        ],
+        questions: [
+            [] as SurveyQuestion[],
+            {
+                setQuestions: (_, { questions }) => questions,
             },
         ],
         thankYouMessage: [
@@ -49,6 +59,12 @@ export const InternalMultipleChoiceSurveyLogic = kea<InternalMultipleChoiceSurve
                 setShowThankYouMessage: (_, { showThankYouMessage }) => showThankYouMessage,
             },
         ],
+        openChoice: [
+            null as string | null,
+            {
+                setOpenChoice: (_, { openChoice }) => openChoice,
+            },
+        ],
         surveyResponse: [
             [] as string[],
             {
@@ -60,16 +76,18 @@ export const InternalMultipleChoiceSurveyLogic = kea<InternalMultipleChoiceSurve
     listeners(({ actions, values }) => ({
         /** When surveyId is set, get the list of surveys for the user */
         setSurveyId: () => {
-            posthog.getSurveys(actions.handleSurveys)
+            posthog.getSurveys((surveys) => actions.handleSurveys(surveys as unknown as Survey[]))
         },
         /** Callback for the surveys response. Filter it to the surveyId and set the survey */
         handleSurveys: ({ surveys }) => {
-            const survey = surveys.find((s: PostHogSurvey) => s.id === values.surveyId)
+            const survey = surveys.find((s: Survey) => s.id === values.surveyId)
             if (survey) {
                 posthog.capture('survey shown', {
                     $survey_id: values.surveyId,
                 })
                 actions.setSurvey(survey)
+                actions.setQuestions(survey.questions)
+
                 if (survey.appearance?.thankYouMessageHeader) {
                     actions.setThankYouMessage(survey.appearance?.thankYouMessageHeader)
                 }
@@ -77,12 +95,17 @@ export const InternalMultipleChoiceSurveyLogic = kea<InternalMultipleChoiceSurve
         },
         /** When the survey response is sent, capture the response and show the thank you message */
         handleSurveyResponse: () => {
-            posthog.capture('survey sent', {
+            const payload = {
                 $survey_id: values.surveyId,
                 $survey_response: values.surveyResponse,
-            })
+            }
+            if (values.openChoice) {
+                payload.$survey_response.push(values.openChoice)
+            }
+            posthog.capture('survey sent', payload)
+
             actions.setShowThankYouMessage(true)
-            setTimeout(() => actions.setSurvey(null), 5000)
+            setTimeout(() => actions.setSurvey(null as unknown as Survey), 5000)
         },
     })),
     afterMount(({ actions, props }) => {
