@@ -25,7 +25,15 @@ def test_mutations(cluster: ClickhouseCluster) -> None:
 
     # construct the runner
     sentinel_uuid = uuid.uuid1()  # unique to this test run to ensure we have a clean slate
-    runner = MutationRunner(table, "UPDATE person_id = %(uuid)s WHERE 1 = 1", {"uuid": sentinel_uuid})
+    runner = MutationRunner(
+        table,
+        f"""
+        UPDATE person_id = %(uuid)s
+        -- this is a comment that will not appear in system.mutations
+        WHERE 1 = /* this will also be stripped out during formatting */ 01
+        """,
+        {"uuid": sentinel_uuid},
+    )
 
     # nothing should be running yet
     existing_mutations = cluster.map_all_hosts(runner.find).result()
