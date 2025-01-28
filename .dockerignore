@@ -5,9 +5,9 @@
 !.storybook
 !babel.config.js
 !bin
+!common/build
 !common/hogvm
-!common/plugin_transpiler/*.*
-!common/plugin_transpiler/src
+!common/plugin_transpiler
 !dags
 !ee
 !frontend/@posthog
@@ -46,6 +46,7 @@
 !tsconfig.json
 !unit.json.tpl
 !webpack.config.js
+common/build/node_modules
 common/hogvm/typescript/dist
 common/hogvm/typescript/node_modules
 rust/.env

@@ -25,15 +25,15 @@ FROM node:18.19.1-bookworm-slim AS frontend-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
-# Copy everything we need to `pnpm install` && `nx run prepare`
+# Install all build dpes
 COPY package.json pnpm-lock.yaml nx.json pnpm-workspace.yaml .npmrc project.json ./
 COPY common/ common/
 COPY patches/ patches/
 ENV PNPM_HOME /tmp/pnpm-store 
 RUN corepack enable && pnpm --version && \
     mkdir /tmp/pnpm-store && \
-    pnpm install --frozen-lockfile --filter @posthog/frontend... --store-dir /tmp/pnpm-store && \
-    pnpx nx deps:build frontend --verbose && \
+    pnpm fetch --filter @posthog/frontend^... --store-dir /tmp/pnpm-store && \
+    pnpm fetch --filter @posthog/frontend --prod --store-dir /tmp/pnpm-store && \
     rm -rf /tmp/pnpm-store
 
 # Build the frontend.
@@ -52,8 +52,6 @@ WORKDIR /code
 # Workspace settings
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml nx.json .npmrc project.json ./
 COPY ./rust ./rust
-COPY ./common/plugin_transpiler/ ./common/plugin_transpiler/
-COPY ./common/hogvm/typescript/ ./common/hogvm/typescript/
 WORKDIR /code/plugin-server
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -70,11 +68,12 @@ RUN apt-get update && \
     "libssl-dev" \
     "zlib1g-dev" \
     && \
-    rm -rf /var/lib/apt/lists/* && \
-    corepack enable && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY ./common/ ./common/
+RUN corepack enable && \
     mkdir /tmp/pnpm-store && \
-    pnpm install --frozen-lockfile --filter @posthog/plugin-server... --store-dir /tmp/pnpm-store && \
-    pnpx nx deps:build plugin-server --verbose && \
+    pnpm fetch --filter @posthog/plugin-server... --store-dir /tmp/pnpm-store && \
     rm -rf /tmp/pnpm-store
 
 # Build the plugin server.
@@ -83,14 +82,14 @@ RUN apt-get update && \
 # the cache hit ratio of the layers above.
 COPY ./plugin-server/src/ ./src/
 COPY ./plugin-server/tests/ ./tests/
-RUN pnpx nx build --verbose
+RUN pnpx nx build plugin-server --verbose
 
 # As the plugin-server is now built, let’s keep
 # only prod dependencies in the node_module folder
 # as we will copy it to the last image.
 RUN corepack enable && \
     mkdir /tmp/pnpm-store && \
-    pnpm install --frozen-lockfile --filter @posthog/plugin-server... --store-dir /tmp/pnpm-store --prod && \
+    pnpm fetch --filter @posthog/plugin-server --store-dir /tmp/pnpm-store --prod && \
     rm -rf /tmp/pnpm-store
 
 
