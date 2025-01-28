@@ -5,7 +5,7 @@ import { Histogram } from 'prom-client'
 import { Hub } from '../../types'
 import { Response, trackedFetch } from '../../utils/fetch'
 import { status } from '../../utils/status'
-import { PLUGINS_BY_ID } from '../legacy-plugins'
+import { DESTINATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { LegacyPluginLogger, LegacyPluginMeta } from '../legacy-plugins/types'
 import { sanitizeLogMessage } from '../services/hog-executor.service'
 import { HogFunctionInvocation, HogFunctionInvocationResult } from '../types'
@@ -54,7 +54,7 @@ export class LegacyPluginExecutorService {
             timestamp: DateTime.now(),
             message: `Executing plugin ${pluginId}`,
         })
-        const plugin = pluginId ? PLUGINS_BY_ID[pluginId] : null
+        const plugin = pluginId ? DESTINATION_PLUGINS_BY_ID[pluginId] : null
 
         if (!plugin || !pluginId) {
             result.error = new Error(`Plugin ${pluginId} not found`)

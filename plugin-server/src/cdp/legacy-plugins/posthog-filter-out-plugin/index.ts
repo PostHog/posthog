@@ -1,6 +1,7 @@
 import { Meta, PluginAttachment, PluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyPluginMeta } from '../types'
+import { LegacyPluginMeta, LegacyTransformationPlugin } from '../types'
+import metadata from './plugin.json'
 
 export interface Filter {
     property: string
@@ -123,4 +124,11 @@ const parseFiltersAndMigrate = (filters: Filter[][] | Filter[]): Filter[][] => {
         return [filters as Filter[]]
     }
     return filters as Filter[][]
+}
+
+export const posthogFilterOutPlugin: LegacyTransformationPlugin = {
+    id: 'posthog-filter-out-plugin',
+    metadata: metadata as any,
+    processEvent,
+    setupPlugin,
 }
