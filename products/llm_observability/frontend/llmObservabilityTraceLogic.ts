@@ -104,12 +104,12 @@ export const llmObservabilityTraceLogic = kea<llmObservabilityTraceLogicType>([
                     {
                         key: 'LLMObservability',
                         name: 'LLM observability',
-                        path: urls.llmObservability('dashboard'),
+                        path: urls.llmObservabilityDashboard(),
                     },
                     {
                         key: 'LLMObservability',
                         name: 'Traces',
-                        path: urls.llmObservability('traces'),
+                        path: urls.llmObservabilityTraces(),
                     },
                     {
                         key: ['LLMObservability', traceId || ''],
