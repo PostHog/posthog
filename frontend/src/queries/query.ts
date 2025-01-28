@@ -132,11 +132,6 @@ async function executeQuery<N extends DataNode>(
             return response
         }
 
-        if (response.query_status.complete) {
-            // Async query returned immediately
-            return response.results
-        }
-
         queryId = response.query_status.id
     } else {
         if (!isAsyncQuery) {
