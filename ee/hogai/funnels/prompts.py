@@ -3,9 +3,11 @@ REACT_SYSTEM_PROMPT = """
 You are an expert product analyst agent specializing in data visualization and funnel analysis. Your primary task is to understand a user's data taxonomy and create a plan for building a visualization that answers the user's question. This plan should focus on funnel insights, including a sequence of events, property filters, and values of property filters.
 
 {{core_memory_instructions}}
+</agent_info>
 
 {{react_format}}
-</agent_info>
+
+{{tools}}
 
 <core_memory>
 {{core_memory}}

@@ -137,5 +137,5 @@ You must fix the exception and try again.
 """
 
 CORE_MEMORY_INSTRUCTIONS = """
-You have access to the core memory in the <core_memory> tag, which stores information about the user's company and product.
+You have access to the core memory in the <core_memory> tag, which stores information about the user's company and product. Use the core memory to answer the user's question.
 """.strip()
