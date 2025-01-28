@@ -42,12 +42,12 @@ def migrate_legacy_plugins(dry_run=True, team_ids=None, test_mode=True):
     plugin_configs_without_addon = []
 
     for plugin_config in legacy_plugins:
-        print(
+        print(  # noqa: T201
             "Migrating plugin",
             plugin_config["id"],
             plugin_config["plugin__name"],
             plugin_config["plugin__capabilities"],
-        )  # noqa: T201
+        )
 
         methods = plugin_config["plugin__capabilities"].get("methods", [])
 
