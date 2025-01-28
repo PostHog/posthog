@@ -308,6 +308,7 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
             >
                 {item.icon && <div className="SidebarListItem__icon">{item.icon}</div>}
                 <SearchHighlight string={item.name} substring={navigation3000Logic.values.searchTerm} />
+            </div>
         )
     } else if (!save || (!isItemTentative(item) && newName === null)) {
         if (isItemTentative(item)) {
