@@ -41,7 +41,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
             return {
                 teamId: item.globals.project.id,
                 functionId: item.hogFunction.id,
-                queueName: 'hog',
+                queueName: item.hogFunction.template_id?.startsWith('plugin-') ? 'plugin' : 'hog',
                 priority: item.priority,
                 vmState: serializeHogFunctionInvocation(item),
             }
