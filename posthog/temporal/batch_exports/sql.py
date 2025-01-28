@@ -164,7 +164,7 @@ FROM (
         AND (length({exclude_events}::Array(String)) = 0 OR event NOT IN {exclude_events}::Array(String))
     ORDER BY
         _inserted_at, event
-)
+) AS events
 FORMAT ArrowStream
 SETTINGS
     optimize_aggregation_in_order=1,
