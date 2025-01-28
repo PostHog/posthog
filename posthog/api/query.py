@@ -194,7 +194,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         set_tag("client_query_id", query_id)
 
 
-ASYNC_FALLBACK_TO_POLLING_TIMEOUT = 50
+ASYNC_FALLBACK_TO_POLLING_TIMEOUT = 20
 
 
 async def query_async(request: Request, *args, **kwargs) -> HttpResponse:
