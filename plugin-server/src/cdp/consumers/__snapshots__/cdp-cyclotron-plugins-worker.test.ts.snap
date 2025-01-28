@@ -56,7 +56,7 @@ exports[`CdpCyclotronWorkerPlugins smoke tests should run the plugin: { name: 'c
   },
   {
     "level": "debug",
-    "message": "test@posthog.com",
+    "message": "Detected email:, test@posthog.com",
   },
   {
     "level": "debug",
@@ -64,7 +64,7 @@ exports[`CdpCyclotronWorkerPlugins smoke tests should run the plugin: { name: 'c
   },
   {
     "level": "debug",
-    "message": "true",
+    "message": "Should customer be tracked:, true",
   },
   {
     "level": "debug",
