@@ -10,7 +10,7 @@ import { createInvocation } from '../../cdp/utils'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub } from '../../types'
 import { status } from '../../utils/status'
-import { HogExecutorService } from '../services/hog-executor.service'
+import { buildGlobalsWithInputs, HogExecutorService } from '../services/hog-executor.service'
 import { HogFunctionManagerService } from '../services/hog-function-manager.service'
 
 export class HogTransformerService {
@@ -66,7 +66,14 @@ export class HogTransformerService {
     private createHogFunctionInvocation(event: PluginEvent, hogFunction: HogFunctionType): HogFunctionInvocation {
         const globals = this.createInvocationGlobals(event)
 
-        return createInvocation(globals, hogFunction)
+        const inputs = {
+            ...(hogFunction.inputs ?? {}),
+            ...(hogFunction.encrypted_inputs ?? {}),
+        }
+
+        const globalsWithInputs = buildGlobalsWithInputs(globals, inputs)
+
+        return createInvocation(globalsWithInputs, hogFunction)
     }
 
     public async start(): Promise<void> {
