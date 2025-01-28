@@ -54,6 +54,23 @@ def pluck(list_of_dicts, key, child_key=None):
     return [pluck(d[key], child_key) if child_key else d[key] for d in list_of_dicts]
 
 
+def pad(retention_result: list[list[int]]) -> list[list[int]]:
+    """
+    changes the old 'triangle' format to the new 'matrix' format
+    after retention updates
+    """
+    result = []
+    max_length = max(len(row) for row in retention_result)
+
+    for row in retention_result:
+        if len(row) < max_length:
+            row.extend([0] * (max_length - len(row)))
+
+        result.append(row)
+
+    return result
+
+
 def _create_events(team, user_and_timestamps, event="$pageview"):
     i = 0
     for distinct_id, timestamp, *properties_args in user_and_timestamps:
@@ -120,19 +137,21 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         result = self.run_query(query={})
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0],
-                [0, 0, 0, 0],
-                [0, 0, 0],
-                [0, 0],
-                [0],
-            ],
+            pad(
+                [
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
         )
 
     def test_day_interval(self):
@@ -178,19 +197,21 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
-                [2, 2, 1, 0, 1, 2, 0, 0, 0, 0],
-                [2, 1, 0, 1, 2, 0, 0, 0, 0],
-                [1, 0, 0, 1, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0],
-                [1, 1, 0, 0, 0, 0],
-                [2, 0, 0, 0, 0],
-                [0, 0, 0, 0],
-                [0, 0, 0],
-                [0, 0],
-                [0],
-            ],
+            pad(
+                [
+                    [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
+                    [2, 2, 1, 0, 1, 2, 0, 0, 0, 0],
+                    [2, 1, 0, 1, 2, 0, 0, 0, 0],
+                    [1, 0, 0, 1, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 0, 0, 0, 0],
+                    [2, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
         )
 
     def test_month_interval(self):
@@ -252,19 +273,21 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [2, 2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
-                [2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
-                [2, 0, 1, 2, 1, 0, 1, 0, 1],
-                [0, 0, 0, 0, 0, 0, 0, 0],
-                [1, 1, 0, 0, 1, 0, 0],
-                [2, 1, 0, 1, 0, 1],
-                [1, 0, 0, 0, 1],
-                [0, 0, 0, 0],
-                [1, 0, 0],
-                [0, 0],
-                [1],
-            ],
+            pad(
+                [
+                    [2, 2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
+                    [2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
+                    [2, 0, 1, 2, 1, 0, 1, 0, 1],
+                    [0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 0, 0, 1, 0, 0],
+                    [2, 1, 0, 1, 0, 1],
+                    [1, 0, 0, 0, 1],
+                    [0, 0, 0, 0],
+                    [1, 0, 0],
+                    [0, 0],
+                    [1],
+                ]
+            ),
         )
 
         self.assertEqual(
@@ -427,19 +450,21 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         # We expect 1s across the board due to the override set up from person1 to person2, making them the same person
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                [1, 1, 1, 1, 1, 1, 1, 1, 1],
-                [1, 1, 1, 1, 1, 1, 1, 1],
-                [1, 1, 1, 1, 1, 1, 1],
-                [1, 1, 1, 1, 1, 1],
-                [1, 1, 1, 1, 1],
-                [1, 1, 1, 1],
-                [1, 1, 1],
-                [1, 1],
-                [1],
-            ],
+            pad(
+                [
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1],
+                    [1, 1, 1, 1],
+                    [1, 1, 1],
+                    [1, 1],
+                    [1],
+                ]
+            ),
         )
 
         self.assertEqual(
@@ -507,15 +532,17 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result_sunday, "values", "count"),
-            [
-                [2, 2, 1, 2, 2, 0, 1],
-                [2, 1, 2, 2, 0, 1],
-                [1, 1, 1, 0, 0],
-                [2, 2, 0, 1],
-                [2, 0, 1],
-                [0, 0],
-                [1],
-            ],
+            pad(
+                [
+                    [2, 2, 1, 2, 2, 0, 1],
+                    [2, 1, 2, 2, 0, 1],
+                    [1, 1, 1, 0, 0],
+                    [2, 2, 0, 1],
+                    [2, 0, 1],
+                    [0, 0],
+                    [1],
+                ]
+            ),
         )
 
         self.assertEqual(
@@ -544,15 +571,17 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result_monday, "values", "count"),
-            [
-                [2, 2, 1, 2, 2, 0, 1],
-                [2, 1, 2, 2, 0, 1],
-                [1, 1, 1, 0, 0],
-                [2, 2, 0, 1],
-                [2, 0, 1],
-                [0, 0],
-                [1],
-            ],
+            pad(
+                [
+                    [2, 2, 1, 2, 2, 0, 1],
+                    [2, 1, 2, 2, 0, 1],
+                    [1, 1, 1, 0, 0],
+                    [2, 2, 0, 1],
+                    [2, 0, 1],
+                    [0, 0],
+                    [1],
+                ]
+            ),
         )
 
         self.assertEqual(
@@ -627,19 +656,21 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [2, 2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
-                [2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
-                [2, 0, 1, 2, 1, 0, 1, 0, 1],
-                [0, 0, 0, 0, 0, 0, 0, 0],
-                [1, 1, 0, 0, 1, 0, 0],
-                [2, 1, 0, 1, 0, 1],
-                [1, 0, 0, 0, 1],
-                [0, 0, 0, 0],
-                [1, 0, 0],
-                [0, 0],
-                [1],
-            ],
+            pad(
+                [
+                    [2, 2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
+                    [2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
+                    [2, 0, 1, 2, 1, 0, 1, 0, 1],
+                    [0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 0, 0, 1, 0, 0],
+                    [2, 1, 0, 1, 0, 1],
+                    [1, 0, 0, 0, 1],
+                    [0, 0, 0, 0],
+                    [1, 0, 0],
+                    [0, 0],
+                    [1],
+                ]
+            ),
         )
 
         self.assertEqual(
@@ -721,19 +752,21 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [2, 2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
-                [2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
-                [2, 0, 1, 2, 1, 0, 1, 0, 1],
-                [0, 0, 0, 0, 0, 0, 0, 0],
-                [1, 1, 0, 0, 1, 0, 0],
-                [2, 1, 0, 1, 0, 1],
-                [1, 0, 0, 0, 1],
-                [0, 0, 0, 0],
-                [1, 0, 0],
-                [0, 0],
-                [1],
-            ],
+            pad(
+                [
+                    [2, 2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
+                    [2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
+                    [2, 0, 1, 2, 1, 0, 1, 0, 1],
+                    [0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 0, 0, 1, 0, 0],
+                    [2, 1, 0, 1, 0, 1],
+                    [1, 0, 0, 0, 1],
+                    [0, 0, 0, 0],
+                    [1, 0, 0],
+                    [0, 0],
+                    [1],
+                ]
+            ),
         )
 
         self.assertEqual(
@@ -801,15 +834,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [2, 2, 1, 2, 2, 0, 1],
-                [2, 1, 2, 2, 0, 1],
-                [1, 1, 1, 0, 0],
-                [2, 2, 0, 1],
-                [2, 0, 1],
-                [0, 0],
-                [1],
-            ],
+            pad([[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1]]),
         )
 
         self.assertEqual(
@@ -862,7 +887,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(
             pluck(result, "values", "count"),
-            [[2, 1, 1, 0, 0], [1, 1, 0, 0], [3, 2, 0], [3, 0], [0]],
+            pad([[2, 1, 1, 0, 0], [1, 1, 0, 0], [3, 2, 0], [3, 0], [0]]),
         )
 
     def test_all_events(self):
@@ -896,19 +921,21 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
-                [2, 2, 1, 0, 1, 2, 0, 0, 0, 0],
-                [2, 1, 0, 1, 2, 0, 0, 0, 0],
-                [1, 0, 0, 1, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0],
-                [1, 1, 0, 0, 0, 0],
-                [2, 0, 0, 0, 0],
-                [0, 0, 0, 0],
-                [0, 0, 0],
-                [0, 0],
-                [0],
-            ],
+            pad(
+                [
+                    [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
+                    [2, 2, 1, 0, 1, 2, 0, 0, 0, 0],
+                    [2, 1, 0, 1, 2, 0, 0, 0, 0],
+                    [1, 0, 0, 1, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 0, 0, 0, 0],
+                    [2, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
         )
 
         action = Action.objects.create(
@@ -931,19 +958,21 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
-                [2, 2, 1, 0, 1, 2, 0, 0, 0, 0],
-                [2, 1, 0, 1, 2, 0, 0, 0, 0],
-                [1, 0, 0, 1, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0],
-                [1, 1, 0, 0, 0, 0],
-                [2, 0, 0, 0, 0],
-                [0, 0, 0, 0],
-                [0, 0, 0],
-                [0, 0],
-                [0],
-            ],
+            pad(
+                [
+                    [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
+                    [2, 2, 1, 0, 1, 2, 0, 0, 0, 0],
+                    [2, 1, 0, 1, 2, 0, 0, 0, 0],
+                    [1, 0, 0, 1, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 0, 0, 0, 0],
+                    [2, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
         )
 
     def test_all_events_target_first_time(self):
@@ -994,12 +1023,14 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result_specific_event, "values", "count"),
-            [
-                [0, 0, 0, 0],
-                [0, 0, 0],
-                [0, 0],
-                [1],
-            ],
+            pad(
+                [
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [1],
+                ]
+            ),
         )
 
         self.assertEqual(result_specific_event, result_all_events)
@@ -1222,15 +1253,17 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [2, 0, 0, 0, 0, 2, 1],
-                [2, 0, 0, 0, 2, 1],
-                [2, 0, 0, 2, 1],
-                [2, 0, 2, 1],
-                [0, 0, 0],
-                [1, 0],
-                [0],
-            ],
+            pad(
+                [
+                    [2, 0, 0, 0, 0, 2, 1],
+                    [2, 0, 0, 0, 2, 1],
+                    [2, 0, 0, 2, 1],
+                    [2, 0, 2, 1],
+                    [0, 0, 0],
+                    [1, 0],
+                    [0],
+                ]
+            ),
         )
 
     def test_retention_any_event(self):
@@ -1280,15 +1313,17 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [2, 2, 2, 2, 0, 2, 1],
-                [2, 2, 2, 0, 2, 1],
-                [2, 2, 0, 2, 1],
-                [2, 0, 2, 1],
-                [0, 0, 0],
-                [3, 1],
-                [1],
-            ],
+            pad(
+                [
+                    [2, 2, 2, 2, 0, 2, 1],
+                    [2, 2, 2, 0, 2, 1],
+                    [2, 2, 0, 2, 1],
+                    [2, 0, 2, 1],
+                    [0, 0, 0],
+                    [3, 1],
+                    [1],
+                ]
+            ),
         )
 
     @snapshot_clickhouse_queries
@@ -1341,15 +1376,17 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [2, 0, 0, 1, 0, 1, 0],
-                [2, 0, 1, 0, 1, 0],
-                [2, 1, 0, 1, 0],
-                [2, 0, 1, 0],
-                [0, 0, 0],
-                [0, 0],
-                [0],
-            ],
+            pad(
+                [
+                    [2, 0, 0, 1, 0, 1, 0],
+                    [2, 0, 1, 0, 1, 0],
+                    [2, 1, 0, 1, 0],
+                    [2, 0, 1, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
         )
 
     def test_first_time_retention(self):
@@ -1380,15 +1417,17 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [2, 1, 2, 2, 1, 0, 1],
-                [1, 1, 0, 1, 1, 1],
-                [0, 0, 0, 0, 0],
-                [1, 1, 0, 1],
-                [0, 0, 0],
-                [0, 0],
-                [0],
-            ],
+            pad(
+                [
+                    [2, 1, 2, 2, 1, 0, 1],
+                    [1, 1, 0, 1, 1, 1],
+                    [0, 0, 0, 0, 0],
+                    [1, 1, 0, 1],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
         )
 
     def test_first_time_retention_weeks(self):
@@ -1415,15 +1454,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0],
-                [0, 0, 0, 0],
-                [1, 0, 0],
-                [4, 4],
-                [0],
-            ],
+            pad([[0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0], [1, 0, 0], [4, 4], [0]]),
         )
 
     def test_retention_with_properties(self):
@@ -1487,19 +1518,21 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0],
-                [1, 0, 1, 0, 0, 0, 0, 0, 0, 0],
-                [1, 0, 0, 1, 0, 0, 0, 0, 0],
-                [1, 0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0],
-                [1, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0],
-                [0, 0, 0, 0],
-                [0, 0, 0],
-                [0, 0],
-                [0],
-            ],
+            pad(
+                [
+                    [1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0],
+                    [1, 0, 1, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 1, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
         )
 
     def test_retention_with_properties_on_start_event(self):
@@ -1562,19 +1595,21 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0],
-                [0, 0, 0, 0],
-                [0, 0, 0],
-                [0, 0],
-                [0],
-            ],
+            pad(
+                [
+                    [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
         )
 
     def test_retention_with_properties_on_start_event_for_first_time(self):
@@ -1638,19 +1673,21 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                [1, 0, 0, 1, 1, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0],
-                [0, 0, 0, 0],
-                [0, 0, 0],
-                [0, 0],
-                [0],
-            ],
+            pad(
+                [
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 1, 1, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
         )
 
     def test_retention_with_properties_on_return_event(self):
@@ -1713,19 +1750,21 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],  # only one match, 1 day after for person 1
-                [2, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                [2, 0, 0, 0, 0, 0, 0, 0, 0],
-                [1, 0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0],
-                [1, 0, 0, 0, 0, 0],
-                [2, 0, 0, 0, 0],
-                [0, 0, 0, 0],
-                [0, 0, 0],
-                [0, 0],
-                [0],
-            ],
+            pad(
+                [
+                    [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],  # only one match, 1 day after for person 1
+                    [2, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [2, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0],
+                    [2, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
         )
 
     def test_retention_with_properties_on_return_event_with_first_time(self):
@@ -1789,19 +1828,21 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0],  # only one match, 5 days after for person 1
-                [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0],
-                [0, 0, 0, 0],
-                [0, 0, 0],
-                [0, 0],
-                [0],
-            ],
+            pad(
+                [
+                    [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0],  # only one match, 5 days after for person 1
+                    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
         )
 
     def test_retention_with_user_properties(self):
@@ -1865,15 +1906,17 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [1, 1, 1, 0, 0, 1, 1],
-                [1, 1, 0, 0, 1, 1],
-                [1, 0, 0, 1, 1],
-                [0, 0, 0, 0],
-                [0, 0, 0],
-                [1, 1],
-                [1],
-            ],
+            pad(
+                [
+                    [1, 1, 1, 0, 0, 1, 1],
+                    [1, 1, 0, 0, 1, 1],
+                    [1, 0, 0, 1, 1],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [1, 1],
+                    [1],
+                ]
+            ),
         )
 
     @snapshot_clickhouse_queries
@@ -1935,15 +1978,17 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [1, 1, 1, 0, 0, 1, 1],
-                [1, 1, 0, 0, 1, 1],
-                [1, 0, 0, 1, 1],
-                [0, 0, 0, 0],
-                [0, 0, 0],
-                [1, 1],
-                [1],
-            ],
+            pad(
+                [
+                    [1, 1, 1, 0, 0, 1, 1],
+                    [1, 1, 0, 0, 1, 1],
+                    [1, 0, 0, 1, 1],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [1, 1],
+                    [1],
+                ]
+            ),
         )
 
     def test_retention_action_start_point(self):
@@ -1987,15 +2032,17 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [1, 1, 1, 0, 0, 1, 1],
-                [2, 2, 1, 0, 1, 2],
-                [2, 1, 0, 1, 2],
-                [1, 0, 0, 1],
-                [0, 0, 0],
-                [1, 1],
-                [2],
-            ],
+            pad(
+                [
+                    [1, 1, 1, 0, 0, 1, 1],
+                    [2, 2, 1, 0, 1, 2],
+                    [2, 1, 0, 1, 2],
+                    [1, 0, 0, 1],
+                    [0, 0, 0],
+                    [1, 1],
+                    [2],
+                ]
+            ),
         )
 
     def test_filter_test_accounts(self):
@@ -2049,19 +2096,21 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                [1, 1, 1, 0, 0, 1, 0, 0, 0, 0],
-                [1, 1, 0, 0, 1, 0, 0, 0, 0],
-                [1, 0, 0, 1, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0],
-                [1, 0, 0, 0, 0],
-                [0, 0, 0, 0],
-                [0, 0, 0],
-                [0, 0],
-                [0],
-            ],
+            pad(
+                [
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 0, 0, 1, 0, 0, 0, 0],
+                    [1, 1, 0, 0, 1, 0, 0, 0, 0],
+                    [1, 0, 0, 1, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
         )
 
     def _create_first_time_retention_events(self):
@@ -2171,36 +2220,40 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0],
-                [1, 0, 0, 0, 0],  # person 2
-                [0, 0, 0, 0],
-                [0, 0, 0],
-                [0, 0],
-                [0],
-            ],
+            pad(
+                [
+                    [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0],  # person 2
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
         )
 
         self.assertEqual(
             pluck(result_pacific, "values", "count"),
-            [
-                [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0],
-                [1, 1, 0, 0, 0, 0],  # person 2 is across two dates in US/Pacific
-                [1, 0, 0, 0, 0],
-                [0, 0, 0, 0],
-                [0, 0, 0],
-                [0, 0],
-                [0],
-            ],
+            pad(
+                [
+                    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 0, 0, 0, 0],  # person 2 is across two dates in US/Pacific
+                    [1, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
         )
 
     @snapshot_clickhouse_queries
@@ -2252,19 +2305,21 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
-                [2, 2, 1, 0, 1, 2, 0, 0, 0, 0],
-                [2, 1, 0, 1, 2, 0, 0, 0, 0],
-                [1, 0, 0, 1, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0],
-                [1, 1, 0, 0, 0, 0],
-                [2, 0, 0, 0, 0],
-                [0, 0, 0, 0],
-                [0, 0, 0],
-                [0, 0],
-                [0],
-            ],
+            pad(
+                [
+                    [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
+                    [2, 2, 1, 0, 1, 2, 0, 0, 0, 0],
+                    [2, 1, 0, 1, 2, 0, 0, 0, 0],
+                    [1, 0, 0, 1, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 0, 0, 0, 0],
+                    [2, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
         )
 
 
@@ -2374,15 +2429,17 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [2, 2, 1, 2, 2, 0, 1],
-                [2, 1, 2, 2, 0, 1],
-                [1, 1, 1, 0, 0],
-                [2, 2, 0, 1],
-                [2, 0, 1],
-                [0, 0],
-                [1],
-            ],
+            pad(
+                [
+                    [2, 2, 1, 2, 2, 0, 1],
+                    [2, 1, 2, 2, 0, 1],
+                    [1, 1, 1, 0, 0],
+                    [2, 2, 0, 1],
+                    [2, 0, 1],
+                    [0, 0],
+                    [1],
+                ]
+            ),
         )
 
         actor_result = self.run_actors_query(
@@ -2411,15 +2468,17 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [1, 0, 0, 1, 0, 0, 1],
-                [0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0],
-                [1, 0, 0, 1],
-                [0, 0, 0],
-                [0, 0],
-                [1],
-            ],
+            pad(
+                [
+                    [1, 0, 0, 1, 0, 0, 1],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                    [1, 0, 0, 1],
+                    [0, 0, 0],
+                    [0, 0],
+                    [1],
+                ]
+            ),
         )
 
     def test_groups_in_period(self):
@@ -2460,15 +2519,17 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [2, 2, 1, 2, 2, 0, 1],
-                [2, 1, 2, 2, 0, 1],
-                [1, 1, 1, 0, 0],
-                [2, 2, 0, 1],
-                [2, 0, 1],
-                [0, 0],
-                [1],
-            ],
+            pad(
+                [
+                    [2, 2, 1, 2, 2, 0, 1],
+                    [2, 1, 2, 2, 0, 1],
+                    [1, 1, 1, 0, 0],
+                    [2, 2, 0, 1],
+                    [2, 0, 1],
+                    [0, 0],
+                    [1],
+                ]
+            ),
         )
 
         actor_result = self.run_actors_query(
@@ -2498,15 +2559,17 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [1, 0, 0, 1, 0, 0, 1],
-                [0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0],
-                [1, 0, 0, 1],
-                [0, 0, 0],
-                [0, 0],
-                [1],
-            ],
+            pad(
+                [
+                    [1, 0, 0, 1, 0, 0, 1],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                    [1, 0, 0, 1],
+                    [0, 0, 0],
+                    [0, 0],
+                    [1],
+                ]
+            ),
         )
 
     @patch("posthog.hogql.query.sync_execute", wraps=sync_execute)

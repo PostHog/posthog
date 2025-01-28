@@ -5,7 +5,6 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { toast } from 'react-toastify'
 import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
     dateOptionPlurals,
@@ -13,6 +12,7 @@ import {
     retentionOptionDescriptions,
     retentionOptions,
 } from 'scenes/retention/constants'
+import { retentionLogic } from 'scenes/retention/retentionLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { EditorFilterProps, FilterType, RetentionType } from '~/types'
@@ -20,10 +20,10 @@ import { EditorFilterProps, FilterType, RetentionType } from '~/types'
 import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
-export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Element {
+export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Element {
     const { showGroupsOptions } = useValues(groupsModel)
-    const { retentionFilter } = useValues(insightVizDataLogic(insightProps))
-    const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
+    const { retentionFilter } = useValues(retentionLogic(insightProps))
+    const { updateInsightFilter } = useActions(retentionLogic(insightProps))
     const { targetEntity, returningEntity, retentionType, totalIntervals, period } = retentionFilter || {}
 
     return (
@@ -90,7 +90,7 @@ export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Eleme
                 typeKey={`${keyForInsightLogicProps('new')(insightProps)}-returningEntity`}
             />
             <div className="flex items-center gap-2">
-                <div>on any of the next</div>
+                <div>during the next</div>
                 <LemonInput
                     type="number"
                     className="ml-2 w-20"

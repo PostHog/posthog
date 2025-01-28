@@ -61,7 +61,6 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                                 })
                                             ) || 0
                                         }
-                                        latest={isLatestPeriod && columnIndex == tableRows[0].length - 1}
                                         clickable={false}
                                         backgroundColor={backgroundColorMean}
                                     />
@@ -88,7 +87,12 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                     <CohortDay
                                         percentage={column.percentage}
                                         clickable={true}
-                                        latest={isLatestPeriod && columnIndex === row.length - 1}
+                                        // TODO: fix latest check using dates
+                                        // latest={
+                                        //     isLatestPeriod &&
+                                        //     columnIndex === row.length - 1 &&
+                                        //     rowIndex === tableRows[0].length - 1
+                                        // }
                                         backgroundColor={backgroundColor}
                                     />
                                 )}
@@ -103,12 +107,12 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
 
 function CohortDay({
     percentage,
-    latest,
+    latest = false,
     clickable,
     backgroundColor,
 }: {
     percentage: number
-    latest: boolean
+    latest?: boolean
     clickable: boolean
     backgroundColor: string
 }): JSX.Element {
