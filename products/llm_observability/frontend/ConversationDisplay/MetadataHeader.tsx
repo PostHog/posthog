@@ -1,8 +1,7 @@
-import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 import classNames from 'classnames'
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { lowercaseFirstLetter } from 'lib/utils'
-import React from 'react'
+
+import { MetadataTag } from '../components/MetadataTag'
 
 export function MetadataHeader({
     inputTokens,
@@ -32,7 +31,7 @@ export function MetadataHeader({
                 </MetadataTag>
             )}
             {model && (
-                <MetadataTag label="Model" copyable>
+                <MetadataTag label="Model" textToCopy={lowercaseFirstLetter(model)}>
                     {model}
                 </MetadataTag>
             )}

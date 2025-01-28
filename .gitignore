@@ -68,6 +68,13 @@ common/plugin_transpiler/dist
 *.log
 # pyright config (keep this until we have a standardized one)
 pyrightconfig.json
+
+# Max-specific entries
+ee/support_sidebar_max/max-venv/
+ee/support_sidebar_max/.vscode
+ee/support_sidebar_max/.vscode/settings.json
+max-test-venv/
+ee/support_sidebar_max/.env
 # Assistant Evaluation with Deepeval
 .deepeval
 .deepeval-cache.json
@@ -79,3 +86,5 @@ temp_test_run_data.json
 
 # ignore all dagster tmp directories that may be created
 tmp*/
+
+frontend/@posthog/apps-common/dist/

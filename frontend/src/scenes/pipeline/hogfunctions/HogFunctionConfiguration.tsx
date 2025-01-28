@@ -100,6 +100,8 @@ export function HogFunctionConfiguration({
         return <NotFound object="Hog function" />
     }
 
+    const isLegacyPlugin = hogFunction?.template?.id?.startsWith('plugin-')
+
     const headerButtons = (
         <>
             {!templateId && (
@@ -107,9 +109,11 @@ export function HogFunctionConfiguration({
                     <More
                         overlay={
                             <>
-                                <LemonButton fullWidth onClick={() => duplicate()}>
-                                    Duplicate
-                                </LemonButton>
+                                {!isLegacyPlugin && (
+                                    <LemonButton fullWidth onClick={() => duplicate()}>
+                                        Duplicate
+                                    </LemonButton>
+                                )}
                                 <LemonDivider />
                                 <LemonButton status="danger" fullWidth onClick={() => deleteHogFunction()}>
                                     Delete
@@ -174,11 +178,12 @@ export function HogFunctionConfiguration({
         )
     const canEditSource =
         displayOptions.canEditSource ??
-        ['destination', 'email', 'site_destination', 'site_app', 'transformation'].includes(type)
+        (['destination', 'email', 'site_destination', 'site_app', 'transformation'].includes(type) && !isLegacyPlugin)
     const showPersonsCount = displayOptions.showPersonsCount ?? ['broadcast'].includes(type)
     const showTesting =
         displayOptions.showTesting ??
-        ['destination', 'internal_destination', 'transformation', 'broadcast', 'email'].includes(type)
+        (['destination', 'internal_destination', 'transformation', 'broadcast', 'email'].includes(type) &&
+            !isLegacyPlugin)
 
     return (
         <div className="space-y-3">
@@ -259,7 +264,12 @@ export function HogFunctionConfiguration({
                                     <LemonTextArea disabled={loading} />
                                 </LemonField>
 
-                                {hogFunction?.template && !hogFunction.template.id.startsWith('template-blank-') ? (
+                                {isLegacyPlugin ? (
+                                    <LemonBanner type="warning">
+                                        This destination is one of our legacy plugins. It will be deprecated and you
+                                        should instead upgrade
+                                    </LemonBanner>
+                                ) : hogFunction?.template && !hogFunction.template.id.startsWith('template-blank-') ? (
                                     <LemonDropdown
                                         showArrow
                                         overlay={

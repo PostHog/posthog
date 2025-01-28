@@ -5,14 +5,16 @@ export function LLMInputOutput({
     outputDisplay,
     inputHeading = 'Input',
     outputHeading = 'Output',
+    bordered = false,
 }: {
     inputDisplay: JSX.Element | JSX.Element[]
     outputDisplay: JSX.Element | JSX.Element[]
     inputHeading?: string
     outputHeading?: string
+    bordered?: boolean
 }): JSX.Element {
     return (
-        <div className="bg-surface-primary rounded-lg border p-2">
+        <div className={bordered ? 'bg-surface-primary rounded-lg border p-2' : undefined}>
             <h4 className="flex items-center gap-x-1.5 text-xs font-semibold mb-2">
                 <IconArrowUp className="text-base" />
                 {inputHeading}

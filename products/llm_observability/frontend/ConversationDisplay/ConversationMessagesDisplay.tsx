@@ -15,10 +15,12 @@ export function ConversationMessagesDisplay({
     input,
     output,
     httpStatus,
+    bordered = false,
 }: {
     input: any
     output: any
     httpStatus?: number
+    bordered?: boolean
 }): JSX.Element {
     const inputNormalized = normalizeMessages(input, 'user')
     const outputNormalized = normalizeMessages(output, 'assistant')
@@ -48,6 +50,7 @@ export function ConversationMessagesDisplay({
                 )
             }
             outputHeading={`Output${outputNormalized && outputNormalized.length > 1 ? ' (multiple choices)' : ''}`}
+            bordered={bordered}
         />
     )
 }
@@ -64,11 +67,11 @@ export function LLMMessageDisplay({ message, isOutput }: { message: CompatMessag
                 'rounded border text-default',
                 isOutput
                     ? 'bg-[var(--bg-fill-success-tertiary)]'
-                    : role === 'system'
-                    ? 'bg-[var(--bg-fill-tertiary)]'
                     : role === 'user'
-                    ? 'bg-[var(--bg-fill-primary)]'
-                    : 'bg-[var(--bg-fill-info-tertiary)]'
+                    ? 'bg-[var(--bg-fill-tertiary)]'
+                    : role === 'assistant'
+                    ? 'bg-[var(--bg-fill-info-tertiary)]'
+                    : null // e.g. system
             )}
         >
             <div className="flex items-center gap-1 w-full px-2 h-6 text-xs font-medium">

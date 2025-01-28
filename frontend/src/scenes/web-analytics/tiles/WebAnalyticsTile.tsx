@@ -9,7 +9,7 @@ import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { percentage, UnexpectedNeverError } from 'lib/utils'
-import { ProductCrossSellLocation, trackProductCrossSell } from 'lib/utils/cross-sell'
+import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
 import { useCallback, useMemo } from 'react'
 import { NewActionButton } from 'scenes/actions/NewActionButton'
 import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap'
@@ -755,11 +755,10 @@ const RenderReplayButton = ({
         targetBlank: true,
         onClick: (e: React.MouseEvent) => {
             e.stopPropagation()
-            trackProductCrossSell({
+            void addProductIntentForCrossSell({
                 from: ProductKey.WEB_ANALYTICS,
                 to: ProductKey.SESSION_REPLAY,
-                location: ProductCrossSellLocation.WEB_ANALYTICS_INSIGHT,
-                context: {},
+                intent_context: ProductIntentContext.WEB_ANALYTICS_INSIGHT,
             })
         },
     }

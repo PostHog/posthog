@@ -33,6 +33,7 @@ import { TimestampFormatToLabel } from 'scenes/session-recordings/utils'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { SessionPlayerState } from '~/types'
 
+import { PlayerInspector } from '../PlayerInspector'
 import { SeekSkip, Timestamp } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
 
@@ -162,7 +163,7 @@ function InspectDOM(): JSX.Element {
 
     return (
         <SettingsButton
-            title="View the DOM at this point in time in the recording"
+            title="Inspect the DOM as it was at this moment in the session. Analyze the structure and elements captured during the recording."
             label="Inspect DOM"
             data-attr="explore-dom"
             onClick={() => openExplorer()}
@@ -174,20 +175,25 @@ function InspectDOM(): JSX.Element {
     )
 }
 
-function PlayerBottomSettings(): JSX.Element {
+export function PlayerBottomSettings(): JSX.Element {
     const {
         logicProps: { noInspector },
     } = useValues(sessionRecordingPlayerLogic)
 
     return (
-        <SettingsBar border="top" className="justify-between">
-            <div className="flex flex-row gap-0.5">
-                <SkipInactivity />
-                <ShowMouseTail />
-                <SetPlaybackSpeed />
-                <SetTimeFormat />
+        <SettingsBar border="top">
+            <div className="no-flex sm:flex w-full justify-between items-center gap-0.5">
+                <div className="flex flex-row gap-0.5">
+                    <SkipInactivity />
+                    <ShowMouseTail />
+                    <SetPlaybackSpeed />
+                    <SetTimeFormat />
+                </div>
+                <div className="flex flex-row gap-0.5">
+                    {noInspector ? null : <InspectDOM />}
+                    <PlayerInspector />
+                </div>
             </div>
-            {noInspector ? null : <InspectDOM />}
         </SettingsBar>
     )
 }
@@ -265,8 +271,6 @@ export function PlayerController(): JSX.Element {
                     <FullScreen />
                 </div>
             </div>
-
-            <PlayerBottomSettings />
         </div>
     )
 }

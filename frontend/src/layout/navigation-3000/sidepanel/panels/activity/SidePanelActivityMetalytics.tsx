@@ -55,7 +55,7 @@ export function SidePanelActivityMetalytics(): JSX.Element {
                         <div className="text-sm text-muted">Recent viewers (30 days)</div>
                         {recentUsersLoading ? (
                             <Spinner />
-                        ) : (
+                        ) : recentUserMembers.length > 0 ? (
                             <ProfileBubbles
                                 className="mt-2"
                                 people={recentUserMembers.map((member) => ({
@@ -65,6 +65,8 @@ export function SidePanelActivityMetalytics(): JSX.Element {
                                 }))}
                                 limit={3}
                             />
+                        ) : (
+                            <div className="text-sm mt-2">No recent viewers</div>
                         )}
                     </div>
                 </Tooltip>

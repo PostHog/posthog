@@ -222,9 +222,10 @@ columnLambdaExpr:
     ;
 
 
+hogqlxChildElement: hogqlxTagElement | (LBRACE columnExpr RBRACE);
 hogqlxTagElement
-    : LT identifier hogqlxTagAttribute* SLASH GT                                        # HogqlxTagElementClosed
-    | LT identifier hogqlxTagAttribute* GT (hogqlxTagElement | (LBRACE columnExpr RBRACE))? LT SLASH identifier GT     # HogqlxTagElementNested
+    : LT identifier hogqlxTagAttribute* SLASH GT                                          # HogqlxTagElementClosed
+    | LT identifier hogqlxTagAttribute* GT hogqlxChildElement* LT SLASH identifier GT     # HogqlxTagElementNested
     ;
 hogqlxTagAttribute
     :   identifier '=' string

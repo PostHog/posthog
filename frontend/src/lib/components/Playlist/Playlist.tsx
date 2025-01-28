@@ -97,11 +97,11 @@ export function Playlist({
             .find((i) => i.id === activeItemId) || null
 
     return (
-        <div className="flex flex-col lg:flex-row w-full gap-2 h-full">
+        <div className="flex flex-col xl:flex-row w-full gap-2 h-full">
             <div
                 ref={playlistRef}
                 data-attr={dataAttr}
-                className={clsx('Playlist w-full lg:max-w-80 min-h-96', {
+                className={clsx('Playlist w-full xl:max-w-80 min-w-60 min-h-96', {
                     'Playlist--wide': size !== 'small',
                     'Playlist--embedded': embedded,
                 })}
@@ -128,7 +128,7 @@ export function Playlist({
                 </div>
             </div>
             <div
-                className={clsx('Playlist h-full min-h-96 w-full min-w-96 order-first lg:order-none', {
+                className={clsx('Playlist h-full min-h-96 w-full min-w-96 lg:min-w-[560px] order-first xl:order-none', {
                     'Playlist--wide': size !== 'small',
                     'Playlist--embedded': embedded,
                 })}
