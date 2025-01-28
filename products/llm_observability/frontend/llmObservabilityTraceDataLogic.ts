@@ -101,11 +101,7 @@ export function restoreTree(events: LLMTraceEvent[], traceId: string): TraceTree
             return
         }
 
-        const eventId =
-            event.properties.$ai_generation_id ??
-            event.properties.$ai_span_id ??
-            event.properties.$ai_trace_id ??
-            event.id
+        const eventId = event.properties.$ai_generation_id ?? event.properties.$ai_span_id ?? event.id
         idMap.set(eventId, event)
 
         // Filters events for both SDKs with spans and without.
