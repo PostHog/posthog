@@ -13,7 +13,8 @@ import { Link } from 'lib/lemon-ui/Link'
 import { isNotNil, isObject, pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { ActivityScope, RevenueTrackingEventItem, TeamSurveyConfigType, TeamType } from '~/types'
+import { RevenueTrackingEventItem } from '~/queries/schema/schema-general'
+import { ActivityScope, TeamSurveyConfigType, TeamType } from '~/types'
 
 import { ThemeName } from './dataThemeLogic'
 

@@ -1973,6 +1973,7 @@ dependencies = [
  "serde",
  "serde-pickle",
  "serde_json",
+ "serde_urlencoded",
  "sha1",
  "sqlx",
  "strum",
@@ -1982,6 +1983,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+ "urlencoding",
  "uuid",
 ]
 
