@@ -1,62 +1,71 @@
-import { IconCheckCircle, IconX } from '@posthog/icons'
-import { LemonButton, LemonButtonWithSideActionProps } from '@posthog/lemon-ui'
+import { IconCheckCircle, IconChevronRight, IconFeatures, IconGraph, IconRewindPlay } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ProfessorHog } from 'lib/components/hedgehogs'
-import { LemonIconProps } from 'lib/lemon-ui/icons'
+import type { LemonIconProps } from 'lib/lemon-ui/icons'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonProgressCircle } from 'lib/lemon-ui/LemonProgressCircle'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { useState } from 'react'
 
 import {
     activationLogic,
+    ActivationSection,
     ActivationTaskType,
 } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 
+const ACTIVATION_SECTIONS = {
+    [ActivationSection.QuickStart]: {
+        title: 'Get Started',
+        icon: <IconFeatures className="h-5 w-5 text-accent-primary" />,
+    },
+    [ActivationSection.ProductAnalytics]: {
+        title: 'Product analytics',
+        icon: <IconGraph className="h-5 w-5 text-brand-blue" />,
+    },
+    [ActivationSection.SessionReplay]: {
+        title: 'Session replay',
+        icon: <IconRewindPlay className="h-5 w-5 text-brand-yellow" />,
+    },
+}
+
 export const SidePanelActivation = (): JSX.Element => {
-    const { activeTasks, completionPercent, completedTasks } = useValues(activationLogic)
+    const { completionPercent } = useValues(activationLogic)
 
     return (
         <>
             <SidePanelPaneHeader title="Quick start" />
-            <div className="p-4 space-y-2 overflow-y-auto">
-                <p>Use our Quick Start guide to learn about everything PostHog can do for you and your product.</p>
-                <div className="flex items-center justify-center">
-                    <div className="flex flex-col items-center">
-                        <LemonProgressCircle
-                            progress={completionPercent / 100}
-                            size={100}
-                            className="text-accent-primary"
-                        >
-                            <span className="text-2xl">{activeTasks.length}</span>
-                        </LemonProgressCircle>
-                        <p className="text-muted mt-2 ">still to go</p>
+            <div className="py-4 space-y-2 overflow-y-auto">
+                <div className="flex flex-col px-4 space-y-2">
+                    <div className="flex">
+                        <p>
+                            Use our Quick Start guide to learn about everything PostHog can do for you and your product.
+                        </p>
+                        <ProfessorHog className="max-h-full w-20 object-contain" />
                     </div>
-                    <div className="h-60">
-                        <ProfessorHog className="max-h-full w-auto object-contain" />
+                    <div className="flex items-center justify-center gap-2 w-full">
+                        <LemonProgress
+                            percent={completionPercent}
+                            size="medium"
+                            bgColor="var(--bg-3000)"
+                            strokeColor="var(--success)"
+                            className="w-full stroke-opacity-80 h-2"
+                        />
+                        <span className="font-medium text-muted-alt">{completionPercent}%</span>
                     </div>
                 </div>
-                {activeTasks.length > 0 && (
-                    <div>
-                        <h4>What's next?</h4>
-                        <ul className="space-y-2">
-                            {activeTasks.map((task: ActivationTaskType) => (
-                                <ActivationTask key={task.id} {...task} />
-                            ))}
-                        </ul>
-                    </div>
-                )}
-                {completedTasks.length > 0 && (
-                    <div>
-                        <h4>Completed</h4>
-                        <ul className="space-y-2">
-                            {completedTasks.map((task: ActivationTaskType) => (
-                                <ActivationTask key={task.id} {...task} />
-                            ))}
-                        </ul>
-                    </div>
-                )}
+                <div className="divide-y divide-muted-alt">
+                    {Object.entries(ACTIVATION_SECTIONS).map(([sectionKey, section]) => (
+                        <div className="px-4" key={sectionKey}>
+                            <ActivationSectionComponent
+                                sectionKey={sectionKey as ActivationSection}
+                                section={section}
+                            />
+                        </div>
+                    ))}
+                </div>
             </div>
         </>
     )
@@ -77,61 +86,95 @@ export const SidePanelActivationIcon = ({ className }: { className: LemonIconPro
     )
 }
 
-const ActivationTask = ({
-    id,
-    name,
-    description,
-    completed,
-    canSkip,
-    skipped,
-    url,
-}: ActivationTaskType): JSX.Element => {
-    const displaySideAction = !completed && !skipped && canSkip
-    const { runTask, skipTask } = useActions(activationLogic)
-    const { reportActivationSideBarTaskClicked } = useActions(eventUsageLogic)
+const ActivationSectionComponent = ({
+    sectionKey,
+    section,
+}: {
+    sectionKey: ActivationSection
+    section: any
+}): JSX.Element => {
+    const { activeTasks, completedTasks } = useValues(activationLogic)
+    const [isOpen, setIsOpen] = useState(true)
 
-    const content = (
-        <div className="my-4 mx-2">
-            <p className="m-0">{name}</p>
-            {!completed && !skipped && <p className="font-normal text-xs mt-2 mb-0 mx-0">{description}</p>}
+    const tasks = [...activeTasks, ...completedTasks].filter((task) => task.section === sectionKey)
+    if (tasks.length === 0) {
+        return null
+    }
+
+    const itemsCompleted = tasks.filter((task) => task.completed).length
+    const totalItems = tasks.length
+
+    return (
+        <div className="py-3">
+            <div
+                className="flex items-center justify-between cursor-pointer select-none"
+                onClick={() => setIsOpen(!isOpen)}
+            >
+                <div className="flex items-center gap-2">
+                    {section.icon}
+                    <h4 className="m-0 font-semibold text-[16px]">{section.title}</h4>
+                </div>
+                <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-alt font-medium">
+                        {itemsCompleted} of {totalItems} complete
+                    </span>
+                    <IconChevronRight className={clsx('h-4 w-4', isOpen && 'rotate-90')} />
+                </div>
+            </div>
+            {isOpen && (
+                <ul className="space-y-2 mt-2 ml-4">
+                    {tasks.map((task: ActivationTaskType) => (
+                        <ActivationTask key={task.id} {...task} />
+                    ))}
+                </ul>
+            )}
         </div>
     )
+}
 
-    const params: Partial<LemonButtonWithSideActionProps> = {
-        id,
-        fullWidth: true,
-        type: 'secondary',
-        icon: completed ? <IconCheckCircle /> : skipped ? <IconX /> : null,
-        tooltip: name,
-    }
-    if (url) {
-        params.to = url
-        params.targetBlank = true
-        params.onClick = () => {
-            reportActivationSideBarTaskClicked(id)
-        }
-    } else {
-        params.onClick = () => {
+const ActivationTask = ({ id, title, completed, skipped, url }: ActivationTaskType): JSX.Element => {
+    const { runTask } = useActions(activationLogic)
+    const { reportActivationSideBarTaskClicked } = useActions(eventUsageLogic)
+
+    const handleClick = (): void => {
+        reportActivationSideBarTaskClicked(id)
+        if (url) {
+            window.open(url, '_blank')
+        } else {
             runTask(id)
-            reportActivationSideBarTaskClicked(id)
         }
     }
+
     return (
-        <li>
-            {displaySideAction ? (
-                <LemonButton
-                    {...params}
-                    sideAction={{
-                        icon: <IconX />,
-                        tooltip: 'Skip task',
-                        onClick: () => skipTask(id),
-                    }}
-                >
-                    {content}
-                </LemonButton>
-            ) : (
-                <LemonButton {...params}>{content}</LemonButton>
+        <li
+            className={clsx(
+                'p-2 border bg-primary-alt-highlight flex items-center justify-between gap-2 select-none',
+                completed && 'line-through opacity-70',
+                !completed && !skipped && 'cursor-pointer'
             )}
+            onClick={!completed && !skipped ? handleClick : undefined}
+        >
+            <div className="flex items-center gap-2">
+                {completed ? (
+                    <IconCheckCircle className="h-6 w-6 text-success" />
+                ) : (
+                    <div className="rounded-full border-2 w-5 h-5 border-muted-alt" />
+                )}
+                <p className="m-0 font-semibold">{title}</p>
+            </div>
+            {!completed && !skipped && <IconChevronRight className="h-6 font-semibold text-muted-alt" />}
+
+            {/* <div className="flex-1">
+                {!completed && !skipped && <p className="text-xs text-gray-500">{content}</p>}
+            </div>
+            {canSkip && !completed && !skipped && (
+                <LemonButton icon={<IconX />} tooltip="Skip task" onClick={() => skipTask(id)} />
+            )}
+            {!completed && !skipped && (
+                <LemonButton onClick={handleClick} to={url} targetBlank={!!url}  icon={<IconPlay />}>
+                    {url ? 'Go' : 'Start'}
+                </LemonButton>
+            )} */}
         </li>
     )
 }

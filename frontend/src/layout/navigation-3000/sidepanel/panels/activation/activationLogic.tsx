@@ -5,6 +5,7 @@ import api from 'lib/api'
 import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import posthog from 'posthog-js'
+import React from 'react'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
@@ -17,7 +18,7 @@ import { EventDefinitionType, ProductKey, TeamBasicType } from '~/types'
 
 import type { activationLogicType } from './activationLogicType'
 
-export enum ActivationTasks {
+export enum ActivationTask {
     IngestFirstEvent = 'ingest_first_event',
     InviteTeamMember = 'invite_team_member',
     CreateFirstInsight = 'create_first_insight',
@@ -27,10 +28,49 @@ export enum ActivationTasks {
     SetUpReverseProxy = 'set_up_reverse_proxy',
 }
 
+export enum ActivationSection {
+    QuickStart = 'quick_start',
+    ProductAnalytics = 'product_analytics',
+    SessionReplay = 'session_replay',
+    FeatureFlags = 'feature_flags',
+}
+
+function IngestFirstEventContent(): JSX.Element {
+    return <>Ingest your first event to get started with PostHog</>
+}
+
+function InviteTeamMemberContent(): JSX.Element {
+    return <>Everyone in your organization can benefit from PostHog</>
+}
+
+function CreateFirstInsightContent(): JSX.Element {
+    return <>Make sense of your data by creating an insight</>
+}
+
+function CreateFirstDashboardContent(): JSX.Element {
+    return <>Collect your insights in a dashboard</>
+}
+
+function SetupSessionRecordingsContent(): JSX.Element {
+    return <>See how your users are using your product</>
+}
+
+function TrackCustomEventsContent(): JSX.Element {
+    return <>Add custom ddd events to get more insights into your product</>
+}
+
+function SetUpReverseProxyContent(): JSX.Element {
+    return <>Proxy your domain traffic to avoid tracking blockers</>
+}
+
+/** 3b) "ActivationTaskType" now has "title" and "content" (ReactNode),
+ * plus metadata for completion/skipping, etc.
+ */
 export type ActivationTaskType = {
     id: ActivationTasks
-    name: string
-    description: string
+    section: ActivationSection
+    title: string
+    content: React.ReactNode
     completed: boolean
     canSkip: boolean
     skipped: boolean
@@ -191,140 +231,116 @@ export const activationLogic = kea<activationLogicType>([
                 skippedTasks,
                 hasReverseProxy
             ) => {
-                const tasks: ActivationTaskType[] = []
-                for (const task of Object.values(ActivationTasks)) {
-                    switch (task) {
-                        case ActivationTasks.IngestFirstEvent:
-                            tasks.push({
-                                id: ActivationTasks.IngestFirstEvent,
-                                name: 'Ingest your first event',
-                                description: 'Ingest your first event to get started with PostHog',
-                                completed: currentTeam?.ingested_event ?? false,
-                                canSkip: false,
-                                skipped: false,
-                            })
-                            break
-                        case ActivationTasks.InviteTeamMember:
-                            tasks.push({
-                                id: ActivationTasks.InviteTeamMember,
-                                name: 'Invite a team member',
-                                description: 'Everyone in your organization can benefit from PostHog',
-                                completed: memberCount > 1 || invites.length > 0,
-                                canSkip: true,
-                                skipped: skippedTasks.includes(ActivationTasks.InviteTeamMember),
-                            })
-                            break
-                        case ActivationTasks.CreateFirstInsight:
-                            tasks.push({
-                                id: ActivationTasks.CreateFirstInsight,
-                                name: 'Create your first insight',
-                                description: 'Make sense of your data by creating an insight',
-                                completed:
-                                    insights.results.find((insight) => insight.created_by !== null) !== undefined,
-                                canSkip: true,
-                                skipped: skippedTasks.includes(ActivationTasks.CreateFirstInsight),
-                            })
-                            break
-                        case ActivationTasks.CreateFirstDashboard:
-                            tasks.push({
-                                id: ActivationTasks.CreateFirstDashboard,
-                                name: 'Create your first dashboard',
-                                description: 'Collect your insights in a dashboard',
-                                completed:
-                                    Object.values(dashboards).find((dashboard) => dashboard.created_by !== null) !==
-                                    undefined,
-                                canSkip: true,
-                                skipped: skippedTasks.includes(ActivationTasks.CreateFirstDashboard),
-                            })
-                            break
-                        case ActivationTasks.SetupSessionRecordings:
-                            tasks.push({
-                                id: ActivationTasks.SetupSessionRecordings,
-                                name: 'Set up session recordings',
-                                description: 'See how your users are using your product',
-                                completed: currentTeam?.session_recording_opt_in ?? false,
-                                canSkip: true,
-                                skipped: skippedTasks.includes(ActivationTasks.SetupSessionRecordings),
-                            })
-                            break
-                        case ActivationTasks.TrackCustomEvents:
-                            tasks.push({
-                                id: ActivationTasks.TrackCustomEvents,
-                                name: 'Track custom events',
-                                description: 'Track custom events to get more insights into your product',
-                                completed: customEventsCount > 0,
-                                canSkip: true,
-                                skipped: skippedTasks.includes(ActivationTasks.TrackCustomEvents),
-                                url: 'https://posthog.com/tutorials/event-tracking-guide#setting-up-custom-events',
-                            })
-                            break
-                        case ActivationTasks.SetUpReverseProxy:
-                            tasks.push({
-                                id: ActivationTasks.SetUpReverseProxy,
-                                name: 'Set up a reverse proxy',
-                                description: 'Send your events from your own domain to avoid tracking blockers',
-                                completed: hasReverseProxy || false,
-                                canSkip: true,
-                                skipped: skippedTasks.includes(ActivationTasks.SetUpReverseProxy),
-                                url: 'https://posthog.com/docs/advanced/proxy',
-                            })
-                            break
-                        default:
-                            break
-                    }
-                }
+                const tasks = [
+                    {
+                        id: ActivationTask.IngestFirstEvent,
+                        title: 'Ingest your first event',
+                        content: <IngestFirstEventContent />,
+                        canSkip: false,
+                        skipped: false,
+                        section: ActivationSection.QuickStart,
+                        completed: currentTeam?.ingested_event ?? false,
+                    },
+                    {
+                        id: ActivationTask.InviteTeamMember,
+                        title: 'Invite a team member',
+                        content: <InviteTeamMemberContent />,
+                        completed: memberCount > 1 || invites.length > 0,
+                        canSkip: true,
+                        skipped: false,
+                        section: ActivationSection.QuickStart,
+                    },
+                    {
+                        id: ActivationTask.CreateFirstInsight,
+                        title: 'Create your first insight',
+                        content: <CreateFirstInsightContent />,
+                        completed: insights.results.find((insight) => insight.created_by !== null) !== undefined,
+                        canSkip: true,
+                        skipped: false,
+                        section: ActivationSection.ProductAnalytics,
+                    },
+                    {
+                        id: ActivationTask.CreateFirstDashboard,
+                        title: 'Create your first dashboard',
+                        content: <CreateFirstDashboardContent />,
+                        completed:
+                            Object.values(dashboards).find((dashboard) => dashboard.created_by !== null) !== undefined,
+                        canSkip: true,
+                        skipped: false,
+                        section: ActivationSection.ProductAnalytics,
+                    },
+                    {
+                        id: ActivationTask.SetupSessionRecordings,
+                        title: 'Set up session recordings',
+                        completed: currentTeam?.session_recording_opt_in ?? false,
+                        content: <SetupSessionRecordingsContent />,
+                        canSkip: true,
+                        skipped: false,
+                        section: ActivationSection.SessionReplay,
+                    },
+                    {
+                        id: ActivationTask.TrackCustomEvents,
+                        title: 'Track custom events',
+                        completed: customEventsCount > 0,
+                        content: <TrackCustomEventsContent />,
+                        canSkip: true,
+                        skipped: false,
+                        section: ActivationSection.ProductAnalytics,
+                        url: 'https://posthog.com/tutorials/event-tracking-guide#setting-up-custom-events',
+                    },
+                    {
+                        id: ActivationTask.SetUpReverseProxy,
+                        title: 'Set up a reverse proxy',
+                        content: <SetUpReverseProxyContent />,
+                        completed: hasReverseProxy || false,
+                        canSkip: true,
+                        skipped: false,
+                        section: ActivationSection.QuickStart,
+                        url: 'https://posthog.com/docs/advanced/proxy',
+                    },
+                ]
+
                 return tasks
             },
         ],
-        activeTasks: [
-            (s) => [s.tasks],
-            (tasks) => {
-                return tasks.filter((task) => !task.completed && !task.skipped)
-            },
-        ],
-        completedTasks: [
-            (s) => [s.tasks],
-            (tasks) => {
-                return tasks.filter((task) => task.completed || task.skipped)
-            },
-        ],
+        /** 5) Filter tasks for display. */
+        activeTasks: [(s) => [s.tasks], (tasks) => tasks.filter((t) => !t.completed && !t.skipped)],
+        completedTasks: [(s) => [s.tasks], (tasks) => tasks.filter((t) => t.completed || t.skipped)],
         completionPercent: [
             (s) => [s.completedTasks, s.activeTasks],
             (completedTasks, activeTasks) => {
-                const percent = Math.round((completedTasks.length / (completedTasks.length + activeTasks.length)) * 100)
-                // we return 5 so that the progress bar is always visible
-                return percent > 0 ? percent : 5
+                const totalDone = completedTasks.length
+                const totalAll = completedTasks.length + activeTasks.length
+                const percent = totalAll > 0 ? Math.round((totalDone / totalAll) * 100) : 0
+                // Return at least 5 to ensure a visible fraction on the progress circle
+                return percent >= 5 ? percent : 5
             },
         ],
-        hasCompletedAllTasks: [
-            (s) => [s.activeTasks],
-            (activeTasks) => {
-                return activeTasks.length === 0
-            },
-        ],
+        hasCompletedAllTasks: [(s) => [s.activeTasks], (activeTasks) => activeTasks.length === 0],
     }),
     listeners(({ actions, values }) => ({
         runTask: async ({ id }) => {
-            posthog.capture('activation sidebar task run', {
-                task: id,
-            })
             switch (id) {
-                case ActivationTasks.IngestFirstEvent:
+                case ActivationTask.IngestFirstEvent:
                     router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS))
                     break
-                case ActivationTasks.InviteTeamMember:
+                case ActivationTask.InviteTeamMember:
                     actions.showInviteModal()
                     break
-                case ActivationTasks.CreateFirstInsight:
+                case ActivationTask.CreateFirstInsight:
                     router.actions.push(urls.insightNew())
                     break
-                case ActivationTasks.CreateFirstDashboard:
+                case ActivationTask.CreateFirstDashboard:
                     router.actions.push(urls.dashboards())
                     break
-                case ActivationTasks.SetupSessionRecordings:
+                case ActivationTask.SetupSessionRecordings:
                     router.actions.push(urls.replay())
                     break
+                case ActivationTask.TrackCustomEvents:
+                    router.actions.push(urls.eventDefinitions())
+                    break
                 default:
+                    // For tasks with just a URL or no direct route
                     break
             }
         },
