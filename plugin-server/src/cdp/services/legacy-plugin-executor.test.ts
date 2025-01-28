@@ -311,7 +311,18 @@ describe('LegacyPluginExecutorService', () => {
 
                 expect(res.finished).toBe(true)
                 expect(res.error).toBeUndefined()
-                expect(res.execResult).toEqual(invocation.globals.event)
+                expect(forSnapshot(res.execResult)).toMatchInlineSnapshot(`
+                    {
+                      "distinct_id": "distinct_id",
+                      "event": "dont-drop-me",
+                      "properties": {
+                        "email": "test@posthog.com",
+                      },
+                      "team_id": 1,
+                      "timestamp": "2025-01-01T00:00:00.000Z",
+                      "uuid": "<REPLACED-UUID-0>",
+                    }
+                `)
             })
 
             it('should drop if event is dropped', async () => {
@@ -349,13 +360,10 @@ describe('LegacyPluginExecutorService', () => {
 
                 expect(res.finished).toBe(true)
                 expect(res.error).toBeUndefined()
-                expect(res.execResult).toMatchInlineSnapshot(`
+                expect(forSnapshot(res.execResult)).toMatchInlineSnapshot(`
                     {
-                      "$set": undefined,
-                      "$set_once": undefined,
                       "distinct_id": "distinct_id",
                       "event": "$pageview",
-                      "ip": undefined,
                       "properties": {
                         "version": "1.12.20",
                         "version__major": 1,
@@ -364,7 +372,7 @@ describe('LegacyPluginExecutorService', () => {
                       },
                       "team_id": 1,
                       "timestamp": "2025-01-01T00:00:00.000Z",
-                      "uuid": "b3a1fe86-b10c-43cc-acaf-d208977608d0",
+                      "uuid": "<REPLACED-UUID-0>",
                     }
                 `)
             })

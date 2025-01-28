@@ -8,7 +8,6 @@ import { status } from '../../utils/status'
 import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import {
     LegacyDestinationPlugin,
-    LegacyDestinationPluginMeta,
     LegacyPluginLogger,
     LegacyTransformationPlugin,
     LegacyTransformationPluginMeta,
