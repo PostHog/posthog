@@ -389,12 +389,14 @@ class TaxonomyAgentToolkit(ABC):
             return self._retrieve_session_properties(property_name)
 
         if entity == "person":
-            query = ActorsPropertyTaxonomyQuery(property=property_name)
+            query = ActorsPropertyTaxonomyQuery(property=property_name, maxPropertyValues=25)
         else:
             group_index = next((group.group_type_index for group in self._groups if group.group_type == entity), None)
             if group_index is None:
                 return f"The entity {entity} does not exist in the taxonomy."
-            query = ActorsPropertyTaxonomyQuery(group_type_index=group_index, property=property_name)
+            query = ActorsPropertyTaxonomyQuery(
+                group_type_index=group_index, property=property_name, maxPropertyValues=25
+            )
 
         try:
             if query.group_type_index is not None:

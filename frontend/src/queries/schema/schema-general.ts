@@ -2175,6 +2175,7 @@ export interface ActorsPropertyTaxonomyQuery extends DataNode<ActorsPropertyTaxo
     kind: NodeKind.ActorsPropertyTaxonomyQuery
     property: string
     group_type_index?: integer
+    maxPropertyValues?: integer
 }
 
 export type ActorsPropertyTaxonomyQueryResponse = AnalyticsQueryResponseBase<ActorsPropertyTaxonomyResponse>
