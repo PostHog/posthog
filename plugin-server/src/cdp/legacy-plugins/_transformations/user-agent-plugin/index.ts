@@ -1,7 +1,8 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { detect } from 'detect-browser'
 
-import { LegacyPluginMeta } from '../../types'
+import { LegacyPluginMeta, LegacyTransformationPlugin } from '../../types'
+import metadata from './plugin.json'
 
 export type UserAgentMeta = LegacyPluginMeta & {
     config: {
@@ -158,4 +159,10 @@ function detectDeviceType(userAgent: string) {
     } else {
         return 'Desktop'
     }
+}
+
+export const userAgentPlugin: LegacyTransformationPlugin = {
+    id: 'user-agent-plugin',
+    metadata: metadata as any,
+    processEvent,
 }
