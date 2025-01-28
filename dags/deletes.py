@@ -142,89 +142,6 @@ class PendingPersonEventDeletesTable:
             VALUES
         """
 
-
-@dataclass
-class PersonEventDeletesDictionary:
-    source: PendingPersonEventDeletesTable
-
-    @property
-    def name(self) -> str:
-        return f"{self.source.table_name}_dict"
-
-    @property
-    def qualified_name(self):
-        return f"{settings.CLICKHOUSE_DATABASE}.{self.name}"
-
-    def create_statement(self, shards: int, max_execution_time: int) -> str:
-        return f"""
-            CREATE DICTIONARY IF NOT EXISTS {self.qualified_name} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
-            (
-                team_id Int64,
-                person_id UUID,
-                created_at DateTime
-            )
-            PRIMARY KEY team_id, person_id
-            SOURCE(CLICKHOUSE(
-                DB {settings.CLICKHOUSE_DATABASE}
-                TABLE %(table)s
-                PASSWORD %(password)s
-            ))
-            LIFETIME(0)
-            LAYOUT(COMPLEX_KEY_HASHED(SHARDS {shards}))
-            SETTINGS(max_execution_time={max_execution_time})
-            """
-
-    def exists(self, client: Client) -> bool:
-        results = client.execute(
-            "SELECT count() FROM system.dictionaries WHERE database = %(database)s AND name = %(name)s",
-            {"database": settings.CLICKHOUSE_DATABASE, "name": self.name},
-        )
-        [[count]] = results
-        return count > 0
-
-    @property
-    def drop_query(self) -> str:
-        return f"DROP DICTIONARY IF EXISTS {self.qualified_name} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' SYNC"
-
-    def drop(self, client: Client) -> None:
-        client.execute(self.drop_query)
-
-    def __is_loaded(self, client: Client) -> bool:
-        result = client.execute(
-            "SELECT status, last_exception FROM system.dictionaries WHERE database = %(database)s AND name = %(name)s",
-            {"database": settings.CLICKHOUSE_DATABASE, "name": self.name},
-        )
-        if not result:
-            raise Exception("dictionary does not exist")
-
-        status, last_exception = result[0]
-        if status == "LOADED":
-            return True
-        elif status in {"LOADING", "FAILED_AND_RELOADING", "LOADED_AND_RELOADING"}:
-            return False
-        elif status == "FAILED":
-            raise Exception(f"failed to load: {last_exception}")
-        else:
-            raise Exception(f"unexpected status: {status}")
-
-    def load(self, client: Client):
-        # TODO: this should probably not reload if the dictionary is already loaded
-        client.execute(f"SYSTEM RELOAD DICTIONARY {self.qualified_name}")
-
-        # reload is async, so we need to wait for the dictionary to actually be loaded
-        # TODO: this should probably throw on unexpected reloads
-        while not self.__is_loaded(client):
-            time.sleep(5.0)
-
-        results = client.execute(
-            f"""
-            SELECT groupBitXor(row_checksum) AS table_checksum
-            FROM (SELECT cityHash64(*) AS row_checksum FROM {self.qualified_name} ORDER BY team_id, distinct_id)
-            """
-        )
-        [[checksum]] = results
-        return checksum
-
     def __find_existing_mutation(self, client: Client, table: str, command_kind: str) -> Mutation | None:
         results = client.execute(
             f"""
@@ -264,7 +181,7 @@ class PersonEventDeletesDictionary:
             # TODO: update to use created_at as limit
             f"""
             DELETE FROM {table} WHERE (team_id, person_id, timestamp) IN (
-                SELECT e.team_id, e.person_id, .e.timestamp
+                SELECT e.team_id, e.person_id, e.timestamp
                 FROM events e
                 INNER JOIN {self.qualified_name} d
                 ON e.team_id = d.team_id
@@ -277,6 +194,16 @@ class PersonEventDeletesDictionary:
         mutation = self.__find_existing_mutation(client, table, "UPDATE")
         assert mutation is not None
         return mutation
+
+    def checksum(self, client: Client):
+        results = client.execute(
+            f"""
+            SELECT groupBitXor(row_checksum) AS table_checksum
+            FROM (SELECT cityHash64(*) AS row_checksum FROM {self.qualified_name} ORDER BY team_id, person_id, created_at)
+            """
+        )
+        [[checksum]] = results
+        return checksum
 
 
 @op
@@ -373,45 +300,24 @@ def load_pending_person_deletions(
 
 
 @op
-def create_pending_deletes_dictionary(
-    cluster: ResourceParam[ClickhouseCluster], load_pending_person_deletions: PendingPersonEventDeletesTable
-) -> PersonEventDeletesDictionary:
-    """Create a dictionary table that wraps pending_person_deletes for efficient lookups."""
-    delete_dictionary = PersonEventDeletesDictionary(source=load_pending_person_deletions)
-
-    # Wait for the table to be fully replicated
-    def sync_replica(client: Client):
-        client.execute(f"SYSTEM SYNC REPLICA {load_pending_person_deletions.table_name} STRICT")
-
-    cluster.map_all_hosts(sync_replica).result()
-
-    # Create the dictionary using the table object
-    def create_dict(client: Client):
-        client.execute(
-            delete_dictionary.create_statement(shards=1, max_execution_time=3600),
-            {
-                "table": load_pending_person_deletions.table_name,
-                "password": settings.CLICKHOUSE_PASSWORD,
-            },
-        )
-
-    cluster.any_host(create_dict).result()
-    return delete_dictionary
-
-
-@op
 def delete_person_events(
     context: OpExecutionContext,
     cluster: ResourceParam[ClickhouseCluster],
-    create_pending_deletes_dictionary: PersonEventDeletesDictionary,
-) -> tuple[PersonEventDeletesDictionary, ShardMutations]:
+    load_pending_person_deletions: PendingPersonEventDeletesTable,
+) -> tuple[PendingPersonEventDeletesTable, ShardMutations]:
     """Delete events from sharded_events table for persons pending deletion."""
+
+    # Wait for the table to be fully replicated
+    def sync_replica(client: Client):
+        client.execute(f"SYSTEM SYNC REPLICA {load_pending_person_deletions.qualified_name} STRICT")
+
+    cluster.map_all_hosts(sync_replica).result()
 
     def count_pending_deletes(client: Client) -> int:
         result = client.execute(
             f"""
             SELECT count()
-            FROM {create_pending_deletes_dictionary.qualified_name}
+            FROM {load_pending_person_deletions.qualified_name}
             """
         )
         return result[0][0] if result else 0
@@ -420,7 +326,7 @@ def delete_person_events(
 
     if count_result == 0:
         context.add_output_metadata({"events_deleted": MetadataValue.int(0), "message": "No pending deletions found"})
-        return (create_pending_deletes_dictionary, {})
+        return (load_pending_person_deletions, {})
 
     context.add_output_metadata(
         {
@@ -431,44 +337,41 @@ def delete_person_events(
     shard_mutations = {
         host.shard_num: mutation
         for host, mutation in (
-            cluster.map_one_host_per_shard(create_pending_deletes_dictionary.enqueue_person_event_delete_mutation)
+            cluster.map_one_host_per_shard(load_pending_person_deletions.enqueue_person_event_delete_mutation)
             .result()
             .items()
         )
     }
-    return (create_pending_deletes_dictionary, shard_mutations)
+    return (load_pending_person_deletions, shard_mutations)
 
 
 @op
 def wait_for_delete_mutations(
     cluster: ResourceParam[ClickhouseCluster],
-    delete_person_events: tuple[PersonEventDeletesDictionary, ShardMutations],
-) -> PersonEventDeletesDictionary:
-    dictionary, shard_mutations = delete_person_events
+    delete_person_events: tuple[PendingPersonEventDeletesTable, ShardMutations],
+) -> PendingPersonEventDeletesTable:
+    pending_person_deletions, shard_mutations = delete_person_events
 
     if not shard_mutations:
-        return dictionary  # or handle the empty case as needed
+        return pending_person_deletions  # or handle the empty case as needed
 
     reduce(
         lambda x, y: x.merge(y),
         [cluster.map_all_hosts_in_shard(shard, mutation.wait) for shard, mutation in shard_mutations.items()],
-        # Provide an initial value if needed, e.g., an empty object that supports merge
     ).result()
 
-    return dictionary
+    return pending_person_deletions
 
 
 @op
 def cleanup_delete_assets(
     cluster: ResourceParam[ClickhouseCluster],
     create_pending_deletes_table: PendingPersonEventDeletesTable,
-    wait_for_delete_mutations: PersonEventDeletesDictionary,
+    wait_for_delete_mutations: PendingPersonEventDeletesTable,
 ) -> bool:
-    """Clean up temporary tables, dictionary, and mark deletions as verified."""
+    """Clean up temporary tables and mark deletions as verified."""
     # Drop the dictionary and table using the table object
 
-    # Must delete dictionary before table due to clickhouse dependency
-    cluster.any_host(wait_for_delete_mutations.drop).result()
     cluster.any_host(create_pending_deletes_table.drop).result()
 
     # Mark deletions as verified in Django
@@ -494,7 +397,6 @@ def deletes_job():
     """Job that handles deletion of person events."""
     table = create_pending_deletes_table()
     loaded_table = load_pending_person_deletions(table)
-    dictionary = create_pending_deletes_dictionary(loaded_table)
-    delete_events = delete_person_events(dictionary)
-    waited_dictionary = wait_for_delete_mutations(delete_events)
-    cleanup_delete_assets(table, waited_dictionary)
+    delete_events = delete_person_events(loaded_table)
+    waited_table = wait_for_delete_mutations(delete_events)
+    cleanup_delete_assets(table, waited_table)
