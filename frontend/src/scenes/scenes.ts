@@ -636,5 +636,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.moveToPostHogCloud()]: [Scene.MoveToPostHogCloud, 'moveToPostHogCloud'],
     [urls.heatmaps()]: [Scene.Heatmaps, 'heatmaps'],
     [urls.sessionAttributionExplorer()]: [Scene.SessionAttributionExplorer, 'sessionAttributionExplorer'],
+    [urls.inference()]: [Scene.Inference, 'inference'],
     ...productRoutes,
 }

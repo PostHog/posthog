@@ -255,4 +255,6 @@ export const urls = {
     insightAlert: (insightShortId: InsightShortId, alertId: AlertType['id']): string =>
         `/insights/${insightShortId}/alerts?alert_id=${alertId}`,
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
+
+    inference: (): string => '/inference',
 }

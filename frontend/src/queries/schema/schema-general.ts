@@ -2295,3 +2295,25 @@ export interface RevenueTrackingEventItem {
 export interface RevenueTrackingConfig {
     events: RevenueTrackingEventItem[]
 }
+
+export interface InferenceMessage {
+    role: string
+    content: string
+}
+
+export interface InferenceRequest {
+    model: string
+    messages: InferenceMessage[]
+}
+
+export interface InferenceChoice {
+    index: number
+    message: {
+        role: string
+        content: string
+    }
+}
+
+export interface InferenceResponse {
+    choices: InferenceChoice[]
+}

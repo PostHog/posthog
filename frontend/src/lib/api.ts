@@ -16,6 +16,7 @@ import {
     ErrorTrackingIssue,
     HogCompileResponse,
     HogQLVariable,
+    InferenceRequest,
     QuerySchema,
     QueryStatusResponse,
     RecordingsQuery,
@@ -889,6 +890,11 @@ class ApiRequest {
     // Conversations
     public conversations(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('conversations')
+    }
+
+    // Inference
+    public inference(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('inference')
     }
 
     // Notebooks
@@ -2671,6 +2677,12 @@ const api = {
     conversations: {
         async create(data: { content: string; conversation?: string | null; trace_id: string }): Promise<Response> {
             return api.createResponse(new ApiRequest().conversations().assembleFullUrl(), data)
+        },
+    },
+
+    inference: {
+        async create(data: InferenceRequest): Promise<Response> {
+            return api.createResponse(new ApiRequest().inference().assembleFullUrl(), data)
         },
     },
 

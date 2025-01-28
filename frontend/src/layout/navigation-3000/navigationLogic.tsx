@@ -1,5 +1,6 @@
 import {
     IconAI,
+    IconAIText,
     IconCursorClick,
     IconDashboard,
     IconDatabase,
@@ -635,6 +636,15 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   label: 'Messaging',
                                   icon: <IconMegaphone />,
                                   to: urls.messagingBroadcasts(),
+                                  tag: 'alpha' as const,
+                              }
+                            : null,
+                        featureFlags[FEATURE_FLAGS.INFERENCE] && hasOnboardedAnyProduct
+                            ? {
+                                  identifier: Scene.Inference,
+                                  label: 'LLM Inference',
+                                  icon: <IconAIText />,
+                                  to: urls.inference(),
                                   tag: 'alpha' as const,
                               }
                             : null,

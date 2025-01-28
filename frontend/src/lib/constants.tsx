@@ -237,6 +237,7 @@ export const FEATURE_FLAGS = {
     WEB_VITALS: 'web-vitals', // owner: @rafaeelaudibert #team-web-analytics
     WEB_REVENUE_TRACKING: 'web-revenue-tracking', // owner: @robbie-c #team-web-analytics
     LLM_OBSERVABILITY: 'llm-observability', // owner: #team-ai-product-manager
+    INFERENCE: 'llm-inference', // owner: @robbie-c
     ONBOARDING_SESSION_REPLAY_SEPERATE_STEP: 'onboarding-session-replay-separate-step', // owner: @joshsny #team-growth
     EXPERIMENT_INTERVAL_TIMESERIES: 'experiments-interval-timeseries', // owner: @jurajmajerik #team-experiments
 } as const

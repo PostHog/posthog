@@ -90,6 +90,7 @@ export enum Scene {
     SessionAttributionExplorer = 'SessionAttributionExplorer',
     MessagingProviders = 'MessagingProviders',
     MessagingBroadcasts = 'MessagingBroadcasts',
+    Inference = 'Inference',
 }
 
 export type SceneProps = Record<string, any>
