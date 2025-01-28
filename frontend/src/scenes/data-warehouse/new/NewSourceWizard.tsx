@@ -1,8 +1,6 @@
 import { LemonButton, LemonTable, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useCallback } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -127,7 +125,6 @@ function FirstStep(): JSX.Element {
     const { connectors, manualConnectors, addToHubspotButtonUrl } = useValues(sourceWizardLogic)
     const { selectConnector, toggleManualLinkFormVisible, onNext, setManualLinkingProvider } =
         useActions(sourceWizardLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const onClick = (sourceConfig: SourceConfig): void => {
         if (sourceConfig.name == 'Hubspot') {
@@ -143,10 +140,6 @@ function FirstStep(): JSX.Element {
         setManualLinkingProvider(manualLinkSource)
     }
 
-    const filteredConnectors = connectors.filter((n) => {
-        return !(n.name === 'BigQuery' && !featureFlags[FEATURE_FLAGS.BIGQUERY_DWH])
-    })
-
     return (
         <>
             <h2 className="mt-4">Managed by PostHog</h2>
@@ -156,7 +149,7 @@ function FirstStep(): JSX.Element {
                 <Link to="https://posthog.com/docs/data-warehouse/setup#stripe">Learn more</Link>
             </p>
             <LemonTable
-                dataSource={filteredConnectors}
+                dataSource={connectors}
                 loading={false}
                 disableTableWhileLoading={false}
                 columns={[
