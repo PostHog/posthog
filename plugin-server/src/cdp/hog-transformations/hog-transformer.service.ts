@@ -101,6 +101,7 @@ export class HogTransformerService {
 
                     // Type check execResult before accessing result
                     if (!result.execResult) {
+                        // TODO: Correct this - if we have no result but a successful execution then we should be dropping the event
                         status.warn('⚠️', 'Missing execution result - no transformation applied')
                         return event
                     }
