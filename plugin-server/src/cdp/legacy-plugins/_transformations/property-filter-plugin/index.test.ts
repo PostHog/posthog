@@ -1,5 +1,17 @@
-const { createEvent } = require('@posthog/plugin-scaffold/test/utils')
-const { processEvent } = require('.')
+import { PluginEvent } from '@posthog/plugin-scaffold'
+
+import { LegacyPluginMeta } from '../../types'
+import { processEvent } from './index'
+
+const createEvent = (event: Partial<PluginEvent>): PluginEvent =>
+    ({
+        distinct_id: '1',
+        event: '$pageview',
+        properties: {
+            ...event.properties,
+        },
+        ...event,
+    } as unknown as PluginEvent)
 
 const global = {
     propertiesToFilter: [
@@ -12,6 +24,11 @@ const global = {
         'no-such.with-dot',
     ],
 }
+
+const meta: LegacyPluginMeta = {
+    global,
+    config: {},
+} as unknown as LegacyPluginMeta
 
 const properties = {
     properties: {
@@ -35,8 +52,8 @@ const properties = {
     },
 }
 
-test('event properties are filtered', async () => {
-    const event = await processEvent(createEvent(properties), { global })
+test('event properties are filtered', () => {
+    const event = processEvent(createEvent(properties), meta)
     expect(event.properties).not.toHaveProperty('gender')
     expect(event.properties.$set).not.toHaveProperty('age')
     expect(event.properties.foo.bar.baz).not.toHaveProperty('one')
@@ -64,8 +81,8 @@ test('event properties are filtered', async () => {
 
 const emptyProperties = {}
 
-test('event properties are empty when no properties are given', async () => {
-    const event = await processEvent(createEvent(emptyProperties), { global })
+test('event properties are empty when no properties are given', () => {
+    const event = processEvent(createEvent(emptyProperties), meta)
 
     expect(event.properties).not.toHaveProperty('$set')
     expect(event.properties).not.toHaveProperty('foo')
