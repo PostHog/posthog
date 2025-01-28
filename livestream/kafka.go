@@ -73,8 +73,7 @@ func NewPostHogKafkaConsumer(brokers string, securityProtocol string, groupID st
 }
 
 func (c *PostHogKafkaConsumer) Consume() {
-	err := c.consumer.SubscribeTopics([]string{c.topic}, nil)
-	if err != nil {
+	if err := c.consumer.SubscribeTopics([]string{c.topic}, nil); err != nil {
 		sentry.CaptureException(err)
 		log.Fatalf("Failed to subscribe to topic: %v", err)
 	}
@@ -83,13 +82,20 @@ func (c *PostHogKafkaConsumer) Consume() {
 		msg, err := c.consumer.ReadMessage(15 * time.Second)
 		if err != nil {
 			var inErr kafka.Error
-			if errors.As(err, &inErr) && inErr.IsTimeout() {
-				continue
+			if errors.As(err, &inErr) {
+				if inErr.Code() == kafka.ErrTransport {
+					connectFailure.Inc()
+				} else if inErr.IsTimeout() {
+					timeoutConsume.Inc()
+					continue
+				}
 			}
 			log.Printf("Error consuming message: %v", err)
 			sentry.CaptureException(err)
 			continue
 		}
+
+		msgConsumed.Inc()
 
 		var wrapperMessage PostHogEventWrapper
 		err = json.Unmarshal(msg.Value, &wrapperMessage)

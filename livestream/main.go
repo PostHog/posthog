@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/getsentry/sentry-go"
+	"github.com/labstack/echo-contrib/echoprometheus"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -97,6 +98,7 @@ func main() {
 	e.Use(middleware.GzipWithConfig(middleware.GzipConfig{
 		Level: 9, // Set compression level to maximum
 	}))
+	e.Use(echoprometheus.NewMiddleware("livestream"))
 
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowOrigins: []string{"*"},
@@ -128,8 +130,6 @@ func main() {
 		if strings.ToLower(geo) == "true" || geo == "1" {
 			geoOnly = true
 		} else {
-			teamId = ""
-
 			authHeader := c.Request().Header.Get("Authorization")
 			if authHeader == "" {
 				return errors.New("authorization header is required")
@@ -147,7 +147,7 @@ func main() {
 			}
 		}
 
-		eventTypes := []string{}
+		var eventTypes []string
 		if eventType != "" {
 			eventTypes = strings.Split(eventType, ",")
 		}
@@ -164,6 +164,10 @@ func main() {
 		}
 
 		subChan <- subscription
+		defer func() {
+			subscription.ShouldClose.Store(true)
+			filter.unSubChan <- subscription
+		}()
 
 		w := c.Response()
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -174,8 +178,6 @@ func main() {
 			select {
 			case <-c.Request().Context().Done():
 				e.Logger.Printf("SSE client disconnected, ip: %v", c.RealIP())
-				filter.unSubChan <- subscription
-				subscription.ShouldClose.Store(true)
 				return nil
 			case payload := <-subscription.EventChan:
 				jsonData, err := json.Marshal(payload)
