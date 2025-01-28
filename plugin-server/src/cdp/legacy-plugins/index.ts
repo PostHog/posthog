@@ -1,3 +1,5 @@
+import { customerioPlugin } from './_destinations/customerio'
+import { intercomPlugin } from './_destinations/intercom'
 import { downsamplingPlugin } from './_transformations/downsampling-plugin'
 import { languageUrlSplitterApp } from './_transformations/language-url-splitter-app'
 import { posthogAppUrlParametersToEventPropertiesPlugin } from './_transformations/posthog-app-url-parameters-to-event-properties'
@@ -8,8 +10,6 @@ import { semverFlattenerPlugin } from './_transformations/semver-flattener-plugi
 import { taxonomyPlugin } from './_transformations/taxonomy-plugin'
 import { timestampParserPlugin } from './_transformations/timestamp-parser-plugin'
 import { userAgentPlugin } from './_transformations/user-agent-plugin'
-import { customerioPlugin } from './customerio'
-import { intercomPlugin } from './intercom'
 
 export const DESTINATION_PLUGINS_BY_ID = {
     [customerioPlugin.id]: customerioPlugin,

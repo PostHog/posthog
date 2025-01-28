@@ -3,7 +3,7 @@ import { RetryError } from '@posthog/plugin-scaffold'
 
 import { Response } from '~/src/utils/fetch'
 
-import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from '../types'
+import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from '../../types'
 import metadata from './plugin.json'
 
 const DEFAULT_HOST = 'track.customer.io'
