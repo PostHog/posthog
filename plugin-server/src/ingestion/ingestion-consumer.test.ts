@@ -7,7 +7,6 @@ import { brotliDecompressSync } from 'zlib'
 
 import { template as geoipTemplate } from '~/src/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '~/src/cdp/templates/compiler'
-import { UUIDT } from '~/src/utils/utils'
 import { insertHogFunction as _insertHogFunction } from '~/tests/cdp/fixtures'
 import {
     getProducedKafkaMessages,
@@ -21,6 +20,7 @@ import { Hub, PipelineEvent, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { HogFunctionType } from '../cdp/types'
 import { status } from '../utils/status'
+import { UUIDT } from '../utils/utils'
 import { IngestionConsumer } from './ingestion-consumer'
 
 const mockConsumer = {

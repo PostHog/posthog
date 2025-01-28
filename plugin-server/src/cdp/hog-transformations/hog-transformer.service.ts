@@ -1,7 +1,5 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { castTimestampOrNow } from '~/src/utils/utils'
-
 import {
     HogFunctionAppMetric,
     HogFunctionInvocation,
@@ -16,6 +14,7 @@ import { runInstrumentedFunction } from '../../main/utils'
 import { AppMetric2Type, Hub, TimestampFormat } from '../../types'
 import { safeClickhouseString } from '../../utils/db/utils'
 import { status } from '../../utils/status'
+import { castTimestampOrNow } from '../../utils/utils'
 import { HogExecutorService } from '../services/hog-executor.service'
 import { HogFunctionManagerService } from '../services/hog-function-manager.service'
 
