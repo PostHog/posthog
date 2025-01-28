@@ -3,7 +3,6 @@ import { Hub } from '~/src/types'
 import { closeHub, createHub } from '~/src/utils/db/hub'
 import { PostgresUse } from '~/src/utils/db/postgres'
 import { insertHogFunction, insertIntegration } from '~/tests/cdp/fixtures'
-import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { HogFunctionManagerService } from './hog-function-manager.service'
