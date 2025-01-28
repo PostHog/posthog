@@ -168,7 +168,7 @@ def _update_incremental_state(schema: ExternalDataSchema | None, table: pa.Table
     if incremental_field_name is None:
         return
 
-    column = table[incremental_field_name]
+    column = table[normalize_column_name(incremental_field_name)]
     numpy_arr = column.combine_chunks().to_pandas().to_numpy()
 
     # TODO(@Gilbert09): support different operations here (e.g. min)
