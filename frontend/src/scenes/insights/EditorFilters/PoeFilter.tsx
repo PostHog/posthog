@@ -1,7 +1,8 @@
 import { LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 
-import { InsightLogicProps } from '~/types'
+import { AvailableFeature, InsightLogicProps } from '~/types'
 
 import { poeFilterLogic } from './poeFilterLogic'
 
@@ -12,6 +13,7 @@ interface PoeFilterProps {
 export function PoeFilter({ insightProps }: PoeFilterProps): JSX.Element {
     const { poeMode } = useValues(poeFilterLogic(insightProps))
     const { setPoeMode } = useActions(poeFilterLogic(insightProps))
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
     return (
         <>
@@ -25,11 +27,13 @@ export function PoeFilter({ insightProps }: PoeFilterProps): JSX.Element {
                 <LemonSwitch
                     className="m-2"
                     onChange={(checked) => {
-                        if (checked) {
-                            setPoeMode('person_id_override_properties_joined')
-                        } else {
-                            setPoeMode(null)
-                        }
+                        guardAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS, () => {
+                            if (checked) {
+                                setPoeMode('person_id_override_properties_joined')
+                            } else {
+                                setPoeMode(null)
+                            }
+                        })
                     }}
                     checked={!!poeMode}
                 />
