@@ -7,7 +7,7 @@ export async function transformEventStep(
     hogTransformer: HogTransformerService | null
 ): Promise<TransformationResult> {
     if (!hogTransformer) {
-        return { event, invocationResults: [] }
+        return { event, messagePromises: [] }
     }
     return hogTransformer.transformEvent(event)
 }

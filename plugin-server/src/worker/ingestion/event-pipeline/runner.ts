@@ -34,7 +34,7 @@ import { transformEventStep } from './transformEventStep'
 
 export type EventPipelineResult = {
     // Promises that the batch handler should await on before committing offsets,
-    // contains the Kafka producer ACKs, to avoid blocking after every message.
+    // contains the Kafka producer ACKs and message promises, to avoid blocking after every message.
     ackPromises?: Array<Promise<void>>
     // Only used in tests
     // TODO: update to test for side-effects of running the pipeline rather than
@@ -42,7 +42,6 @@ export type EventPipelineResult = {
     lastStep: string
     args: any[]
     error?: string
-    invocationResults?: HogFunctionInvocationResult[]
 }
 
 class StepErrorNoRetry extends Error {
@@ -139,7 +138,6 @@ export class EventPipelineRunner {
                     lastStep: error.step,
                     args: [],
                     error: error.message,
-                    invocationResults: this.invocationResults,
                 }
             } else {
                 // Otherwise rethrow, which leads to Kafka offsets not getting committed and retries
@@ -235,15 +233,15 @@ export class EventPipelineRunner {
             return this.registerLastStep('pluginsProcessEventStep', [event], kafkaAcks)
         }
 
-        const { event: transformedEvent, invocationResults } = await this.runStep(
+        const { event: transformedEvent, messagePromises } = await this.runStep(
             transformEventStep,
             [processedEvent, this.hogTransformer],
             event.team_id
         )
 
-        // Collect invocation results from the transformation step
-        if (invocationResults) {
-            this.invocationResults = [...(this.invocationResults || []), ...invocationResults]
+        // Add message promises to kafkaAcks
+        if (messagePromises) {
+            kafkaAcks.push(...messagePromises)
         }
 
         const [normalizedEvent, timestamp] = await this.runStep(
@@ -305,7 +303,6 @@ export class EventPipelineRunner {
             ackPromises,
             lastStep: stepName,
             args,
-            invocationResults: this.invocationResults,
         }
     }
 

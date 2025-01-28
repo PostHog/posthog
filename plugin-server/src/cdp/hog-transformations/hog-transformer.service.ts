@@ -1,33 +1,41 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
+import { castTimestampOrNow } from '~/src/utils/utils'
+
 import {
+    HogFunctionAppMetric,
     HogFunctionInvocation,
     HogFunctionInvocationGlobalsWithInputs,
     HogFunctionInvocationResult,
     HogFunctionType,
     HogFunctionTypeType,
 } from '../../cdp/types'
-import { createInvocation } from '../../cdp/utils'
+import { createInvocation, fixLogDeduplication } from '../../cdp/utils'
+import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../config/kafka-topics'
+import { KafkaProducerWrapper } from '../../kafka/producer'
 import { runInstrumentedFunction } from '../../main/utils'
-import { Hub } from '../../types'
+import { AppMetric2Type, Hub, TimestampFormat } from '../../types'
+import { safeClickhouseString } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { HogExecutorService } from '../services/hog-executor.service'
 import { HogFunctionManagerService } from '../services/hog-function-manager.service'
 
 export interface TransformationResult {
     event: PluginEvent
-    invocationResults: HogFunctionInvocationResult[]
+    messagePromises: Promise<void>[]
 }
 
 export class HogTransformerService {
     private hogExecutor: HogExecutorService
     private hogFunctionManager: HogFunctionManagerService
     private hub: Hub
+    private kafkaProducer: KafkaProducerWrapper
 
     constructor(hub: Hub) {
         this.hub = hub
         this.hogFunctionManager = new HogFunctionManagerService(hub)
         this.hogExecutor = new HogExecutorService(hub, this.hogFunctionManager)
+        this.kafkaProducer = null as any
     }
 
     private getTransformationFunctions() {
@@ -77,6 +85,83 @@ export class HogTransformerService {
     public async start(): Promise<void> {
         const hogTypes: HogFunctionTypeType[] = ['transformation']
         await this.hogFunctionManager.start(hogTypes)
+        this.kafkaProducer = await KafkaProducerWrapper.create(this.hub)
+    }
+
+    private produceAppMetric(metric: HogFunctionAppMetric): Promise<void> {
+        const appMetric: AppMetric2Type = {
+            app_source: 'hog_function',
+            ...metric,
+            timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
+        }
+
+        return this.kafkaProducer
+            .queueMessages([
+                {
+                    topic: KAFKA_APP_METRICS_2,
+                    messages: [
+                        {
+                            value: safeClickhouseString(JSON.stringify(appMetric)),
+                            key: appMetric.app_source_id,
+                        },
+                    ],
+                },
+            ])
+            .catch((error) => {
+                status.error('⚠️', `failed to produce app metric: ${error}`)
+            })
+    }
+
+    private produceLogs(result: HogFunctionInvocationResult): Promise<void> {
+        const logs = fixLogDeduplication(
+            result.logs.map((logEntry) => ({
+                ...logEntry,
+                team_id: result.invocation.hogFunction.team_id,
+                log_source: 'hog_function',
+                log_source_id: result.invocation.hogFunction.id,
+                instance_id: result.invocation.id,
+            }))
+        )
+
+        return this.kafkaProducer
+            .queueMessages(
+                logs.map((logEntry) => ({
+                    topic: KAFKA_LOG_ENTRIES,
+                    messages: [
+                        {
+                            value: safeClickhouseString(JSON.stringify(logEntry)),
+                            key: logEntry.instance_id,
+                        },
+                    ],
+                }))
+            )
+            .catch((error) => {
+                status.error('⚠️', `failed to produce logs: ${error}`)
+            })
+    }
+
+    private processInvocationResult(result: HogFunctionInvocationResult): Promise<void>[] {
+        const promises: Promise<void>[] = []
+
+        if (result.finished || result.error) {
+            promises.push(
+                this.produceAppMetric({
+                    team_id: result.invocation.teamId,
+                    app_source_id: result.invocation.hogFunction.id,
+                    metric_kind: result.error ? 'failure' : 'success',
+                    metric_name: result.error ? 'failed' : 'succeeded',
+                    count: 1,
+                })
+            )
+        }
+
+        if (result.logs.length > 0) {
+            promises.push(this.produceLogs(result))
+            // Clear the logs after processing
+            result.logs = []
+        }
+
+        return promises
     }
 
     public transformEvent(event: PluginEvent): Promise<TransformationResult> {
@@ -86,22 +171,23 @@ export class HogTransformerService {
             func: async () => {
                 const teamHogFunctions = this.hogFunctionManager.getTeamHogFunctions(event.team_id)
                 const transformationFunctions = this.getTransformationFunctions()
-                const invocationResults: HogFunctionInvocationResult[] = []
+                const messagePromises: Promise<void>[] = []
 
                 // For now, execute each transformation function in sequence
-                // Later we can add support for chaining/ordering
                 for (const hogFunction of teamHogFunctions) {
                     const invocation = this.createHogFunctionInvocation(event, hogFunction)
                     const result = this.hogExecutor.execute(invocation, { functions: transformationFunctions })
 
-                    // Store the HogFunctionInvocationResult to show logs and metrics in the UI
-                    invocationResults.push({
-                        invocation,
-                        logs: result.logs,
-                        error: result.error,
-                        execResult: result.execResult,
-                        finished: true,
-                    })
+                    // Process results and collect promises
+                    messagePromises.push(
+                        ...this.processInvocationResult({
+                            invocation,
+                            logs: result.logs,
+                            error: result.error,
+                            execResult: result.execResult,
+                            finished: true,
+                        })
+                    )
 
                     if (result.error) {
                         status.error('⚠️', 'Error in transformation', {
@@ -151,7 +237,7 @@ export class HogTransformerService {
 
                 return {
                     event,
-                    invocationResults,
+                    messagePromises,
                 }
             },
         })
