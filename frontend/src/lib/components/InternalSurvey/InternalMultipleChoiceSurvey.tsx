@@ -3,7 +3,7 @@
  */
 import { LemonButton, LemonCheckbox, LemonTextArea } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { InternalMultipleChoiceSurveyLogic } from 'lib/components/InternalSurvey/InternalMultipleChoiceSurveyLogic'
+import { internalMultipleChoiceSurveyLogic } from 'lib/components/InternalSurvey/internalMultipleChoiceSurveyLogic'
 
 import { SurveyQuestion, SurveyQuestionType } from '~/types'
 
@@ -12,7 +12,7 @@ interface InternalSurveyProps {
 }
 
 export function InternalMultipleChoiceSurvey({ surveyId }: InternalSurveyProps): JSX.Element {
-    const logic = InternalMultipleChoiceSurveyLogic({ surveyId })
+    const logic = internalMultipleChoiceSurveyLogic({ surveyId })
     const { survey, surveyResponse, showThankYouMessage, thankYouMessage, openChoice } = useValues(logic)
     const { handleChoiceChange, handleSurveyResponse, setOpenChoice } = useActions(logic)
 

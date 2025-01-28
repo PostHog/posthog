@@ -1,23 +1,19 @@
-/**
- * @fileoverview A logic that handles the internal multiple choice survey
- */
 import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
 import posthog from 'posthog-js'
 
 import { Survey, SurveyQuestion } from '~/types'
 
-import type { InternalMultipleChoiceSurveyLogicType } from './InternalMultipleChoiceSurveyLogicType'
+import type { internalMultipleChoiceSurveyLogicType } from './internalMultipleChoiceSurveyLogicType'
 
 export interface InternalSurveyLogicProps {
     surveyId: string
 }
 
-export const InternalMultipleChoiceSurveyLogic = kea<InternalMultipleChoiceSurveyLogicType>([
-    path(['lib', 'components', 'InternalSurvey', 'InternalMultipleChoiceSurveyLogic']),
+export const internalMultipleChoiceSurveyLogic = kea<internalMultipleChoiceSurveyLogicType>([
+    path(['lib', 'components', 'InternalSurvey', 'internalMultipleChoiceSurveyLogicType']),
     props({} as InternalSurveyLogicProps),
     key((props) => props.surveyId),
     actions({
-        setSurveyId: (surveyId: string) => ({ surveyId }),
         getSurveys: () => ({}),
         setSurvey: (survey: Survey) => ({ survey }),
         handleSurveys: (surveys: Survey[]) => ({ surveys }),
@@ -29,12 +25,6 @@ export const InternalMultipleChoiceSurveyLogic = kea<InternalMultipleChoiceSurve
         setQuestions: (questions: SurveyQuestion[]) => ({ questions }),
     }),
     reducers({
-        surveyId: [
-            null as string | null,
-            {
-                setSurveyId: (_, { surveyId }) => surveyId,
-            },
-        ],
         survey: [
             null as Survey | null,
             {
@@ -73,17 +63,15 @@ export const InternalMultipleChoiceSurveyLogic = kea<InternalMultipleChoiceSurve
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         /** When surveyId is set, get the list of surveys for the user */
-        setSurveyId: () => {
-            posthog.getSurveys((surveys) => actions.handleSurveys(surveys as unknown as Survey[]))
-        },
+        setSurveyId: () => {},
         /** Callback for the surveys response. Filter it to the surveyId and set the survey */
         handleSurveys: ({ surveys }) => {
-            const survey = surveys.find((s: Survey) => s.id === values.surveyId)
+            const survey = surveys.find((s: Survey) => s.id === props.surveyId)
             if (survey) {
                 posthog.capture('survey shown', {
-                    $survey_id: values.surveyId,
+                    $survey_id: props.surveyId,
                 })
                 actions.setSurvey(survey)
                 actions.setQuestions(survey.questions)
@@ -96,7 +84,7 @@ export const InternalMultipleChoiceSurveyLogic = kea<InternalMultipleChoiceSurve
         /** When the survey response is sent, capture the response and show the thank you message */
         handleSurveyResponse: () => {
             const payload = {
-                $survey_id: values.surveyId,
+                $survey_id: props.surveyId,
                 $survey_response: values.surveyResponse,
             }
             if (values.openChoice) {
@@ -108,8 +96,8 @@ export const InternalMultipleChoiceSurveyLogic = kea<InternalMultipleChoiceSurve
             setTimeout(() => actions.setSurvey(null as unknown as Survey), 5000)
         },
     })),
-    afterMount(({ actions, props }) => {
+    afterMount(({ actions }) => {
         /** When the logic is mounted, set the surveyId from the props */
-        actions.setSurveyId(props.surveyId)
+        posthog.getSurveys((surveys) => actions.handleSurveys(surveys as unknown as Survey[]))
     }),
 ])
