@@ -1,4 +1,5 @@
 import datetime
+import json
 import os
 import subprocess
 from dataclasses import dataclass
@@ -273,6 +274,15 @@ class PluginAttachment(models.Model):
     file_name = models.CharField(max_length=200)
     file_size = models.IntegerField()
     contents = models.BinaryField()
+
+    def parse_contents(self) -> str | None:
+        if self.content_type == "application/json":
+            return json.loads(self.contents)
+
+        if self.content_type == "text/plain":
+            return self.contents.decode("utf-8")
+
+        return None
 
 
 class PluginStorage(models.Model):
