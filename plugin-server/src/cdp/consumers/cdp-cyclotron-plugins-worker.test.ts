@@ -46,7 +46,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
 
         await processor.start()
 
-        processor.fetch = mockFetch = jest.fn(() =>
+        processor['pluginExecutor'].fetch = mockFetch = jest.fn(() =>
             Promise.resolve({
                 status: 200,
                 json: () =>
