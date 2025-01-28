@@ -9,3 +9,5 @@ tmp
 *.0x
 coverage/
 .tmp/
+
+cdp-templates.json
