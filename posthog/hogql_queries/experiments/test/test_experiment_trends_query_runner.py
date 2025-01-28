@@ -6,6 +6,8 @@ from posthog.models.cohort.cohort import Cohort
 from posthog.hogql_queries.experiments.types import ExperimentMetricType
 from posthog.models.experiment import Experiment, ExperimentHoldout
 from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.group.util import create_group
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.schema import (
     BaseMathType,
     DataWarehouseNode,
@@ -856,6 +858,21 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "test_absolute_exposure": 1,
                 },
             ],
+            [
+                "group",
+                {
+                    "key": "name",
+                    "type": "group",
+                    # Value is generated in the test
+                    "value": None,
+                    "operator": "exact",
+                    "group_type_index": 0,
+                },
+                {
+                    "control_absolute_exposure": 8,
+                    "test_absolute_exposure": 10,
+                },
+            ],
         ]
     )
     def test_query_runner_with_internal_filters(self, name: str, filter: dict, expected_results: dict):
@@ -883,6 +900,17 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ],
             )
             filter["value"] = cohort.pk
+        elif name == "group":
+            GroupTypeMapping.objects.create(
+                team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+            )
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key="my_awesome_group",
+                properties={"name": "Test Group"},
+            )
+            filter["value"] = ["Test Group"]
 
         self.team.test_account_filters = [filter]
         self.team.save()
@@ -903,7 +931,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Populate count events
         for variant, count in [("control", 7), ("test", 9)]:
             for i in range(count):
-                extra_properties = {"$host": "localhost"} if i > 5 else {}
+                extra_properties = {"$host": "localhost", "$group_0": "my_awesome_group"} if i > 5 else {}
                 _create_event(
                     team=self.team,
                     event="$pageview",
@@ -914,7 +942,7 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Populate exposure events
         for variant, count in [("control", 14), ("test", 16)]:
             for i in range(count):
-                extra_properties = {"$host": "localhost"} if i > 5 else {}
+                extra_properties = {"$host": "localhost", "$group_0": "my_awesome_group"} if i > 5 else {}
                 _create_event(
                     team=self.team,
                     event="$feature_flag_called",
