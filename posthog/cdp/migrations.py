@@ -72,7 +72,7 @@ def migrate_legacy_plugins(dry_run=True, team_ids=None, test_mode=True):
         for attachment in attachments:
             inputs[attachment.key] = {"value": attachment.parse_contents()}
 
-        serializer_context = {"team": plugin_config.team, "get_team": lambda: plugin_config.team}
+        serializer_context = {"team": plugin_config.team, "get_team": (lambda config=plugin_config: config.team)}
 
         data = {
             "template_id": f"plugin-{plugin_id}",
@@ -105,8 +105,10 @@ def migrate_legacy_plugins(dry_run=True, team_ids=None, test_mode=True):
     print("Creating hog functions")  # noqa: T201
     HogFunction.objects.bulk_create(hog_functions)
 
-    # Disable the old plugins
-    PluginConfig.objects.filter(id__in=[plugin_config.id for plugin_config in legacy_plugins]).update(enabled=False)
+    if not test_mode:
+        print("Disabling old plugins")  # noqa: T201
+        # Disable the old plugins
+        PluginConfig.objects.filter(id__in=[plugin_config.id for plugin_config in legacy_plugins]).update(enabled=False)
 
     print("Done")  # noqa: T201
 
