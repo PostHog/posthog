@@ -26,3 +26,13 @@ export type LegacyPlugin = {
     onEvent(event: ProcessedPluginEvent, meta: LegacyPluginMeta): Promise<void>
     setupPlugin?: (meta: LegacyPluginMeta) => Promise<void>
 }
+
+export type LegacyTransformationPlugin = {
+    id: string
+    metadata: {
+        name: string
+        config: PluginConfigSchema[]
+    }
+    processEvent(event: ProcessedPluginEvent, meta: LegacyPluginMeta): Promise<ProcessedPluginEvent | undefined>
+    setupPlugin?: (meta: LegacyPluginMeta) => Promise<void>
+}
