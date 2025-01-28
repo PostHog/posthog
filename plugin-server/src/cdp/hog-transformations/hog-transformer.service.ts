@@ -6,17 +6,19 @@ import {
     HogFunctionType,
     HogFunctionTypeType,
 } from '../../cdp/types'
-import { createInvocation } from '../../cdp/utils'
+import { createInvocation, isLegacyPluginHogFunction } from '../../cdp/utils'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub } from '../../types'
 import { status } from '../../utils/status'
 import { HogExecutorService } from '../services/hog-executor.service'
 import { HogFunctionManagerService } from '../services/hog-function-manager.service'
+import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 
 export class HogTransformerService {
     private hogExecutor: HogExecutorService
     private hogFunctionManager: HogFunctionManagerService
     private hub: Hub
+    private pluginExecutor: LegacyPluginExecutorService
 
     constructor(hub: Hub) {
         this.hub = hub
@@ -78,7 +80,7 @@ export class HogTransformerService {
         return runInstrumentedFunction({
             statsKey: `hogTransformer`,
             // there is no await as all operations are sync
-            // eslint-disable-next-line @typescript-eslint/require-await
+
             func: async () => {
                 const teamHogFunctions = this.hogFunctionManager.getTeamHogFunctions(event.team_id)
                 const transformationFunctions = this.getTransformationFunctions()
@@ -86,7 +88,11 @@ export class HogTransformerService {
                 // Later we can add support for chaining/ordering
                 for (const hogFunction of teamHogFunctions) {
                     const invocation = this.createHogFunctionInvocation(event, hogFunction)
-                    const result = this.hogExecutor.execute(invocation, { functions: transformationFunctions })
+
+                    const result = isLegacyPluginHogFunction(hogFunction)
+                        ? await this.pluginExecutor.execute(invocation)
+                        : this.hogExecutor.execute(invocation, { functions: transformationFunctions })
+
                     if (result.error) {
                         status.warn('⚠️', 'Error in transformation', {
                             error: result.error,

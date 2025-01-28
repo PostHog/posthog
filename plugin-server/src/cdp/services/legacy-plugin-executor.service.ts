@@ -13,6 +13,7 @@ import {
 } from '../legacy-plugins/types'
 import { sanitizeLogMessage } from '../services/hog-executor.service'
 import { HogFunctionInvocation, HogFunctionInvocationResult } from '../types'
+import { isLegacyPluginHogFunction } from '../utils'
 
 const pluginExecutionDuration = new Histogram({
     name: 'cdp_plugin_execution_duration_ms',
@@ -76,8 +77,8 @@ export class LegacyPluginExecutorService {
             return this.fetch(...args)
         }
 
-        const pluginId = invocation.hogFunction.template_id?.startsWith('plugin-')
-            ? invocation.hogFunction.template_id.replace('plugin-', '')
+        const pluginId = isLegacyPluginHogFunction(invocation.hogFunction)
+            ? invocation.hogFunction.template_id?.replace('plugin-', '')
             : null
 
         try {
