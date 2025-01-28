@@ -1,9 +1,8 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { captureException } from '@sentry/node'
 
-import { PreIngestionEvent } from '~/src/types'
-import { processAiEvent } from '~/src/utils/ai-cost-data/process-ai-event'
-
+import { PreIngestionEvent } from '../../../types'
+import { processAiEvent } from '../../../utils/ai-cost-data/process-ai-event'
 import { status } from '../../../utils/status'
 import { parseEventTimestamp } from '../timestamps'
 import { captureIngestionWarning } from '../utils'
