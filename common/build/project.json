@@ -3,22 +3,5 @@
     "name": "build",
     "sourceRoot": "{projectRoot}/src",
     "projectType": "library",
-    "targets": {
-        "build": {
-            "executor": "nx:run-commands",
-            "options": {
-                "commands": ["pnpm run build"],
-                "cwd": "{projectRoot}"
-            },
-            "inputs": ["{projectRoot}/src/**/*"],
-            "outputs": ["{projectRoot}/dist"]
-        },
-        "test": {
-            "executor": "nx:run-commands",
-            "options": {
-                "commands": ["pnpm run test"],
-                "cwd": "{projectRoot}"
-            }
-        }
-    }
+    "targets": {}
 }
