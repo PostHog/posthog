@@ -570,7 +570,7 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         isVariantDeltaTimeseriesModalOpen: [
-            true,
+            false,
             {
                 openVariantDeltaTimeseriesModal: () => true,
                 closeVariantDeltaTimeseriesModal: () => false,
