@@ -60,7 +60,7 @@ function Panel({ children, primary, className, title, header }: Omit<PanelContai
         <div className={clsx(primary && 'flex-1', 'border bg-surface-primary rounded-sm', className)}>
             <div
                 className={clsx(
-                    'flex flex-row w-full overflow-hidden bg-accent-3000 items-center justify-between',
+                    'flex flex-row w-full overflow-hidden bg-surface-primary items-center justify-between',
                     open && 'border-b'
                 )}
             >
