@@ -1,4 +1,4 @@
-import { HogFunctionTemplate } from '../types'
+import { HogFunctionTemplate } from '../../../templates/types'
 
 export const template: HogFunctionTemplate = {
     status: 'alpha',
