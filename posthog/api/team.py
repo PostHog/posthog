@@ -54,7 +54,6 @@ from posthog.utils import (
     get_ip_address,
     get_week_start_for_country_code,
 )
-from posthog.rbac.migrations.rbac_team_migration import rbac_team_migrations
 
 
 class PremiumMultiProjectPermissions(BasePermission):  # TODO: Rename to include "Env" in name
@@ -711,18 +710,6 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             )
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
-
-    @action(detail=True, methods=["post"], permission_classes=[TeamMemberStrictManagementPermission])
-    def migrate_team_rbac(self, request: Request, **kwargs) -> Response:
-        team = Team.objects.get(id=kwargs["id"])
-        self.check_object_permissions(request, team)
-
-        try:
-            rbac_team_migrations(team.id)
-        except Exception:
-            return Response({"status": False, "error": "An internal error has occurred."}, status=500)
-
-        return Response({"status": True})
 
     @cached_property
     def user_permissions(self):
