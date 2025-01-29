@@ -1,6 +1,9 @@
-import { Plugin, PluginEvent, PluginMeta, Properties, RetryError } from '@posthog/plugin-scaffold'
+import { ProcessedPluginEvent, Properties, RetryError } from '@posthog/plugin-scaffold'
+
+import { Response } from '~/src/utils/fetch'
+import { LegacyPlugin, LegacyPluginMeta } from '../types'
+import metadata from './plugin.json'
 import crypto from 'crypto'
-import fetch, { RequestInit, Response } from 'node-fetch'
 
 export type FetchBraze = (
     endpoint: string,
@@ -9,7 +12,7 @@ export type FetchBraze = (
     requestId?: string
 ) => Promise<Record<string, unknown> | null>
 
-type BrazePlugin = Plugin<{
+type BrazePluginMeta = LegacyPluginMeta & {
     global: {
         fetchBraze: FetchBraze
     }
@@ -20,10 +23,10 @@ type BrazePlugin = Plugin<{
         userPropertiesToExport: string
         eventsToExportUserPropertiesFrom: string
     }
-}>
+}
 
 // NOTE: type is exported for tests
-export type BrazeMeta = PluginMeta<BrazePlugin>
+export type BrazeMeta = BrazePluginMeta
 
 const ENDPOINTS_MAP = {
     'US-01': 'https://rest.iad-01.braze.com',
@@ -37,7 +40,7 @@ const ENDPOINTS_MAP = {
     'EU-02': 'https://rest.fra-02.braze.eu',
 }
 
-export async function setupPlugin({ config, global }: BrazeMeta): Promise<void> {
+export async function setupPlugin({ config, global, fetch, logger }: BrazePluginMeta): Promise<void> {
     const brazeUrl = ENDPOINTS_MAP[config.brazeEndpoint]
     // we define a global fetch function that handles authentication and API errors
     global.fetchBraze = async (endpoint, options = {}, method = 'GET', requestId = '') => {
@@ -59,12 +62,12 @@ export async function setupPlugin({ config, global }: BrazeMeta): Promise<void> 
                 timeout: 5000,
             })
         } catch (e) {
-            console.error(e, endpoint, options.body, requestId)
+            logger.error(e, endpoint, options.body, requestId)
             throw new RetryError('Fetch failed, retrying.')
         } finally {
             const elapsedTime = (Date.now() - startTime) / 1000
             if (elapsedTime >= 5) {
-                console.warn(
+                logger.warn(
                     `🐢 Slow request warning. Fetch took ${elapsedTime} seconds. Request ID: ${requestId}`,
                     endpoint
                 )
@@ -80,11 +83,11 @@ export async function setupPlugin({ config, global }: BrazeMeta): Promise<void> 
         try {
             responseJson = await response.json()
         } catch (e) {
-            console.error('Error parsing Braze response as JSON: ', e, endpoint, options.body, requestId)
+            logger.error('Error parsing Braze response as JSON: ', e, endpoint, options.body, requestId)
         }
 
         if (responseJson?.['errors']) {
-            console.error('Braze API error (not retried): ', responseJson, endpoint, options.body, requestId)
+            logger.error('Braze API error (not retried): ', responseJson, endpoint, options.body, requestId)
         }
         return responseJson
     }
@@ -144,7 +147,7 @@ type BrazeUsersTrackBody = {
     events: Array<BrazeEvent> // NOTE: max length 75
 }
 
-const _generateBrazeRequestBody = (pluginEvent: PluginEvent, meta: BrazeMeta): BrazeUsersTrackBody => {
+const _generateBrazeRequestBody = (pluginEvent: ProcessedPluginEvent, meta: BrazeMeta): BrazeUsersTrackBody => {
     const { event, $set, properties, timestamp } = pluginEvent
 
     // If we have $set or properties.$set then attributes should be an array
@@ -186,7 +189,7 @@ const _generateBrazeRequestBody = (pluginEvent: PluginEvent, meta: BrazeMeta): B
     }
 }
 
-export const onEvent = async (pluginEvent: PluginEvent, meta: BrazeMeta): Promise<void> => {
+export const onEvent = async (pluginEvent: ProcessedPluginEvent, meta: BrazePluginMeta): Promise<void> => {
     // NOTE: We compute a unique ID for this request so we can identify the same request in the logs
     const requestId = crypto.createHash('sha256').update(JSON.stringify(pluginEvent)).digest('hex')
     const startTime = Date.now()
@@ -207,5 +210,13 @@ export const onEvent = async (pluginEvent: PluginEvent, meta: BrazeMeta): Promis
     )
 
     const elapsedTime = (Date.now() - startTime) / 1000
-    console.log(`🚀 Exported 1 event to Braze in ${elapsedTime} seconds.`)
+    meta.logger.log(`🚀 Exported 1 event to Braze in ${elapsedTime} seconds.`)
+}
+
+
+export const brazePlugin: LegacyPlugin = {
+    id: 'braze',
+    metadata: metadata as any,
+    setupPlugin: setupPlugin as any,
+    onEvent,
 }

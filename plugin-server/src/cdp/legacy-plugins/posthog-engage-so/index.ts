@@ -1,14 +1,19 @@
-function composeWebhook (_event, { config }) {
+import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+
+import { LegacyPlugin, LegacyPluginMeta } from '../types'
+import metadata from './plugin.json'
+
+const onEvent = async (_event: ProcessedPluginEvent, { config, fetch }: LegacyPluginMeta): Promise<void> => {
   const event = _event.event
   if (event.startsWith('$')) {
     // only process a specific set of custom events
     if (!['$identify', '$groupidentify', '$set', '$unset', '$create_alias'].includes(event)) {
-      return null
+      return
     }
   }
   // Ignore plugin events
   if (event.startsWith('plugin')) {
-    return null
+    return
   }
 
   const auth = 'Basic ' + Buffer.from(`${config.publicKey}:${config.secret}`).toString('base64')
@@ -16,17 +21,19 @@ function composeWebhook (_event, { config }) {
   delete config.secret
   _event.config = config
 
-  return {
-    url: 'https://api.engage.so/posthog',
-    body: JSON.stringify(_event),
+  await fetch('https://api.engage.so/posthog', {
+    method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: auth
     },
-    method: 'POST'
-  }
+    body: JSON.stringify(_event)
+  })
 }
 
-module.exports = {
-  composeWebhook
+export const engagePlugin: LegacyPlugin = {
+  id: 'engage',
+  metadata: metadata as any,
+  setupPlugin: () => Promise.resolve(),
+  onEvent,
 }

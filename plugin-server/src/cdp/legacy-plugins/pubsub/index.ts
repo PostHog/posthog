@@ -1,7 +1,11 @@
-import { Plugin, PluginMeta, PluginEvent, RetryError } from '@posthog/plugin-scaffold'
+import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+
+import { LegacyPlugin, LegacyPluginMeta } from '../types'
+import metadata from './plugin.json'
+import { RetryError } from '@posthog/plugin-scaffold'
 import { PubSub, Topic } from "@google-cloud/pubsub"
 
-type PubSubPlugin = Plugin<{
+type PubSubMeta = LegacyPluginMeta & {
     global: {
         pubSubClient: PubSub
         pubSubTopic: Topic
@@ -9,10 +13,11 @@ type PubSubPlugin = Plugin<{
     config: {
         topicId: string
     },
-}>
+    attachments: any
+}
 
-export const setupPlugin: PubSubPlugin['setupPlugin'] = async (meta) => {
-    const { global, attachments, config } = meta
+export const setupPlugin = async (meta: PubSubMeta): Promise<void> => {
+    const { global, attachments, config, logger } = meta
     if (!attachments.googleCloudKeyJson) {
         throw new Error('JSON config not provided!')
     }
@@ -35,7 +40,7 @@ export const setupPlugin: PubSubPlugin['setupPlugin'] = async (meta) => {
         if (!error.message.includes("NOT_FOUND")) {
             throw new Error(error)
         }
-        console.log(`Creating PubSub Topic - ${config.topicId}`)
+        logger.log(`Creating PubSub Topic - ${config.topicId}`)
 
         try {
             await global.pubSubTopic.create()
@@ -48,7 +53,7 @@ export const setupPlugin: PubSubPlugin['setupPlugin'] = async (meta) => {
     }
 }
 
-export async function onEvent(fullEvent: PluginEvent, { global, config }: PluginMeta<PubSubPlugin>) {
+export async function onEvent(fullEvent: ProcessedPluginEvent, { global, config }: PubSubMeta) {
     if (!global.pubSubClient) {
         throw new Error('No PubSub client initialized!')
     }
@@ -92,4 +97,11 @@ export async function onEvent(fullEvent: PluginEvent, { global, config }: Plugin
         )
         throw new RetryError(`Error publishing to Pub/Sub! ${JSON.stringify(error.errors)}`)
     }
+}
+
+export const pubsubPlugin: LegacyPlugin = {
+    id: 'pubsub',
+    metadata: metadata as any,
+    setupPlugin: setupPlugin as any,
+    onEvent,
 }

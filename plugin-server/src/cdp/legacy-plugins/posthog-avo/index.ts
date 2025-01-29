@@ -1,5 +1,11 @@
+import { ProcessedPluginEvent, Plugin } from '@posthog/plugin-scaffold'
+import { RetryError } from '@posthog/plugin-scaffold'
+
+import { Response } from '~/src/utils/fetch'
+
+import { LegacyPlugin, LegacyPluginMeta } from '../types'
+import metadata from './plugin.json'
 import { randomUUID } from 'crypto'
-import { Plugin } from '@posthog/plugin-scaffold'
 
 interface AvoInspectorMeta {
     global: {
@@ -43,7 +49,7 @@ export const setupPlugin: AvoInspectorPlugin['setupPlugin'] = async ({ config, g
     )
 }
 
-export const composeWebhook: AvoInspectorPlugin['onEvent'] = (event, { config, global }) => {
+const onEvent = async (event: ProcessedPluginEvent, { config, global, fetch }: LegacyPluginMeta): Promise<void> => {
     const isIncluded = global.includeEvents.length > 0 ? global.includeEvents.has(event.event) : true
     const isExcluded = global.excludeEvents.has(event.event)
 
@@ -74,12 +80,11 @@ export const composeWebhook: AvoInspectorPlugin['onEvent'] = (event, { config, g
         eventProperties: event.properties ? convertPosthogPropsToAvoProps(event.properties, global.excludeProperties, global.includeProperties) : [],
     }
 
-    return {
-        url: 'https://api.avo.app/inspector/posthog/v1/track',
-        headers: global.defaultHeaders,
-        body: JSON.stringify([avoEvent]),
+    await fetch('https://api.avo.app/inspector/posthog/v1/track', {
         method: 'POST',
-    }
+        headers: global.defaultHeaders,
+        body: JSON.stringify([avoEvent])
+      })
 }
 
 const convertPosthogPropsToAvoProps = (properties: Record<string, any>, excludeProperties: Set<String>, includeProperties: Set<String>): Record<string, string>[] => {
@@ -122,4 +127,11 @@ const getPropValueType = (propValue: any): string => {
     } else {
         return propType
     }
+}
+
+export const avoPlugin: LegacyPlugin = {
+    id: 'avo',
+    metadata: metadata as any,
+    setupPlugin: setupPlugin as any,
+    onEvent,
 }

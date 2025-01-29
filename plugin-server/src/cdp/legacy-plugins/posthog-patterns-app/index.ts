@@ -1,23 +1,27 @@
+import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+
+import { LegacyPlugin, LegacyPluginMeta } from '../types'
+import metadata from './plugin.json'
+
 import {
   PluginInput,
-  Plugin,
-  Meta,
   RetryError,
 } from "@posthog/plugin-scaffold";
-import fetch, { Response } from "node-fetch";
+import { Response } from "~/src/utils/fetch";
 
-type PatternsInputs = {
-  webhookUrl: string;
-  allowedEventTypes: string;
-};
-
-export interface PatternsPluginInput extends PluginInput {
-  config: PatternsInputs;
+type PatternsMeta = LegacyPluginMeta & {
+  config: {
+    webhookUrl: string;
+    allowedEventTypes: string;
+  }
+  global: {
+    allowedEventTypesSet: Set<string>;
+  }
 }
 
 // Plugin method that runs on plugin load
 //@ts-ignore
-export async function setupPlugin({ config, global }: Meta<PatternsPluginInput>) {
+export async function setupPlugin({ config, global }: PatternsMeta): Promise<void> {
   if (config.allowedEventTypes) {
     let allowedEventTypes = config.allowedEventTypes.split(",");
     allowedEventTypes = allowedEventTypes.map((eventType: string) => eventType.trim());
@@ -26,16 +30,16 @@ export async function setupPlugin({ config, global }: Meta<PatternsPluginInput>)
 }
 
 // Plugin method to export events
-export const onEvent: Plugin<PatternsPluginInput>["onEvent"] = async (
-  event,
-  { config, global }: Meta<PatternsPluginInput>
-) => {
+const onEvent = async (
+  event: ProcessedPluginEvent,
+  { config, global, fetch }: PatternsMeta
+): Promise<void> => {
   if (global.allowedEventTypesSet) {
     if (!global.allowedEventTypesSet.has(event.event)) {
       return
     }
   }
-  
+
   let response: Response;
   response = await fetch(config.webhookUrl, {
     method: "POST",
@@ -48,3 +52,10 @@ export const onEvent: Plugin<PatternsPluginInput>["onEvent"] = async (
     throw new RetryError(`Export events failed: ${JSON.stringify(data)}`);
   }
 };
+
+export const patternsPlugin: LegacyPlugin = {
+  id: 'patterns',
+  metadata: metadata as any,
+  setupPlugin: setupPlugin as any,
+  onEvent,
+}

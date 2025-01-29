@@ -1,5 +1,9 @@
-import { PluginMeta, PluginEvent, CacheExtension, RetryError, Properties, Plugin } from '@posthog/plugin-scaffold'
-import type { RequestInfo, RequestInit, Response } from 'node-fetch'
+import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+
+import { LegacyPlugin, LegacyPluginMeta } from '../../types'
+import metadata from '../plugin.json'
+import { CacheExtension, RetryError, Properties } from '@posthog/plugin-scaffold'
+import type { Response } from 'node-fetch'
 import { URL } from 'url'
 
 export interface EventSink {
@@ -27,27 +31,6 @@ export const parseEventSinkConfig = (config: SalesforcePluginConfig): EventToSin
     return eventMapping
 }
 
-interface Logger {
-    error: typeof console.error
-    log: typeof console.log
-    debug: typeof console.debug
-}
-
-const makeLogger = (debugLoggingOn: boolean): Logger => {
-    return {
-        error: console.error,
-        log: console.log,
-        debug: debugLoggingOn
-            ? console.debug
-            : () => {
-                  /* no-op debug logging */
-              },
-    }
-}
-
-// fetch only declared, as it's provided as a plugin VM global
-declare function fetch(url: RequestInfo, init?: RequestInit): Promise<Response>
-
 const CACHE_TOKEN = 'SF_AUTH_TOKEN_'
 const CACHE_TTL = 60 * 60 * 5 // in seconds
 
@@ -65,17 +48,10 @@ export interface SalesforcePluginConfig {
     eventEndpointMapping: string
 }
 
-export interface SalesforcePluginGlobal {
-    logger: Logger
-}
-
-type SalesForcePlugin = Plugin<{
+export type SalesforceMeta = LegacyPluginMeta & {
     cache: CacheExtension
     config: SalesforcePluginConfig
-    global: SalesforcePluginGlobal
-}>
-
-export type SalesforcePluginMeta = PluginMeta<SalesForcePlugin>
+}
 
 const validateEventSinkConfig = (config: SalesforcePluginConfig): void => {
     const eventMapping = parseEventSinkConfig(config)
@@ -107,7 +83,7 @@ const validateEventSinkConfig = (config: SalesforcePluginConfig): void => {
     }
 }
 
-export function verifyConfig({ config }: SalesforcePluginMeta): void {
+export function verifyConfig({ config }: SalesforceMeta): void {
     validateEventSinkConfig(config)
 
     if (!config.salesforceHost) {
@@ -138,35 +114,35 @@ const callSalesforce = async ({
     sink,
     token,
     event,
-    logger,
+    meta,
 }: {
     host: string
     sink: EventSink
     token: string
-    event: PluginEvent
-    logger: Logger
+    event: ProcessedPluginEvent
+    meta: SalesforceMeta
 }): Promise<void> => {
-    const response = await fetch(`${host}/${sink.salesforcePath}`, {
+    const response = await meta.fetch(`${host}/${sink.salesforcePath}`, {
         method: sink.method,
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(getProperties(event, sink.propertiesToInclude, sink.fieldMappings)),
     })
 
-    const isOk = await statusOk(response, logger)
+    const isOk = await statusOk(response, meta.logger)
     if (!isOk) {
         throw new Error(`Not a 200 response from event hook ${response.status}. Response: ${JSON.stringify(response)}`)
     }
 }
 
 export async function sendEventToSalesforce(
-    event: PluginEvent,
-    meta: SalesforcePluginMeta,
+    event: ProcessedPluginEvent,
+    meta: SalesforceMeta,
     token: string
 ): Promise<void> {
     try {
-        const { config, global } = meta
+        const { config, logger } = meta
 
-        global.logger.debug('processing event: ', event?.event)
+        logger.debug('processing event: ', event?.event)
 
         const eventMapping = parseEventSinkConfig(config)
 
@@ -179,7 +155,7 @@ export async function sendEventToSalesforce(
             }
 
             eventSink = eventMapping[event.event]
-            global.logger.debug('v2: processing event: ', event?.event, ' with sink ', eventSink)
+            logger.debug('v2: processing event: ', event?.event, ' with sink ', eventSink)
         } else {
             const eventsToInclude = config.eventsToInclude.split(',').map((e) => e.trim())
             if (!eventsToInclude.includes(event.event)) {
@@ -193,7 +169,7 @@ export async function sendEventToSalesforce(
                 fieldMappings: {}
 
             }
-            global.logger.debug('v1: processing event: ', event?.event, ' with sink ', eventSink)
+            logger.debug('v1: processing event: ', event?.event, ' with sink ', eventSink)
         }
 
         return callSalesforce({
@@ -201,10 +177,10 @@ export async function sendEventToSalesforce(
             sink: eventSink,
             token,
             event,
-            logger: global.logger,
+            meta
         })
     } catch (error) {
-        meta.global.logger.error(
+        meta.logger.error(
             'error while sending event to salesforce. event: ',
             event.event,
             ' the error was ',
@@ -214,7 +190,7 @@ export async function sendEventToSalesforce(
     }
 }
 
-async function getToken(meta: SalesforcePluginMeta): Promise<string> {
+async function getToken(meta: SalesforceMeta): Promise<string> {
     const { cache } = meta
     const token = await cache.get(CACHE_TOKEN, null)
     if (token == null) {
@@ -224,7 +200,7 @@ async function getToken(meta: SalesforcePluginMeta): Promise<string> {
     return token as string
 }
 
-async function generateAndSetToken({ config, cache, global }: SalesforcePluginMeta): Promise<string> {
+async function generateAndSetToken({ config, cache, logger, fetch }: SalesforceMeta): Promise<string> {
     const details: Record<string, string> = {
         grant_type: 'password',
         client_id: config.consumerKey,
@@ -241,14 +217,14 @@ async function generateAndSetToken({ config, cache, global }: SalesforcePluginMe
     }
 
     const tokenURL = `${config.salesforceHost}/services/oauth2/token`
-    global.logger.debug('getting token from ', tokenURL)
+    logger.debug('getting token from ', tokenURL)
     const response = await fetch(tokenURL, {
         method: 'post',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: formBody.join('&'),
     })
 
-    if (!statusOk(response, global.logger)) {
+    if (!statusOk(response, logger)) {
         throw new Error(`Got bad response getting the token ${response.status}`)
     }
     const body = await response.json()
@@ -256,18 +232,15 @@ async function generateAndSetToken({ config, cache, global }: SalesforcePluginMe
     return body.access_token
 }
 
-export async function setupPlugin(meta: SalesforcePluginMeta): Promise<void> {
-    const { global } = meta
-
-    const debugLoggingOn = meta.config.debugLogging === 'debug logging on'
-    global.logger = makeLogger(debugLoggingOn)
+export async function setupPlugin(meta: SalesforceMeta): Promise<void> {
+    const { logger } = meta
 
     verifyConfig(meta)
 
     try {
         await getToken(meta)
     } catch (error) {
-        global.logger.error('error in getToken', error)
+        logger.error('error in getToken', error)
         throw new RetryError('Failed to getToken. cache or salesforce is unavailable')
     }
 }
@@ -281,13 +254,13 @@ function configToMatchingEvents(config: SalesforcePluginConfig): string[] {
     return []
 }
 
-export function shouldSendEvent(event: PluginEvent, meta: SalesforcePluginMeta): boolean {
+export function shouldSendEvent(event: ProcessedPluginEvent, meta: SalesforceMeta): boolean {
     const { config } = meta
     const eventsToMatch = configToMatchingEvents(config)
     return eventsToMatch.includes(event.event)
 }
 
-export async function onEvent(event: PluginEvent, meta: SalesforcePluginMeta): Promise<void> {
+export async function onEvent(event: ProcessedPluginEvent, meta: SalesforceMeta): Promise<void> {
     if (!shouldSendEvent(event, meta)) {
         return
     }
@@ -295,7 +268,7 @@ export async function onEvent(event: PluginEvent, meta: SalesforcePluginMeta): P
     await sendEventToSalesforce(event, meta, await getToken(meta))
 }
 
-async function statusOk(res: Response, logger: Logger): Promise<boolean> {
+async function statusOk(res: Response, logger: SalesforceMeta['logger']): Promise<boolean> {
     logger.debug('testing response for whether it is "ok". has status: ', res.status, ' debug: ', JSON.stringify(res))
     return String(res.status)[0] === '2'
 }
@@ -306,7 +279,7 @@ function getNestedProperty(properties: Record<string, any>, path: string): any {
     return path.split('.').reduce((acc, part) => acc[part], properties);
 }
 
-export function getProperties(event: PluginEvent, propertiesToInclude: string, fieldMappings: FieldMappings = {}): Properties {
+export function getProperties(event: ProcessedPluginEvent, propertiesToInclude: string, fieldMappings: FieldMappings = {}): Properties {
     const { properties } = event
 
     if (!properties) {
@@ -325,4 +298,11 @@ export function getProperties(event: PluginEvent, propertiesToInclude: string, f
     })
 
     return mappedProperties
+}
+
+export const salesforcePlugin: LegacyPlugin = {
+    id: 'salesforce',
+    metadata: metadata as any,
+    setupPlugin: setupPlugin as any,
+    onEvent,
 }

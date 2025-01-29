@@ -1,4 +1,8 @@
-async function setupPlugin({ config, global }) {
+import { ProcessedPluginEvent } from "@posthog/plugin-scaffold"
+import { LegacyPlugin, LegacyPluginMeta } from "../types"
+import metadata from './plugin.json'
+
+const setupPlugin = async ({ config, global, logger, fetch }: LegacyPluginMeta): Promise<void> => {
     // With this call we validate the API Key and also we get the list of custom fields, which will be needed
     // to configure the map between PostHog and Sendgrid.
     const fieldsDefResponse = await fetch('https://api.sendgrid.com/v3/marketing/field_definitions', {
@@ -22,7 +26,7 @@ async function setupPlugin({ config, global }) {
     try {
         posthogPropsToSendgridCustomFieldNamesMap = parseCustomFieldsMap(config.customFields)
     } catch (e) {
-        console.error(`Invalid format for custom fields: ${e}`)
+        logger.error(`Invalid format for custom fields: ${e}`)
         throw new Error('Invalid format for custom fields')
     }
 
@@ -40,7 +44,7 @@ async function setupPlugin({ config, global }) {
     global.customFieldsMap = posthogPropsToSendgridCustomFieldIDsMap
 }
 
-async function onEvent(event, { config, global }) {
+const onEvent = async (event: ProcessedPluginEvent, { config, global, logger, fetch }: LegacyPluginMeta): Promise<void> => {
     if (event.event !== '$identify') {
         return
     }
@@ -82,7 +86,7 @@ async function onEvent(event, { config, global }) {
             } catch (e) {
                 // noop
             } finally {
-                console.error(`Unable to export ${contacts.length} contacts to Sendgrid: ${errorText}`)
+                logger.error(`Unable to export ${contacts.length} contacts to Sendgrid: ${errorText}`)
                 throw new Error(`Unable to export ${contacts.length} contacts to Sendgrid`)
             }
         }
@@ -139,7 +143,9 @@ function parseCustomFieldsMap(customProps) {
     return result
 }
 
-module.exports = {
-    setupPlugin,
-    onEvent
+export const sendgridPlugin: LegacyPlugin = {
+    id: 'sendgrid',
+    metadata: metadata as any,
+    setupPlugin: setupPlugin as any,
+    onEvent,
 }

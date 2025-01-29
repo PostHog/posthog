@@ -1,10 +1,12 @@
-import { Plugin, PluginEvent, RetryError } from '@posthog/plugin-scaffold'
+import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 import { Storage, Bucket } from '@google-cloud/storage'
 import { PassThrough } from 'stream'
 import { randomBytes } from 'crypto'
+import { LegacyPlugin, LegacyPluginMeta } from '../types'
+import metadata from './plugin.json'
 
 
-type GCSPlugin = Plugin<{
+type gcsMeta = LegacyPluginMeta & {
     global: {
         bucket: Bucket
         eventsToIgnore: Set<string>
@@ -15,8 +17,9 @@ type GCSPlugin = Plugin<{
     }
     jobs: {
         exportEventsWithRetry: string[]
-    }
-}>
+    },
+    attachments: any
+}
 
 interface GCSCredentials {
     project_id?: string
@@ -38,7 +41,7 @@ interface TableRow {
     timestamp: string
 }
 
-function transformEventToRow(fullEvent: PluginEvent): TableRow {
+function transformEventToRow(fullEvent: ProcessedPluginEvent): TableRow {
     const { event, properties, $set, $set_once, distinct_id, team_id, site_url, now, sent_at, uuid, ...rest } =
         fullEvent
     const ip = properties?.['$ip'] || fullEvent.ip
@@ -68,7 +71,7 @@ function transformEventToRow(fullEvent: PluginEvent): TableRow {
     }
 }
 
-export const setupPlugin: GCSPlugin['setupPlugin'] = async ({ attachments, global, config }) => {
+const setupPlugin = async ({ attachments, global, config }: gcsMeta): Promise<void> => {
     if (!attachments.googleCloudKeyJson) {
         throw new Error('Credentials JSON file not provided!')
     }
@@ -92,7 +95,7 @@ export const setupPlugin: GCSPlugin['setupPlugin'] = async ({ attachments, globa
     global.eventsToIgnore = new Set<string>((config.exportEventsToIgnore || '').split(',').map((event) => event.trim()))
 }
 
-export const onEvent: GCSPlugin['onEvent'] = async (event, { global, config }) => {
+const onEvent = async (event: ProcessedPluginEvent, { global, logger }: gcsMeta) => {
     if (global.eventsToIgnore.has(event.event.trim())) {
         return
     }
@@ -154,8 +157,16 @@ export const onEvent: GCSPlugin['onEvent'] = async (event, { global, config }) =
                 })
         })
     } catch {
-        console.error(`Failed to upload ${rows.length} event${rows.length > 1 ? 's' : ''} to GCS. Retrying later.`)
+        logger.error(`Failed to upload ${rows.length} event${rows.length > 1 ? 's' : ''} to GCS. Retrying later.`)
         throw new RetryError()
     }
 
 }
+
+export const gcsPlugin: LegacyPlugin = {
+    id: 'gcs',
+    metadata: metadata as any,
+    setupPlugin: setupPlugin as any,
+    onEvent,
+  }
+  

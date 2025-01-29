@@ -1,6 +1,9 @@
 import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 
+import { Response } from '~/src/utils/fetch'
+
 import { LegacyPlugin, LegacyPluginMeta } from '../types'
+import metadata from './plugin.json'
 
 const hubspotPropsMap = {
     companyName: 'company',
@@ -178,6 +181,7 @@ function getEmailFromEvent(event) {
 
 export const hubspotPlugin: LegacyPlugin = {
     id: 'hubspot',
-    onEvent,
+    metadata: metadata as any,
     setupPlugin,
+    onEvent,
 }

@@ -1,3 +1,8 @@
+import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+
+import { LegacyPlugin, LegacyPluginMeta } from '../types'
+import metadata from './plugin.json'
+
 const alias = {
     userId: 'properties.alias',
     previousId: ['properties.distinct_id'],
@@ -207,7 +212,19 @@ function isValidObject(val) {
     return isObject(val) || Array.isArray(val) || typeof val === 'function'
 }
 
-export async function setupPlugin({ config, global, jobs }) {
+type RudderstackMeta = LegacyPluginMeta & {
+    global: {
+        rudderAuthHeader: { headers: { Authorization: string } }
+        writeKey: string
+        dataPlaneUrl: string
+    }
+    config: {
+        dataPlaneUrl: string
+        writeKey: string
+    }
+}
+
+export async function setupPlugin({ config, global }: RudderstackMeta) {
     const rudderBase64AuthToken = Buffer.from(`${config.writeKey}:`).toString('base64')
 
     global.rudderAuthHeader = {
@@ -219,7 +236,7 @@ export async function setupPlugin({ config, global, jobs }) {
     global.dataPlaneUrl = config.dataPlaneUrl
 }
 
-export async function onEvent(event, { global }) {
+export async function onEvent(event: ProcessedPluginEvent, { global, fetch }: RudderstackMeta) {
     const payload = {
         batch: [constructRudderPayload(event)],
         sentAt: new Date().toISOString(),
@@ -235,7 +252,7 @@ export async function onEvent(event, { global }) {
     })
 }
 
-function constructRudderPayload(event) {
+function constructRudderPayload(event: ProcessedPluginEvent) {
     let rudderPayload = {}
     // add const value props
     constructPayload(rudderPayload, event, constants, true)
@@ -283,4 +300,11 @@ function constructPayload(outPayload, inPayload, mapping, direct = false) {
             set(outPayload, rudderKeyPath, pHKeyVal)
         }
     })
+}
+
+export const rudderstackPlugin: LegacyPlugin = {
+    id: 'rudderstack',
+    metadata: metadata as any,
+    onEvent,
+    setupPlugin: setupPlugin as any,
 }
