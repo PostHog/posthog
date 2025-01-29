@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -85,7 +84,7 @@ func streamEventsHandler(log echo.Logger, subChan chan Subscription, filter *Fil
 			token = fmt.Sprint(claims["api_token"])
 
 			if teamId == "" {
-				return errors.New("teamId is required unless geo=true")
+				return echo.NewHTTPError(http.StatusBadRequest, "teamId is required unless geo=true")
 			}
 		}
 
