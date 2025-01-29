@@ -2956,9 +2956,9 @@ export interface MultivariateFlagOptions {
 
 export interface FeatureFlagFilters {
     groups: FeatureFlagGroupType[]
-    multivariate: MultivariateFlagOptions | null
+    multivariate?: MultivariateFlagOptions | null
     aggregation_group_type_index?: integer | null
-    payloads: Record<string, JsonType>
+    payloads?: Record<string, JsonType>
     super_groups?: FeatureFlagGroupType[]
 }
 
