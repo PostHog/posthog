@@ -413,8 +413,11 @@ def create_hogql_database(
             events_join = next(
                 (
                     join
-                    for join in DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True)
-                    if join.joining_table_name == "events"
+                    for join in DataWarehouseJoin.objects.filter(
+                        team_id=team.pk,
+                        source_table_name=warehouse_modifier.table_name,
+                        joining_table_name="events",
+                    ).exclude(deleted=True)
                 ),
                 None,
             )
