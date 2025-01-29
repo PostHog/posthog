@@ -11,6 +11,8 @@ import { CombinedFeatureFlagAndValueType } from '~/types'
 
 import type { flagsToolbarLogicType } from './flagsToolbarLogicType'
 
+type PayloadOverrides = Record<string, any>
+
 export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
     path(['toolbar', 'flags', 'flagsToolbarLogic']),
     connect(() => ({
@@ -22,11 +24,19 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
             flags,
             variants,
         }),
-        setOverriddenUserFlag: (flagKey: string, overrideValue: string | boolean) => ({ flagKey, overrideValue }),
+        setOverriddenUserFlag: (flagKey: string, overrideValue: string | boolean, payloadOverride?: any) => ({
+            flagKey,
+            overrideValue,
+            payloadOverride,
+        }),
+        setPayloadOverride: (flagKey: string, payload: any) => ({ flagKey, payload }),
         deleteOverriddenUserFlag: (flagKey: string) => ({ flagKey }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         checkLocalOverrides: true,
         storeLocalOverrides: (localOverrides: Record<string, string | boolean>) => ({ localOverrides }),
+        setDraftPayload: (flagKey: string, draftPayload: string) => ({ flagKey, draftPayload }),
+        savePayloadOverride: (flagKey: string) => ({ flagKey }),
+        setPayloadError: (flagKey: string, error: string | null) => ({ flagKey, error }),
     }),
     loaders(({ values }) => ({
         userFlags: [
@@ -70,11 +80,52 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                 },
             },
         ],
+        payloadOverrides: [
+            {} as PayloadOverrides,
+            {
+                setPayloadOverride: (state, { flagKey, payload }) => ({
+                    ...state,
+                    [flagKey]: payload,
+                }),
+                deleteOverriddenUserFlag: (state, { flagKey }) => {
+                    const newState = { ...state }
+                    delete newState[flagKey]
+                    return newState
+                },
+            },
+        ],
+        draftPayloads: [
+            {} as Record<string, string>,
+            {
+                setDraftPayload: (state, { flagKey, draftPayload }) => ({
+                    ...state,
+                    [flagKey]: draftPayload,
+                }),
+                deleteOverriddenUserFlag: (state, { flagKey }) => {
+                    const newState = { ...state }
+                    delete newState[flagKey]
+                    return newState
+                },
+            },
+        ],
+        payloadErrors: [
+            {} as Record<string, string | null>,
+            {
+                setPayloadError: (state, { flagKey, error }) => ({
+                    ...state,
+                    [flagKey]: error,
+                }),
+                setDraftPayload: (state, { flagKey }) => ({
+                    ...state,
+                    [flagKey]: null,
+                }),
+            },
+        ],
     }),
     selectors({
         userFlagsWithOverrideInfo: [
-            (s) => [s.userFlags, s.localOverrides, s.posthogClientFlagValues],
-            (userFlags, localOverrides, posthogClientFlagValues) => {
+            (s) => [s.userFlags, s.localOverrides, s.posthogClientFlagValues, s.payloadOverrides],
+            (userFlags, localOverrides, posthogClientFlagValues, payloadOverrides) => {
                 return userFlags.map((flag) => {
                     const hasVariants = (flag.feature_flag.filters?.multivariate?.variants?.length || 0) > 0
 
@@ -88,6 +139,7 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                         hasVariants,
                         currentValue,
                         hasOverride: flag.feature_flag.key in localOverrides,
+                        payloadOverride: payloadOverrides[flag.feature_flag.key],
                     }
                 })
             },
@@ -115,12 +167,20 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                 actions.storeLocalOverrides(locallyOverrideFeatureFlags)
             }
         },
-        setOverriddenUserFlag: ({ flagKey, overrideValue }) => {
+        setOverriddenUserFlag: ({ flagKey, overrideValue, payloadOverride }) => {
             const clientPostHog = values.posthog
             if (clientPostHog) {
-                clientPostHog.featureFlags.override({ ...values.localOverrides, [flagKey]: overrideValue })
+                const payloads = payloadOverride ? { [flagKey]: payloadOverride } : undefined
+                clientPostHog.featureFlags.override(
+                    { ...values.localOverrides, [flagKey]: overrideValue },
+                    false,
+                    payloads
+                )
                 toolbarPosthogJS.capture('toolbar feature flag overridden')
                 actions.checkLocalOverrides()
+                if (payloadOverride) {
+                    actions.setPayloadOverride(flagKey, payloadOverride)
+                }
                 clientPostHog.featureFlags.reloadFeatureFlags()
             }
         },
@@ -137,6 +197,16 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                 toolbarPosthogJS.capture('toolbar feature flag override removed')
                 actions.checkLocalOverrides()
                 clientPostHog.featureFlags.reloadFeatureFlags()
+            }
+        },
+        savePayloadOverride: ({ flagKey }) => {
+            try {
+                const payload = JSON.parse(values.draftPayloads[flagKey] || '')
+                actions.setPayloadError(flagKey, null)
+                actions.setOverriddenUserFlag(flagKey, true, payload)
+            } catch (e) {
+                actions.setPayloadError(flagKey, 'Invalid JSON')
+                console.error('Invalid JSON:', e)
             }
         },
     })),
