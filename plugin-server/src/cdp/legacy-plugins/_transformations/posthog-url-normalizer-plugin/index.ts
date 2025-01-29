@@ -11,7 +11,7 @@ function normalizeUrl(url: string): string {
 
         return parsedUrl.toString()
     } catch (err) {
-        throw `Unable to normalize invalid URL: "${url}"`
+        throw new Error(`Unable to normalize invalid URL: "${url}"`)
     }
 }
 
