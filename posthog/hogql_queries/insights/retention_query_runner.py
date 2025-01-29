@@ -485,7 +485,7 @@ class RetentionQueryRunner(QueryRunner):
                 timings=self.timings,
             )
             # We want to expose each interval as a separate column
-            for i in range(self.query_date_range.lookahead - interval):
+            for i in range(self.query_date_range.lookahead):
                 retention_query.select.append(
                     ast.Alias(
                         alias=f"{self.query_date_range.interval_name}_{i}",

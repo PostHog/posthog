@@ -285,7 +285,7 @@ class QueryDateRange:
         }
 
 
-PERIOD_MAP: dict[str, timedelta] = {
+PERIOD_MAP: dict[str, timedelta | relativedelta] = {
     "minute": timedelta(minutes=1),
     "hour": timedelta(hours=1),
     "day": timedelta(days=1),
@@ -351,6 +351,8 @@ class QueryDateRangeWithIntervals(QueryDateRange):
         return date_to_start_of_interval(self.date_to() - delta, self._interval, self._team)
 
     def date_to(self) -> datetime:
+        assert self._interval
+
         # add padding for one more interval after date_to and then truncate
         # to start of that interval, to ensure we always compute complete intervals
         delta = self.determine_time_delta(1, self._interval.name)
