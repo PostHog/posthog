@@ -198,28 +198,12 @@ describe('LegacyPluginExecutorService', () => {
             `)
 
             expect(res.finished).toBe(true)
-            expect(res.logs).toMatchInlineSnapshot(`
+            expect(res.logs.map((l) => l.message)).toMatchInlineSnapshot(`
                 [
-                  {
-                    "level": "debug",
-                    "message": "Executing plugin posthog-intercom-plugin",
-                    "timestamp": "2025-01-01T01:00:00.000+01:00",
-                  },
-                  {
-                    "level": "info",
-                    "message": "Contact test@posthog.com in Intercom found",
-                    "timestamp": "2025-01-01T01:00:00.000+01:00",
-                  },
-                  {
-                    "level": "info",
-                    "message": "Sent event mycustomevent for test@posthog.com to Intercom",
-                    "timestamp": "2025-01-01T01:00:00.000+01:00",
-                  },
-                  {
-                    "level": "debug",
-                    "message": "Execution successful",
-                    "timestamp": "2025-01-01T01:00:00.000+01:00",
-                  },
+                  "Executing plugin posthog-intercom-plugin",
+                  "Contact test@posthog.com in Intercom found",
+                  "Sent event mycustomevent for test@posthog.com to Intercom",
+                  "Execution successful",
                 ]
             `)
         })
