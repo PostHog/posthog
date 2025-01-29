@@ -180,7 +180,7 @@
     border-right: min(1px, var(--sidebar-width)) solid transparent;
 
     [theme='dark'] & {
-        --sidebar-background: var(--accent-3000);
+        --sidebar-background: var(--surface-primary);
     }
 
     &.Sidebar3000--resizing {
@@ -341,7 +341,7 @@
     --accordion-arrow-size: 1rem;
     --accordion-row-height: 32px;
     --accordion-inset-expandable: 1.25rem;
-    --accordion-header-background: var(--accent-3000);
+    --accordion-header-background: var(--surface-primary);
     --accordion-inset: 0rem;
 
     display: flex;
@@ -409,7 +409,7 @@
 .SidebarListItemAccordion {
     --accordion-arrow-size: 1rem;
     --accordion-inset-expandable: 1.25rem;
-    --accordion-header-background: var(--accent-3000);
+    --accordion-header-background: var(--surface-primary);
     --accordion-inset: 0rem;
 
     display: flex;

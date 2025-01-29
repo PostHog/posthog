@@ -179,14 +179,17 @@ $xxl: 1600px;
         var(--color-white),
         var(--primitive-neutral-cool-850)
     ); /* Most prominent surface (Cards, tables, etc.) */
+
     --surface-secondary: light-dark(
         var(--primitive-3000-100),
         var(--primitive-neutral-cool-900)
     ); /* Second most prominent surface (Toolbars) */
+
     --surface-tertiary: light-dark(
         var(--primitive-3000-150),
         var(--primitive-neutral-cool-950)
     ); /* Most prominent surface (Cards, tables, etc.) */
+
     --surface-tooltip: light-dark(var(--primitive-neutral-cool-850), var(--primitive-neutral-100));
     --surface-popover: light-dark(var(--color-white), var(--primitive-neutral-cool-850));
 
@@ -196,6 +199,7 @@ $xxl: 1600px;
         var(--primitive-neutral-950),
         var(--primitive-neutral-100)
     ); /* Text on primary surface/background */
+
     --text-primary-inverse: light-dark(
         var(--primitive-neutral-100),
         var(--primitive-neutral-950)
@@ -211,27 +215,33 @@ $xxl: 1600px;
         var(--color-blue-100),
         var(--primitive-neutral-cool-950)
     ); /* promonent bg for info blocks */
+
     --bg-fill-info-tertiary: light-dark(var(--color-blue-50), var(--color-blue-950)); /* subtle bg for info blocks */
     --bg-fill-warning-secondary: light-dark(
         var(--color-orange-100),
         var(--color-orange-950)
     ); /* prominent bg for warning blocks */
+
     --bg-fill-warning-tertiary: light-dark(
         var(--color-orange-50),
         --alpha(var(--color-orange-950) / 50%)
     ); /* subtle bg for warning blocks */
+
     --bg-fill-error-secondary: light-dark(
         var(--color-red-100),
         var(--color-red-950)
     ); /* prominent bg for error blocks */
+
     --bg-fill-error-tertiary: light-dark(
         var(--color-red-50),
         --alpha(var(--color-red-950) / 50%)
     ); /* subtle bg for error blocks */
+
     --bg-fill-success-secondary: light-dark(
         var(--color-green-100),
         var(--color-green-950)
     ); /* promonent bg for success blocks */
+
     --bg-fill-success-tertiary: light-dark(
         var(--color-green-50),
         --alpha(var(--color-green-950) / 50%)
@@ -552,7 +562,7 @@ $xxl: 1600px;
     --glass-bg-3000: light-dark(var(--surface-tertiary), var(--primitive-neutral-cool-950));
     --glass-border-3000: light-dark(var(--glass-border-3000-light), var(--glass-border-3000-dark));
 
-    // --bg-light: light-dark(#fff, var(--accent-3000));
+    // --bg-light: light-dark(#fff, var(--surface-primary));
     --bg-light: var(--surface-primary);
     --bg-table: light-dark(#f9faf7, #232429);
 
@@ -610,7 +620,7 @@ $xxl: 1600px;
     // --glass-bg-3000: var(--glass-bg-3000-dark);
     --glass-bg-3000: var(--surface-quaternary);
     --glass-border-3000: var(--glass-border-3000-dark);
-    --bg-light: var(--accent-3000);
+    --bg-light: var(--surface-primary);
     --bg-table: #232429;
     --brand-key: #fff; // In dark mode the black in PostHog's logo is replaced with white for proper contrast
     --link: var(--link-3000-dark);
@@ -829,7 +839,7 @@ $xxl: 1600px;
     // --color-primary-3000: var(--primary-3000);
     // --color-secondary-3000: var(--secondary-3000);
     // --color-secondary-3000-hover: var(--secondary-3000-hover);
-    // --color-accent-3000: var(--accent-3000);
+    // --color-accent-3000: var(--surface-primary);
     // --color-bg-3000: var(--bg-3000);
     // --color-primary-highlight: var(--primary-highlight);
     // --color-primary-alt-highlight: var(--primary-alt-highlight);
@@ -1025,7 +1035,7 @@ $xxl: 1600px;
     --color-primary-3000-active: var(--accent-primary-active);
     --color-secondary-3000: var(--secondary-3000);
     --color-secondary-3000-hover: var(--secondary-3000-hover);
-    --color-accent-3000: var(--accent-3000);
+    --color-accent-3000: var(--surface-primary);
     --color-bg-3000: var(--bg-3000);
     --color-border-3000: var(--border-3000);
     --color-border-light-opaque: var(--border-light-opaque);
@@ -1156,7 +1166,7 @@ body {
         }
 
         ::-webkit-scrollbar-track {
-            background: var(--accent-3000);
+            background: var(--surface-primary);
         }
 
         ::-webkit-scrollbar-thumb {
