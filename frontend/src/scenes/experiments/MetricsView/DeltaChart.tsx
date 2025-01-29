@@ -11,6 +11,7 @@ import {
 import { LemonBanner, LemonButton, LemonModal, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
@@ -104,6 +105,7 @@ export function DeltaChart({
         countDataForVariant,
         exposureCountDataForVariant,
         metricResultsLoading,
+        featureFlags,
     } = useValues(experimentLogic)
 
     const { experiment } = useValues(experimentLogic)
@@ -112,6 +114,7 @@ export function DeltaChart({
         openSecondaryMetricModal,
         openPrimarySharedMetricModal,
         openSecondarySharedMetricModal,
+        openVariantDeltaTimeseriesModal,
     } = useActions(experimentLogic)
     const [tooltipData, setTooltipData] = useState<{ x: number; y: number; variant: string } | null>(null)
     const [emptyStateTooltipVisible, setEmptyStateTooltipVisible] = useState(true)
@@ -143,7 +146,7 @@ export function DeltaChart({
     const { isDarkModeOn } = useValues(themeLogic)
     const COLORS = {
         TICK_TEXT_COLOR: 'var(--text-secondary-3000)',
-        BOUNDARY_LINES: 'var(--accent-primary)',
+        BOUNDARY_LINES: 'var(--border-primary)',
         ZERO_LINE: 'var(--border-bold)',
         BAR_NEGATIVE: isDarkModeOn ? '#c32f45' : '#f84257',
         BAR_POSITIVE: isDarkModeOn ? '#12a461' : '#36cd6f',
@@ -401,6 +404,16 @@ export function DeltaChart({
                                                 })
                                             }}
                                             onMouseLeave={() => setTooltipData(null)}
+                                            onClick={() => {
+                                                if (featureFlags[FEATURE_FLAGS.EXPERIMENT_INTERVAL_TIMESERIES]) {
+                                                    openVariantDeltaTimeseriesModal()
+                                                }
+                                            }}
+                                            className={
+                                                featureFlags[FEATURE_FLAGS.EXPERIMENT_INTERVAL_TIMESERIES]
+                                                    ? 'cursor-pointer'
+                                                    : ''
+                                            }
                                         >
                                             {/* Add variant name using VariantTag */}
                                             <foreignObject
@@ -590,7 +603,7 @@ export function DeltaChart({
                                             </span>
                                             /
                                             <span className="font-semibold">
-                                                {metricType === InsightType.TRENDS ? '5' : '4'}
+                                                {metricType === InsightType.TRENDS ? '3' : '2'}
                                             </span>
                                         </LemonTag>
                                     ) : (
@@ -785,12 +798,13 @@ export function DeltaChart({
                             borderRadius: '6px',
                             fontSize: '13px',
                             boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-                            pointerEvents: 'none',
                             zIndex: 100,
                             minWidth: '200px',
                         }}
+                        onMouseEnter={() => setEmptyStateTooltipVisible(true)}
+                        onMouseLeave={() => setEmptyStateTooltipVisible(false)}
                     >
-                        <NoResultEmptyState error={error} />
+                        <NoResultEmptyState error={error} metric={metric} />
                     </div>
                 )}
             </div>

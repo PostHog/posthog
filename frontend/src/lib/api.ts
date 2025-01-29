@@ -128,6 +128,7 @@ import {
     EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
     LOGS_PORTION_LIMIT,
 } from './constants'
+import type { ProductIntentProperties } from './utils/product-intents'
 
 /**
  * WARNING: Be very careful importing things here. This file is heavily used and can trigger a lot of cyclic imports
@@ -885,6 +886,10 @@ class ApiRequest {
         return apiRequest
     }
 
+    public queryAwaited(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('query_awaited')
+    }
+
     // Conversations
     public conversations(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('conversations')
@@ -991,6 +996,10 @@ class ApiRequest {
 
     public dataColorTheme(id: DataColorThemeModel['id'], teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('data_color_themes').addPathComponent(id)
+    }
+
+    public addProductIntent(): ApiRequest {
+        return this.environments().current().addPathComponent('add_product_intent')
     }
 }
 
@@ -2627,6 +2636,11 @@ const api = {
             return await new ApiRequest().dataColorTheme(id).update({ data })
         },
     },
+    productIntents: {
+        async update(data: ProductIntentProperties): Promise<TeamType> {
+            return await new ApiRequest().addProductIntent().update({ data })
+        },
+    },
 
     queryURL: (): string => {
         return new ApiRequest().query().assembleFullUrl(true)
@@ -2658,8 +2672,34 @@ const api = {
         })
     },
 
+    async queryAwaited<T extends Record<string, any> = QuerySchema>(
+        query: T,
+        options?: ApiMethodOptions,
+        queryId?: string,
+        refresh?: RefreshType,
+        filtersOverride?: DashboardFilter | null,
+        variablesOverride?: Record<string, HogQLVariable> | null
+    ): Promise<
+        T extends { [response: string]: any }
+            ? T['response'] extends infer P | undefined
+                ? P
+                : T['response']
+            : Record<string, any>
+    > {
+        return await new ApiRequest().queryAwaited().create({
+            ...options,
+            data: {
+                query,
+                client_query_id: queryId,
+                refresh,
+                filters_override: filtersOverride,
+                variables_override: variablesOverride,
+            },
+        })
+    },
+
     conversations: {
-        async create(data: { content: string; conversation?: string | null }): Promise<Response> {
+        async create(data: { content: string; conversation?: string | null; trace_id: string }): Promise<Response> {
             return api.createResponse(new ApiRequest().conversations().assembleFullUrl(), data)
         },
     },

@@ -6,6 +6,7 @@ from django.db.models.signals import post_save, post_delete
 from django.dispatch.dispatcher import receiver
 import structlog
 
+from posthog.cdp.templates._internal.template_legacy_plugin import create_legacy_plugin_template
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.action.action import Action
@@ -91,10 +92,14 @@ class HogFunction(UUIDModel):
     mappings = models.JSONField(null=True, blank=True)
     masking = models.JSONField(null=True, blank=True)
     template_id = models.CharField(max_length=400, null=True, blank=True)
+    execution_order = models.PositiveSmallIntegerField(null=True, blank=True)
 
     @property
     def template(self) -> Optional[HogFunctionTemplate]:
         from posthog.cdp.templates import ALL_HOG_FUNCTION_TEMPLATES_BY_ID
+
+        if self.template_id and self.template_id.startswith("plugin-"):
+            return create_legacy_plugin_template(self.template_id)
 
         return ALL_HOG_FUNCTION_TEMPLATES_BY_ID.get(self.template_id, None)
 

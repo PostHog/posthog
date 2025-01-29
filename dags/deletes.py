@@ -1,255 +1,401 @@
-import os
+import pydantic
+import time
+from clickhouse_driver.client import Client
 from datetime import datetime
-import pandas as pd
-
+from dataclasses import dataclass
 from dagster import (
-    asset,
-    AssetExecutionContext,
+    op,
+    job,
+    OpExecutionContext,
     Config,
     MetadataValue,
+    InitResourceContext,
+    ResourceParam,
+    ConfigurableResource,
 )
+from django.conf import settings
+from functools import reduce
 
-from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
+from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.settings import (
-    CLICKHOUSE_CLUSTER,
-    CLICKHOUSE_HOST,
-    CLICKHOUSE_PASSWORD,
-    CLICKHOUSE_USER,
-    CLICKHOUSE_SECURE,
-)
+
+
+class ClickhouseClusterResource(ConfigurableResource):
+    """
+    The ClickHouse cluster used to run the job.
+    """
+
+    client_settings: dict[str, str] = {
+        "max_execution_time": "0",
+        "max_memory_usage": "0",
+        "receive_timeout": f"{10 * 60}",
+    }
+
+    def create_resource(self, context: InitResourceContext) -> ClickhouseCluster:
+        return get_cluster(context.log, client_settings=self.client_settings)
 
 
 class DeleteConfig(Config):
+    team_id: int | None = pydantic.Field(
+        default=None, description="The team ID to delete events for. If not provided, all teams will be deleted :fire:"
+    )
+    timestamp: str = pydantic.Field(
+        default=datetime.now().isoformat(),
+        description="The timestamp to delete events up to in ISO format (YYYY-MM-DDTHH:MM:SS.mmmmmm+HH:MM). If not provided, current time will be used.",
+    )
+
+    @property
+    def parsed_timestamp(self) -> datetime:
+        return datetime.fromisoformat(self.timestamp)
+
+
+@dataclass
+class Mutation:
+    table: str
+    mutation_id: str
+
+    def is_done(self, client: Client) -> bool:
+        result = client.execute(
+            f"""
+            SELECT is_done
+            FROM system.mutations
+            WHERE database = %(database)s AND table = %(table)s AND mutation_id = %(mutation_id)s
+            ORDER BY create_time DESC
+            """,
+            {"database": settings.CLICKHOUSE_DATABASE, "table": self.table, "mutation_id": self.mutation_id},
+        )
+        return bool(result[0][0]) if result else False
+
+    def wait(self, client: Client) -> None:
+        while not self.is_done(client):
+            time.sleep(15.0)
+
+
+ShardMutations = dict[int, Mutation]
+
+
+@dataclass
+class PendingPersonEventDeletesTable:
+    """
+    Represents a temporary table storing pending person event deletions.
+    """
+
+    timestamp: datetime
     team_id: int | None = None
-    file_path: str = "/tmp/pending_person_deletions.parquet"
-    run_id: str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    cluster: str = settings.CLICKHOUSE_CLUSTER
+
+    @property
+    def timestamp_isoformat(self) -> str:
+        return self.timestamp.isoformat()
+
+    @property
+    def clickhouse_timestamp(self) -> str:
+        return self.timestamp.strftime("%Y%m%d_%H%M%S")
+
+    @property
+    def table_name(self) -> str:
+        return f"pending_person_deletes_{self.clickhouse_timestamp}"
+
+    @property
+    def qualified_name(self):
+        return f"{settings.CLICKHOUSE_DATABASE}.{self.table_name}"
+
+    @property
+    def dictionary_name(self) -> str:
+        return f"{self.table_name}_dict"
+
+    @property
+    def create_table_query(self) -> str:
+        return f"""
+            CREATE TABLE IF NOT EXISTS {self.table_name} ON CLUSTER '{self.cluster}'
+            (
+                team_id Int64,
+                person_id UUID,
+                created_at DateTime DEFAULT now()
+            )
+            ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/{self.table_name}', '{{shard}}-{{replica}}')
+            ORDER BY (team_id, person_id)
+        """
+
+    @property
+    def drop_table_query(self) -> str:
+        return f"DROP TABLE IF EXISTS {self.table_name} ON CLUSTER '{self.cluster}'"
+
+    def create(self, client: Client) -> None:
+        client.execute(self.create_table_query)
+
+    def drop(self, client: Client) -> None:
+        client.execute(self.drop_table_query)
+
+    def exists(self, client: Client) -> bool:
+        result = client.execute(
+            f"SELECT count() FROM system.tables WHERE database = %(database)s AND name = %(table_name)s",
+            {"database": settings.CLICKHOUSE_DATABASE, "table_name": self.table_name},
+        )
+        return bool(result[0][0]) if result else False
+
+    @property
+    def populate_query(self) -> str:
+        return f"""
+            INSERT INTO {self.table_name} (team_id, person_id, created_at)
+            VALUES
+        """
+
+    def __find_existing_mutation(self, client: Client, table: str, command_kind: str) -> Mutation | None:
+        results = client.execute(
+            f"""
+            SELECT mutation_id
+            FROM system.mutations
+            WHERE
+                database = %(database)s
+                AND table = %(table)s
+                AND startsWith(command, %(command_kind)s)
+                AND command like concat('%%', %(name)s, '%%')
+                AND NOT is_killed  -- ok to restart a killed mutation
+            ORDER BY create_time DESC
+            """,
+            {
+                "database": settings.CLICKHOUSE_DATABASE,
+                "table": table,
+                "command_kind": command_kind,
+                "name": self.qualified_name,
+            },
+        )
+        if not results:
+            return None
+        else:
+            assert len(results) == 1
+            [[mutation_id]] = results
+            return Mutation(table, mutation_id)
+
+    def enqueue_person_event_delete_mutation(self, client: Client) -> Mutation:
+        table = EVENTS_DATA_TABLE()
+
+        # if this mutation already exists, don't start it again
+        # NOTE: this is theoretically subject to replication lag and accuracy of this result is not a guarantee
+        if mutation := self.__find_existing_mutation(client, table, "UPDATE"):
+            return mutation
+
+        client.execute(
+            f"""
+            DELETE FROM {table} WHERE (uuid, event, team_id, person_id, timestamp) IN (
+                SELECT e.uuid, e.event, e.team_id, e.person_id, e.timestamp
+                FROM events e
+                INNER JOIN {self.qualified_name} d
+                ON e.team_id = d.team_id
+                AND e.distinct_id = d.person_id
+                AND e.timestamp < d.created_at
+            )
+            """
+        )
+
+        mutation = self.__find_existing_mutation(client, table, "UPDATE")
+        assert mutation is not None
+        return mutation
+
+    def checksum(self, client: Client):
+        results = client.execute(
+            f"""
+            SELECT groupBitXor(row_checksum) AS table_checksum
+            FROM (SELECT cityHash64(*) AS row_checksum FROM {self.qualified_name} ORDER BY team_id, person_id, created_at)
+            """
+        )
+        [[checksum]] = results
+        return checksum
 
 
-def get_versioned_names(run_id: str) -> dict[str, str]:
-    """Get versioned names for tables and dictionaries."""
-    return {"table": f"pending_person_deletes_{run_id}", "dictionary": f"pending_person_deletes_dictionary_{run_id}"}
+@op
+def create_pending_deletes_table(
+    config: DeleteConfig,
+    cluster: ResourceParam[ClickhouseCluster],
+) -> PendingPersonEventDeletesTable:
+    """Create a merge tree table in ClickHouse to store pending deletes."""
+    table = PendingPersonEventDeletesTable(
+        timestamp=config.parsed_timestamp,
+        team_id=config.team_id,
+        cluster=settings.CLICKHOUSE_CLUSTER,
+    )
+    cluster.any_host(table.create).result()
+    return table
 
 
-@asset
-def pending_person_deletions(context: AssetExecutionContext, config: DeleteConfig) -> dict[str, str]:
-    """Query postgres using django ORM to get pending person deletions and write to parquet."""
+@op
+def load_pending_person_deletions(
+    context: OpExecutionContext, create_pending_deletes_table: PendingPersonEventDeletesTable
+) -> PendingPersonEventDeletesTable:
+    """Query postgres using django ORM to get pending person deletions and insert directly into ClickHouse."""
 
-    if not config.team_id:
+    if not create_pending_deletes_table.team_id:
         # Use Django's queryset iterator for memory efficiency
         pending_deletions = (
-            AsyncDeletion.objects.filter(deletion_type=DeletionType.Person, delete_verified_at__isnull=True)
+            AsyncDeletion.objects.filter(
+                deletion_type=DeletionType.Person,
+                delete_verified_at__isnull=True,
+                created_at__lte=create_pending_deletes_table.timestamp,
+            )
             .values("team_id", "key", "created_at")
             .iterator()
         )
     else:
-        pending_deletions = AsyncDeletion.objects.filter(
-            deletion_type=DeletionType.Person,
-            team_id=config.team_id,
-            delete_verified_at__isnull=True,
-        ).values("team_id", "key", "created_at")
+        pending_deletions = (
+            AsyncDeletion.objects.filter(
+                deletion_type=DeletionType.Person,
+                team_id=create_pending_deletes_table.team_id,
+                delete_verified_at__isnull=True,
+                created_at__lte=create_pending_deletes_table.timestamp,
+            )
+            .values("team_id", "key", "created_at")
+            .iterator()
+        )
 
-    # Create a temporary directory for our parquet file
-    output_path = config.file_path
-
-    # Write to parquet in chunks
+    # Process and insert in chunks
     chunk_size = 10000
     current_chunk = []
     total_rows = 0
 
+    client = Client(
+        host=settings.CLICKHOUSE_HOST,
+        user=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD,
+        secure=settings.CLICKHOUSE_SECURE,
+    )
+
     for deletion in pending_deletions:
-        current_chunk.append(deletion)
+        # Rename 'key' to 'person_id' to match our schema
+        current_chunk.append(
+            {"team_id": deletion["team_id"], "person_id": deletion["key"], "created_at": deletion["created_at"]}
+        )
+
         if len(current_chunk) >= chunk_size:
-            if total_rows == 0:
-                # First chunk, create new file
-                pd.DataFrame(current_chunk).to_parquet(output_path, index=False)
-            else:
-                # Append to existing file
-                pd.DataFrame(current_chunk).to_parquet(output_path, index=False, append=True)
+            client.execute(
+                f"""
+                INSERT INTO {create_pending_deletes_table.table_name} (team_id, person_id, created_at)
+                VALUES
+                """,
+                current_chunk,
+            )
             total_rows += len(current_chunk)
             current_chunk = []
 
-    # Write any remaining records
+    # Insert any remaining records
     if current_chunk:
-        if total_rows == 0:
-            pd.DataFrame(current_chunk).to_parquet(output_path, index=False)
-        else:
-            pd.DataFrame(current_chunk).to_parquet(output_path, index=False, append=True)
+        client.execute(
+            f"""
+            INSERT INTO {create_pending_deletes_table.qualified_name} (team_id, person_id, created_at)
+            VALUES
+            """,
+            current_chunk,
+        )
         total_rows += len(current_chunk)
 
     context.add_output_metadata(
         {
             "total_rows": MetadataValue.int(total_rows),
-            "file_path": MetadataValue.text(output_path),
-            "file_size": MetadataValue.int(os.path.getsize(output_path)),
+            "table_name": MetadataValue.text(create_pending_deletes_table.table_name),
         }
     )
-
-    return {"file_path": output_path, "total_rows": str(total_rows)}
-
-
-@asset
-def create_pending_deletes_table(context: AssetExecutionContext, config: DeleteConfig):
-    """Create a merge tree table in ClickHouse to store pending deletes."""
-    names = get_versioned_names(config.run_id)
-    sync_execute(
-        f"""
-        CREATE TABLE IF NOT EXISTS {names["table"]} ON CLUSTER '{CLICKHOUSE_CLUSTER}'
-        (
-            team_id Int64,
-            person_id UUID,
-            created_at DateTime DEFAULT now()
-        )
-        ENGINE = ReplacingMergeTree()
-        ORDER BY (team_id, person_id)
-        """
-    )
-    context.add_output_metadata({"table_name": MetadataValue.text(names["table"])})
-    return {"table_name": names["table"]}
+    return create_pending_deletes_table
 
 
-@asset(deps=[pending_person_deletions, create_pending_deletes_table])
-def insert_pending_deletes(context: AssetExecutionContext, pending_person_deletions, create_pending_deletes_table):
-    """Insert pending deletes from parquet file into ClickHouse merge tree using Arrow."""
-    if not pending_person_deletions.get("total_rows", 0):
-        return 0
-
-    import pyarrow.parquet as pq
-    from clickhouse_driver.client import Client
-
-    # Read the parquet file into an Arrow table
-    table = pq.read_table(pending_person_deletions["file_path"])
-
-    # Rename the 'key' column to 'person_id' to match our schema
-    table = table.rename_columns(["team_id", "person_id", "created_at"])
-
-    # Create a ClickHouse client that supports Arrow
-    client = Client(
-        host=CLICKHOUSE_HOST,
-        user=CLICKHOUSE_USER,
-        password=CLICKHOUSE_PASSWORD,
-        secure=CLICKHOUSE_SECURE,
-        settings={"use_numpy": True},  # Required for Arrow support
-    )
-
-    # Insert the Arrow table directly
-    client.execute(
-        f"""
-        INSERT INTO {create_pending_deletes_table["table_name"]} (team_id, person_id, created_at)
-        VALUES
-        """,
-        table.to_pydict(),
-        types_check=True,
-        settings={
-            "input_format_arrow_skip_columns": ["created_at"],  # Skip created_at as it's a default value
-        },
-    )
-
-    context.add_output_metadata({"num_deletions": MetadataValue.int(pending_person_deletions["total_rows"])})
-
-    return pending_person_deletions["total_rows"]
-
-
-@asset(deps=[insert_pending_deletes])
-def create_pending_deletes_dictionary(context: AssetExecutionContext, config: DeleteConfig):
-    """Create a dictionary table that wraps pending_person_deletes for efficient lookups."""
-    names = get_versioned_names(config.run_id)
-    sync_execute(
-        f"""
-        CREATE DICTIONARY IF NOT EXISTS {names["dictionary"]} ON CLUSTER '{CLICKHOUSE_CLUSTER}'
-        (
-            team_id Int64,
-            person_id UUID,
-            created_at DateTime
-        )
-        PRIMARY KEY team_id, person_id
-        SOURCE(CLICKHOUSE(
-            TABLE {names["table"]}
-            USER '{CLICKHOUSE_USER}'
-            PASSWORD '{CLICKHOUSE_PASSWORD}'
-        ))
-        LIFETIME(MIN 0 MAX 3600)
-        LAYOUT(COMPLEX_KEY_HASHED())
-        """
-    )
-    return {"dictionary_name": names["dictionary"]}
-
-
-@asset(deps=[create_pending_deletes_dictionary])
-def delete_person_events(context: AssetExecutionContext, config: DeleteConfig):
+@op
+def delete_person_events(
+    context: OpExecutionContext,
+    cluster: ResourceParam[ClickhouseCluster],
+    load_pending_person_deletions: PendingPersonEventDeletesTable,
+) -> tuple[PendingPersonEventDeletesTable, ShardMutations]:
     """Delete events from sharded_events table for persons pending deletion."""
 
-    # First check if there are any pending deletes
-    names = get_versioned_names(config.run_id)
-    count_result = sync_execute(
-        f"""
-        SELECT count()
-        FROM {names["dictionary"]}
-        """
-    )[0][0]
+    # Wait for the table to be fully replicated
+    def sync_replica(client: Client):
+        client.execute(f"SYSTEM SYNC REPLICA {load_pending_person_deletions.qualified_name} STRICT")
+
+    cluster.map_all_hosts(sync_replica).result()
+
+    def count_pending_deletes(client: Client) -> int:
+        result = client.execute(
+            f"""
+            SELECT count()
+            FROM {load_pending_person_deletions.qualified_name}
+            """
+        )
+        return result[0][0] if result else 0
+
+    count_result = cluster.any_host(count_pending_deletes).result()
 
     if count_result == 0:
         context.add_output_metadata({"events_deleted": MetadataValue.int(0), "message": "No pending deletions found"})
-        return 0
-
-    # Execute deletion using the dictionary for efficient lookups
-    # We use ALTER TABLE DELETE instead of DELETE FROM because it's more efficient for large deletions
-    deleted_count = sync_execute(
-        f"""
-        ALTER TABLE sharded_events ON CLUSTER '{CLICKHOUSE_CLUSTER}'
-        DELETE WHERE (team_id, person_id) IN (
-            SELECT team_id, person_id
-            FROM {names["dictionary"]}
-        )
-        """,
-        settings={
-            "max_execution_time": 3600  # 1 hour timeout
-        },
-    )
+        return (load_pending_person_deletions, {})
 
     context.add_output_metadata(
         {
             "events_deleted": MetadataValue.int(count_result),
-            "delete_count": MetadataValue.int(deleted_count),
-            "message": f"Deleted events for {count_result} persons",
         }
     )
 
-    return count_result
+    shard_mutations = {
+        host.shard_num: mutation
+        for host, mutation in (
+            cluster.map_one_host_per_shard(load_pending_person_deletions.enqueue_person_event_delete_mutation)
+            .result()
+            .items()
+        )
+    }
+    return (load_pending_person_deletions, shard_mutations)
 
 
-@asset(deps=[delete_person_events])
-def cleanup_delete_assets(context: AssetExecutionContext, config: DeleteConfig):
-    """Clean up temporary tables, dictionary, and mark deletions as verified."""
-    names = get_versioned_names(config.run_id)
+@op
+def wait_for_delete_mutations(
+    cluster: ResourceParam[ClickhouseCluster],
+    delete_person_events: tuple[PendingPersonEventDeletesTable, ShardMutations],
+) -> PendingPersonEventDeletesTable:
+    pending_person_deletions, shard_mutations = delete_person_events
 
-    # Drop the dictionary
-    sync_execute(
-        f"""
-        DROP DICTIONARY IF EXISTS {names["dictionary"]} ON CLUSTER '{CLICKHOUSE_CLUSTER}'
-        """
-    )
+    if not shard_mutations:
+        return pending_person_deletions  # or handle the empty case as needed
 
-    # Drop the table
-    sync_execute(
-        f"""
-        DROP TABLE IF EXISTS {names["table"]} ON CLUSTER '{CLICKHOUSE_CLUSTER}'
-        """
-    )
+    reduce(
+        lambda x, y: x.merge(y),
+        [cluster.map_all_hosts_in_shard(shard, mutation.wait) for shard, mutation in shard_mutations.items()],
+    ).result()
 
-    # Remove the temporary parquet file
-    parquet_path = "/tmp/pending_person_deletions.parquet"
-    if os.path.exists(parquet_path):
-        os.remove(parquet_path)
+    return pending_person_deletions
+
+
+@op
+def cleanup_delete_assets(
+    cluster: ResourceParam[ClickhouseCluster],
+    create_pending_deletes_table: PendingPersonEventDeletesTable,
+    wait_for_delete_mutations: PendingPersonEventDeletesTable,
+) -> bool:
+    """Clean up temporary tables and mark deletions as verified."""
+    # Drop the dictionary and table using the table object
+
+    cluster.any_host(create_pending_deletes_table.drop).result()
 
     # Mark deletions as verified in Django
-    if not config.team_id:
-        AsyncDeletion.objects.filter(deletion_type=DeletionType.Person, delete_verified_at__isnull=True).update(
-            delete_verified_at=datetime.now()
-        )
+    if not create_pending_deletes_table.team_id:
+        AsyncDeletion.objects.filter(
+            deletion_type=DeletionType.Person,
+            delete_verified_at__isnull=True,
+            created_at__lte=create_pending_deletes_table.timestamp,
+        ).update(delete_verified_at=datetime.now())
     else:
         AsyncDeletion.objects.filter(
-            deletion_type=DeletionType.Person, team_id=config.team_id, delete_verified_at__isnull=True
+            deletion_type=DeletionType.Person,
+            team_id=create_pending_deletes_table.team_id,
+            delete_verified_at__isnull=True,
+            created_at__lte=create_pending_deletes_table.timestamp,
         ).update(delete_verified_at=datetime.now())
 
     return True
+
+
+@job
+def deletes_job():
+    """Job that handles deletion of person events."""
+    table = create_pending_deletes_table()
+    loaded_table = load_pending_person_deletions(table)
+    delete_events = delete_person_events(loaded_table)
+    waited_table = wait_for_delete_mutations(delete_events)
+    cleanup_delete_assets(table, waited_table)

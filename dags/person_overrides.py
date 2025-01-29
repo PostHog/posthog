@@ -8,7 +8,12 @@ import pydantic
 from clickhouse_driver import Client
 
 from posthog import settings
-from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
+from posthog.clickhouse.cluster import (
+    ClickhouseCluster,
+    Mutation,
+    MutationRunner,
+    get_cluster,
+)
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 
@@ -31,7 +36,6 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
 @dataclass
 class PersonOverridesSnapshotTable:
     id: uuid.UUID
-    timestamp: str
 
     @property
     def name(self) -> str:
@@ -61,12 +65,14 @@ class PersonOverridesSnapshotTable:
     def drop(self, client: Client) -> None:
         client.execute(f"DROP TABLE IF EXISTS {self.qualified_name} SYNC")
 
-    def populate(self, client: Client) -> None:
+    def populate(self, client: Client, timestamp: str, limit: int | None = None) -> None:
         # NOTE: this is theoretically subject to replication lag and accuracy of this result is not a guarantee
         # this could optionally support truncate as a config option if necessary to reset the table state, or
         # force an optimize after insertion to compact the table before dictionary insertion (if that's even needed)
         [[count]] = client.execute(f"SELECT count() FROM {self.qualified_name}")
         assert count == 0
+
+        limit_clause = f"LIMIT {limit}" if limit else ""
 
         client.execute(
             f"""
@@ -75,8 +81,9 @@ class PersonOverridesSnapshotTable:
             FROM {settings.CLICKHOUSE_DATABASE}.{PERSON_DISTINCT_ID_OVERRIDES_TABLE}
             WHERE _timestamp < %(timestamp)s
             GROUP BY team_id, distinct_id
+            {limit_clause}
             """,
-            {"timestamp": self.timestamp},
+            {"timestamp": timestamp},
         )
 
     def sync(self, client: Client) -> None:
@@ -89,28 +96,6 @@ class PersonOverridesSnapshotTable:
             {"database": settings.CLICKHOUSE_DATABASE, "table": self.name},
         )
         assert queue_size == 0
-
-
-@dataclass
-class Mutation:
-    table: str
-    mutation_id: str
-
-    def is_done(self, client: Client) -> bool:
-        [[is_done]] = client.execute(
-            f"""
-            SELECT is_done
-            FROM system.mutations
-            WHERE database = %(database)s AND table = %(table)s AND mutation_id = %(mutation_id)s
-            ORDER BY create_time DESC
-            """,
-            {"database": settings.CLICKHOUSE_DATABASE, "table": self.table, "mutation_id": self.mutation_id},
-        )
-        return is_done
-
-    def wait(self, client: Client) -> None:
-        while not self.is_done(client):
-            time.sleep(15.0)
 
 
 @dataclass
@@ -194,65 +179,22 @@ class PersonOverridesSnapshotDictionary:
         [[checksum]] = results
         return checksum
 
-    def __find_existing_mutation(self, client: Client, table: str, command_kind: str) -> Mutation | None:
-        results = client.execute(
+    @property
+    def person_id_update_mutation_runner(self) -> MutationRunner:
+        return MutationRunner(
+            EVENTS_DATA_TABLE(),
             f"""
-            SELECT mutation_id
-            FROM system.mutations
-            WHERE
-                database = %(database)s
-                AND table = %(table)s
-                AND startsWith(command, %(command_kind)s)
-                AND command like concat('%%', %(name)s, '%%')
-                AND NOT is_killed  -- ok to restart a killed mutation
-            ORDER BY create_time DESC
-            """,
-            {
-                "database": settings.CLICKHOUSE_DATABASE,
-                "table": table,
-                "command_kind": command_kind,
-                "name": self.qualified_name,
-            },
-        )
-        if not results:
-            return None
-        else:
-            assert len(results) == 1
-            [[mutation_id]] = results
-            return Mutation(table, mutation_id)
-
-    def enqueue_person_id_update_mutation(self, client: Client) -> Mutation:
-        table = EVENTS_DATA_TABLE()
-
-        # if this mutation already exists, don't start it again
-        # NOTE: this is theoretically subject to replication lag and accuracy of this result is not a guarantee
-        if mutation := self.__find_existing_mutation(client, table, "UPDATE"):
-            return mutation
-
-        client.execute(
-            f"""
-            ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{table}
             UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id))
             WHERE dictHas(%(name)s, (team_id, distinct_id))
             """,
             {"name": self.qualified_name},
         )
 
-        mutation = self.__find_existing_mutation(client, table, "UPDATE")
-        assert mutation is not None
-        return mutation
-
-    def enqueue_overrides_delete_mutation(self, client: Client) -> Mutation:
-        table = PERSON_DISTINCT_ID_OVERRIDES_TABLE
-
-        # if this mutation already exists, don't start it again
-        # NOTE: this is theoretically subject to replication lag and accuracy of this result is not a guarantee
-        if mutation := self.__find_existing_mutation(client, table, "DELETE"):
-            return mutation
-
-        client.execute(
+    @property
+    def overrides_delete_mutation_runner(self) -> MutationRunner:
+        return MutationRunner(
+            PERSON_DISTINCT_ID_OVERRIDES_TABLE,
             f"""
-            ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{table}
             DELETE WHERE
                 isNotNull(dictGetOrNull(%(name)s, 'version', (team_id, distinct_id)) as snapshot_version)
                 AND snapshot_version >= version
@@ -260,15 +202,22 @@ class PersonOverridesSnapshotDictionary:
             {"name": self.qualified_name},
         )
 
-        mutation = self.__find_existing_mutation(client, table, "DELETE")
-        assert mutation is not None
-        return mutation
-
 
 # Snapshot Table Management
 
 
-class SnapshotTableConfig(dagster.Config):
+@dagster.op
+def create_snapshot_table(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+) -> PersonOverridesSnapshotTable:
+    """Create the snapshot table on all hosts in the cluster."""
+    table = PersonOverridesSnapshotTable(id=uuid.UUID(context.run.run_id))
+    cluster.map_all_hosts(table.create).result()
+    return table
+
+
+class PopulateSnapshotTableConfig(dagster.Config):
     """
     Configuration for creating and populating the initial snapshot table.
     """
@@ -279,30 +228,20 @@ class SnapshotTableConfig(dagster.Config):
         "the past that there is no reasonable likelihood that events or overrides prior to this time have not yet been "
         "written to the database and replicated to all hosts in the cluster."
     )
-
-
-@dagster.op
-def create_snapshot_table(
-    context: dagster.OpExecutionContext,
-    cluster: dagster.ResourceParam[ClickhouseCluster],
-    config: SnapshotTableConfig,
-) -> PersonOverridesSnapshotTable:
-    """Create the snapshot table on all hosts in the cluster."""
-    table = PersonOverridesSnapshotTable(
-        id=uuid.UUID(context.run.run_id),
-        timestamp=config.timestamp,
+    limit: int | None = pydantic.Field(
+        description="The number of rows to include in the snapshot. If provided, this can be used to limit the total "
+        "amount of memory consumed by the squash process during execution."
     )
-    cluster.map_all_hosts(table.create).result()
-    return table
 
 
 @dagster.op
 def populate_snapshot_table(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     table: PersonOverridesSnapshotTable,
+    config: PopulateSnapshotTableConfig,
 ) -> PersonOverridesSnapshotTable:
     """Fill the snapshot data with the selected overrides based on the configuration timestamp."""
-    cluster.any_host(table.populate).result()
+    cluster.any_host(partial(table.populate, timestamp=config.timestamp, limit=config.limit)).result()
     return table
 
 
@@ -356,7 +295,10 @@ def load_and_verify_snapshot_dictionary(
     dictionary: PersonOverridesSnapshotDictionary,
 ) -> PersonOverridesSnapshotDictionary:
     """Load the dictionary data on all hosts in the cluster, and ensure all hosts have identical data."""
-    checksums = cluster.map_all_hosts(dictionary.load).result()
+    # Loading and verifying the dictionary can consume a lot of CPU and memory, so we limit the amount of parallel
+    # queries to avoid substantial load increases on all hosts in the cluster at the same time, and instead try to
+    # spread the load out more evenly and gracefully.
+    checksums = cluster.map_all_hosts(dictionary.load, concurrency=1).result()
     assert len(set(checksums.values())) == 1
     return dictionary
 
@@ -375,7 +317,7 @@ def start_person_id_update_mutations(
     shard_mutations = {
         host.shard_num: mutation
         for host, mutation in (
-            cluster.map_one_host_per_shard(dictionary.enqueue_person_id_update_mutation).result().items()
+            cluster.map_one_host_per_shard(dictionary.person_id_update_mutation_runner.enqueue).result().items()
         )
     }
     return (dictionary, shard_mutations)
@@ -401,7 +343,7 @@ def start_overrides_delete_mutations(
     dictionary: PersonOverridesSnapshotDictionary,
 ) -> tuple[PersonOverridesSnapshotDictionary, Mutation]:
     """Start the mutation to remove overrides contained within the snapshot from the overrides table."""
-    mutation = cluster.any_host(dictionary.enqueue_overrides_delete_mutation).result()
+    mutation = cluster.any_host(dictionary.overrides_delete_mutation_runner.enqueue).result()
     return (dictionary, mutation)
 
 
