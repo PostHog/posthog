@@ -156,7 +156,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 },
                 setInsightMetadata: async ({ metadataUpdate }, breakpoint) => {
                     // new insight
-                    if (!values.hasDashboardItemId) {
+                    if (values.insight.short_id == null) {
                         return { ...values.insight, ...metadataUpdate }
                     }
 
