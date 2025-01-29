@@ -1,20 +1,24 @@
-import { IconInfo } from '@posthog/icons'
-import { Link } from '@posthog/lemon-ui'
+import { IconInfo, IconTestTube } from '@posthog/icons'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration, percentage } from 'lib/utils'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import React from 'react'
+import { getExperimentMetricFromInsight } from 'scenes/experiments/utils'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { FunnelStepsPicker } from 'scenes/insights/views/Funnels/FunnelStepsPicker'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
-import { FunnelVizType } from '~/types'
-
-import { funnelDataLogic } from './funnelDataLogic'
+import { FunnelVizType, ProductKey, type QueryBasedInsightModel } from '~/types'
 
 export function FunnelCanvasLabel(): JSX.Element | null {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, insight, supportsCreatingExperiment, derivedName } = useValues(insightLogic)
     const { conversionMetrics, aggregationTargetLabel, funnelsFilter } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
+    const { addProductIntentForCrossSell } = useActions(teamLogic)
 
     const labels = [
         ...(funnelsFilter?.funnelVizType === FunnelVizType.Steps
@@ -64,6 +68,32 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                       <span className="text-muted-alt">Conversion rate</span>
                       <FunnelStepsPicker />
                   </>,
+              ]
+            : []),
+
+        ...(supportsCreatingExperiment
+            ? [
+                  <LemonButton
+                      key="run-experiment"
+                      icon={<IconTestTube />}
+                      type="secondary"
+                      data-attr="create-experiment-from-insight"
+                      size="xsmall"
+                      tooltip="Create a draft experiment with the metric from this funnel."
+                      onClick={() =>
+                          addProductIntentForCrossSell({
+                              from: ProductKey.PRODUCT_ANALYTICS,
+                              to: ProductKey.EXPERIMENTS,
+                              intent_context: ProductIntentContext.CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON,
+                          })
+                      }
+                      to={urls.experiment('new', {
+                          metric: getExperimentMetricFromInsight(insight as QueryBasedInsightModel),
+                          name: insight.name || insight.derived_name || derivedName,
+                      })}
+                  >
+                      Run experiment
+                  </LemonButton>,
               ]
             : []),
     ]
