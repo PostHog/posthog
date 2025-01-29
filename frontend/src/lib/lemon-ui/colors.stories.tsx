@@ -108,7 +108,7 @@ const threeThousand = [
 
     ['bg-secondary-3000-light', 'bg-red-500'],
     ['bg-secondary-3000-hover-light', 'bg-red-500'],
-    ['bg-accent-3000-light', 'bg-red-500'],
+    ['bg-surface-primary-light', 'bg-red-500'],
     ['bg-bg-3000-light', 'bg-red-500'],
     ['bg-border-3000-light', 'bg-red-500'],
     ['bg-border-bold-3000-light', 'bg-red-500'],
@@ -144,7 +144,7 @@ const threeThousand = [
 
     ['bg-secondary-3000-dark', 'bg-red-500'],
     ['bg-secondary-3000-hover-dark', 'bg-red-500'],
-    ['bg-accent-3000-dark', 'bg-red-500'],
+    ['bg-surface-primary-dark', 'bg-red-500'],
     ['bg-bg-3000-dark', 'bg-red-500'],
     ['bg-border-3000-dark', 'bg-red-500'],
     ['bg-border-bold-3000-dark', 'bg-red-500'],
@@ -176,7 +176,7 @@ const threeThousand = [
     ['bg-primary-3000', 'bg-red-500'],
     ['bg-secondary-3000', 'bg-red-500'],
     ['bg-secondary-3000-hover', 'bg-red-500'],
-    ['bg-accent-3000', 'bg-red-500'],
+    ['bg-surface-primary', 'bg-red-500'],
     ['bg-bg-3000', 'bg-red-500'],
     ['bg-primary-highlight', 'bg-red-500'],
     ['bg-primary-alt-highlight', 'bg-red-500'],
