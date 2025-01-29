@@ -36,7 +36,7 @@ class ObjectStorageUnavailable(Exception):
 class ErrorTrackingIssueSerializer(serializers.ModelSerializer):
     class Meta:
         model = ErrorTrackingIssue
-        fields = ["assignee", "status"]
+        fields = ["status"]
 
 
 class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):

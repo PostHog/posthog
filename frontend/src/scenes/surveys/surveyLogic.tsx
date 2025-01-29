@@ -639,7 +639,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 iteration_count: NEW_SURVEY.iteration_count,
                 iteration_frequency_days: NEW_SURVEY.iteration_frequency_days,
             })
-            actions.setFlagPropertyErrors(NEW_SURVEY.targeting_flag_filters)
+            actions.setFlagPropertyErrors(null)
         },
         submitSurveyFailure: async () => {
             // When errors occur, scroll to the error, but wait for errors to be set in the DOM first
@@ -1332,6 +1332,19 @@ function sanitizeQuestions(surveyPayload: Partial<Survey>): Partial<Survey> {
     const sanitizedThankYouHeader = sanitizeHTML(surveyPayload.appearance?.thankYouMessageHeader || '')
     const sanitizedThankYouDescription = sanitizeHTML(surveyPayload.appearance?.thankYouMessageDescription || '')
 
+    const appearance = {
+        ...surveyPayload.appearance,
+        ...(sanitizedThankYouHeader && { thankYouMessageHeader: sanitizedThankYouHeader }),
+        ...(sanitizedThankYouDescription && { thankYouMessageDescription: sanitizedThankYouDescription }),
+    }
+
+    // Remove widget-specific fields if survey type is not Widget
+    if (surveyPayload.type !== 'widget') {
+        delete appearance.widgetType
+        delete appearance.widgetLabel
+        delete appearance.widgetColor
+    }
+
     return {
         ...surveyPayload,
         questions: surveyPayload.questions?.map((rawQuestion) => {
@@ -1341,10 +1354,6 @@ function sanitizeQuestions(surveyPayload: Partial<Survey>): Partial<Survey> {
                 question: sanitizeHTML(rawQuestion.question || ''),
             }
         }),
-        appearance: {
-            ...surveyPayload.appearance,
-            ...(sanitizedThankYouHeader && { thankYouMessageHeader: sanitizedThankYouHeader }),
-            ...(sanitizedThankYouDescription && { thankYouMessageDescription: sanitizedThankYouDescription }),
-        },
+        appearance,
     }
 }

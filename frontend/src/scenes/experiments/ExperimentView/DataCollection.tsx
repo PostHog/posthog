@@ -17,15 +17,16 @@ export function DataCollection(): JSX.Element {
     const {
         experimentId,
         experiment,
-        _getMetricType,
+        getMetricType,
         funnelResultsPersonsTotal,
         actualRunningTime,
         minimumDetectableEffect,
+        firstPrimaryMetric,
     } = useValues(experimentLogic)
 
     const { openExperimentCollectionGoalModal } = useActions(experimentLogic)
 
-    const metricType = _getMetricType(experiment.metrics[0])
+    const metricType = getMetricType(firstPrimaryMetric)
 
     const recommendedRunningTime = experiment?.parameters?.recommended_running_time || 1
     const recommendedSampleSize = experiment?.parameters?.recommended_sample_size || 100
@@ -172,8 +173,8 @@ export function DataCollection(): JSX.Element {
 export function DataCollectionGoalModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
     const {
         isExperimentCollectionGoalModalOpen,
-        experiment,
-        _getMetricType,
+        getMetricType,
+        firstPrimaryMetric,
         trendMetricInsightLoading,
         funnelMetricInsightLoading,
     } = useValues(experimentLogic({ experimentId }))
@@ -181,7 +182,7 @@ export function DataCollectionGoalModal({ experimentId }: { experimentId: Experi
         useActions(experimentLogic({ experimentId }))
 
     const isInsightLoading =
-        _getMetricType(experiment.metrics[0]) === InsightType.TRENDS
+        getMetricType(firstPrimaryMetric) === InsightType.TRENDS
             ? trendMetricInsightLoading
             : funnelMetricInsightLoading
 

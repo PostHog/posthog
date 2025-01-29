@@ -55,12 +55,30 @@ export function OutputPane(): JSX.Element {
     const vizKey = useMemo(() => `SQLEditorScene`, [])
 
     const columns = useMemo(() => {
+        const types = response?.types
+
         return (
-            response?.columns?.map((column: string) => ({
-                key: column,
-                name: column,
-                resizable: true,
-            })) ?? []
+            response?.columns?.map((column: string, index: number) => {
+                const type = types?.[index]?.[1]
+
+                // Hack to get bools to render in the data grid
+                if (type && type.indexOf('Bool') !== -1) {
+                    return {
+                        key: column,
+                        name: column,
+                        resizable: true,
+                        renderCell: (props: any) => {
+                            return props.row[column].toString()
+                        },
+                    }
+                }
+
+                return {
+                    key: column,
+                    name: column,
+                    resizable: true,
+                }
+            }) ?? []
         )
     }, [response])
 
@@ -252,7 +270,7 @@ function InternalDataTableVisualization(
     }
 
     return (
-        <div className="h-full hide-scrollbar flex flex-1 gap-2">
+        <div className="DataVisualization h-full hide-scrollbar flex flex-1 gap-2">
             <div className="relative w-full flex flex-col gap-4 flex-1">
                 <div className="flex flex-1 flex-row gap-4 overflow-scroll hide-scrollbar">
                     {isChartSettingsPanelOpen && (

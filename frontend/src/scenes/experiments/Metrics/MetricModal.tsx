@@ -4,7 +4,8 @@ import { useActions, useValues } from 'kea'
 import { ExperimentFunnelsQuery } from '~/queries/schema'
 import { Experiment, InsightType } from '~/types'
 
-import { experimentLogic, getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../experimentLogic'
+import { experimentLogic } from '../experimentLogic'
+import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../utils'
 import { FunnelsMetricForm } from './FunnelsMetricForm'
 import { TrendsMetricForm } from './TrendsMetricForm'
 
@@ -18,7 +19,7 @@ export function MetricModal({
     const {
         experiment,
         experimentLoading,
-        _getMetricType,
+        getMetricType,
         isPrimaryMetricModalOpen,
         isSecondaryMetricModalOpen,
         editingPrimaryMetricIndex,
@@ -41,7 +42,7 @@ export function MetricModal({
 
     const metrics = experiment[metricsField]
     const metric = metrics[metricIdx]
-    const metricType = _getMetricType(metric)
+    const metricType = getMetricType(metric)
     const funnelStepsLength = (metric as ExperimentFunnelsQuery)?.funnels_query?.series?.length || 0
 
     const onClose = (): void => {

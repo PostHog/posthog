@@ -16,6 +16,17 @@
             "skipFiles": ["${workspaceFolder}/node_modules/kea-typegen/**/*.js"]
         },
         {
+            "name": "Frontend (no typegen)",
+            "command": "pnpm start-http",
+            "request": "launch",
+            "type": "node-terminal",
+            "cwd": "${workspaceFolder}",
+            "presentation": {
+                "group": "main"
+            },
+            "skipFiles": ["${workspaceFolder}/node_modules/kea-typegen/**/*.js"]
+        },
+        {
             "name": "Frontend (https)",
             "command": "pnpm start",
             "request": "launch",
@@ -143,8 +154,7 @@
                 "WORKER_CONCURRENCY": "2",
                 "OBJECT_STORAGE_ENABLED": "True",
                 "HOG_HOOK_URL": "http://localhost:3300/hoghook",
-                "CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS": "",
-                "CDP_CYCLOTRON_ENABLED_TEAMS": "*"
+                "PLUGIN_SERVER_MODE": "all-v2"
             },
             "presentation": {
                 "group": "main"

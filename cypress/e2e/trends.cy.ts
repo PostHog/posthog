@@ -152,13 +152,6 @@ describe('Trends', () => {
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
 
-    it('Apply all users cohort breakdown', () => {
-        cy.get('[data-attr=add-breakdown-button]').click()
-        cy.get('[data-attr=taxonomic-tab-cohorts_with_all]').click()
-        cy.contains('All Users*').click()
-        cy.get('[data-attr=trend-line-graph]').should('exist')
-    })
-
     it('Show warning on MAU math in total value insight', () => {
         cy.get('[data-attr=chart-filter]').click()
         cy.get('.Popover').find('.LemonButton').contains('Pie').click()
