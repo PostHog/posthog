@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Literal, Optional, get_args, TYPE_CHECKING
+from typing import Literal, Optional, TYPE_CHECKING
 
 
 if TYPE_CHECKING:
@@ -10,7 +10,6 @@ else:
 
 SubTemplateId = Literal["early-access-feature-enrollment", "survey-response", "activity-log"]
 
-SUB_TEMPLATE_ID: tuple[SubTemplateId, ...] = get_args(SubTemplateId)
 
 HogFunctionTemplateType = Literal[
     "destination",

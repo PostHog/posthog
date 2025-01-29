@@ -1,3 +1,4 @@
+from posthoganalytics import capture_exception
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import viewsets, permissions
@@ -5,13 +6,15 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.exceptions import NotFound
 
-from posthog.cdp.templates import HOG_FUNCTION_SUB_TEMPLATES, HOG_FUNCTION_TEMPLATES, ALL_HOG_FUNCTION_TEMPLATES_BY_ID
+from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
 from posthog.cdp.templates.hog_function_template import (
     HogFunctionMapping,
     HogFunctionMappingTemplate,
     HogFunctionTemplate,
     HogFunctionSubTemplate,
+    derive_sub_templates,
 )
+from posthog.plugins.plugin_server_api import get_hog_function_templates
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 
@@ -42,6 +45,62 @@ class HogFunctionTemplateSerializer(DataclassSerializer):
         dataclass = HogFunctionTemplate
 
 
+class HogFunctionTemplates:
+    _cached_templates: list[HogFunctionTemplate] = []
+    _cached_templates_by_id: dict[str, HogFunctionTemplate] = {}
+    _cached_sub_templates: list[HogFunctionTemplate] = []
+    _cached_sub_templates_by_id: dict[str, HogFunctionTemplate] = {}
+
+    @classmethod
+    def templates(cls):
+        cls._load_templates()
+        return cls._cached_templates
+
+    @classmethod
+    def sub_templates(cls):
+        cls._load_templates()
+        return cls._cached_sub_templates
+
+    @classmethod
+    def template(cls, template_id: str):
+        cls._load_templates()
+        return cls._cached_templates_by_id.get(template_id, cls._cached_sub_templates_by_id.get(template_id))
+
+    @classmethod
+    def _load_templates(cls):
+        # TODO: Cache this
+        # First we load and convert all nodejs templates to python templates
+        response = get_hog_function_templates()
+        if response.status_code != 200:
+            raise Exception("Failed to fetch hog function templates")
+
+        nodejs_templates_json = response.json()
+        nodejs_templates: list[HogFunctionTemplate] = []
+        for template_data in nodejs_templates_json:
+            try:
+                serializer = HogFunctionTemplateSerializer(data=template_data)
+                serializer.is_valid(raise_exception=True)
+                template = serializer.save()
+                nodejs_templates.append(template)
+            except Exception as e:
+                logger.error(
+                    "Failed to convert template", template_id=template_data.get("id"), error=str(e), exc_info=True
+                )
+                capture_exception(e)
+                raise
+
+        templates = [
+            *HOG_FUNCTION_TEMPLATES,
+            *nodejs_templates,
+        ]
+        sub_templates = derive_sub_templates(templates=templates)
+
+        cls._cached_templates = templates
+        cls._cached_sub_templates = sub_templates
+        cls._cached_templates_by_id = {template.id: template for template in templates}
+        cls._cached_sub_templates_by_id = {template.id: template for template in sub_templates}
+
+
 # NOTE: There is nothing currently private about these values
 class PublicHogFunctionTemplateViewSet(viewsets.GenericViewSet):
     filter_backends = [DjangoFilterBackend]
@@ -59,7 +118,7 @@ class PublicHogFunctionTemplateViewSet(viewsets.GenericViewSet):
         elif "types" in request.GET:
             types = self.request.GET.get("types", "destination").split(",")
 
-        templates_list = HOG_FUNCTION_SUB_TEMPLATES if sub_template_id else HOG_FUNCTION_TEMPLATES
+        templates_list = HogFunctionTemplates.sub_templates() if sub_template_id else HogFunctionTemplates.templates()
 
         matching_templates = []
 
@@ -81,7 +140,7 @@ class PublicHogFunctionTemplateViewSet(viewsets.GenericViewSet):
         return self.get_paginated_response(serializer.data)
 
     def retrieve(self, request: Request, *args, **kwargs):
-        item = ALL_HOG_FUNCTION_TEMPLATES_BY_ID.get(kwargs["pk"], None)
+        item = HogFunctionTemplates.template(kwargs["pk"])
 
         if not item:
             raise NotFound(f"Template with id {kwargs['pk']} not found.")
