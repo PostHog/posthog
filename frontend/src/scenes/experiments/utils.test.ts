@@ -461,7 +461,7 @@ describe('checkFeatureFlagEligibility', () => {
             },
         }
         expect(() => featureFlagEligibleForExperiment(featureFlag)).toThrow(
-            'Feature flag must have at least two variants with control as the first variant.'
+            'Feature flag must use multiple variants with control as the first variant.'
         )
     })
     it('throws an error for a feature flag that already has an experiment set', () => {
