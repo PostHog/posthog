@@ -192,7 +192,7 @@ where
 
 // Postgres doesn't like nulls in strings, so we replace them with uFFFD.
 pub fn sanitize_string(s: String) -> String {
-    s.replace("\u0000", "\uFFFD").replace('\0', '\u{FFFD}')
+    s.replace("\\u0000", "\\uFFFD")
 }
 
 #[cfg(test)]
