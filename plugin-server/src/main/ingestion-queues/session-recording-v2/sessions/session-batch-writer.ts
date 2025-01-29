@@ -6,5 +6,5 @@ export interface StreamWithFinish {
 }
 
 export interface SessionBatchWriter {
-    open(): Promise<StreamWithFinish>
+    newBatch(): Promise<StreamWithFinish>
 }

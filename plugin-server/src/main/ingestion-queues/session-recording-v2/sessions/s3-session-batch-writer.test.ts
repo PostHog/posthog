@@ -54,8 +54,9 @@ describe('S3SessionBatchWriter', () => {
 
     describe('open()', () => {
         it('should pass the returned stream as the S3 upload body', async () => {
-            const { stream } = await writer.open()
+            const { stream } = await writer.newBatch()
 
+            expect(mockUpload).toHaveBeenCalledTimes(1)
             expect(mockUpload).toHaveBeenCalledWith(
                 expect.objectContaining({
                     params: expect.objectContaining({
@@ -66,13 +67,14 @@ describe('S3SessionBatchWriter', () => {
         })
 
         it('should handle successful upload completion', async () => {
-            const { stream, finish } = await writer.open()
+            const { stream, finish } = await writer.newBatch()
             const testData = 'test data\nmore test data\n'
 
             // Write some data and finish
             stream.write(testData)
             await finish()
 
+            expect(mockUpload).toHaveBeenCalledTimes(1)
             expect(mockUploadDone).toHaveBeenCalled()
             expect(uploadedData.toString()).toBe(testData)
             expect(status.info).toHaveBeenCalledWith(
@@ -88,7 +90,7 @@ describe('S3SessionBatchWriter', () => {
             const testError = new Error('Upload failed')
             mockUploadDone.mockRejectedValue(testError)
 
-            const { stream, finish } = await writer.open()
+            const { stream, finish } = await writer.newBatch()
             const testData = 'error test data\n'
 
             // Write some data and try to finish
@@ -106,13 +108,14 @@ describe('S3SessionBatchWriter', () => {
         })
 
         it('should handle writing large amounts of data', async () => {
-            const { stream, finish } = await writer.open()
+            const { stream, finish } = await writer.newBatch()
 
             // Write 100MB of data
             const chunk = Buffer.alloc(1024 * 1024 * 100, 'x')
             stream.write(chunk)
             await finish()
 
+            expect(mockUpload).toHaveBeenCalledTimes(1)
             expect(mockUploadDone).toHaveBeenCalled()
             expect(uploadedData.length).toBe(1024 * 1024 * 100)
             // toEqual is slow for large buffers, so we use Buffer.compare instead
@@ -127,7 +130,7 @@ describe('S3SessionBatchWriter', () => {
         })
 
         it('should handle multiple writes before finish', async () => {
-            const { stream, finish } = await writer.open()
+            const { stream, finish } = await writer.newBatch()
             const lines = ['line1\n', 'line2\n', 'line3\n']
 
             for (const line of lines) {
@@ -136,6 +139,7 @@ describe('S3SessionBatchWriter', () => {
             await finish()
 
             expect(uploadedData.toString()).toBe(lines.join(''))
+            expect(mockUpload).toHaveBeenCalledTimes(1)
         })
 
         it('should generate unique keys for each upload', async () => {
@@ -143,7 +147,7 @@ describe('S3SessionBatchWriter', () => {
             const iterations = 100
 
             for (let i = 0; i < iterations; i++) {
-                await writer.open()
+                await writer.newBatch()
                 const uploadCall = mockUpload.mock.calls[i][0]
                 const key = uploadCall.params.Key
                 keys.add(key)

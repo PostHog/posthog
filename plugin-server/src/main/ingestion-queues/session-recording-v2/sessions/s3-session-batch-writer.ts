@@ -18,7 +18,7 @@ export class S3SessionBatchWriter implements SessionBatchWriter {
         status.info('🔄', 's3_session_batch_writer_created', { bucket: this.bucket, prefix: this.prefix })
     }
 
-    public async open(): Promise<StreamWithFinish> {
+    public async newBatch(): Promise<StreamWithFinish> {
         const passThrough = new PassThrough()
         const key = this.generateKey()
 
