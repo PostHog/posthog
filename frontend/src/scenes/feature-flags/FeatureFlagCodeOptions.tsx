@@ -167,7 +167,8 @@ export const PAYLOAD_LIBRARIES: string[] = [
     SDKKey.GO,
 ]
 
-export const ENCRYPTED_PAYLOAD_LIBRARIES: string[] = [SDKKey.API, SDKKey.NODE_JS, SDKKey.PYTHON, SDKKey.GO, SDKKey.RUBY]
+// TODO(havenbarnes): Add SDKKey.NODE_JS, SDKKey.PYTHON, SDKKey.GO, SDKKey.RUBY as soon as new method are published in each
+export const ENCRYPTED_PAYLOAD_LIBRARIES: string[] = [SDKKey.API]
 
 export const BOOTSTRAPPING_OPTIONS: InstructionOption[] = [
     {
