@@ -9,14 +9,14 @@ import { template as taxonomyTemplate } from '../legacy-plugins/_transformations
 import { template as timestampParserTemplate } from '../legacy-plugins/_transformations/timestamp-parser-plugin/template'
 import { template as userAgentTemplate } from '../legacy-plugins/_transformations/user-agent-plugin/template'
 import { template as webhookTemplate } from './_destinations/webhook/webhook.template'
-import { template as defaultTransformatonTemplate } from './_transformations/default/default.template'
+import { template as defaultTransformationTemplate } from './_transformations/default/default.template'
 import { template as geoipTemplate } from './_transformations/geoip/geoip.template'
 import { HogFunctionTemplate } from './types'
 
 export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [webhookTemplate]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
-    defaultTransformatonTemplate,
+    defaultTransformationTemplate,
     geoipTemplate,
     downsamplingPlugin,
     languageUrlSplitterTemplate,
