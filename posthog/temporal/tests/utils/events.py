@@ -85,7 +85,7 @@ def generate_test_events(
                 "inserted_at": compute_inserted_at(),
                 "person_id": str(uuid.uuid4()),
                 "person_properties": person_properties,
-                "properties": json.dumps(properties) if isinstance(properties, dict) else properties,
+                "properties": properties,
                 "team_id": team_id,
                 "timestamp": next(datetime_cycle).strftime("%Y-%m-%d %H:%M:%S.%f"),
                 "uuid": str(uuid.uuid4()),
