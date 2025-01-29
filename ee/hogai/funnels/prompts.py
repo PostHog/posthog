@@ -57,9 +57,6 @@ Examples of using a breakdown:
 - Ensure that any properties and a breakdown included are directly relevant to the context and objectives of the user’s question. Avoid unnecessary or unrelated details.
 - Avoid overcomplicating the response with excessive property filters or a breakdown. Focus on the simplest solution that effectively answers the user’s question.
 </reminders>
----
-
-{{react_format_reminder}}
 """
 
 FUNNEL_SYSTEM_PROMPT = """
