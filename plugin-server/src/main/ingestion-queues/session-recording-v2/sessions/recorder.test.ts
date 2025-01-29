@@ -41,21 +41,48 @@ describe('SessionRecorder', () => {
     })
 
     const readGzippedStream = async (stream: PassThrough): Promise<string[]> => {
-        const gunzip = createGunzip()
-        stream.pipe(gunzip)
+        return new Promise((resolve, reject) => {
+            const gunzip = createGunzip()
+            const chunks: Buffer[] = []
 
-        const chunks: Buffer[] = []
-        for await (const chunk of gunzip) {
-            chunks.push(chunk)
-        }
+            // Handle errors from both streams
+            stream.on('error', (error) => {
+                gunzip.destroy()
+                reject(new Error(`Error in source stream: ${error.message}`))
+            })
 
-        return Buffer.concat(chunks as any[])
-            .toString()
-            .trim()
-            .split('\n')
-            .map((line) => line.trim())
-            .filter(Boolean)
-            .map((line) => JSON.parse(line))
+            gunzip.on('error', (error) => {
+                stream.destroy()
+                reject(new Error(`Error decompressing data: ${error.message}`))
+            })
+
+            // Handle data
+            gunzip.on('data', (chunk) => {
+                chunks.push(chunk)
+            })
+
+            // Handle completion
+            gunzip.on('end', () => {
+                try {
+                    const result = Buffer.concat(chunks)
+                        .toString()
+                        .trim()
+                        .split('\n')
+                        .map((line) => line.trim())
+                        .filter(Boolean)
+                        .map((line) => JSON.parse(line))
+                    resolve(result)
+                } catch (error) {
+                    reject(new Error(`Failed to process stream data: ${error.message}`))
+                } finally {
+                    stream.destroy()
+                    gunzip.destroy()
+                }
+            })
+
+            // Pipe the streams
+            stream.pipe(gunzip)
+        })
     }
 
     describe('recordMessage', () => {

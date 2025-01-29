@@ -23,6 +23,8 @@ export class SessionRecorder {
         Object.entries(message.eventsByWindowId).forEach(([windowId, events]) => {
             events.forEach((event) => {
                 const serializedLine = JSON.stringify([windowId, event]) + '\n'
+                // No need to handle backpressure here as gzip buffers until end() is called
+                // There is a test that covers writing large amounts of data
                 this.gzip.write(serializedLine)
                 rawBytesWritten += Buffer.byteLength(serializedLine)
                 this.eventCount++
@@ -34,6 +36,8 @@ export class SessionRecorder {
     }
 
     public end(): EndResult {
+        // We end the gzip stream, so that it can be read by the consumer
+        // Error handling is deferred to the consumer
         this.gzip.end()
         return {
             stream: this.gzip,
