@@ -85,10 +85,6 @@ const IngestionStatusCheck = (): JSX.Element | null => {
                 </Link>{' '}
                 (otherwise it'll be a little empty!)
             </p>
-            <p>
-                To get cost information, you'll also{' '}
-                <Link to="/pipeline/new/transformation">need to enable the "AI Costs" transformation.</Link>
-            </p>
         </LemonBanner>
     )
 }
