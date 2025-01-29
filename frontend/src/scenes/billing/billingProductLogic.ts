@@ -259,7 +259,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 product = product as BillingProductV2Type
                 const addonTiers = product.addons
                     ?.filter((addon: BillingProductV2AddonType) => addon.subscribed)
-                    ?.map((addon: BillingProductV2AddonType) => addon.tiers)
+                    ?.map((addon: BillingProductV2AddonType) => addon.tiers) ?? []
                 const productAndAddonTiers: BillingTierType[][] = [product.tiers, ...addonTiers].filter(
                     Boolean
                 ) as BillingTierType[][]
