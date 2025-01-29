@@ -94,7 +94,8 @@ func main() {
 	e.Use(middleware.GzipWithConfig(middleware.GzipConfig{
 		Level: 9, // Set compression level to maximum
 	}))
-	e.Use(echoprometheus.NewMiddleware("livestream"))
+	e.Use(echoprometheus.NewMiddlewareWithConfig(
+		echoprometheus.MiddlewareConfig{DoNotUseRequestPathFor404: true, Subsystem: "livestream"}))
 
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowOrigins: []string{"*"},
