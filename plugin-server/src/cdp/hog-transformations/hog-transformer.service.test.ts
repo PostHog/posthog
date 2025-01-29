@@ -359,7 +359,7 @@ describe('HogTransformer', () => {
              * hence the result is null
              */
             expect(createHogFunctionInvocationSpy).toHaveBeenCalledTimes(2)
-            expect(result.properties?.test_property).toEqual(null)
+            expect(result.event.properties?.test_property).toEqual(null)
         })
         it('should execute tranformation without execution_order last', async () => {
             const firstTemplate: HogFunctionTemplate = {
