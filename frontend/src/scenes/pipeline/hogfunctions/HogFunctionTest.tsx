@@ -105,14 +105,7 @@ export function HogFunctionTest(): JSX.Element {
                             <span>Testing</span>
                             {sampleGlobalsLoading ? <Spinner /> : null}
                         </h2>
-                        {!expanded &&
-                            (type === 'email' ? (
-                                <p>Click here to test the provider with a sample e-mail</p>
-                            ) : type === 'broadcast' ? (
-                                <p>Click here to test your broadcast</p>
-                            ) : (
-                                <p>Click here to test your function with an example event</p>
-                            ))}
+                        {!expanded && <p>Click here to test your function with an example event</p>}
                     </div>
 
                     {!expanded ? (
@@ -242,8 +235,45 @@ export function HogFunctionTest(): JSX.Element {
                     <>
                         {testResult ? (
                             <div className="space-y-2">
+                                {type === 'transformation' ? (
+                                    <>
+                                        <LemonLabel>Transformation result</LemonLabel>
+                                        <CodeEditorResizeable
+                                            language="json"
+                                            originalValue={JSON.stringify(
+                                                JSON.parse(testInvocation.globals).event,
+                                                null,
+                                                2
+                                            )}
+                                            value={JSON.stringify(testResult.result, null, 2)}
+                                            height={400}
+                                            options={{
+                                                readOnly: true,
+                                                lineNumbers: 'off',
+                                                minimap: {
+                                                    enabled: false,
+                                                },
+                                                quickSuggestions: {
+                                                    other: true,
+                                                    strings: true,
+                                                },
+                                                suggest: {
+                                                    showWords: false,
+                                                    showFields: false,
+                                                    showKeywords: false,
+                                                },
+                                                scrollbar: {
+                                                    vertical: 'hidden',
+                                                    verticalScrollbarSize: 0,
+                                                },
+                                                folding: true,
+                                            }}
+                                        />
+                                    </>
+                                ) : null}
+
                                 <div className="flex items-center justify-between">
-                                    <LemonLabel>Test invocation result </LemonLabel>
+                                    <LemonLabel>Test invocation logs </LemonLabel>
                                     <LemonTag type={testResult.status === 'success' ? 'success' : 'danger'}>
                                         {testResult.status}
                                     </LemonTag>

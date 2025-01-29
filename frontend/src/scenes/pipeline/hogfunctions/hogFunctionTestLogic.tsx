@@ -23,6 +23,8 @@ export type HogFunctionTestInvocationForm = {
 export type HogFunctionTestInvocationResult = {
     status: 'success' | 'error'
     logs: LogEntry[]
+    result: any
+    errors?: string[]
 }
 
 export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([

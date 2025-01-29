@@ -115,14 +115,11 @@ export class CdpApi {
                 return
             }
 
-            const [hogFunction, team] = await Promise.all([
-                this.hogFunctionManager.fetchHogFunction(req.params.id),
-                this.hub.teamManager.fetchTeam(parseInt(team_id)),
-            ]).catch(() => {
-                return [null, null]
-            })
+            const hogFunction = await this.hogFunctionManager.fetchHogFunction(req.params.id).catch(() => null)
+            const team = await this.hub.teamManager.fetchTeam(parseInt(team_id)).catch(() => null)
 
             // NOTE: We allow the hog function to be null if it is a "new" hog function
+            // The real security happens at the django layer so this is more of a sanity check
             if (!team || (hogFunction && hogFunction.team_id !== team.id)) {
                 res.status(404).json({ error: 'Hog function not found' })
                 return

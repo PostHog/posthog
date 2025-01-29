@@ -29,7 +29,7 @@ let geoipProperties := {
 }
 // Check if the event has an IP address l
 if (event.properties?.$geoip_disable or empty(event.properties?.$ip)) {
-    print('geoip disabled or no ip', event.properties, event.properties?.$ip)
+    print('geoip disabled or no ip.')
     return event
 }
 let ip := event.properties.$ip
