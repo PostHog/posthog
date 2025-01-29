@@ -1,12 +1,11 @@
 import {
   createEvent,
 } from "@posthog/plugin-scaffold/test/utils";
-import fetchMock from "jest-fetch-mock";
+import fetchMock from "jest-fetch-mock"
 
 fetchMock.enableMocks();
 
-import { PatternsPluginInput, onEvent, setupPlugin } from "./index";
-import { Meta } from "@posthog/plugin-scaffold";
+import { PatternsMeta, onEvent, setupPlugin } from "./index";
 
 const testWebhookUrl =
   "https://api-staging.patterns.app/api/app/webhooks/wh1234";
@@ -21,7 +20,8 @@ test("onEvent called for event", async () => {
       webhookUrl: testWebhookUrl,
     },
     global: {},
-  } as Meta<PatternsPluginInput>
+    fetch: fetchMock as unknown,
+  } as PatternsMeta
   setupPlugin(meta);
   const event1 = createEvent({ event: "$pageView" });
 
@@ -44,7 +44,8 @@ test("onEvent called for allowed event", async () => {
       allowedEventTypes: "$pageView, $autoCapture, $customEvent1",
     },
     global: {},
-  } as Meta<PatternsPluginInput>
+    fetch: fetchMock as unknown,
+  } as PatternsMeta
   setupPlugin(meta);
 
   const event = createEvent({ event: "$pageView" });

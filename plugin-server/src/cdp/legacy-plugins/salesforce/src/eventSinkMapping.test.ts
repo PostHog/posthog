@@ -1,10 +1,10 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import {
     EventSink,
     EventToSinkMapping,
     parseEventSinkConfig,
+    SalesforceMeta,
     SalesforcePluginConfig,
-    SalesforcePluginMeta,
     sendEventToSalesforce,
     verifyConfig,
 } from '.'
@@ -70,7 +70,7 @@ describe('event sink mapping', () => {
                     config: {
                         eventEndpointMapping: JSON.stringify(invalidMapping),
                     },
-                } as unknown) as SalesforcePluginMeta)
+                } as unknown) as SalesforceMeta)
             }).toThrowError('You must provide a salesforce path for each mapping in config.eventEndpointMapping.')
         })
 
@@ -80,7 +80,7 @@ describe('event sink mapping', () => {
                     config: {
                         eventEndpointMapping: JSON.stringify(missingMethodInvalidMapping),
                     },
-                } as unknown) as SalesforcePluginMeta)
+                } as unknown) as SalesforceMeta)
             }).toThrowError('You must provide a method for each mapping in config.eventEndpointMapping.')
         })
 
@@ -93,7 +93,7 @@ describe('event sink mapping', () => {
                     config: {
                         eventEndpointMapping: JSON.stringify(mapping),
                     },
-                } as unknown) as SalesforcePluginMeta)
+                } as unknown) as SalesforceMeta)
             }).toThrowError('You must provide a salesforce path for each mapping in config.eventEndpointMapping.')
         })
 
@@ -103,7 +103,7 @@ describe('event sink mapping', () => {
                     config: {
                         eventEndpointMapping: '',
                     },
-                } as unknown) as SalesforcePluginMeta)
+                } as unknown) as SalesforceMeta)
             }).toThrowError('If you are not providing an eventEndpointMapping then you must provide events to include.')
         })
 
@@ -121,7 +121,7 @@ describe('event sink mapping', () => {
                         eventEndpointMapping: JSON.stringify(mapping),
                         eventsToInclude: '$pageView',
                     },
-                } as unknown) as SalesforcePluginMeta)
+                } as unknown) as SalesforceMeta)
             }).toThrowError('You should not provide both eventsToInclude and eventMapping.')
         })
     })
@@ -132,7 +132,7 @@ describe('event sink mapping', () => {
                 debug: jest.fn(),
                 error: jest.fn(),
             },
-        } as unknown) as SalesforcePluginMeta['global']
+        } as unknown) as SalesforceMeta['global']
         const config = {
             salesforceHost: 'https://example.io',
             eventMethodType: 'POST',
@@ -153,8 +153,12 @@ describe('event sink mapping', () => {
 
         it('does not send to a sink if there is no mapping for the event', async () => {
             await sendEventToSalesforce(
-                { event: 'uninteresting' } as PluginEvent,
-                ({ config, global } as unknown) as SalesforcePluginMeta,
+                { event: 'uninteresting' } as ProcessedPluginEvent,
+                ({ 
+                    config,
+                    global,
+                    logger: { error: jest.fn(), debug: jest.fn() }
+                } as unknown) as SalesforceMeta,
                 'token',
             )
             expect(mockFetch).not.toHaveBeenCalled()
@@ -165,12 +169,14 @@ describe('event sink mapping', () => {
                 ({
                     event: '$pageview',
                     properties: { unwanted: 'excluded', two: 'includes' },
-                } as unknown) as PluginEvent,
+                } as unknown) as ProcessedPluginEvent,
                 ({
                     global: global,
                     config: config,
                     cache: undefined,
-                } as unknown) as SalesforcePluginMeta,
+                    fetch: mockFetch as unknown,
+                    logger: { error: jest.fn(), debug: jest.fn() }
+                } as unknown) as SalesforceMeta,
                 'the bearer token',
             )
             expect(mockFetch).toHaveBeenCalledWith('https://example.io/something', {

@@ -1,5 +1,5 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
-import { SalesforcePluginConfig, SalesforcePluginMeta, sendEventToSalesforce } from '.'
+import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { SalesforcePluginConfig, SalesforceMeta, sendEventToSalesforce } from '.'
 
 const mockFetch = jest.fn()
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -27,8 +27,13 @@ describe('sendEventsToSalesforce', () => {
         } as SalesforcePluginConfig
 
         await sendEventToSalesforce(
-            ({ event: '$pageview', properties: { $current_url: 'https://home/io' } } as unknown) as PluginEvent,
-            ({ config, global } as unknown) as SalesforcePluginMeta,
+            ({ event: '$pageview', properties: { $current_url: 'https://home/io' } } as unknown) as ProcessedPluginEvent,
+            ({
+                config,
+                global,
+                logger: { error: jest.fn(), debug: jest.fn() },
+                fetch: mockFetch as unknown,
+            } as unknown) as SalesforceMeta,
             'token'
         )
 
@@ -47,8 +52,8 @@ describe('sendEventsToSalesforce', () => {
         } as SalesforcePluginConfig
 
         await sendEventToSalesforce(
-            ({ event: 'should not send', properties: { $current_url: 'https://home/io' } } as unknown) as PluginEvent,
-            ({ config, global } as unknown) as SalesforcePluginMeta,
+            ({ event: 'should not send', properties: { $current_url: 'https://home/io' } } as unknown) as ProcessedPluginEvent,
+            ({ config, global, logger: { error: jest.fn(), debug: jest.fn() } } as unknown) as SalesforceMeta,
             'token'
         )
 

@@ -9,7 +9,7 @@ import {
 } from "@posthog/plugin-scaffold";
 import { Response } from "~/src/utils/fetch";
 
-type PatternsMeta = LegacyPluginMeta & {
+export type PatternsMeta = LegacyPluginMeta & {
   config: {
     webhookUrl: string;
     allowedEventTypes: string;
@@ -30,7 +30,7 @@ export async function setupPlugin({ config, global }: PatternsMeta): Promise<voi
 }
 
 // Plugin method to export events
-const onEvent = async (
+export const onEvent = async (
   event: ProcessedPluginEvent,
   { config, global, fetch }: PatternsMeta
 ): Promise<void> => {
