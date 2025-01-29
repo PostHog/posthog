@@ -4,14 +4,14 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { brotliDecompressSync } from 'zlib'
 
-import { template as defaultTemplate } from '~/src/cdp/templates/_transformations/default/default.template'
+import { template as defaultTemplate } from '../../../src/cdp/templates/_transformations/default/default.template'
 import { template as filterOutPluginTemplate } from '~/src/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
-import { template as geoipTemplate } from '~/src/cdp/templates/_transformations/geoip/geoip.template'
-import { compileHog } from '~/src/cdp/templates/compiler'
-import { createHogFunction } from '~/tests/cdp/fixtures'
-
+import { template as geoipTemplate } from '../../../src/cdp/templates/_transformations/geoip/geoip.template'
+import { compileHog } from '../../../src/cdp/templates/compiler'
+import { createHogFunction, insertHogFunction } from '../../../tests/cdp/fixtures'
+import { resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub } from '../../types'
-import { createHub } from '../../utils/db/hub'
+import { closeHub, createHub } from '../../utils/db/hub'
 import { HogFunctionTemplate } from '../templates/types'
 import { HogTransformerService } from './hog-transformer.service'
 let mockGetTeamHogFunctions: jest.Mock
@@ -54,8 +54,15 @@ describe('HogTransformer', () => {
 
     beforeEach(async () => {
         hub = await createHub()
+        await resetTestDatabase()
+
         hub.mmdb = Reader.openBuffer(brotliDecompressSync(mmdbBrotliContents))
         hogTransformer = new HogTransformerService(hub)
+        await hogTransformer.start()
+    })
+
+    afterEach(async () => {
+        await closeHub(hub)
 
         jest.spyOn(hogTransformer['pluginExecutor'], 'execute')
     })
@@ -72,7 +79,7 @@ describe('HogTransformer', () => {
                 execution_order: 1,
             })
 
-            mockGetTeamHogFunctions.mockReturnValue([geoIpFunction])
+            await insertHogFunction(hub.postgres, 1, geoIpFunction)
 
             const event: PluginEvent = createPluginEvent()
             const result = await hogTransformer.transformEvent(event)
@@ -228,11 +235,9 @@ describe('HogTransformer', () => {
                 execution_order: 3,
             })
 
-            mockGetTeamHogFunctions.mockReturnValue([
-                defaultTransformationFunction,
-                geoIpTransformationFunction,
-                testTransformationFunction,
-            ])
+            await insertHogFunction(hub.postgres, 1, defaultTransformationFunction)
+            await insertHogFunction(hub.postgres, 1, geoIpTransformationFunction)
+            await insertHogFunction(hub.postgres, 1, testTransformationFunction)
 
             const createHogFunctionInvocationSpy = jest.spyOn(hogTransformer as any, 'createHogFunctionInvocation')
 
@@ -304,7 +309,8 @@ describe('HogTransformer', () => {
                 execution_order: 2,
             })
 
-            mockGetTeamHogFunctions.mockReturnValue([addingTransformationFunction, deletingTransformationFunction])
+            await insertHogFunction(hub.postgres, 1, addingTransformationFunction)
+            await insertHogFunction(hub.postgres, 1, deletingTransformationFunction)
 
             const createHogFunctionInvocationSpy = jest.spyOn(hogTransformer as any, 'createHogFunctionInvocation')
 

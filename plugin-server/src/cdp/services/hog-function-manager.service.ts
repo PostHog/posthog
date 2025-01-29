@@ -130,6 +130,7 @@ export class HogFunctionManagerService {
             SELECT ${HOG_FUNCTION_FIELDS.join(', ')}
             FROM posthog_hogfunction
             WHERE deleted = FALSE AND enabled = TRUE AND type = ANY($1)
+            ORDER BY execution_order NULLS LAST
         `,
                 [this.hogTypes],
                 'fetchAllHogFunctions'
