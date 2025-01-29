@@ -261,6 +261,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
                 del fields["_dlt_id"]
                 del fields["_dlt_load_id"]
                 fields = {**fields, **default_fields}
+            if fields.get("_ph_debug"):
+                del fields["_ph_debug"]
+                fields = {**fields, **default_fields}
 
         return S3Table(
             name=self.name,
