@@ -278,7 +278,7 @@ class TestOrganizationRbacMigrations(APIBaseTest):
         self.assertIsNotNone(access_control)
         if access_control:  # Type narrowing for the type checker
             self.assertEqual(access_control.access_level, "editor")
-            self.assertEqual(access_control.role.id, self.admin_role.id)
+            self.assertEqual(access_control.role, self.admin_role)
             self.assertEqual(access_control.resource, "feature_flag")
             self.assertEqual(access_control.resource_id, str(feature_flag.id))
 
