@@ -671,7 +671,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
     ) -> ast.Expr:
         series = self.series
         filters: list[ast.Expr] = []
-        is_data_warehouse_series = isinstance(series, DataWarehouseNode)
+        is_data_warehouse_event_series = isinstance(series, DataWarehouseNode) and any(
+            series.table_name == modifier.table_name for modifier in self.modifiers.dataWarehouseEventsModifiers
+        )
 
         # Dates
         if not self._aggregation_operation.requires_query_orchestration():
@@ -698,7 +700,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             and len(self.team.test_account_filters) > 0
         ):
             for property in self.team.test_account_filters:
-                if is_data_warehouse_series:
+                if is_data_warehouse_event_series:
                     property_clone = property.copy()
                     if property_clone["type"] in ("event", "person"):
                         if property_clone["type"] == "event":
@@ -719,7 +721,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
         # Properties
         if self.query.properties is not None and self.query.properties != []:
-            if is_data_warehouse_series:
+            if is_data_warehouse_event_series:
                 data_warehouse_properties = [
                     p for p in self.query.properties if isinstance(p, DataWarehousePropertyFilter)
                 ]
