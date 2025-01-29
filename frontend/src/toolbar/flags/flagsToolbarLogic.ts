@@ -24,7 +24,11 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
             flags,
             variants,
         }),
-        setOverriddenUserFlag: (flagKey: string, overrideValue: string | boolean, payloadOverride?: any) => ({
+        setOverriddenUserFlag: (
+            flagKey: string,
+            overrideValue: string | boolean,
+            payloadOverride?: PayloadOverrides
+        ) => ({
             flagKey,
             overrideValue,
             payloadOverride,
@@ -171,12 +175,10 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
             const clientPostHog = values.posthog
             if (clientPostHog) {
                 const payloads = payloadOverride ? { [flagKey]: payloadOverride } : undefined
-                clientPostHog.featureFlags.overrideFeatureFlags(
-                    { ...values.localOverrides, [flagKey]: overrideValue },
-                    {
-                        payloads: payloads,
-                    }
-                )
+                clientPostHog.featureFlags.overrideFeatureFlags({
+                    flags: { ...values.localOverrides, [flagKey]: overrideValue },
+                    payloads: payloads,
+                })
                 toolbarPosthogJS.capture('toolbar feature flag overridden')
                 actions.checkLocalOverrides()
                 if (payloadOverride) {
@@ -191,7 +193,7 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                 const updatedFlags = { ...values.localOverrides }
                 delete updatedFlags[flagKey]
                 if (Object.keys(updatedFlags).length > 0) {
-                    clientPostHog.featureFlags.overrideFeatureFlags({ ...updatedFlags })
+                    clientPostHog.featureFlags.overrideFeatureFlags({ flags: updatedFlags })
                 } else {
                     clientPostHog.featureFlags.overrideFeatureFlags(false)
                 }
@@ -202,7 +204,8 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
         },
         savePayloadOverride: ({ flagKey }) => {
             try {
-                const payload = JSON.parse(values.draftPayloads[flagKey] || '')
+                const draftPayload = values.draftPayloads[flagKey]
+                const payload = draftPayload ? JSON.parse(draftPayload) : null
                 actions.setPayloadError(flagKey, null)
                 actions.setOverriddenUserFlag(flagKey, true, payload)
             } catch (e) {

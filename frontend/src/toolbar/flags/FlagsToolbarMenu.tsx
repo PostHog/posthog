@@ -9,7 +9,8 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { useEffect } from 'react'
+import { debounce } from 'lib/utils'
+import { useEffect, useMemo } from 'react'
 import { urls } from 'scenes/urls'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
@@ -29,6 +30,11 @@ export const FlagsToolbarMenu = (): JSX.Element => {
         savePayloadOverride,
     } = useActions(flagsToolbarLogic)
     const { apiURL, posthog: posthogClient } = useValues(toolbarConfigLogic)
+
+    const debouncedSetDraftPayload = useMemo(
+        () => debounce((key: string, value: string) => setDraftPayload(key, value), 300),
+        [setDraftPayload]
+    )
 
     useEffect(() => {
         posthogClient?.onFeatureFlags(setFeatureFlagValueFromPostHogClient)
@@ -128,7 +134,9 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                                                                 ? JSON.stringify(payloadOverride, null, 2)
                                                                 : '')
                                                         }
-                                                        onChange={(val) => setDraftPayload(feature_flag.key, val)}
+                                                        onChange={(val) =>
+                                                            debouncedSetDraftPayload(feature_flag.key, val)
+                                                        }
                                                         placeholder='{"key": "value"}'
                                                         minRows={2}
                                                     />
