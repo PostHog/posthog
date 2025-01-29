@@ -53,7 +53,6 @@ from posthog.utils import (
     get_ip_address,
     get_week_start_for_country_code,
 )
-from ee.models.rbac.access_control import AccessControl
 
 
 class PremiumMultiProjectPermissions(BasePermission):  # TODO: Rename to include "Env" in name
@@ -256,8 +255,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return self.user_permissions.team(team).effective_membership_level
 
     def get_access_control_version(self, team: Team) -> str:
-        # If they have a private project (team/environment) and no access control objects on the team then assume they are using the old access control
-        if bool(team.access_control) and not AccessControl.objects.filter(team_id=team.id).exists():
+        # If they have a private project (team/environment) then assume they are using the old access control
+        if bool(team.access_control):
             return "v1"
         return "v2"
 

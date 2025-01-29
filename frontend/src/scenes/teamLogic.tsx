@@ -161,11 +161,6 @@ export const teamLogic = kea<teamLogicType>([
                     await api.update(`api/environments/${values.currentTeamId}/complete_product_onboarding`, {
                         product_type,
                     }),
-                updateAccessControlVersion: async () => {
-                    await api.create(`api/environments/${teamLogic.values.currentTeamId}/migrate_team_rbac`)
-                    // Reload the page to reflect the new access control version
-                    window.location.reload()
-                },
             },
         ],
     })),

@@ -1,5 +1,13 @@
 import { IconCrown, IconLeave, IconLock, IconUnlock } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSelect, LemonSelectOption, LemonSnack, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonSelect,
+    LemonSelectOption,
+    LemonSnack,
+    LemonSwitch,
+    LemonTable,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
@@ -209,7 +217,8 @@ export function TeamMembers(): JSX.Element | null {
 export function TeamAccessControl(): JSX.Element {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-    const { updateCurrentTeam, updateAccessControlVersion } = useActions(teamLogic)
+    const { migrateAccessControlVersion } = useActions(organizationLogic)
+    const { updateCurrentTeam } = useActions(teamLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
     const restrictionReason = useRestrictedArea({
@@ -218,7 +227,6 @@ export function TeamAccessControl(): JSX.Element {
 
     const newAccessControl = useFeatureFlag('ROLE_BASED_ACCESS_CONTROL')
 
-    console.log('currentTeam', currentTeam)
     // Only render the new access control if they are not using the old dashboard permissions (v1) and have the feature flag enabled
     if (newAccessControl && currentTeam?.access_control_version === 'v2') {
         return <AccessControlObject resource="project" resource_id={`${currentTeam?.id}`} />
@@ -233,11 +241,11 @@ export function TeamAccessControl(): JSX.Element {
                         type="warning"
                         action={{
                             children: 'Upgrade now',
-                            onClick: () => updateAccessControlVersion(),
+                            onClick: () => migrateAccessControlVersion(),
                         }}
                     >
-                        You're eligible to upgrade to our new access control system. This will allow you to better manage
-                        access to your project.
+                        You're eligible to upgrade to our new access control system. This will allow you to better
+                        manage access to your project and resources.
                     </LemonBanner>
                 )}
                 {currentTeam?.access_control ? (

@@ -64,6 +64,10 @@ export const organizationLogic = kea<organizationLogicType>([
                 completeOnboarding: async () => await api.create('api/organizations/@current/onboarding/', {}),
             },
         ],
+        migrateAccessControlVersion: async () => {
+            await api.create('api/organizations/@current/migrate_access_control_version/', {})
+            window.location.reload()
+        },
     })),
     selectors({
         hasTagging: [
