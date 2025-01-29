@@ -142,11 +142,24 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             case _:
                 return ExperimentMetricType.COUNT
 
-    def _prepare_new_experiment_query(self) -> ast.SelectQuery:
-        # Hack to get the feature flag key and metric event from the query
+    def _get_new_experiment_query(self) -> ast.SelectQuery:
+        # Lots of shortcuts taken here, but it's a proof of concept to illustrate the idea
+
         feature_flag_key = self.feature_flag.key
+
+        # Get the metric event we should filter on
         metric_event = self.query.count_query.series[0].event
 
+        if self._get_metric_type() == ExperimentMetricType.COUNT:
+            # If the metric type is count, we just emit 1 so we can easily sum it up
+            metric_value = "1"
+        else:
+            # If the metric type is continuous, we need to extract the value from the event property
+            metric_property = self.query.count_query.series[0].math_property
+            metric_value = f"toFloat(JSONExtractRaw(properties, '{metric_property}'))"
+
+        # Exposures, find those to include in the experiment
+        # One row per entity, with the variant and first exposure time
         exposure_query = ast.SelectQuery(
             select=[
                 ast.Field(chain=["distinct_id"]),
@@ -160,13 +173,15 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             group_by=[ast.Field(chain=["variant"]), ast.Field(chain=["distinct_id"])],
         )
 
+        # Metric events seen after exposure
+        # One row per event
         events_after_exposure_query = ast.SelectQuery(
             select=[
                 ast.Field(chain=["events", "timestamp"]),
                 ast.Field(chain=["events", "distinct_id"]),
                 ast.Field(chain=["exposure", "variant"]),
                 ast.Field(chain=["events", "event"]),
-                parse_expr("1 as value"),
+                parse_expr(f"{metric_value} as value"),
             ],
             select_from=ast.JoinExpr(
                 table=ast.Field(chain=["events"]),
@@ -249,10 +264,10 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
     def _evaluate_experiment_query(self) -> list[ExperimentVariantQueryResult]:
         response = execute_hogql_query(
-            query=self._prepare_new_experiment_query(),
-            team=Team.objects.get(id=1),
-            timings=HogQLTimings(),
-            modifiers=create_default_modifiers_for_team(Team.objects.get(id=1)),
+            query=self._get_new_experiment_query(),
+            team=self.team,
+            timings=self.timings,
+            modifiers=create_default_modifiers_for_team(self.team),
         )
 
         variants: list[ExperimentVariantQueryResult] = [

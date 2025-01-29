@@ -272,7 +272,7 @@ def calculate_credible_intervals_v2_continuous(
             credible_interval = posterior.interval(upper_bound - lower_bound)
 
             # Transform back from log space and subtract epsilon
-            intervals[str(i)] = (
+            intervals[variant["key"]] = (
                 float(max(0, np.exp(credible_interval[0]) - EPSILON)),  # Ensure non-negative
                 float(max(0, np.exp(credible_interval[1]) - EPSILON)),  # Ensure non-negative
             )
