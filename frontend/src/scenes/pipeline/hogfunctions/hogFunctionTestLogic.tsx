@@ -8,12 +8,12 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { groupsModel } from '~/models/groupsModel'
 import { HogFunctionInvocationGlobals, LogEntry } from '~/types'
 
-import { hogFunctionConfigurationLogic, sanitizeConfiguration } from './hogFunctionConfigurationLogic'
+import {
+    hogFunctionConfigurationLogic,
+    HogFunctionConfigurationLogicProps,
+    sanitizeConfiguration,
+} from './hogFunctionConfigurationLogic'
 import type { hogFunctionTestLogicType } from './hogFunctionTestLogicType'
-
-export interface HogFunctionTestLogicProps {
-    id: string
-}
 
 export type HogFunctionTestInvocationForm = {
     globals: string // HogFunctionInvocationGlobals
@@ -26,12 +26,15 @@ export type HogFunctionTestInvocationResult = {
 }
 
 export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
-    props({} as HogFunctionTestLogicProps),
-    key((props) => props.id),
+    props({} as HogFunctionConfigurationLogicProps),
+    key(({ id, templateId }: HogFunctionConfigurationLogicProps) => {
+        return id ?? templateId ?? 'new'
+    }),
+
     path((id) => ['scenes', 'pipeline', 'hogfunctions', 'hogFunctionTestLogic', id]),
-    connect((props: HogFunctionTestLogicProps) => ({
+    connect((props: HogFunctionConfigurationLogicProps) => ({
         values: [
-            hogFunctionConfigurationLogic({ id: props.id }),
+            hogFunctionConfigurationLogic(props),
             [
                 'configuration',
                 'configurationHasErrors',
@@ -113,7 +116,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 const configuration = sanitizeConfiguration(values.configuration)
 
                 try {
-                    const res = await api.hogFunctions.createTestInvocation(props.id, {
+                    const res = await api.hogFunctions.createTestInvocation(props.id ?? 'new', {
                         globals,
                         mock_async_functions: data.mock_async_functions,
                         configuration,
@@ -143,6 +146,11 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
             actions.setTestInvocationValue(
                 'globals',
                 JSON.stringify({ person: values.exampleInvocationGlobals.person }, null, 2)
+            )
+        } else if (values.type === 'transformation') {
+            actions.setTestInvocationValue(
+                'globals',
+                JSON.stringify({ event: values.exampleInvocationGlobals.event }, null, 2)
             )
         } else {
             actions.setTestInvocationValue('globals', '{/* Please wait, fetching a real event. */}')

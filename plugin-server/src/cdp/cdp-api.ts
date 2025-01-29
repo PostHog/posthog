@@ -4,28 +4,28 @@ import { DateTime } from 'luxon'
 import { Hub, PluginServerService } from '../types'
 import { status } from '../utils/status'
 import { delay } from '../utils/utils'
+import { HogTransformerService } from './hog-transformations/hog-transformer.service'
 import { createCdpRedisPool } from './redis'
 import { FetchExecutorService } from './services/fetch-executor.service'
 import { HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
 import { HogFunctionManagerService } from './services/hog-function-manager.service'
 import { HogWatcherService, HogWatcherState } from './services/hog-watcher.service'
-import { LegacyPluginExecutorService } from './services/legacy-plugin-executor.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
 import { HogFunctionInvocationResult, HogFunctionQueueParametersFetchRequest, HogFunctionType, LogEntry } from './types'
-import { isLegacyPluginHogFunction } from './utils'
 
 export class CdpApi {
     private hogExecutor: HogExecutorService
     private hogFunctionManager: HogFunctionManagerService
     private fetchExecutor: FetchExecutorService
     private hogWatcher: HogWatcherService
-    private pluginExecutor: LegacyPluginExecutorService
+    private hogTransformer: HogTransformerService
+
     constructor(private hub: Hub) {
         this.hogFunctionManager = new HogFunctionManagerService(hub)
         this.hogExecutor = new HogExecutorService(hub, this.hogFunctionManager)
         this.fetchExecutor = new FetchExecutorService(hub)
         this.hogWatcher = new HogWatcherService(hub, createCdpRedisPool(hub))
-        this.pluginExecutor = new LegacyPluginExecutorService()
+        this.hogTransformer = new HogTransformerService(hub)
     }
 
     public get service(): PluginServerService {
@@ -122,6 +122,7 @@ export class CdpApi {
                 return [null, null]
             })
 
+            // NOTE: We allow the hog function to be null if it is a "new" hog function
             if (!team || (hogFunction && hogFunction.team_id !== team.id)) {
                 res.status(404).json({ error: 'Hog function not found' })
                 return
@@ -137,6 +138,7 @@ export class CdpApi {
 
             let lastResponse: HogFunctionInvocationResult | null = null
             let logs: LogEntry[] = []
+            let result: any = null
             const errors: any[] = []
 
             const triggerGlobals = {
@@ -228,12 +230,18 @@ export class CdpApi {
                     }
                 }
             } else if (compoundConfiguration.type === 'transformation') {
-                const result = isLegacyPluginHogFunction(compoundConfiguration)
-                    ? await this.pluginExecutor.execute(invocation)
-                    : this.hogExecutor.execute(invocation, { functions: transformationFunctions })
+                const response = await this.hogTransformer.executeHogFunction(compoundConfiguration, triggerGlobals)
+                logs = logs.concat(response.logs)
+                result = response.execResult
+
+                if (response.error) {
+                    errors.push(response.error)
+                }
             }
 
             res.json({
+                result: result,
+                status: errors.length > 0 ? 'error' : 'success',
                 errors: errors.map((e) => String(e)),
                 logs: logs,
             })

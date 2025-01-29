@@ -63,7 +63,7 @@ def populate_plugin_capabilities_on_workers(plugin_id: str):
 
 def create_hog_invocation_test(
     team_id: int,
-    hog_function_id: UUIDT,
+    hog_function_id: str,
     globals: dict,
     configuration: dict,
     mock_async_functions: bool,

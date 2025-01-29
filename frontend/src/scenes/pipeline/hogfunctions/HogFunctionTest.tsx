@@ -17,7 +17,8 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 
-import { hogFunctionTestLogic, HogFunctionTestLogicProps } from './hogFunctionTestLogic'
+import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
+import { hogFunctionTestLogic } from './hogFunctionTestLogic'
 
 const HogFunctionTestEditor = ({
     value,
@@ -64,14 +65,15 @@ export function HogFunctionTestPlaceholder({
     description?: string | JSX.Element
 }): JSX.Element {
     return (
-        <div className="border bg-accent-3000 rounded p-3 space-y-2">
+        <div className="p-3 space-y-2 border rounded bg-accent-3000">
             <h2 className="flex-1 m-0">{title || 'Testing'}</h2>
             <p>{description || 'Save your configuration to enable testing'}</p>
         </div>
     )
 }
 
-export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
+export function HogFunctionTest(): JSX.Element {
+    const { logicProps } = useValues(hogFunctionConfigurationLogic)
     const {
         isTestInvocationSubmitting,
         testResult,
@@ -81,7 +83,7 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
         type,
         savedGlobals,
         testInvocation,
-    } = useValues(hogFunctionTestLogic(props))
+    } = useValues(hogFunctionTestLogic(logicProps))
     const {
         submitTestInvocation,
         setTestResult,
@@ -90,16 +92,16 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
         deleteSavedGlobals,
         setSampleGlobals,
         saveGlobals,
-    } = useActions(hogFunctionTestLogic(props))
+    } = useActions(hogFunctionTestLogic(logicProps))
 
     return (
-        <Form logic={hogFunctionTestLogic} props={props} formKey="testInvocation" enableFormOnSubmit>
+        <Form logic={hogFunctionTestLogic} props={logicProps} formKey="testInvocation" enableFormOnSubmit>
             <div
                 className={clsx('border rounded p-3 space-y-2', expanded ? 'bg-bg-light min-h-120' : 'bg-accent-3000')}
             >
-                <div className="flex items-center gap-2 justify-end">
+                <div className="flex items-center justify-end gap-2">
                     <div className="flex-1 space-y-2">
-                        <h2 className="mb-0 flex gap-2 items-center">
+                        <h2 className="flex items-center gap-2 mb-0">
                             <span>Testing</span>
                             {sampleGlobalsLoading ? <Spinner /> : null}
                         </h2>
@@ -171,7 +173,7 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                                                 </LemonButton>
                                                 <LemonDivider />
                                                 {savedGlobals.map(({ name, globals }, index) => (
-                                                    <div className="flex w-full justify-between" key={index}>
+                                                    <div className="flex justify-between w-full" key={index}>
                                                         <LemonButton
                                                             data-attr="open-hog-test-data"
                                                             key={index}
@@ -240,7 +242,7 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
                     <>
                         {testResult ? (
                             <div className="space-y-2">
-                                <div className="flex justify-between items-center">
+                                <div className="flex items-center justify-between">
                                     <LemonLabel>Test invocation result </LemonLabel>
                                     <LemonTag type={testResult.status === 'success' ? 'success' : 'danger'}>
                                         {testResult.status}

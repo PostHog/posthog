@@ -469,13 +469,7 @@ export function HogFunctionConfiguration({
                                     ) : null}
                                 </div>
                             )}
-                            {showTesting ? (
-                                !id || id === 'new' ? (
-                                    <HogFunctionTestPlaceholder />
-                                ) : (
-                                    <HogFunctionTest id={id} />
-                                )
-                            ) : null}
+                            {showTesting ? <HogFunctionTest /> : null}
                             <div className="flex justify-end gap-2">{saveButtons}</div>
                         </div>
                     </div>
