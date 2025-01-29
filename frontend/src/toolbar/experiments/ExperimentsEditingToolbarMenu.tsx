@@ -66,7 +66,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                     </div>
                 </ToolbarMenu.Header>
                 <ToolbarMenu.Body>
-                    <div className="space-y-6 p-2 h-full">
+                    <div className="space-y-6 p-2">
                         <div className="flex w-full">
                             {selectedExperimentId === 'new' ? (
                                 <div className="w-full">
