@@ -270,7 +270,7 @@ function InternalDataTableVisualization(
     }
 
     return (
-        <div className="h-full hide-scrollbar flex flex-1 gap-2">
+        <div className="DataVisualization h-full hide-scrollbar flex flex-1 gap-2">
             <div className="relative w-full flex flex-col gap-4 flex-1">
                 <div className="flex flex-1 flex-row gap-4 overflow-scroll hide-scrollbar">
                     {isChartSettingsPanelOpen && (
