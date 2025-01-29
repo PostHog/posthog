@@ -39,6 +39,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
             hogFunctionConfigurationLogic(props),
             [
                 'configuration',
+                'templateId',
                 'configurationHasErrors',
                 'sampleGlobals',
                 'sampleGlobalsLoading',
@@ -50,7 +51,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
             ['groupTypes'],
         ],
         actions: [
-            hogFunctionConfigurationLogic({ id: props.id }),
+            hogFunctionConfigurationLogic(props),
             ['touchConfigurationField', 'loadSampleGlobalsSuccess', 'loadSampleGlobals', 'setSampleGlobals'],
         ],
     })),
@@ -115,7 +116,8 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 }
 
                 const globals = tryJsonParse(data.globals)
-                const configuration = sanitizeConfiguration(values.configuration)
+                const configuration = sanitizeConfiguration(values.configuration) as Record<string, any>
+                configuration.template_id = values.templateId
 
                 try {
                     const res = await api.hogFunctions.createTestInvocation(props.id ?? 'new', {
@@ -126,7 +128,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
 
                     actions.setTestResult(res)
                 } catch (e) {
-                    lemonToast.error(`An unexpected serror occurred while trying to testing the function. ${e}`)
+                    lemonToast.error(`An unexpected server error occurred while trying to testing the function. ${e}`)
                 }
             },
         },

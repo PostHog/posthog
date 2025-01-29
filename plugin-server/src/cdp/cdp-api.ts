@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 
 import { Hub, PluginServerService } from '../types'
 import { status } from '../utils/status'
-import { delay } from '../utils/utils'
+import { delay, UUIDT } from '../utils/utils'
 import { HogTransformerService } from './hog-transformations/hog-transformer.service'
 import { createCdpRedisPool } from './redis'
 import { FetchExecutorService } from './services/fetch-executor.service'
@@ -227,6 +227,9 @@ export class CdpApi {
                     }
                 }
             } else if (compoundConfiguration.type === 'transformation') {
+                // NOTE: We override the ID so that the transformer doesn't cache the result
+                // TODO: We could do this with a "special" ID to indicate no caching...
+                compoundConfiguration.id = new UUIDT().toString()
                 const response = await this.hogTransformer.executeHogFunction(compoundConfiguration, triggerGlobals)
                 logs = logs.concat(response.logs)
                 result = response.execResult
