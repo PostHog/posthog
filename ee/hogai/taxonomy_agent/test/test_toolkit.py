@@ -257,7 +257,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(toolkit.retrieve_event_property_values("event1", "bool"), "true")
         self.assertEqual(
             toolkit.retrieve_event_property_values("event1", "id"),
-            "9, 8, 7, 6, 5 and 5 more distinct values.",
+            "9, 8, 7, 6, 5, 4, 3, 2, 1, 0",
         )
         self.assertEqual(
             toolkit.retrieve_event_property_values("event1", "date"), f'"{datetime(2024, 1, 1).isoformat()}"'
