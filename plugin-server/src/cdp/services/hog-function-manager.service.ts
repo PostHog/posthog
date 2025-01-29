@@ -26,6 +26,7 @@ const HOG_FUNCTION_FIELDS = [
     'masking',
     'type',
     'template_id',
+    'execution_order',
 ]
 
 export class HogFunctionManagerService {
