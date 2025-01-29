@@ -43,6 +43,9 @@ export const defaultSurveyAppearance = {
     displayThankYouMessage: true,
     thankYouMessageHeader: 'Thank you for your feedback!',
     position: 'right',
+    widgetType: 'tab' as const,
+    widgetLabel: 'Feedback',
+    widgetColor: 'black',
 }
 
 export const defaultSurveyFieldValues = {

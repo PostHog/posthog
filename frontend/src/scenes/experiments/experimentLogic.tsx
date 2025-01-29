@@ -3,12 +3,13 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
+import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hasFormErrors, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import {
     indexToVariantKeyFeatureFlagPayloads,
@@ -43,16 +44,13 @@ import {
     Breadcrumb,
     BreakdownAttributionType,
     BreakdownType,
-    ChartDisplayType,
     CohortType,
     CountPerActorMathType,
     DashboardType,
     Experiment,
     FeatureFlagType,
-    FunnelConversionWindowTimeUnit,
     FunnelExperimentVariant,
     FunnelStep,
-    FunnelVizType,
     InsightType,
     MultivariateFlagVariant,
     ProductKey,
@@ -262,6 +260,8 @@ export const experimentLogic = kea<experimentLogicType>([
         closePrimarySharedMetricModal: true,
         openSecondarySharedMetricModal: (sharedMetricId: SharedMetric['id'] | null) => ({ sharedMetricId }),
         closeSecondarySharedMetricModal: true,
+        openVariantDeltaTimeseriesModal: true,
+        closeVariantDeltaTimeseriesModal: true,
         addSharedMetricsToExperiment: (
             sharedMetricIds: SharedMetric['id'][],
             metadata: { type: 'primary' | 'secondary' }
@@ -566,6 +566,13 @@ export const experimentLogic = kea<experimentLogicType>([
                 closeSecondarySharedMetricModal: () => false,
             },
         ],
+        isVariantDeltaTimeseriesModalOpen: [
+            false,
+            {
+                openVariantDeltaTimeseriesModal: () => true,
+                closeVariantDeltaTimeseriesModal: () => false,
+            },
+        ],
         isCreatingExperimentDashboard: [
             false,
             {
@@ -622,6 +629,7 @@ export const experimentLogic = kea<experimentLogicType>([
                             },
                         }
                     )
+
                     if (response?.id) {
                         actions.updateExperiments(response)
                         actions.setEditExperiment(false)
@@ -641,7 +649,10 @@ export const experimentLogic = kea<experimentLogicType>([
                     })
                     if (response) {
                         actions.reportExperimentCreated(response)
-                        actions.addProductIntent({ product_type: ProductKey.EXPERIMENTS })
+                        actions.addProductIntent({
+                            product_type: ProductKey.EXPERIMENTS,
+                            intent_context: ProductIntentContext.EXPERIMENT_CREATED,
+                        })
                     }
                 }
             } catch (error: any) {
@@ -1735,6 +1746,18 @@ export const experimentLogic = kea<experimentLogicType>([
                 return primaryMetricsLengthWithSharedMetrics > 0
             },
         ],
+        firstPrimaryMetric: [
+            (s) => [s.experiment],
+            (experiment: Experiment): ExperimentTrendsQuery | ExperimentFunnelsQuery | undefined => {
+                if (experiment.metrics.length) {
+                    return experiment.metrics[0]
+                }
+                const primaryMetric = experiment.saved_metrics.find((metric) => metric.metadata.type === 'primary')
+                if (primaryMetric) {
+                    return primaryMetric.query
+                }
+            },
+        ],
         experimentStatsVersion: [
             (s) => [s.experiment],
             (experiment: Experiment): number => {
@@ -1779,7 +1802,7 @@ export const experimentLogic = kea<experimentLogicType>([
         },
     })),
     urlToAction(({ actions, values }) => ({
-        '/experiments/:id': ({ id }, _, __, currentLocation, previousLocation) => {
+        '/experiments/:id': ({ id }, query, __, currentLocation, previousLocation) => {
             const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
 
             actions.setEditExperiment(false)
@@ -1787,7 +1810,11 @@ export const experimentLogic = kea<experimentLogicType>([
             if (id && didPathChange) {
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
                 if (parsedId === 'new') {
-                    actions.resetExperiment()
+                    actions.resetExperiment({
+                        ...NEW_EXPERIMENT,
+                        metrics: query.metric ? [query.metric] : [],
+                        name: query.name ?? '',
+                    })
                 }
                 if (parsedId !== 'new' && parsedId === values.experimentId) {
                     actions.loadExperiment()
@@ -1806,63 +1833,4 @@ export function percentageDistribution(variantCount: number): number[] {
         percentages[i] += 1
     }
     return percentages
-}
-
-export function getDefaultTrendsMetric(): ExperimentTrendsQuery {
-    return {
-        kind: NodeKind.ExperimentTrendsQuery,
-        count_query: {
-            kind: NodeKind.TrendsQuery,
-            series: [
-                {
-                    kind: NodeKind.EventsNode,
-                    name: '$pageview',
-                    event: '$pageview',
-                },
-            ],
-            interval: 'day',
-            dateRange: {
-                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
-                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-                explicitDate: true,
-            },
-            trendsFilter: {
-                display: ChartDisplayType.ActionsLineGraph,
-            },
-            filterTestAccounts: true,
-        },
-    }
-}
-
-export function getDefaultFunnelsMetric(): ExperimentFunnelsQuery {
-    return {
-        kind: NodeKind.ExperimentFunnelsQuery,
-        funnels_query: {
-            kind: NodeKind.FunnelsQuery,
-            filterTestAccounts: true,
-            dateRange: {
-                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
-                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-                explicitDate: true,
-            },
-            series: [
-                {
-                    kind: NodeKind.EventsNode,
-                    event: '$pageview',
-                    name: '$pageview',
-                },
-                {
-                    kind: NodeKind.EventsNode,
-                    event: '$pageview',
-                    name: '$pageview',
-                },
-            ],
-            funnelsFilter: {
-                funnelVizType: FunnelVizType.Steps,
-                funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Day,
-                funnelWindowInterval: 14,
-                layout: FunnelLayout.horizontal,
-            },
-        },
-    }
 }

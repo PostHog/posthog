@@ -722,6 +722,7 @@ export interface ChartSettings {
     /** Whether we fill the bars to 100% in stacked mode */
     stackBars100?: boolean
     seriesBreakdownColumn?: string | null
+    showLegend?: boolean
 }
 
 export interface ConditionalFormattingRule {
@@ -1450,6 +1451,7 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
         forceSamplingRate?: SamplingRate
     }
     filterTestAccounts?: boolean
+    includeRevenue?: boolean
     /** @deprecated ignored, always treated as enabled **/
     useSessionsTable?: boolean
 }
@@ -1458,7 +1460,7 @@ export interface WebOverviewQuery extends WebAnalyticsQueryBase<WebOverviewQuery
     kind: NodeKind.WebOverviewQuery
 }
 
-export type WebOverviewItemKind = 'unit' | 'duration_s' | 'percentage'
+export type WebOverviewItemKind = 'unit' | 'duration_s' | 'percentage' | 'currency'
 export interface WebOverviewItem {
     key: string
     value?: number
@@ -2292,3 +2294,12 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
 }
 
 export type CachedTracesQueryResponse = CachedQueryResponse<TracesQueryResponse>
+
+export interface RevenueTrackingEventItem {
+    eventName: string
+    revenueProperty: string
+}
+
+export interface RevenueTrackingConfig {
+    events: RevenueTrackingEventItem[]
+}

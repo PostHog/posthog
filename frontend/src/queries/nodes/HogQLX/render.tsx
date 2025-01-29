@@ -59,7 +59,7 @@ export function renderHogQLX(value: any): JSX.Element {
             const { href, children, source, target } = rest
             return (
                 <ErrorBoundary>
-                    <Link to={href} target={target ?? '_self'}>
+                    <Link to={href} target={target ?? undefined}>
                         {children ?? source ? renderHogQLX(children ?? source) : href}
                     </Link>
                 </ErrorBoundary>
