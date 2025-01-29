@@ -158,7 +158,7 @@ export type LemonTreeProps = HTMLAttributes<HTMLDivElement> & {
     /** Whether to expand all folders by default. Defaults to false. Disabled folders will not be expanded. */
     expandAllFolders?: boolean
     /** The icon to use for node items. Defaults to <IconChevronRight />. */
-    defaultNodeIcon?: any
+    defaultNodeIcon?: React.ReactNode
     /** Whether to show an active state on folder nodes when selected. Defaults to false. */
     showFolderActiveState?: boolean
     /** handler for folder clicks.
