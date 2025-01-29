@@ -60,6 +60,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         toggleExpanded: (expanded?: boolean) => ({ expanded }),
         saveGlobals: (name: string, globals: HogFunctionInvocationGlobals) => ({ name, globals }),
         deleteSavedGlobals: (index: number) => ({ index }),
+        setTestResultMode: (mode: 'raw' | 'diff') => ({ mode }),
     }),
     reducers({
         expanded: [
@@ -73,6 +74,13 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
             null as HogFunctionTestInvocationResult | null,
             {
                 setTestResult: (_, { result }) => result,
+            },
+        ],
+
+        testResultMode: [
+            'diff' as 'raw' | 'diff',
+            {
+                setTestResultMode: (_, { mode }) => mode,
             },
         ],
 

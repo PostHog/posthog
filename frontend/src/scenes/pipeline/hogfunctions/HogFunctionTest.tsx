@@ -1,11 +1,12 @@
 import { IconInfo, IconX } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonDivider,
     LemonLabel,
+    LemonSegmentedButton,
     LemonSwitch,
     LemonTable,
-    LemonTag,
     Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
@@ -83,6 +84,7 @@ export function HogFunctionTest(): JSX.Element {
         type,
         savedGlobals,
         testInvocation,
+        testResultMode,
     } = useValues(hogFunctionTestLogic(logicProps))
     const {
         submitTestInvocation,
@@ -92,6 +94,7 @@ export function HogFunctionTest(): JSX.Element {
         deleteSavedGlobals,
         setSampleGlobals,
         saveGlobals,
+        setTestResultMode,
     } = useActions(hogFunctionTestLogic(logicProps))
 
     return (
@@ -235,49 +238,72 @@ export function HogFunctionTest(): JSX.Element {
                     <>
                         {testResult ? (
                             <div className="space-y-2">
+                                <LemonBanner type={testResult.status === 'success' ? 'success' : 'error'}>
+                                    {testResult.status === 'success' ? 'Success' : 'Error'}
+                                </LemonBanner>
+
                                 {type === 'transformation' ? (
                                     <>
-                                        <LemonLabel>Transformation result</LemonLabel>
-                                        <CodeEditorResizeable
-                                            language="json"
-                                            originalValue={JSON.stringify(
-                                                JSON.parse(testInvocation.globals).event,
-                                                null,
-                                                2
-                                            )}
-                                            value={JSON.stringify(testResult.result, null, 2)}
-                                            height={400}
-                                            options={{
-                                                readOnly: true,
-                                                lineNumbers: 'off',
-                                                minimap: {
-                                                    enabled: false,
-                                                },
-                                                quickSuggestions: {
-                                                    other: true,
-                                                    strings: true,
-                                                },
-                                                suggest: {
-                                                    showWords: false,
-                                                    showFields: false,
-                                                    showKeywords: false,
-                                                },
-                                                scrollbar: {
-                                                    vertical: 'hidden',
-                                                    verticalScrollbarSize: 0,
-                                                },
-                                                folding: true,
-                                            }}
-                                        />
+                                        <div className="flex items-center justify-between gap-2">
+                                            <LemonLabel>Transformation result</LemonLabel>
+
+                                            <LemonSegmentedButton
+                                                size="xsmall"
+                                                options={[
+                                                    { value: 'raw', label: 'Output' },
+                                                    { value: 'diff', label: 'Diff' },
+                                                ]}
+                                                onChange={(value) => setTestResultMode(value as 'raw' | 'diff')}
+                                                value={testResultMode}
+                                            />
+                                        </div>
+                                        <p>Below you can see the event after the transformation has been applied.</p>
+                                        {testResult.result ? (
+                                            <CodeEditorResizeable
+                                                language="json"
+                                                originalValue={
+                                                    testResultMode === 'diff'
+                                                        ? JSON.stringify(
+                                                              JSON.parse(testInvocation.globals).event,
+                                                              null,
+                                                              2
+                                                          )
+                                                        : undefined
+                                                }
+                                                value={JSON.stringify(testResult.result, null, 2)}
+                                                height={400}
+                                                options={{
+                                                    readOnly: true,
+                                                    lineNumbers: 'off',
+                                                    minimap: {
+                                                        enabled: false,
+                                                    },
+                                                    quickSuggestions: {
+                                                        other: true,
+                                                        strings: true,
+                                                    },
+                                                    suggest: {
+                                                        showWords: false,
+                                                        showFields: false,
+                                                        showKeywords: false,
+                                                    },
+                                                    scrollbar: {
+                                                        vertical: 'hidden',
+                                                        verticalScrollbarSize: 0,
+                                                    },
+                                                    folding: true,
+                                                }}
+                                            />
+                                        ) : (
+                                            <LemonBanner type="warning">
+                                                The event was dropped by the transformation. If this is expected then
+                                                great news! If not, you should double check the configuration.
+                                            </LemonBanner>
+                                        )}
                                     </>
                                 ) : null}
 
-                                <div className="flex items-center justify-between">
-                                    <LemonLabel>Test invocation logs </LemonLabel>
-                                    <LemonTag type={testResult.status === 'success' ? 'success' : 'danger'}>
-                                        {testResult.status}
-                                    </LemonTag>
-                                </div>
+                                <LemonLabel>Test invocation logs</LemonLabel>
 
                                 <LemonTable
                                     dataSource={testResult.logs ?? []}
