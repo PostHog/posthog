@@ -4,8 +4,7 @@ import { randomBytes } from 'crypto'
 import { PassThrough } from 'stream'
 
 import { status } from '../../../../utils/status'
-import { StreamWithFinish } from './session-batch-recorder'
-import { SessionBatchWriter } from './session-batch-writer'
+import { SessionBatchWriter, StreamWithFinish } from './session-batch-writer'
 
 export class S3SessionBatchWriter implements SessionBatchWriter {
     private readonly s3: S3Client

@@ -1,16 +1,9 @@
-import { Writable } from 'stream'
-
 import { status } from '../../../../utils/status'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithTeam } from '../teams/types'
 import { SessionBatchMetrics } from './metrics'
 import { SessionRecorder } from './recorder'
 import { SessionBatchWriter } from './session-batch-writer'
-
-export interface StreamWithFinish {
-    stream: Writable
-    finish: () => Promise<void>
-}
 
 export class SessionBatchRecorder {
     private readonly partitionSessions = new Map<number, Map<string, SessionRecorder>>()
