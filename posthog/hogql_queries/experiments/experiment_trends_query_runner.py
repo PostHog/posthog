@@ -237,7 +237,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             select=[
                 ast.Field(chain=["base", "variant"]),
                 ast.Field(chain=["base", "distinct_id"]),
-                parse_expr("sum(coalesce(eae.value, 0)) as count"),
+                parse_expr("sum(coalesce(eae.value, 0)) as value"),
             ],
             select_from=ast.JoinExpr(
                 table=exposure_query,
@@ -278,8 +278,8 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             select=[
                 ast.Field(chain=["maq", "variant"]),
                 parse_expr("count(maq.distinct_id) as num_users"),
-                parse_expr("sum(maq.count) as total_sum"),
-                parse_expr("sum(maq.count * maq.count) as total_sum_of_squares"),
+                parse_expr("sum(maq.value) as total_sum"),
+                parse_expr("sum(power(maq.value, 2)) as total_sum_of_squares"),
             ],
             select_from=ast.JoinExpr(table=metrics_aggregated_per_entity_query, alias="maq"),
             group_by=[ast.Field(chain=["maq", "variant"])],
