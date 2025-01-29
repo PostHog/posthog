@@ -1,9 +1,25 @@
 import { LemonButton, LemonDialog, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { RenderDataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseManagedSourcesTable'
+import { urls } from 'scenes/urls'
 
 import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema'
+import { PipelineNodeTab, PipelineStage } from '~/types'
 
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
+
+function mapUrlToProvider(url: string): string {
+    if (url.includes('.s3.amazonaws.com')) {
+        return 'aws'
+    } else if (url.startsWith('https://storage.googleapis.com')) {
+        return 'google-cloud'
+    } else if (url.includes('.blob.')) {
+        return 'azure'
+    }
+    // todo include fallback
+    return ''
+}
 
 export function DataWarehouseSelfManagedSourcesTable(): JSX.Element {
     const { selfManagedTables } = useValues(dataWarehouseSettingsLogic)
@@ -15,9 +31,27 @@ export function DataWarehouseSelfManagedSourcesTable(): JSX.Element {
             pagination={{ pageSize: 10 }}
             columns={[
                 {
+                    width: 0,
+                    render: function RenderAppInfo(_, item: DatabaseSchemaDataWarehouseTable) {
+                        return <RenderDataWarehouseSourceIcon type={mapUrlToProvider(item.url_pattern)} />
+                    },
+                },
+                {
                     title: 'Name',
                     dataIndex: 'name',
                     key: 'name',
+                    render: (_, item: DatabaseSchemaDataWarehouseTable) => {
+                        return (
+                            <LemonTableLink
+                                to={urls.pipelineNode(
+                                    PipelineStage.Source,
+                                    `self-managed-${item.id}`,
+                                    PipelineNodeTab.SourceConfiguration
+                                )}
+                                title={item.name}
+                            />
+                        )
+                    },
                 },
                 {
                     key: 'actions',

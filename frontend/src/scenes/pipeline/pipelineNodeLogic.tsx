@@ -110,6 +110,10 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
                         return { backend: PipelineBackend.ManagedSource, id: `${id}`.replace('managed-', '') }
                     }
 
+                    if (id.indexOf('self-managed') === 0) {
+                        return { backend: PipelineBackend.DataWarehouse, id: `${id}`.replace('self-managed-', '') }
+                    }
+
                     return { backend: PipelineBackend.BatchExport, id }
                 }
 
