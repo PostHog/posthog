@@ -27,6 +27,8 @@ from posthog.batch_exports.models import (
 )
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import BATCH_EXPORTS_TASK_QUEUE, SYNC_BATCH_EXPORTS_TASK_QUEUE
+from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.hogql import HogQLContext
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
     a_pause_schedule,
@@ -58,15 +60,18 @@ class BatchExportSchema(typing.TypedDict):
 
 
 @dataclass
+class BatchExportEventPropertyFilter:
+    key: str
+    operator: str
+    type: str
+    value: list[str]
+
+
+@dataclass
 class BatchExportModel:
     name: str
     schema: BatchExportSchema | None
-
-
-class BatchExportsInputsProtocol(typing.Protocol):
-    team_id: int
-    batch_export_model: BatchExportModel | None = None
-    is_backfill: bool = False
+    filters: list[dict[str, str | list[str]]] | None = None
 
 
 @dataclass
@@ -670,6 +675,13 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
     destination_config = {k: v for k, v in batch_export.destination.config.items() if k in destination_config_fields}
     task_queue = SYNC_BATCH_EXPORTS_TASK_QUEUE if batch_export.destination.type == "HTTP" else BATCH_EXPORTS_TASK_QUEUE
 
+    context = HogQLContext(
+        team_id=batch_export.team.id,
+        enable_select_queries=True,
+        limit_top_select=False,
+    )
+    context.database = create_hogql_database(batch_export.team.id, context.modifiers)
+
     temporal = sync_connect()
     schedule = Schedule(
         action=ScheduleActionStartWorkflow(
@@ -682,6 +694,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
                     batch_export_model=BatchExportModel(
                         name=batch_export.model or "events",
                         schema=batch_export.schema,
+                        filters=batch_export.filters,
                     ),
                     # TODO: This field is deprecated, but we still set it for backwards compatibility.
                     # New exports created will always have `batch_export_schema` set to `None`, but existing
