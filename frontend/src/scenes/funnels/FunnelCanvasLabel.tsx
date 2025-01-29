@@ -4,24 +4,14 @@ import { useActions, useValues } from 'kea'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration, percentage } from 'lib/utils'
 import { ProductIntentContext } from 'lib/utils/product-intents'
-import merge from 'lodash.merge'
 import React from 'react'
-import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from 'scenes/experiments/experimentLogic'
+import { getExperimentMetricFromInsight } from 'scenes/experiments/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { FunnelStepsPicker } from 'scenes/insights/views/Funnels/FunnelStepsPicker'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import {
-    ExperimentFunnelsQuery,
-    ExperimentTrendsQuery,
-    type FunnelsQuery,
-    NodeKind,
-    type TrendsQuery,
-} from '~/queries/schema/schema-general'
-import { isFunnelsQuery, isTrendsQuery } from '~/queries/utils'
-import { isNodeWithSource, isValidQueryForExperiment } from '~/queries/utils'
 import { FunnelVizType, ProductKey, type QueryBasedInsightModel } from '~/types'
 
 export function FunnelCanvasLabel(): JSX.Element | null {
@@ -118,54 +108,4 @@ export function FunnelCanvasLabel(): JSX.Element | null {
             ))}
         </div>
     )
-}
-
-export function getExperimentMetricFromInsight(
-    insight: QueryBasedInsightModel | null
-): ExperimentTrendsQuery | ExperimentFunnelsQuery | undefined {
-    if (!insight?.query || !isValidQueryForExperiment(insight?.query) || !isNodeWithSource(insight.query)) {
-        return undefined
-    }
-
-    const metricName = (insight?.name || insight?.derived_name) ?? undefined
-
-    if (isFunnelsQuery(insight.query.source)) {
-        const defaultFunnelsQuery = getDefaultFunnelsMetric().funnels_query
-
-        const funnelsQuery: FunnelsQuery = merge(defaultFunnelsQuery, {
-            series: insight.query.source.series,
-            funnelsFilter: {
-                funnelAggregateByHogQL: insight.query.source.funnelsFilter?.funnelAggregateByHogQL,
-                funnelWindowInterval: insight.query.source.funnelsFilter?.funnelWindowInterval,
-                funnelWindowIntervalUnit: insight.query.source.funnelsFilter?.funnelWindowIntervalUnit,
-                layout: insight.query.source.funnelsFilter?.layout,
-                breakdownAttributionType: insight.query.source.funnelsFilter?.breakdownAttributionType,
-                breakdownAttributionValue: insight.query.source.funnelsFilter?.breakdownAttributionValue,
-            },
-            filterTestAccounts: insight.query.source.filterTestAccounts,
-        })
-
-        return {
-            kind: NodeKind.ExperimentFunnelsQuery,
-            funnels_query: funnelsQuery,
-            name: metricName,
-        }
-    }
-
-    if (isTrendsQuery(insight.query.source)) {
-        const defaultTrendsQuery = getDefaultTrendsMetric().count_query
-
-        const trendsQuery: TrendsQuery = merge(defaultTrendsQuery, {
-            series: insight.query.source.series,
-            filterTestAccounts: insight.query.source.filterTestAccounts,
-        })
-
-        return {
-            kind: NodeKind.ExperimentTrendsQuery,
-            count_query: trendsQuery,
-            name: metricName,
-        }
-    }
-
-    return undefined
 }
