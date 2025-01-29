@@ -167,6 +167,7 @@ jobs:
               if: needs.changes.outputs.plugin-server == 'true'
               run: |
                   cd plugin-server
+                  pnpm install --frozen-lockfile --filter @posthog/frontend --prod # Only doing it for nx to work
                   pnpm install --frozen-lockfile --filter @posthog/plugin-server...
                   cd .. && bin/nx deps:build plugin-server --verbose
 
@@ -262,6 +263,7 @@ jobs:
               if: needs.changes.outputs.plugin-server == 'true'
               run: |
                   cd plugin-server
+                  pnpm install --frozen-lockfile --filter @posthog/frontend --prod # Only doing it for nx to work
                   pnpm install --frozen-lockfile --filter @posthog/plugin-server...
                   cd .. && bin/nx deps:build plugin-server --verbose
 
