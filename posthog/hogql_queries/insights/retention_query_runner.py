@@ -181,9 +181,9 @@ class RetentionQueryRunner(QueryRunner):
                     # cast this to start of interval as well so we can compare with the timestamps fetched above
                     "min_timestamp": self.query_date_range.date_to_start_of_interval_hogql(
                         parse_expr(
-                            "minIf(events.timestamp, {start_event_timestamps})",
+                            "minIf(events.timestamp, {start_entity_expr})",
                             {
-                                "start_event_timestamps": start_entity_expr,
+                                "start_entity_expr": start_entity_expr,
                             },
                         )
                     ),

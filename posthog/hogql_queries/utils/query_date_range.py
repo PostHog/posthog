@@ -285,7 +285,7 @@ class QueryDateRange:
         }
 
 
-PERIOD_MAP = {
+PERIOD_MAP: dict[str, timedelta] = {
     "minute": timedelta(minutes=1),
     "hour": timedelta(hours=1),
     "day": timedelta(days=1),
@@ -305,7 +305,7 @@ class QueryDateRangeWithIntervals(QueryDateRange):
         date_range: Optional[DateRange],
         total_intervals: int,
         team: Team,
-        interval: Optional[IntervalType],
+        interval: IntervalType,
         now: datetime,
     ) -> None:
         super().__init__(date_range, team, interval, now)
@@ -324,6 +324,8 @@ class QueryDateRangeWithIntervals(QueryDateRange):
         """
         Number of intervals between date_from and date_to
         """
+        assert self._interval
+
         date_from = self.date_from()
         delta = PERIOD_MAP[self._interval.lower()]
 
@@ -335,6 +337,8 @@ class QueryDateRangeWithIntervals(QueryDateRange):
         return intervals
 
     def date_from(self) -> datetime:
+        assert self._interval
+
         # if date_from is present in retention query then use it
         if self._date_range and self._date_range.date_from:
             date_from = super().date_from()
