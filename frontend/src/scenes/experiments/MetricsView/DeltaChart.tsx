@@ -201,7 +201,7 @@ export function DeltaChart({
         return () => {
             resizeObserver.disconnect()
         }
-    }, [])
+    }, [result])
 
     return (
         <div className="rounded bg-[var(--bg-table)]">
