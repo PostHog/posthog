@@ -1105,8 +1105,12 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                 {featureFlag.is_remote_configuration && (
                                     <div className="text-sm text-muted mt-4">
                                         Note: remote config flags must be accessed through payloads, e.g.{' '}
-                                        <span className="font-mono font-bold">getFeatureFlagPayload</span>. Using
-                                        standard SDK methods such as{' '}
+                                        <span className="font-mono font-bold">
+                                            {featureFlag.has_encrypted_payloads
+                                                ? 'getDecryptedFeatureFlagPayload'
+                                                : 'getFeatureFlagPayload'}
+                                        </span>
+                                        . Using standard SDK methods such as{' '}
                                         <span className="font-mono font-bold">getFeatureFlag</span> or{' '}
                                         <span className="font-mono font-bold">isFeatureEnabled</span> will always return{' '}
                                         <span className="font-mono font-bold">true</span>

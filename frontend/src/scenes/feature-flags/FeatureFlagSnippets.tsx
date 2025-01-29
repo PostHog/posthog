@@ -9,7 +9,6 @@ import { featureFlagLogic } from './featureFlagLogic'
 
 export const UTM_TAGS = '?utm_medium=in-product&utm_campaign=feature-flag'
 export interface FeatureFlagSnippet {
-    flagId: string
     flagKey: string
     multivariant?: boolean
     groupType?: GroupType
@@ -531,8 +530,7 @@ export function APISnippet({ groupType, encryptedPayload }: FeatureFlagSnippet):
                         featureFlag.id
                     }/remote_config/ \\
 -H 'Content-Type: application/json' \\
--H 'Authorization: Bearer [personal_api_key]' 
-                `}
+-H 'Authorization: Bearer [personal_api_key]'`}
                 </CodeSnippet>
             </>
         )

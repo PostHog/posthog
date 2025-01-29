@@ -59,9 +59,7 @@ export function CodeInstructions({
 }: CodeInstructionsProps): JSX.Element {
     const encryptedPayload = featureFlag?.has_encrypted_payloads
 
-    const [defaultSelectedOption] = encryptedPayload
-        ? options.filter((option) => option.key === SDKKey.NODE_JS)
-        : options
+    const [defaultSelectedOption] = encryptedPayload ? options.filter((option) => option.key === SDKKey.API) : options
 
     const [selectedOption, setSelectedOption] = useState(defaultSelectedOption)
     const [bootstrapOption, setBootstrapOption] = useState(BOOTSTRAPPING_OPTIONS[0])
@@ -126,12 +124,13 @@ export function CodeInstructions({
             setShowBootstrapCode(false)
         }
     }
+
     useEffect(() => {
         if (selectedLanguage) {
             selectOption(selectedLanguage)
         } else {
             // When flag definition changes, de-select any options that can't be selected anymore
-            selectOption(selectedOption.key)
+            selectOption(defaultSelectedOption.key)
         }
 
         if (

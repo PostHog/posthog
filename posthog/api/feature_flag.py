@@ -351,6 +351,7 @@ class FeatureFlagSerializer(
         )  # default to "feature_flags" if an alternative value is not provided
 
         self._update_filters(validated_data)
+        encrypt_flag_payloads(validated_data)
 
         variants = (validated_data.get("filters", {}).get("multivariate", {}) or {}).get("variants", [])
         variant_rollout_sum = 0
