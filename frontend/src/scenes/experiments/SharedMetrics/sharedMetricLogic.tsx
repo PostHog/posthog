@@ -7,7 +7,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { UserBasicType } from '~/types'
 
-import { getDefaultTrendsMetric } from '../experimentLogic'
+import { getDefaultTrendsMetric } from '../utils'
 import type { sharedMetricLogicType } from './sharedMetricLogicType'
 import { sharedMetricsLogic } from './sharedMetricsLogic'
 
