@@ -93,7 +93,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                         onValueChange={(s) => setExpandedItemIds(s)}
                         ref={ref}
                         key={item.id}
-                        disabled={item.disabledReason ? true : false}
+                        disabled={!!item.disabledReason}
                     >
                         <AccordionPrimitive.Item value={item.id} className="flex flex-col w-full">
                             <AccordionPrimitive.Trigger className="flex items-center gap-2 w-full h-8" asChild>
