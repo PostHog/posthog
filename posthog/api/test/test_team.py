@@ -13,7 +13,7 @@ from temporalio.service import RPCError
 
 from posthog.api.test.batch_exports.conftest import start_test_worker
 from posthog.constants import AvailableFeature
-from posthog.models import ActivityLog, EarlyAccessFeature, FeatureFlag
+from posthog.models import ActivityLog, EarlyAccessFeature
 from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.dashboard import Dashboard
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -28,11 +28,6 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule
 from posthog.test.base import APIBaseTest
 from posthog.utils import get_instance_realm
-from ee.models.rbac.access_control import AccessControl
-from ee.models.explicit_team_membership import ExplicitTeamMembership
-from ee.models.rbac.role import Role, RoleMembership
-from ee.models.rbac.access_control import AccessControl
-from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
 
 
 def team_api_test_factory():

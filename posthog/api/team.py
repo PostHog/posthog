@@ -3,8 +3,6 @@ from datetime import UTC, datetime, timedelta
 from functools import cached_property
 from typing import Any, Optional, cast
 from uuid import UUID
-from rest_framework.request import Request
-from rest_framework.response import Response
 
 from django.shortcuts import get_object_or_404
 from loginas.utils import is_impersonated_session
@@ -713,7 +711,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
     @cached_property
     def user_permissions(self):
-        team = self.get_object() if self.action in ["reset_token", "migrate_team_rbac"] else None
+        team = self.get_object() if self.action in ["reset_token"] else None
         return UserPermissions(cast(User, self.request.user), team)
 
 
