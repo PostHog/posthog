@@ -129,7 +129,7 @@ export function validateFeatureFlagKey(key: string): string | undefined {
         : undefined
 }
 
-function validatePayloadRequired(payload: JsonType, is_remote_configuration: boolean): string | undefined {
+function validatePayloadRequired(is_remote_configuration: boolean, payload?: JsonType): string | undefined {
     if (!is_remote_configuration) {
         return undefined
     }
@@ -322,9 +322,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             ValidationErrorType
                         >[],
                         payloads: {
-                            true: validatePayloadRequired(filters?.payloads['true'], is_remote_configuration),
-                        } as unknown as DeepPartialMap<Record<string, JsonType>, ValidationErrorType> | undefined,
-                        // Forced cast necessary to prevent Kea's typechecking from raising "Type instantiation
+                            true: validatePayloadRequired(is_remote_configuration, filters?.payloads?.['true']),
+                        } as any,
+                        // Forced any cast necessary to prevent Kea's typechecking from raising "Type instantiation
                         // is excessively deep and possibly infinite" error
                     },
                 }

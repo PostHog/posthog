@@ -560,7 +560,7 @@ impl FeatureFlagMatcher {
                     }
                     Err(e) => {
                         errors_while_computing_flags = true;
-                        // TODO add sentry exception tracking
+                        // TODO add posthog error tracking
                         error!(
                             "Error evaluating feature flag '{}' for distinct_id '{}': {:?}",
                             flag.key, self.distinct_id, e
@@ -975,7 +975,11 @@ impl FeatureFlagMatcher {
         {
             Ok(overrides)
         } else {
-            self.get_person_properties_from_cache_or_db().await
+            match self.get_person_properties_from_cache_or_db().await {
+                Ok(props) => Ok(props),
+                Err(FlagError::PersonNotFound) => Ok(HashMap::new()), // NB: If we can't find a person ID associated with the distinct ID, return an empty map
+                Err(e) => Err(e),
+            }
         }
     }
 
@@ -2121,10 +2125,10 @@ mod tests {
             None,
             None,
         );
-        let match_result = matcher.get_match(&flag, None, None).await;
+        let match_result = matcher.get_match(&flag, None, None).await.unwrap();
 
-        // Expecting an error for non-existent distinct_id
-        assert!(match_result.is_err());
+        // Expecting false for non-existent distinct_id
+        assert!(!match_result.matches);
     }
 
     #[tokio::test]

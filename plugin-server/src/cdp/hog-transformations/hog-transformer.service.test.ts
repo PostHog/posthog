@@ -75,7 +75,7 @@ describe('HogTransformer', () => {
             const event: PluginEvent = createPluginEvent()
             const result = await hogTransformer.transformEvent(event)
 
-            expect(result?.properties).toMatchInlineSnapshot(`
+            expect(result.event?.properties).toMatchInlineSnapshot(`
                 {
                   "$current_url": "https://example.com",
                   "$geoip_accuracy_radius": 76,
@@ -149,7 +149,15 @@ describe('HogTransformer', () => {
             const event: PluginEvent = createPluginEvent({ event: 'drop-me' })
             const result = await hogTransformer.transformEvent(event)
             expect(hogTransformer['pluginExecutor'].execute).toHaveBeenCalledTimes(1)
-            expect(result).toBeNull()
+            expect(result).toMatchInlineSnapshot(`
+                {
+                  "event": null,
+                  "messagePromises": [
+                    Promise {},
+                    Promise {},
+                  ],
+                }
+            `)
         })
 
         it('handles legacy plugin transformation to drop events', async () => {
@@ -159,18 +167,24 @@ describe('HogTransformer', () => {
             expect(hogTransformer['pluginExecutor'].execute).toHaveBeenCalledTimes(1)
             expect(result).toMatchInlineSnapshot(`
                 {
-                  "distinct_id": "distinct-id",
-                  "event": "keep-me",
-                  "ip": "89.160.20.129",
-                  "now": "2024-06-07T12:00:00.000Z",
-                  "properties": {
-                    "$current_url": "https://example.com",
-                    "$ip": "89.160.20.129",
+                  "event": {
+                    "distinct_id": "distinct-id",
+                    "event": "keep-me",
+                    "ip": "89.160.20.129",
+                    "now": "2024-06-07T12:00:00.000Z",
+                    "properties": {
+                      "$current_url": "https://example.com",
+                      "$ip": "89.160.20.129",
+                    },
+                    "site_url": "http://localhost",
+                    "team_id": 1,
+                    "timestamp": "2024-01-01T00:00:00Z",
+                    "uuid": "event-id",
                   },
-                  "site_url": "http://localhost",
-                  "team_id": 1,
-                  "timestamp": "2024-01-01T00:00:00Z",
-                  "uuid": "event-id",
+                  "messagePromises": [
+                    Promise {},
+                    Promise {},
+                  ],
                 }
             `)
         })

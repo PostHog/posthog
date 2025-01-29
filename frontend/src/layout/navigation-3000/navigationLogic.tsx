@@ -511,7 +511,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   identifier: 'LLMObservability',
                                   label: 'LLM observability',
                                   icon: <IconAI />,
-                                  to: urls.llmObservability('dashboard'),
+                                  to: urls.llmObservabilityDashboard(),
                                   tag: 'beta' as const,
                               }
                             : null,
