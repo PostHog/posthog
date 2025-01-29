@@ -15,15 +15,15 @@ import {
 import { retentionLogic } from 'scenes/retention/retentionLogic'
 
 import { groupsModel } from '~/models/groupsModel'
-import { EditorFilterProps, FilterType, RetentionType } from '~/types'
+import { EditorFilterProps, FilterType, RetentionPeriod, RetentionType } from '~/types'
 
 import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Element {
     const { showGroupsOptions } = useValues(groupsModel)
-    const { retentionFilter } = useValues(retentionLogic(insightProps))
-    const { updateInsightFilter } = useActions(retentionLogic(insightProps))
+    const { retentionFilter, dateRange } = useValues(retentionLogic(insightProps))
+    const { updateInsightFilter, updateDateRange } = useActions(retentionLogic(insightProps))
     const { targetEntity, returningEntity, retentionType, totalIntervals, period } = retentionFilter || {}
 
     return (
@@ -94,7 +94,7 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
                 <LemonInput
                     type="number"
                     className="ml-2 w-20"
-                    defaultValue={(totalIntervals ?? 11) - 1}
+                    defaultValue={(totalIntervals ?? 7) - 1}
                     min={1}
                     max={31}
                     onBlur={({ target }) => {
@@ -113,11 +113,26 @@ export function RetentionCondition({ insightProps }: EditorFilterProps): JSX.Ele
                         }
                         target.value = newValue.toString()
                         updateInsightFilter({ totalIntervals: (newValue || 0) + 1 })
+                        if (!dateRange) {
+                            // if we haven't updated date range before changing interval type
+                            // set date range
+                            updateDateRange({
+                                date_from: `-7${(period ?? RetentionPeriod.Day)?.toLowerCase().charAt(0)}`,
+                                date_to: `now`,
+                            })
+                        }
                     }}
                 />
                 <LemonSelect
                     value={period}
-                    onChange={(value): void => updateInsightFilter({ period: value ? value : undefined })}
+                    onChange={(value): void => {
+                        updateInsightFilter({ period: value ? value : undefined })
+                        // reset date range when we change interval type
+                        updateDateRange({
+                            date_from: `-7${(value ?? RetentionPeriod.Day)?.toLowerCase().charAt(0)}`,
+                            date_to: `now`,
+                        })
+                    }}
                     options={dateOptions.map((period) => ({
                         value: period,
                         label: dateOptionPlurals[period] || period,

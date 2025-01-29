@@ -1067,7 +1067,7 @@ export type RetentionFilterLegacy = Omit<RetentionFilterType, keyof FilterType>
 export type RetentionFilter = {
     retentionType?: RetentionFilterLegacy['retention_type']
     retentionReference?: RetentionFilterLegacy['retention_reference']
-    /** @default 11 */
+    /** @default 7 */
     totalIntervals?: integer
     returningEntity?: RetentionFilterLegacy['returning_entity']
     targetEntity?: RetentionFilterLegacy['target_entity']

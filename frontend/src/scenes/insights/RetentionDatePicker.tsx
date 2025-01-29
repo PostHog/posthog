@@ -3,14 +3,12 @@ import { Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { retentionLogic } from 'scenes/retention/retentionLogic'
 
 export function RetentionDatePicker(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { dateRange, dateMappings, period } = useValues(retentionLogic(insightProps))
-
-    const { updateDateRange } = useActions(insightVizDataLogic(insightProps))
+    const { updateDateRange } = useActions(retentionLogic(insightProps))
 
     return (
         <DateFilter

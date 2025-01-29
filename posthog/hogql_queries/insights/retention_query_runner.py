@@ -34,7 +34,7 @@ from posthog.schema import (
 from posthog.schema import RetentionQuery, RetentionType
 
 DEFAULT_INTERVAL = IntervalType("day")
-DEFAULT_TOTAL_INTERVALS = 11
+DEFAULT_TOTAL_INTERVALS = 7
 
 DEFAULT_ENTITY = RetentionEntity(
     **{

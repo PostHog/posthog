@@ -20,7 +20,7 @@ export const retentionLogic = kea<retentionLogicType>([
             insightVizDataLogic(props),
             ['insightQuery', 'insightData', 'querySource', 'dateRange', 'retentionFilter'],
         ],
-        actions: [insightVizDataLogic(props), ['updateInsightFilter']],
+        actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateDateRange']],
     })),
     selectors({
         results: [

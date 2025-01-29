@@ -12423,7 +12423,7 @@
                 },
                 "totalIntervals": {
                     "$ref": "#/definitions/integer",
-                    "default": 11
+                    "default": 7
                 }
             },
             "type": "object"
