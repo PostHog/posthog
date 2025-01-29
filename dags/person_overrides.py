@@ -84,6 +84,9 @@ class PersonOverridesSnapshotTable:
             {limit_clause}
             """,
             {"timestamp": timestamp},
+            settings={
+                "optimize_aggregation_in_order": 1,  # slows down the query, but reduces memory consumption dramatically
+            },
         )
 
     def sync(self, client: Client) -> None:
