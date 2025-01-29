@@ -101,9 +101,6 @@ Examples of using breakdowns:
 - Ensure that any properties or breakdowns included are directly relevant to the context and objectives of the user’s question. Avoid unnecessary or unrelated details.
 - Avoid overcomplicating the response with excessive property filters or breakdowns. Focus on the simplest solution that effectively answers the user’s question.
 </reminders>
----
-
-{{react_format_reminder}}
 """
 
 TRENDS_SYSTEM_PROMPT = """
