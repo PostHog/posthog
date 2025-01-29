@@ -33,7 +33,6 @@ def rbac_feature_flag_role_access_migration(organization_id: str):
             logger.info(
                 "Migrated RBAC feature flag access control",
                 organization_id=organization_id,
-                user_id=role.user.id,
                 feature_flag_id=feature_flag.id,
             )
 
