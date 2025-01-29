@@ -671,8 +671,12 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
     ) -> ast.Expr:
         series = self.series
         filters: list[ast.Expr] = []
-        is_data_warehouse_event_series = isinstance(series, DataWarehouseNode) and any(
-            series.table_name == modifier.table_name for modifier in self.modifiers.dataWarehouseEventsModifiers
+        is_data_warehouse_event_series = (
+            isinstance(series, DataWarehouseNode)
+            and self.modifiers.dataWarehouseEventsModifiers is not None
+            and any(
+                series.table_name == modifier.table_name for modifier in self.modifiers.dataWarehouseEventsModifiers
+            )
         )
 
         # Dates
