@@ -7,7 +7,7 @@ export const template: HogFunctionTemplate = {
     name: 'User Agent Populator',
     description:
         "Enhances events with user agent details. User Agent plugin allows you to populate events with the $browser, $browser_version for PostHog Clients that don't  typically populate these properties",
-    icon_url: 'https://raw.githubusercontent.com/posthog/useragent-plugin/main/logo.png',
+    icon_url: 'https://raw.githubusercontent.com/posthog/user-agent-plugin/main/logo.png',
     category: ['Transformation'],
     hog: `return event`,
     inputs_schema: [
