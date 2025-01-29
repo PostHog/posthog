@@ -42,5 +42,6 @@ defs = Definitions(
     schedules=[deletes_schedule],
     resources={
         "cluster": ClickhouseClusterResource.configure_at_launch(),
+        "io_manager": resources["io_manager"],
     },
 )
