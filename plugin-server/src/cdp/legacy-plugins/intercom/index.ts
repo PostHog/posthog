@@ -190,7 +190,7 @@ function getTimestamp(meta: IntercomMeta, event: ProcessedPluginEvent): number {
 }
 
 export const intercomPlugin: LegacyPlugin = {
-    id: 'intercom',
+    id: 'posthog-intercom-plugin',
     metadata: metadata as any,
     onEvent,
     setupPlugin: () => Promise.resolve(),

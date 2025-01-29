@@ -187,6 +187,7 @@ export class IngestionConsumer {
                         event,
                     })
 
+                    // This contains the Kafka producer ACKs & message promises, to avoid blocking after every message.
                     result.ackPromises?.forEach((promise) => {
                         void this.scheduleWork(
                             promise.catch(async (error) => {

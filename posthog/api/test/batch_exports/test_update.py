@@ -322,6 +322,7 @@ def test_can_patch_hogql_query(client: HttpClient):
         assert args["interval"] == "hour"
         assert args["batch_export_model"] == {
             "name": "events",
+            "filters": None,
             "schema": {
                 "fields": [
                     {
