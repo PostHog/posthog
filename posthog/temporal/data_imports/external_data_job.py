@@ -60,7 +60,6 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
         "SSL connection has been closed unexpectedly",
         "Address not in tenant allow_list",
         "FATAL: no such database",
-        "failed: timeout expired",
     ],
     ExternalDataSource.Type.ZENDESK: ["404 Client Error: Not Found for url", "403 Client Error: Forbidden for url"],
     ExternalDataSource.Type.MYSQL: [
