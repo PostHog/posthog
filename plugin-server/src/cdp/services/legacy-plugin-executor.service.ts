@@ -110,19 +110,21 @@ export class LegacyPluginExecutorService {
                     logger: logger,
                 }
 
-                const setupPromise =
-                    'setupPlugin' in plugin
-                        ? 'processEvent' in plugin
-                            ? Promise.resolve(plugin.setupPlugin?.(meta))
-                            : Promise.resolve(
-                                  plugin.setupPlugin?.({
-                                      ...meta,
-                                      fetch,
-                                  })
-                              )
-                        : Promise.resolve()
+                let setupPromise = Promise.resolve()
 
-                // Check the type of the plugin and setup accordingly
+                if (plugin.setupPlugin) {
+                    if ('processEvent' in plugin) {
+                        // Transformation plugin takes basic meta and isn't async
+                        setupPromise = Promise.resolve(plugin.setupPlugin(meta))
+                    } else {
+                        // Destination plugin can use fetch and is async
+                        setupPromise = plugin.setupPlugin({
+                            ...meta,
+                            fetch,
+                        })
+                    }
+                }
+
                 state = this.pluginState[pluginId] = {
                     setupPromise,
                     meta,
