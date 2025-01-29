@@ -13,7 +13,6 @@ from dagster import (
     ConfigurableResource,
 )
 from django.conf import settings
-from functools import reduce
 
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
@@ -134,7 +133,7 @@ class PendingPersonEventDeletesTable:
                 FROM events e
                 INNER JOIN {self.qualified_name} d
                 ON e.team_id = d.team_id
-                AND e.distinct_id = d.person_id
+                AND e.person_id = d.person_id
                 AND e.timestamp < d.created_at
             )
             """,
@@ -294,19 +293,16 @@ def delete_person_events(
 @op
 def wait_for_delete_mutations(
     cluster: ResourceParam[ClickhouseCluster],
-    delete_person_events: tuple[PendingPersonEventDeletesTable, ShardMutations],
+    delete_person_events: tuple[PendingPersonEventDeletesTable, Mutation],
 ) -> PendingPersonEventDeletesTable:
     pending_person_deletions, shard_mutations = delete_person_events
 
     if not shard_mutations:
         return pending_person_deletions
 
-    reduce(
-        lambda x, y: x.merge(y),
-        [cluster.map_all_hosts_in_shard(shard, mutation.wait) for shard, mutation in shard_mutations.items()],
-    ).result()
-
-    return pending_person_deletions
+    [table, mutations] = delete_person_events
+    cluster.map_all_hosts(mutations.wait).result()
+    return table
 
 
 @op
