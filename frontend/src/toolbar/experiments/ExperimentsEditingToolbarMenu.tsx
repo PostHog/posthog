@@ -66,7 +66,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                     </div>
                 </ToolbarMenu.Header>
                 <ToolbarMenu.Body>
-                    <div className="space-y-6 p-2">
+                    <div className="space-y-6 p-2 h-full">
                         <div className="flex w-full">
                             {selectedExperimentId === 'new' ? (
                                 <div className="w-full">
@@ -88,7 +88,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                         </div>
                         <div>
                             <div className="flex items-center justify-between mb-2">
-                                <label className="LemonLabel">Variants</label>
+                                <LemonLabel>Variants</LemonLabel>
                                 {addVariantAvailable && (
                                     <LemonButton
                                         type="secondary"

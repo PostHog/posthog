@@ -27,26 +27,24 @@ export function WebExperimentVariantHeader({ variant }: WebExperimentVariantHead
                     <span>
                         {`Rollout: ${
                             experimentForm.variants && experimentForm.variants[variant]
-                                ? experimentForm.variants[variant].rollout_percentage!
+                                ? experimentForm.variants[variant].rollout_percentage ?? 0
                                 : 0
                         } %`}
                     </span>
                 </LemonTag>
-                <div>
-                    {removeVariantAvailable && (
-                        <LemonButton
-                            icon={<IconTrash />}
-                            size="small"
-                            className="shrink"
-                            noPadding
-                            status="danger"
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                removeVariant(variant)
-                            }}
-                        />
-                    )}
-                </div>
+                {removeVariantAvailable && (
+                    <LemonButton
+                        icon={<IconTrash />}
+                        size="small"
+                        className="shrink"
+                        noPadding
+                        status="danger"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            removeVariant(variant)
+                        }}
+                    />
+                )}
             </div>
         </div>
     )
