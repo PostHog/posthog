@@ -66,12 +66,14 @@ class PersonOverridesSnapshotTable:
     def drop(self, client: Client) -> None:
         client.execute(f"DROP TABLE IF EXISTS {self.qualified_name} SYNC")
 
-    def populate(self, client: Client) -> None:
+    def populate(self, client: Client, limit: int | None = None) -> None:
         # NOTE: this is theoretically subject to replication lag and accuracy of this result is not a guarantee
         # this could optionally support truncate as a config option if necessary to reset the table state, or
         # force an optimize after insertion to compact the table before dictionary insertion (if that's even needed)
         [[count]] = client.execute(f"SELECT count() FROM {self.qualified_name}")
         assert count == 0
+
+        limit_clause = "LIMIT {limit}" if limit else ""
 
         client.execute(
             f"""
@@ -80,6 +82,7 @@ class PersonOverridesSnapshotTable:
             FROM {settings.CLICKHOUSE_DATABASE}.{PERSON_DISTINCT_ID_OVERRIDES_TABLE}
             WHERE _timestamp < %(timestamp)s
             GROUP BY team_id, distinct_id
+            {limit_clause}
             """,
             {"timestamp": self.timestamp},
         )
