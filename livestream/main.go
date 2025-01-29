@@ -118,12 +118,7 @@ func main() {
 	e.GET("/events", streamEventsHandler(e.Logger, subChan, filter))
 
 	e.GET("/jwt", func(c echo.Context) error {
-		authHeader := c.Request().Header.Get("Authorization")
-		if authHeader == "" {
-			return errors.New("authorization header is required")
-		}
-
-		claims, err := decodeAuthToken(authHeader)
+		claims, err := getAuth(c.Request().Header)
 		if err != nil {
 			return err
 		}

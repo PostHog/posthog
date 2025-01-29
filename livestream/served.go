@@ -39,12 +39,7 @@ func statsHandler(stats *Stats) func(c echo.Context) error {
 			Error          string `json:"error,omitempty"`
 		}
 
-		authHeader := c.Request().Header.Get("Authorization")
-		if authHeader == "" {
-			return errors.New("authorization header is required")
-		}
-
-		claims, err := decodeAuthToken(authHeader)
+		claims, err := getAuth(c.Request().Header)
 		if err != nil {
 			return err
 		}
@@ -82,12 +77,7 @@ func streamEventsHandler(log echo.Logger, subChan chan Subscription, filter *Fil
 		if strings.ToLower(geo) == "true" || geo == "1" {
 			geoOnly = true
 		} else {
-			authHeader := c.Request().Header.Get("Authorization")
-			if authHeader == "" {
-				return errors.New("authorization header is required")
-			}
-
-			claims, err := decodeAuthToken(authHeader)
+			claims, err := getAuth(c.Request().Header)
 			if err != nil {
 				return err
 			}
