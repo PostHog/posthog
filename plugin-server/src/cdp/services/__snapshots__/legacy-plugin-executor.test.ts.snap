@@ -1,10 +1,10 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`LegacyPluginExecutorService smoke tests should run the plugin: { name: 'customer-io', plugin: [Object] } 1`] = `
+exports[`LegacyPluginExecutorService smoke tests should run the plugin: { name: 'customerio-plugin', plugin: [Object] } 1`] = `
 [
   {
     "level": "debug",
-    "message": "Executing plugin customer-io",
+    "message": "Executing plugin customerio-plugin",
     "timestamp": "2025-01-01T01:00:00.000+01:00",
   },
   {
@@ -35,11 +35,11 @@ exports[`LegacyPluginExecutorService smoke tests should run the plugin: { name: 
 ]
 `;
 
-exports[`LegacyPluginExecutorService smoke tests should run the plugin: { name: 'intercom', plugin: [Object] } 1`] = `
+exports[`LegacyPluginExecutorService smoke tests should run the plugin: { name: 'posthog-intercom-plugin', plugin: [Object] } 1`] = `
 [
   {
     "level": "debug",
-    "message": "Executing plugin intercom",
+    "message": "Executing plugin posthog-intercom-plugin",
     "timestamp": "2025-01-01T01:00:00.000+01:00",
   },
   {

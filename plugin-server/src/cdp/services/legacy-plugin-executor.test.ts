@@ -28,6 +28,8 @@ describe('LegacyPluginExecutorService', () => {
     let fn: HogFunctionType
     let mockFetch: jest.Mock
 
+    const intercomPlugin = DESTINATION_PLUGINS_BY_ID['posthog-intercom-plugin']
+
     beforeEach(async () => {
         hub = await createHub()
         service = new LegacyPluginExecutorService()
@@ -35,7 +37,7 @@ describe('LegacyPluginExecutorService', () => {
 
         fn = createHogFunction({
             name: 'Plugin test',
-            template_id: 'plugin-intercom',
+            template_id: `plugin-${intercomPlugin.id}`,
         })
 
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
@@ -90,7 +92,7 @@ describe('LegacyPluginExecutorService', () => {
 
     describe('setupPlugin', () => {
         it('should setup a plugin on first call', async () => {
-            jest.spyOn(DESTINATION_PLUGINS_BY_ID['intercom'] as any, 'setupPlugin')
+            jest.spyOn(intercomPlugin, 'setupPlugin')
 
             await service.execute(createInvocation(fn, globals))
 
@@ -102,9 +104,8 @@ describe('LegacyPluginExecutorService', () => {
 
             expect(await results).toMatchObject([{ finished: true }, { finished: true }, { finished: true }])
 
-            expect(DESTINATION_PLUGINS_BY_ID['intercom'].setupPlugin).toHaveBeenCalledTimes(1)
-            expect(jest.mocked(DESTINATION_PLUGINS_BY_ID['intercom'].setupPlugin!).mock.calls[0][0])
-                .toMatchInlineSnapshot(`
+            expect(intercomPlugin.setupPlugin).toHaveBeenCalledTimes(1)
+            expect(jest.mocked(intercomPlugin.setupPlugin!).mock.calls[0][0]).toMatchInlineSnapshot(`
                 {
                   "config": {
                     "ignoredEmailDomains": "dev.posthog.com",
@@ -127,7 +128,7 @@ describe('LegacyPluginExecutorService', () => {
 
     describe('onEvent', () => {
         it('should call the plugin onEvent method', async () => {
-            jest.spyOn(DESTINATION_PLUGINS_BY_ID['intercom'] as any, 'onEvent')
+            jest.spyOn(intercomPlugin, 'onEvent')
 
             const invocation = createInvocation(fn, globals)
             invocation.globals.event.event = 'mycustomevent'
@@ -142,9 +143,8 @@ describe('LegacyPluginExecutorService', () => {
 
             const res = await service.execute(invocation)
 
-            expect(DESTINATION_PLUGINS_BY_ID['intercom'].onEvent).toHaveBeenCalledTimes(1)
-            expect(forSnapshot(jest.mocked(DESTINATION_PLUGINS_BY_ID['intercom'].onEvent!).mock.calls[0][0]))
-                .toMatchInlineSnapshot(`
+            expect(intercomPlugin.onEvent).toHaveBeenCalledTimes(1)
+            expect(forSnapshot(jest.mocked(intercomPlugin.onEvent!).mock.calls[0][0])).toMatchInlineSnapshot(`
                 {
                   "distinct_id": "distinct_id",
                   "event": "mycustomevent",
@@ -201,7 +201,7 @@ describe('LegacyPluginExecutorService', () => {
                 [
                   {
                     "level": "debug",
-                    "message": "Executing plugin intercom",
+                    "message": "Executing plugin posthog-intercom-plugin",
                     "timestamp": "2025-01-01T01:00:00.000+01:00",
                   },
                   {
@@ -224,7 +224,7 @@ describe('LegacyPluginExecutorService', () => {
         })
 
         it('should mock out fetch if it is a test function', async () => {
-            jest.spyOn(DESTINATION_PLUGINS_BY_ID['intercom'] as any, 'onEvent')
+            jest.spyOn(intercomPlugin, 'onEvent')
 
             const invocation = createInvocation(fn, globals)
             invocation.hogFunction.name = 'My function [CDP-TEST-HIDDEN]'
@@ -237,11 +237,11 @@ describe('LegacyPluginExecutorService', () => {
 
             expect(mockFetch).toHaveBeenCalledTimes(0)
 
-            expect(DESTINATION_PLUGINS_BY_ID['intercom'].onEvent).toHaveBeenCalledTimes(1)
+            expect(intercomPlugin.onEvent).toHaveBeenCalledTimes(1)
 
             expect(forSnapshot(res.logs.map((l) => l.message))).toMatchInlineSnapshot(`
                 [
-                  "Executing plugin intercom",
+                  "Executing plugin posthog-intercom-plugin",
                   "Fetch called but mocked due to test function",
                   "Unable to search contact test@posthog.com in Intercom. Status Code: undefined. Error message: ",
                   "Execution successful",
@@ -250,7 +250,7 @@ describe('LegacyPluginExecutorService', () => {
         })
 
         it('should handle and collect errors', async () => {
-            jest.spyOn(DESTINATION_PLUGINS_BY_ID['intercom'] as any, 'onEvent')
+            jest.spyOn(intercomPlugin, 'onEvent')
 
             const invocation = createInvocation(fn, globals)
             invocation.globals.event.event = 'mycustomevent'
@@ -262,12 +262,12 @@ describe('LegacyPluginExecutorService', () => {
 
             const res = await service.execute(invocation)
 
-            expect(DESTINATION_PLUGINS_BY_ID['intercom'].onEvent).toHaveBeenCalledTimes(1)
+            expect(intercomPlugin.onEvent).toHaveBeenCalledTimes(1)
 
             expect(res.error).toBeInstanceOf(Error)
             expect(forSnapshot(res.logs.map((l) => l.message))).toMatchInlineSnapshot(`
                 [
-                  "Executing plugin intercom",
+                  "Executing plugin posthog-intercom-plugin",
                   "Plugin execution failed: Service is down, retry later",
                 ]
             `)
