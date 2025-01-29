@@ -137,15 +137,13 @@ export function SharedMetricModal({
                             {hasAvailableFeature(AvailableFeature.TAGGING) && availableTags.length > 0 && (
                                 <div className="flex flex-wrap gap-2">
                                     <LemonLabel>Quick select:</LemonLabel>
-                                    {availableTags.map((tag, index) => (
+                                    {availableTags.map((tag: string, index: number) => (
                                         <LemonTag
                                             key={index}
                                             onClick={() => {
                                                 setSelectedMetricIds(
                                                     availableSharedMetrics
-                                                        .filter((metric: SharedMetric) =>
-                                                            metric.tags?.includes(tag as string)
-                                                        )
+                                                        .filter((metric: SharedMetric) => metric.tags?.includes(tag))
                                                         .map((metric: SharedMetric) => metric.id)
                                                 )
                                             }}
