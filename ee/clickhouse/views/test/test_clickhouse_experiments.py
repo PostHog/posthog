@@ -1776,6 +1776,90 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.json()["name"], "Test Experiment")
         self.assertEqual(response.json()["feature_flag_key"], ff_key)
 
+    def test_create_experiment_with_deleted_feature_flag(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Beta feature",
+            key="beta-feature",
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                }
+            },
+            created_by=self.user,
+            deleted=True,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Beta experiment",
+                "feature_flag_key": feature_flag.key,
+                "parameters": {},
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Feature flag must not be deleted.")
+
+    def test_create_experiment_with_feature_flag_missing_control(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Beta feature",
+            key="beta-feature",
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "test-1", "rollout_percentage": 50},
+                        {"key": "test-2", "rollout_percentage": 50},
+                    ]
+                }
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Beta experiment",
+                "feature_flag_key": feature_flag.key,
+                "parameters": {},
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Feature flag must have control as the first variant.")
+
+    def test_create_experiment_with_valid_existing_feature_flag(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Beta feature",
+            key="beta-feature",
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                }
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Beta experiment",
+                "feature_flag_key": feature_flag.key,
+                "parameters": {},
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["feature_flag"]["id"], feature_flag.id)
+
     def test_feature_flag_and_experiment_sync(self):
         # Create an experiment with control and test variants
         response = self.client.post(

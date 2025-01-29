@@ -1,18 +1,23 @@
-import { IconMagicWand, IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonDivider, LemonInput, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
+import { IconMagicWand, IconPlusSmall, IconSparkles, IconTrash } from '@posthog/icons'
+import { LemonDivider, LemonInput, LemonModal, LemonTextArea, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { ExperimentVariantNumber } from 'lib/components/SeriesGlyph'
 import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { useState } from 'react'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
+import { urls } from 'scenes/urls'
 
 import { experimentLogic } from './experimentLogic'
+import { featureFlagEligibleForExperiment } from './utils'
 
 const ExperimentFormFields = (): JSX.Element => {
     const { experiment, groupTypes, aggregationLabel } = useValues(experimentLogic)
@@ -20,6 +25,8 @@ const ExperimentFormFields = (): JSX.Element => {
         useActions(experimentLogic)
     const { webExperimentsAvailable, unavailableFeatureFlagKeys } = useValues(experimentsLogic)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
+
+    const [showFeatureFlagSelector, setShowFeatureFlagSelector] = useState(false)
 
     return (
         <div>
@@ -39,6 +46,15 @@ const ExperimentFormFields = (): JSX.Element => {
                                 <LemonButton
                                     type="secondary"
                                     size="xsmall"
+                                    onClick={() => {
+                                        setShowFeatureFlagSelector(true)
+                                    }}
+                                >
+                                    <IconMagicWand className="mr-1" /> Choose existing
+                                </LemonButton>
+                                <LemonButton
+                                    type="secondary"
+                                    size="xsmall"
                                     disabledReason={experiment.name ? undefined : 'Fill out the experiment name first.'}
                                     tooltip={experiment.name ? 'Generate a key from the experiment name' : undefined}
                                     onClick={() => {
@@ -50,7 +66,7 @@ const ExperimentFormFields = (): JSX.Element => {
                                         })
                                     }}
                                 >
-                                    <IconMagicWand className="mr-1" /> Generate
+                                    <IconSparkles className="mr-1" /> Generate
                                 </LemonButton>
                             </div>
                         }
@@ -64,6 +80,14 @@ const ExperimentFormFields = (): JSX.Element => {
                         />
                     </LemonField>
                 </div>
+                <SelectExistingFeatureFlagModal
+                    isOpen={showFeatureFlagSelector}
+                    onClose={() => setShowFeatureFlagSelector(false)}
+                    onSelect={(key) => {
+                        setExperiment({ feature_flag_key: key })
+                        setShowFeatureFlagSelector(false)
+                    }}
+                />
                 {webExperimentsAvailable && (
                     <div className="mt-10">
                         <h3 className="mb-1">Experiment type</h3>
@@ -308,4 +332,79 @@ const generateFeatureFlagKey = (name: string, unavailableFeatureFlagKeys: Set<st
         counter++
     }
     return key
+}
+
+const SelectExistingFeatureFlagModal = ({
+    isOpen,
+    onClose,
+    onSelect,
+}: {
+    isOpen: boolean
+    onClose: () => void
+    onSelect: (key: string) => void
+}): JSX.Element => {
+    const { featureFlags } = useValues(experimentsLogic)
+
+    return (
+        <LemonModal isOpen={isOpen} onClose={onClose} title="Choose an existing feature flag">
+            <div className="space-y-2">
+                <div className="text-muted mb-2">
+                    Select an existing feature flag to use with this experiment. The feature flag must use multiple
+                    variants with `control` as the first, and not be associated with an existing experiment.
+                </div>
+                <LemonTable
+                    dataSource={featureFlags.results}
+                    useURLForSorting={false}
+                    columns={[
+                        {
+                            title: 'Key',
+                            dataIndex: 'key',
+                            sorter: (a, b) => (a.key || '').localeCompare(b.key || ''),
+                            render: (key, flag) => (
+                                <div className="flex items-center gap-2">
+                                    <div className="font-semibold">{key}</div>
+                                    <Link
+                                        to={urls.featureFlag(flag.id as number)}
+                                        target="_blank"
+                                        className="flex items-center"
+                                    >
+                                        <IconOpenInNew className="ml-1" />
+                                    </Link>
+                                </div>
+                            ),
+                        },
+                        {
+                            title: 'Name',
+                            dataIndex: 'name',
+                            sorter: (a, b) => (a.name || '').localeCompare(b.name || ''),
+                        },
+                        {
+                            title: null,
+                            render: function RenderActions(_, flag) {
+                                let disabledReason: string | undefined = undefined
+                                try {
+                                    featureFlagEligibleForExperiment(flag)
+                                } catch (error) {
+                                    disabledReason = (error as Error).message
+                                }
+                                return (
+                                    <LemonButton
+                                        size="xsmall"
+                                        type="primary"
+                                        disabledReason={disabledReason}
+                                        onClick={() => {
+                                            onSelect(flag.key)
+                                            onClose()
+                                        }}
+                                    >
+                                        Select
+                                    </LemonButton>
+                                )
+                            },
+                        },
+                    ]}
+                />
+            </div>
+        </LemonModal>
+    )
 }
