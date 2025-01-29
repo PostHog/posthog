@@ -156,12 +156,8 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     return updatedInsight
                 },
                 setInsightMetadata: async ({ metadataUpdate }, breakpoint) => {
-                    const editMode =
-                        insightSceneLogic.isMounted() &&
-                        insightSceneLogic.values.insight === values.insight &&
-                        insightSceneLogic.values.insightMode === ItemMode.Edit
-
-                    if (editMode) {
+                    // new insight
+                    if (values.insight.short_id == null) {
                         return { ...values.insight, ...metadataUpdate }
                     }
 
