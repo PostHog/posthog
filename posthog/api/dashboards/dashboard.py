@@ -449,7 +449,7 @@ class DashboardSerializer(DashboardBasicSerializer):
                 return variables_override
 
         return dashboard.variables
-    
+
     def validate(self, data):
         if data.get("use_dashboard", None) and data.get("use_template", None):
             raise serializers.ValidationError("`use_dashboard` and `use_template` cannot be used together")
