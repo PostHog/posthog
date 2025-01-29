@@ -303,6 +303,11 @@ function EventContentDisplay({
     output: unknown
     raisedError?: boolean
 }): JSX.Element {
+    if (!input && !output) {
+        // If we have no data here we should not render anything
+        // In future plan to point docs to show how to add custom trace events
+        return <></>
+    }
     return (
         <LLMInputOutput
             inputDisplay={
@@ -365,7 +370,6 @@ function EventContent({ event }: { event: LLMTrace | LLMTraceEvent | null }): JS
                         )}
                         {isLLMTraceEvent(event) && <ParametersHeader eventProperties={event.properties} />}
                     </header>
-                    <LemonDivider className="my-3" />
                     {isLLMTraceEvent(event) ? (
                         event.event === '$ai_generation' ? (
                             <ConversationMessagesDisplay
