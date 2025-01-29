@@ -50,6 +50,7 @@ drf-spectacular==0.27.2
 geoip2==4.6.0
 google-cloud-bigquery==3.26
 gunicorn==20.1.0
+huggingface_hub==0.28.0
 infi-clickhouse-orm@ git+https://github.com/PostHog/infi.clickhouse_orm@9578c79f29635ee2c1d01b7979e89adab8383de2
 jsonref==1.1.0
 kafka-python==2.0.2
@@ -62,12 +63,12 @@ lzstring==1.0.4
 multidict==6.0.5 # Not used by us directly, but code won't run on Ubuntu 24.04 unless we resolve this to 6.0.5
 natsort==8.4.0
 nanoid==2.0.0
-numpy==1.23.3
+numpy==1.23.5
 openpyxl==3.1.2
 orjson==3.10.7
 pandas==2.2.0
 paramiko==3.4.0
-Pillow==10.2.0
+Pillow==10.3.0
 pdpyras==5.2.0
 posthoganalytics~=3.11.0
 psutil==6.0.0
@@ -105,6 +106,7 @@ structlog==23.2.0
 sqlparse==0.4.4
 temporalio==1.7.1
 token-bucket==0.3.0
+together==1.3.14
 toronado==0.1.0
 webdriver_manager==4.0.2
 whitenoise==6.5.0

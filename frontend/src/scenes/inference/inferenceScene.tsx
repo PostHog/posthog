@@ -7,7 +7,7 @@ import { inferenceLogic } from 'scenes/inference/inferenceLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 export function InferenceScene(): JSX.Element {
-    const { inputText, submitInputTextLoading } = useValues(inferenceLogic)
+    const { inputText, submitInputTextLoading, threadRaw } = useValues(inferenceLogic)
     const { setInputText, submit } = useActions(inferenceLogic)
 
     return (
@@ -19,6 +19,7 @@ export function InferenceScene(): JSX.Element {
                 </p>
             </LemonBanner>
             {/* Add some UI to send a sample input*/}
+            <code>{JSON.stringify(threadRaw, null, 2)}</code>
             <LemonInput
                 placeholder="Try it"
                 value={inputText}
