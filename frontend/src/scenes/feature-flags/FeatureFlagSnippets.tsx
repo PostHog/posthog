@@ -5,8 +5,11 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { GroupType } from '~/types'
 
+import { featureFlagLogic } from './featureFlagLogic'
+
 export const UTM_TAGS = '?utm_medium=in-product&utm_campaign=feature-flag'
 export interface FeatureFlagSnippet {
+    flagId: string
     flagKey: string
     multivariant?: boolean
     groupType?: GroupType
@@ -511,13 +514,29 @@ function App() {
     )
 }
 
-export function APISnippet({ groupType }: FeatureFlagSnippet): JSX.Element {
+export function APISnippet({ groupType, encryptedPayload }: FeatureFlagSnippet): JSX.Element {
+    const { featureFlag } = useValues(featureFlagLogic)
     const { currentTeam } = useValues(teamLogic)
 
     const groupAddition = groupType
         ? `
     "groups": { "${groupType.group_type}": "<${groupType.name_singular || 'group'} ID>" },`
         : ''
+
+    if (encryptedPayload) {
+        return (
+            <>
+                <CodeSnippet language={Language.Bash} wrap>
+                    {`curl ${apiHostOrigin()}/api/projects/${currentTeam?.id || ':projectId'}/feature_flags/${
+                        featureFlag.id
+                    }/remote_config/ \\
+-H 'Content-Type: application/json' \\
+-H 'Authorization: Bearer [personal_api_key]' 
+                `}
+                </CodeSnippet>
+            </>
+        )
+    }
 
     return (
         <>

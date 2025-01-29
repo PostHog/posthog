@@ -35,7 +35,11 @@ from posthog.event_usage import report_user_action
 from posthog.helpers.dashboard_templates import (
     add_enriched_insights_to_feature_flag_dashboard,
 )
-from posthog.helpers.encrypted_flag_payloads import encrypt_flag_payloads, get_decrypted_flag_payloads
+from posthog.helpers.encrypted_flag_payloads import (
+    encrypt_flag_payloads,
+    get_decrypted_flag_payloads,
+    REDACTED_PAYLOAD_VALUE,
+)
 from posthog.models import FeatureFlag
 from posthog.models.activity_logging.activity_log import (
     Detail,
@@ -314,7 +318,8 @@ class FeatureFlagSerializer(
                 json.dumps(json_value)
 
             except json.JSONDecodeError:
-                raise serializers.ValidationError("Payload value is not valid JSON")
+                if value != REDACTED_PAYLOAD_VALUE:
+                    raise serializers.ValidationError("Payload value is not valid JSON")
 
         if filters.get("multivariate"):
             if not all(key in variants for key in payloads):
@@ -431,7 +436,7 @@ class FeatureFlagSerializer(
         # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
         # if the request was made with a personal API key
         if instance.has_encrypted_payloads:
-            instance.filters["payloads"] = get_decrypted_flag_payloads(request, instance.filters)
+            instance.filters["payloads"] = get_decrypted_flag_payloads(request, instance.filters.get("payloads", {}))
 
         return instance
 
@@ -915,11 +920,16 @@ class FeatureFlagViewSet(
     def remote_config(self, request: request.Request, **kwargs):
         feature_flag = FeatureFlag.objects.get(pk=kwargs["pk"])
 
+        if not feature_flag.is_remote_configuration:
+            return Response("", status=status.HTTP_404_NOT_FOUND)
+
+        if not feature_flag.has_encrypted_payloads:
+            return Response(feature_flag.filters["payloads"]["true"] or None)
+
         # Note: This decryption step is protected by the feature_flag:read scope, so we can assume the
         # user has access to the flag. However get_decrypted_flag_payloads will also check the authentication
         # method used to make the request as it is used in non-protected endpoints.
-        if feature_flag.get("has_encrypted_payloads", False):
-            decrypted_flag_payloads = get_decrypted_flag_payloads(request, feature_flag["filters"]["payloads"])
+        decrypted_flag_payloads = get_decrypted_flag_payloads(request, feature_flag.filters.get("payloads", {}))
 
         return Response(decrypted_flag_payloads["true"] or None)
 
