@@ -248,7 +248,7 @@ export class EventPipelineRunner {
             kafkaAcks.push(...messagePromises)
         }
 
-        if (transformedEvent == null) {
+        if (transformedEvent === null) {
             return this.registerLastStep('transformEventStep', [processedEvent], kafkaAcks)
         }
 
