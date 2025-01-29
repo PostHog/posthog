@@ -134,7 +134,8 @@ class ClickhouseCluster:
         """
         Execute the callable once for each host in the cluster.
 
-        The number of a parallel queries can be controlled with the ``concurrency`` parameter.
+        The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
+        default limit of the executor.
         """
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
             return FuturesMap({host: executor.submit(self.__get_task_function(host, fn)) for host in self.__hosts})
@@ -145,7 +146,8 @@ class ClickhouseCluster:
         """
         Execute the callable once for each host in the specified shard.
 
-        The number of a parallel queries can be controlled with the ``concurrency`` parameter.
+        The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
+        default limit of the executor.
         """
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
             return FuturesMap(
@@ -162,7 +164,8 @@ class ClickhouseCluster:
         """
         Execute the callable once for each shard in the cluster.
 
-        The number of parallel queries can be controlled with the ``concurrency`` parameter.
+        The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
+        default limit of the executor.
         """
         shard_hosts: dict[int, HostInfo] = {}
         for host in self.__hosts:
