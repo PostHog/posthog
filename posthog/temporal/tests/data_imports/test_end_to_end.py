@@ -676,7 +676,7 @@ async def test_postgres_schema_evolution(team, postgres_config, postgres_connect
     columns = res.columns
 
     assert columns is not None
-    assert len(columns) == 3
+    assert len(columns) == 2
     assert any(x == "id" for x in columns)
     assert any(x == "new_col" for x in columns)
 
