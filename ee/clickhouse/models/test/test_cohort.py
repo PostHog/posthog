@@ -1,10 +1,12 @@
 from datetime import datetime, timedelta
+import re
 from typing import Optional
 
 from django.utils import timezone
 from freezegun import freeze_time
 
 from posthog.client import sync_execute
+from posthog.hogql.constants import MAX_SELECT_COHORT_CALCULATION_LIMIT
 from posthog.hogql.hogql import HogQLContext
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort, get_and_update_pending_version
@@ -85,7 +87,10 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         result = sync_execute(query)
         assert 0 == result[0][0]
         for query in queries:
-            assert "LIMIT" not in query
+            if "LIMIT" in query:
+                assert all(
+                    limit == str(MAX_SELECT_COHORT_CALCULATION_LIMIT) for limit in re.findall(r"LIMIT (\d+)", query)
+                )
         return version
 
     def _get_cohortpeople(self, cohort: Cohort, *, team_id: Optional[int] = None):
