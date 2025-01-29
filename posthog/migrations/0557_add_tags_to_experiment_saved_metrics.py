@@ -3,6 +3,8 @@
 from django.db import migrations, models
 import django.db.models.deletion
 
+from posthog.models.tagged_item import TaggedItem
+
 
 class Migration(migrations.Migration):
     dependencies = [
@@ -10,9 +12,21 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RemoveConstraint(
-            model_name="taggeditem",
-            name="exactly_one_related_object",
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.RemoveConstraint(
+                    model_name="taggeditem",
+                    name="exactly_one_related_object",
+                ),
+            ],
+            database_operations=[
+                migrations.RunSQL(
+                    sql='ALTER TABLE "{}" DROP CONSTRAINT IF EXISTS "exactly_one_related_object";'.format(
+                        TaggedItem._meta.db_table
+                    ),
+                    reverse_sql="",
+                ),
+            ],
         ),
         migrations.AddField(
             model_name="taggeditem",
