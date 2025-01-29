@@ -132,11 +132,21 @@ const BasicTemplate: StoryFn<typeof LemonTree> = (props: LemonTreeProps) => {
     return (
         <div className="space-y-4">
             <Link to="https://posthog.com">PostHog</Link>
+            <div className="space-y-1">
+                <p>
+                    Keyboard navigation: when focused inside the tree, try [up] [right] [down] [left] [enter] [home]
+                    [end]
+                </p>
+                <p>
+                    Type-ahead search: when focused inside the tree, try typing the first few letters of a item and it
+                    will focus it
+                </p>
+            </div>
 
             <div className="w-full h-full grid grid-cols-[250px_1fr]">
                 <LemonTree {...props} contentRef={ref} />
                 <main
-                    className="p-4 focus:ring-2 ring-accent-primary ring-offset-1"
+                    className="p-4 focus-visible:ring-2 ring-accent-primary ring-offset-1"
                     ref={ref}
                     role="main"
                     tabIndex={-1}

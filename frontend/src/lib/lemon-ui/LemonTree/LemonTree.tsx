@@ -1,7 +1,7 @@
 import { IconChevronRight } from '@posthog/icons'
 import * as AccordionPrimitive from '@radix-ui/react-accordion'
 import { cn } from 'lib/utils/css-classes'
-import { forwardRef, HTMLAttributes, useCallback, useState } from 'react'
+import { forwardRef, HTMLAttributes, useCallback, useRef, useState } from 'react'
 
 import { LemonButton } from '../LemonButton'
 
@@ -51,6 +51,8 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
         },
         ref
     ): JSX.Element => {
+        const ICON_CLASSES = 'size-6 aspect-square flex place-items-center'
+
         if (!(data instanceof Array)) {
             data = [data]
         }
@@ -58,10 +60,10 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
         // Get the node or folder icon
         // If no icon is provided, use a defaultNodeIcon icon
         // If no defaultNodeIcon icon is provided, use empty div
-        function getIcon(item: TreeDataItem, expandedItemIds: string[], selectedId?: string): JSX.Element {
+        function getIcon(item: TreeDataItem, expandedItemIds: string[]): JSX.Element {
             if (item.children) {
                 return (
-                    <span className="size-6 aspect-square">
+                    <span className={ICON_CLASSES}>
                         <IconChevronRight
                             className={cn(
                                 'transition-transform scale-75 stroke-2',
@@ -74,12 +76,11 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
 
             return (
                 <span
-                    className={cn('size-6 aspect-square', {
-                        'text-accent-primary': selectedId === item.id,
+                    className={cn(ICON_CLASSES, {
                         'text-muted-alt': item.disabledReason,
                     })}
                 >
-                    {item.icon || defaultNodeIcon || <div className="size-6 aspect-square" />}
+                    {item.icon || defaultNodeIcon || <div className={ICON_CLASSES} />}
                 </span>
             )
         }
@@ -98,26 +99,25 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                         <AccordionPrimitive.Item value={item.id} className="flex flex-col w-full">
                             <AccordionPrimitive.Trigger className="flex items-center gap-2 w-full h-8" asChild>
                                 <LemonButton
-                                    className={cn(
-                                        'flex-1 flex items-center gap-2 cursor-pointer pl-0 font-normal !text-accent-primary',
-                                        focusedId === item.id && 'ring-2 ring-accent-primary ring-offset-1'
-                                    )}
+                                    className={cn('flex-1 flex items-center gap-2 cursor-pointer pl-0 font-normal')}
                                     onClick={() => handleClick(item)}
-                                    type="tertiary"
+                                    type={selectedId === item.id ? 'secondary' : 'tertiary'}
                                     role="treeitem"
                                     tabIndex={-1}
+                                    size="small"
                                     fullWidth
                                     active={
+                                        focusedId === item.id ||
                                         selectedId === item.id ||
                                         (showFolderActiveState && item.children && expandedItemIds.includes(item.id))
                                     }
-                                    icon={getIcon(item, expandedItemIds, selectedId)}
+                                    icon={getIcon(item, expandedItemIds)}
                                     disabledReason={item.disabledReason}
                                     tooltipPlacement="right"
                                 >
                                     <span
                                         className={cn('', {
-                                            'text-accent-primary font-semibold': selectedId === item.id,
+                                            'font-semibold': selectedId === item.id,
                                             'text-muted-alt': item.disabledReason,
                                         })}
                                     >
@@ -137,7 +137,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                         setExpandedItemIds={setExpandedItemIds}
                                         defaultNodeIcon={defaultNodeIcon}
                                         showFolderActiveState={showFolderActiveState}
-                                        className="ml-4 space-y-1"
+                                        className="ml-4 space-y-px"
                                     />
                                 </AccordionPrimitive.Content>
                             )}
@@ -190,8 +190,13 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
         },
         ref
     ): JSX.Element => {
+        const TYPE_AHEAD_TIMEOUT = 500
+
         const [selectedId, setSelectedId] = useState<string | undefined>(defaultSelectedFolderOrNodeId)
         const [focusedId, setFocusedId] = useState<string | undefined>(defaultSelectedFolderOrNodeId)
+        // Add new state for type-ahead
+        const [typeAheadBuffer, setTypeAheadBuffer] = useState<string>('')
+        const typeAheadTimeoutRef = useRef<NodeJS.Timeout>()
 
         function collectAllIds(items: TreeDataItem[] | TreeDataItem, allIds: string[]): void {
             if (items instanceof Array) {
@@ -274,8 +279,97 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
             }
         }, [contentRef])
 
+        // Add helper function to find path to an item
+        const findPathToItem = (items: TreeDataItem[], targetId: string, path: string[] = []): string[] => {
+            for (const item of items) {
+                if (item.id === targetId) {
+                    return path
+                }
+                if (item.children) {
+                    const newPath = findPathToItem(item.children, targetId, [...path, item.id])
+                    if (newPath.length > 0) {
+                        return newPath
+                    }
+                }
+            }
+            return []
+        }
+
+        // Add function to handle type-ahead search
+        const handleTypeAhead = useCallback(
+            (char: string) => {
+                // Clear existing timeout
+                if (typeAheadTimeoutRef.current) {
+                    clearTimeout(typeAheadTimeoutRef.current)
+                }
+
+                // Update buffer with new character
+                const newBuffer = typeAheadBuffer + char.toLowerCase()
+                setTypeAheadBuffer(newBuffer)
+
+                // Set timeout to clear buffer after 1.5 seconds
+                typeAheadTimeoutRef.current = setTimeout(() => {
+                    setTypeAheadBuffer('')
+                }, TYPE_AHEAD_TIMEOUT)
+
+                // Find matching item
+                const visibleItems = getVisibleItems()
+                const currentIndex = visibleItems.findIndex((item) => item.id === focusedId)
+
+                // Start search from item after current focus, wrapping to start if needed
+                const searchItems = [
+                    ...visibleItems.slice(currentIndex + 1),
+                    ...visibleItems.slice(0, currentIndex + 1),
+                ]
+
+                const match = searchItems.find((item) => item.name.toLowerCase().startsWith(newBuffer))
+
+                if (match) {
+                    setFocusedId(match.id)
+                    // If item is in a collapsed folder, expand the path to it
+                    const path = findPathToItem(Array.isArray(data) ? data : [data], match.id)
+                    if (path.length > 0) {
+                        setExpandedItemIds([...new Set([...expandedItemIds, ...path])])
+                    }
+                }
+            },
+            [typeAheadBuffer, focusedId, getVisibleItems, data, expandedItemIds, findPathToItem]
+        )
+
+        const handleClick = useCallback(
+            (item: TreeDataItem | undefined): void => {
+                // Update focusedId when clicking
+                setFocusedId(item?.id)
+
+                // Handle click on a node
+                if (!item?.children) {
+                    if (onNodeClick) {
+                        setSelectedId(item?.id)
+                        onNodeClick(item)
+                        focusContent() // Add focus content here as well
+                    }
+                } else if (onFolderClick) {
+                    // Handle click on a folder
+                    onFolderClick(item)
+                }
+                if (item?.onClick) {
+                    // Handle custom click handler for a folder/ node, pass true if it's a folder and it's not open (yet)
+                    const willBeOpen = item?.children ? !expandedItemIds.includes(item.id) : undefined
+                    item.onClick(willBeOpen)
+                }
+            },
+            [expandedItemIds, onFolderClick, onNodeClick, focusContent]
+        )
+
+        // Update handleKeyDown to include type-ahead
         const handleKeyDown = useCallback(
             (e: React.KeyboardEvent) => {
+                // Handle single printable characters for type-ahead
+                if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                    handleTypeAhead(e.key)
+                    return
+                }
+
                 const visibleItems = getVisibleItems()
                 const currentIndex = visibleItems.findIndex((item) => item.id === focusedId)
 
@@ -346,7 +440,13 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                     // Moves focus to the next node that is focusable without opening or closing a node.
                     case 'ArrowDown': {
                         e.preventDefault()
-                        if (currentIndex < visibleItems.length - 1) {
+                        if (currentIndex === -1) {
+                            // If no item is focused, focus the first item
+                            if (visibleItems.length > 0) {
+                                setFocusedId(visibleItems[0].id)
+                                setSelectedId(undefined)
+                            }
+                        } else if (currentIndex < visibleItems.length - 1) {
                             setFocusedId(visibleItems[currentIndex + 1].id)
                             setSelectedId(undefined)
                         }
@@ -357,7 +457,14 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                     // Moves focus to the previous node that is focusable without opening or closing a node.
                     case 'ArrowUp': {
                         e.preventDefault()
-                        if (currentIndex > 0) {
+                        if (currentIndex === -1) {
+                            // If no item is focused, focus the first item
+                            if (visibleItems.length > 0) {
+                                setFocusedId(visibleItems[0].id)
+                                setSelectedId(undefined)
+                            }
+                        } else if (currentIndex > 0) {
+                            // Otherwise move focus to previous item
                             setFocusedId(visibleItems[currentIndex - 1].id)
                             setSelectedId(undefined)
                         }
@@ -411,6 +518,9 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                                     // Otherwise use default node click handler
                                     onNodeClick(currentItem)
 
+                                    // Set selectedId to currentItem.id
+                                    setSelectedId(currentItem.id)
+
                                     if (currentItem.onClick) {
                                         // Use item's custom click handler if provided
                                         currentItem.onClick()
@@ -424,32 +534,17 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                     }
                 }
             },
-            [focusedId, expandedItemIds, getVisibleItems]
-        )
-
-        const handleClick = useCallback(
-            (item: TreeDataItem | undefined): void => {
-                // Update focusedId when clicking
-                setFocusedId(item?.id)
-
-                // Handle click on a node
-                if (!item?.children) {
-                    if (onNodeClick) {
-                        setSelectedId(item?.id)
-                        onNodeClick(item)
-                        focusContent() // Add focus content here as well
-                    }
-                } else if (onFolderClick) {
-                    // Handle click on a folder
-                    onFolderClick(item)
-                }
-                if (item?.onClick) {
-                    // Handle custom click handler for a folder/ node, pass true if it's a folder and it's not open (yet)
-                    const willBeOpen = item?.children ? !expandedItemIds.includes(item.id) : undefined
-                    item.onClick(willBeOpen)
-                }
-            },
-            [expandedItemIds, onFolderClick, onNodeClick, focusContent]
+            [
+                focusedId,
+                expandedItemIds,
+                getVisibleItems,
+                handleTypeAhead,
+                data,
+                focusContent,
+                handleClick,
+                onNodeClick,
+                onFolderClick,
+            ]
         )
 
         return (
@@ -471,7 +566,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                     setExpandedItemIds={setExpandedItemIds}
                     defaultNodeIcon={defaultNodeIcon}
                     showFolderActiveState={showFolderActiveState}
-                    className="space-y-1"
+                    className="space-y-px"
                     {...props}
                 />
             </div>
