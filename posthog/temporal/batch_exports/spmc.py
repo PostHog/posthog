@@ -145,22 +145,26 @@ async def wait_for_schema_or_producer(queue: RecordBatchQueue, producer_task: as
     have partially or fully produced record batches, or we finished without putting
     anything in the queue, and the queue's schema has not been set.
     """
+    record_batch_schema = None
+
     get_schema_task = asyncio.create_task(queue.get_schema())
 
-    while not get_schema_task.done():
-        await asyncio.sleep(0)
+    await asyncio.wait(
+        [get_schema_task, producer_task],
+        return_when=asyncio.FIRST_COMPLETED,
+    )
 
-        if producer_task.done():
-            # We finished producing without putting anything in the queue and there is
-            # nothing to batch export. We could have also failed, so we need to re-raise
-            # that exception to allow a retry if that's the case. If we don't fail, it
-            # is safe to finish the batch export early.
-            await raise_on_task_failure(producer_task)
-            return None
+    if get_schema_task.done():
+        # The schema is available, and the queue is not empty, so we can continue
+        # with the rest of the the batch export.
+        record_batch_schema = get_schema_task.result()
+    else:
+        # We finished producing without putting anything in the queue and there is
+        # nothing to batch export. We could have also failed, so we need to re-raise
+        # that exception to allow a retry if that's the case. If we don't fail, it
+        # is safe to finish the batch export early.
+        await raise_on_task_failure(producer_task)
 
-    # The schema is available, and the queue is not empty, so we can continue
-    # with the rest of the the batch export.
-    record_batch_schema = get_schema_task.result()
     return record_batch_schema
 
 
