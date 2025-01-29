@@ -1256,6 +1256,14 @@ class RetentionType(StrEnum):
     RETENTION_FIRST_TIME = "retention_first_time"
 
 
+class RevenueTrackingEventItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    eventName: str
+    revenueProperty: str
+
+
 class RouterMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1438,6 +1446,7 @@ class WebOverviewItemKind(StrEnum):
     UNIT = "unit"
     DURATION_S = "duration_s"
     PERCENTAGE = "percentage"
+    CURRENCY = "currency"
 
 
 class WebStatsBreakdown(StrEnum):
@@ -1940,6 +1949,7 @@ class ChartSettings(BaseModel):
     leftYAxisSettings: Optional[YAxisSettings] = None
     rightYAxisSettings: Optional[YAxisSettings] = None
     seriesBreakdownColumn: Optional[str] = None
+    showLegend: Optional[bool] = None
     stackBars100: Optional[bool] = Field(default=None, description="Whether we fill the bars to 100% in stacked mode")
     xAxis: Optional[ChartAxis] = None
     yAxis: Optional[list[ChartAxis]] = None
@@ -2255,12 +2265,15 @@ class LLMTrace(BaseModel):
     events: list[LLMTraceEvent]
     id: str
     inputCost: Optional[float] = None
+    inputState: Optional[Any] = None
     inputTokens: Optional[float] = None
     outputCost: Optional[float] = None
+    outputState: Optional[Any] = None
     outputTokens: Optional[float] = None
     person: LLMTracePerson
     totalCost: Optional[float] = None
     totalLatency: Optional[float] = None
+    traceName: Optional[str] = None
 
 
 class LifecycleFilter(BaseModel):
@@ -2409,6 +2422,13 @@ class RetentionValue(BaseModel):
         extra="forbid",
     )
     count: int
+
+
+class RevenueTrackingConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    events: list[RevenueTrackingEventItem]
 
 
 class SavedInsightNode(BaseModel):
@@ -5603,6 +5623,7 @@ class WebExternalClicksTableQuery(BaseModel):
     dateRange: Optional[DateRange] = None
     doPathCleaning: Optional[bool] = None
     filterTestAccounts: Optional[bool] = None
+    includeRevenue: Optional[bool] = None
     kind: Literal["WebExternalClicksTableQuery"] = "WebExternalClicksTableQuery"
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
@@ -5624,6 +5645,7 @@ class WebGoalsQuery(BaseModel):
     dateRange: Optional[DateRange] = None
     doPathCleaning: Optional[bool] = None
     filterTestAccounts: Optional[bool] = None
+    includeRevenue: Optional[bool] = None
     kind: Literal["WebGoalsQuery"] = "WebGoalsQuery"
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
@@ -5644,6 +5666,7 @@ class WebOverviewQuery(BaseModel):
     dateRange: Optional[DateRange] = None
     doPathCleaning: Optional[bool] = None
     filterTestAccounts: Optional[bool] = None
+    includeRevenue: Optional[bool] = None
     kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
@@ -5665,6 +5688,7 @@ class WebStatsTableQuery(BaseModel):
     doPathCleaning: Optional[bool] = None
     filterTestAccounts: Optional[bool] = None
     includeBounceRate: Optional[bool] = None
+    includeRevenue: Optional[bool] = None
     includeScrollDepth: Optional[bool] = None
     kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
     limit: Optional[int] = None
@@ -6329,6 +6353,9 @@ class StickinessQuery(BaseModel):
         default=IntervalType.DAY,
         description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
     )
+    intervalCount: Optional[int] = Field(
+        default=None, description="How many intervals comprise a period. Only used for cohorts, otherwise default 1."
+    )
     kind: Literal["StickinessQuery"] = "StickinessQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
@@ -6449,6 +6476,7 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     dateRange: Optional[DateRange] = None
     doPathCleaning: Optional[bool] = None
     filterTestAccounts: Optional[bool] = None
+    includeRevenue: Optional[bool] = None
     kind: Literal["WebVitalsPathBreakdownQuery"] = "WebVitalsPathBreakdownQuery"
     metric: WebVitalsMetric
     modifiers: Optional[HogQLQueryModifiers] = Field(
@@ -7406,6 +7434,30 @@ class InsightVizNode(BaseModel):
     vizSpecificOptions: Optional[VizSpecificOptions] = None
 
 
+class StickinessActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown: Optional[Union[str, list[str], int]] = None
+    compare: Optional[Compare] = None
+    day: Optional[Union[str, int]] = None
+    includeRecordings: Optional[bool] = None
+    interval: Optional[int] = Field(
+        default=None, description="An interval selected out of available intervals in source query."
+    )
+    kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    operator: Optional[StickinessOperator] = None
+    response: Optional[ActorsQueryResponse] = None
+    series: Optional[int] = None
+    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery] = Field(
+        ..., discriminator="kind"
+    )
+    status: Optional[str] = None
+
+
 class WebVitalsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7415,6 +7467,7 @@ class WebVitalsQuery(BaseModel):
     dateRange: Optional[DateRange] = None
     doPathCleaning: Optional[bool] = None
     filterTestAccounts: Optional[bool] = None
+    includeRevenue: Optional[bool] = None
     kind: Literal["WebVitalsQuery"] = "WebVitalsQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
@@ -7502,7 +7555,7 @@ class InsightActorsQueryOptions(BaseModel):
     )
     kind: Literal["InsightActorsQueryOptions"] = "InsightActorsQueryOptions"
     response: Optional[InsightActorsQueryOptionsResponse] = None
-    source: Union[InsightActorsQuery, FunnelsActorsQuery, FunnelCorrelationActorsQuery]
+    source: Union[InsightActorsQuery, FunnelsActorsQuery, FunnelCorrelationActorsQuery, StickinessActorsQuery]
 
 
 class ActorsQuery(BaseModel):
@@ -7526,7 +7579,10 @@ class ActorsQuery(BaseModel):
     offset: Optional[int] = None
     orderBy: Optional[list[str]] = None
     properties: Optional[
-        list[Union[PersonPropertyFilter, CohortPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter]]
+        Union[
+            list[Union[PersonPropertyFilter, CohortPropertyFilter, HogQLPropertyFilter, EmptyPropertyFilter]],
+            PropertyGroupFilterValue,
+        ]
     ] = Field(
         default=None,
         description=(
@@ -7537,7 +7593,9 @@ class ActorsQuery(BaseModel):
     response: Optional[ActorsQueryResponse] = None
     search: Optional[str] = None
     select: Optional[list[str]] = None
-    source: Optional[Union[InsightActorsQuery, FunnelsActorsQuery, FunnelCorrelationActorsQuery, HogQLQuery]] = None
+    source: Optional[
+        Union[InsightActorsQuery, FunnelsActorsQuery, FunnelCorrelationActorsQuery, StickinessActorsQuery, HogQLQuery]
+    ] = None
 
 
 class DataTableNode(BaseModel):

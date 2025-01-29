@@ -4,7 +4,7 @@
     transition: background-color 200ms ease, color 200ms ease, border 200ms ease;
 
     &.SelectableElement--selected {
-        background: var(--primary-3000);
+        background: var(--accent-primary);
     }
 
     &:hover {

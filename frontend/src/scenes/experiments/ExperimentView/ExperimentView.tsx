@@ -9,6 +9,7 @@ import { MetricModal } from '../Metrics/MetricModal'
 import { MetricSourceModal } from '../Metrics/MetricSourceModal'
 import { SharedMetricModal } from '../Metrics/SharedMetricModal'
 import { MetricsView } from '../MetricsView/MetricsView'
+import { VariantDeltaTimeseries } from '../MetricsView/VariantDeltaTimeseries'
 import { ExperimentLoadingAnimation, ExploreButton, LoadingState, PageHeaderCustom, ResultsQuery } from './components'
 import { CumulativeExposuresChart } from './CumulativeExposuresChart'
 import { DataCollection } from './DataCollection'
@@ -19,7 +20,8 @@ import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditi
 import { SummaryTable } from './SummaryTable'
 
 const ResultsTab = (): JSX.Element => {
-    const { experiment, metricResults, primaryMetricsLengthWithSharedMetrics } = useValues(experimentLogic)
+    const { experiment, metricResults, firstPrimaryMetric, primaryMetricsLengthWithSharedMetrics } =
+        useValues(experimentLogic)
     const hasSomeResults = metricResults?.some((result) => result?.insight)
 
     const hasSinglePrimaryMetric = primaryMetricsLengthWithSharedMetrics === 1
@@ -43,10 +45,10 @@ const ResultsTab = (): JSX.Element => {
             )}
             <MetricsView isSecondary={false} />
             {/* Show detailed results if there's only a single primary metric */}
-            {hasSomeResults && hasSinglePrimaryMetric && (
+            {hasSomeResults && hasSinglePrimaryMetric && firstPrimaryMetric && (
                 <div>
                     <div className="pb-4">
-                        <SummaryTable metric={experiment.metrics[0]} metricIndex={0} isSecondary={false} />
+                        <SummaryTable metric={firstPrimaryMetric} metricIndex={0} isSecondary={false} />
                     </div>
                     <div className="flex justify-end">
                         <ExploreButton result={metricResults?.[0] || null} size="xsmall" />
@@ -126,6 +128,8 @@ export function ExperimentView(): JSX.Element {
 
                         <DistributionModal experimentId={experimentId} />
                         <ReleaseConditionsModal experimentId={experimentId} />
+
+                        <VariantDeltaTimeseries />
                     </>
                 )}
             </div>

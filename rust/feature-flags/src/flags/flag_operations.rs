@@ -55,7 +55,6 @@ impl FeatureFlagList {
         client: Arc<dyn RedisClient + Send + Sync>,
         team_id: i32,
     ) -> Result<FeatureFlagList, FlagError> {
-        // TODO: Instead of failing here, i.e. if not in redis, fallback to pg
         let serialized_flags = client
             .get(format!("{TEAM_FLAGS_CACHE_PREFIX}{}", team_id))
             .await?;

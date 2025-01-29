@@ -73,6 +73,7 @@ from posthog.warehouse.models.external_data_schema import (
     filter_snowflake_incremental_fields,
     get_snowflake_schemas,
     get_sql_schemas_for_source_type,
+    get_postgres_row_count,
 )
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 
@@ -265,18 +266,22 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "created_by",
                 Prefetch(
                     "jobs",
-                    queryset=ExternalDataJob.objects.filter(status="Completed").order_by("-created_at"),
+                    queryset=ExternalDataJob.objects.filter(status="Completed", team_id=self.team_id).order_by(
+                        "-created_at"
+                    )[:1],
                     to_attr="ordered_jobs",
                 ),
                 Prefetch(
                     "schemas",
-                    queryset=ExternalDataSchema.objects.exclude(deleted=True)
+                    queryset=ExternalDataSchema.objects.filter(team_id=self.team_id)
+                    .exclude(deleted=True)
                     .select_related("table__credential", "table__external_data_source")
                     .order_by("name"),
                 ),
                 Prefetch(
                     "schemas",
-                    queryset=ExternalDataSchema.objects.exclude(deleted=True)
+                    queryset=ExternalDataSchema.objects.filter(team_id=self.team_id)
+                    .exclude(deleted=True)
                     .filter(should_sync=True)
                     .select_related("source", "table__credential", "table__external_data_source"),
                     to_attr="active_schemas",
@@ -1074,10 +1079,16 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     data={"message": get_generic_sql_error(source_type)},
                 )
 
+            rows = {}
             if source_type == ExternalDataSource.Type.POSTGRES:
                 filtered_results = [
                     (table_name, filter_postgres_incremental_fields(columns)) for table_name, columns in result.items()
                 ]
+                try:
+                    rows = get_postgres_row_count(host, port, database, user, password, schema, ssh_tunnel)
+                except:
+                    pass
+
             elif source_type == ExternalDataSource.Type.MYSQL:
                 filtered_results = [
                     (table_name, filter_mysql_incremental_fields(columns)) for table_name, columns in result.items()
@@ -1091,6 +1102,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 {
                     "table": table_name,
                     "should_sync": False,
+                    "rows": rows.get(table_name, None),
                     "incremental_fields": [
                         {"label": column_name, "type": column_type, "field": column_name, "field_type": column_type}
                         for column_name, column_type in columns
