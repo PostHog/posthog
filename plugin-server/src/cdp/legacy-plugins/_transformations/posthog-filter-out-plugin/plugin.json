@@ -1,6 +1,6 @@
 {
     "name": "Filter Out Plugin",
-    "url": "https://github.com/plibither8/posthog-filter-out-plugin",
+    "url": "https://github.com/PostHog/posthog-filter-out-plugin",
     "description": "Filter out events where property values satisfy the given condition",
     "main": "src/main.ts",
     "config": [

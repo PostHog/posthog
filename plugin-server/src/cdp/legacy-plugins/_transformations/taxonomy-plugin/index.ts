@@ -1,46 +1,59 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyTransformationPlugin, LegacyTransformationPluginMeta } from '../../types'
-import metadata from './plugin.json'
+import { LegacyTransformationPluginMeta } from '../../types'
 
 type Transformation = {
+    name: string
     matchPattern: RegExp
     transform: (str: string, matchPattern: RegExp) => string
 }
 
-const transformations: Record<string, Transformation> = {
-    camelCase: {
+const transformations: Transformation[] = [
+    {
+        name: 'camelCase',
         matchPattern: /[A-Z]/g,
         transform: (str: string, matchPattern: RegExp) =>
             str[0].toLowerCase() +
             str.slice(1).replace(matchPattern, (substr: string) => substr[substr.length - 1].toUpperCase()),
     },
-    PascalCase: {
+    {
+        name: 'PascalCase',
         matchPattern: /[A-Z]/g,
         transform: (str: string, matchPattern: RegExp) =>
             str[0].toUpperCase() +
-            str.slice(1).replace(matchPattern, (substr: string) => substr[substr.length - 1].toUpperCase()),
+            str.slice(1).replace(matchPattern, (substr) => substr[substr.length - 1].toUpperCase()),
     },
-    snake_case: {
+    {
+        name: 'snake_case',
         matchPattern: /([_])([a-z])/g,
         transform: (str: string, matchPattern: RegExp) => defaultTransformation(str, matchPattern, '_'),
     },
-    'kebab-case': {
+    {
+        name: 'kebab_case',
         matchPattern: /([-])([a-z])/g,
         transform: (str: string, matchPattern: RegExp) => defaultTransformation(str, matchPattern, '-'),
     },
-    'spaces in between': {
+    {
+        name: 'spaces',
         matchPattern: /([\s])([a-z])/g,
         transform: (str: string, matchPattern: RegExp) => defaultTransformation(str, matchPattern, ' '),
     },
+]
+
+const configSelectionMap: Record<string, number> = {
+    camelCase: 0,
+    PascalCase: 1,
+    snake_case: 2,
+    'kebab-case': 3,
+    'spaces in between': 4,
 }
 
 const skippedPostHogEvents = ['survey shown', 'survey sent', 'survey dismissed']
 
 export function processEvent(event: PluginEvent, { config }: LegacyTransformationPluginMeta) {
     if (!event.event.startsWith('$') && !skippedPostHogEvents.includes(event.event)) {
-        const transformer = transformations[config.defaultNamingConvention]
-        event.event = transformer.transform(event.event, transformer.matchPattern)
+        const defaultTransformation = configSelectionMap[config.defaultNamingConvention]
+        event.event = standardizeName(event.event, transformations[defaultTransformation])
     }
     return event
 }
@@ -56,8 +69,12 @@ const defaultTransformation = (str: string, matchPattern: RegExp, sep: string) =
     return parsedStr
 }
 
-export const taxonomyPlugin: LegacyTransformationPlugin = {
-    id: 'taxonomy-plugin',
-    metadata: metadata as any,
-    processEvent,
+const standardizeName = (name: string, desiredPattern: Transformation) => {
+    for (const transformation of transformations) {
+        if (transformation.name === desiredPattern.name || name.search(transformation.matchPattern) < 0) {
+            continue
+        }
+        return desiredPattern.transform(name, transformation.matchPattern)
+    }
+    return name
 }

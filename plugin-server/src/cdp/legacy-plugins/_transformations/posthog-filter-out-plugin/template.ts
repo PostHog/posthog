@@ -1,14 +1,14 @@
 import { HogFunctionTemplate } from '~/src/cdp/templates/types'
 
-export const pluginFilterOutPluginTemplate: HogFunctionTemplate = {
-    status: 'free',
+export const template: HogFunctionTemplate = {
+    status: 'alpha',
     type: 'transformation',
-    id: 'template-posthog-filter-out-plugin',
-    name: 'PostHog Filter Out Plugin',
+    id: 'plugin-posthog-filter-out-plugin',
+    name: 'Filter Out Plugin',
     description: 'Filter out events where property values satisfy the given condition',
-    icon_url: '/static/hedgehog/builder-hog-01.png',
-    category: ['Custom'],
-    hog: ``,
+    icon_url: 'https://raw.githubusercontent.com/posthog/posthog-filter-out-plugin/main/logo.png',
+    category: ['Transformation'],
+    hog: `return event`,
     inputs_schema: [
         {
             key: 'filters',

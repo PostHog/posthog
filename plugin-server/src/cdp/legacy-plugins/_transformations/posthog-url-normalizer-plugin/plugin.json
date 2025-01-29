@@ -1,6 +1,6 @@
 {
     "name": "URL Normalizer",
-    "url": "https://github.com/MarkBennett/posthog-url-normalizer-plugin",
+    "url": "https://github.com/PostHog/posthog-url-normalizer-plugin",
     "description": "A PostHog plugin to normalize the format of urls in your application allowing you to more easily compare them in insights.",
     "main": "index.ts",
     "posthogVersion": ">= 1.25.0",

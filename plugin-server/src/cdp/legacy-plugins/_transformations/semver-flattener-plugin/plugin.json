@@ -1,6 +1,6 @@
 {
     "name": "posthog-semver-flattener",
-    "url": "https://github.com/PostHog/posthog-semver-flattener-plugin",
+    "url": "https://github.com/PostHog/semver-flattener-plugin",
     "main": "index.ts",
     "config": [
         {
