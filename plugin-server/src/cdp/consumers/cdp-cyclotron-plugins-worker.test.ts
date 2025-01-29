@@ -11,7 +11,7 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
-import { PLUGINS_BY_ID } from '../legacy-plugins'
+import { DESTINATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { CdpCyclotronWorkerPlugins } from './cdp-cyclotron-plugins-worker.consumer'
 
@@ -37,6 +37,8 @@ describe('CdpCyclotronWorkerPlugins', () => {
         return item
     }
 
+    const intercomPlugin = DESTINATION_PLUGINS_BY_ID['posthog-intercom-plugin']
+
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
@@ -46,7 +48,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
 
         await processor.start()
 
-        processor.fetch = mockFetch = jest.fn(() =>
+        processor['pluginExecutor'].fetch = mockFetch = jest.fn(() =>
             Promise.resolve({
                 status: 200,
                 json: () =>
@@ -64,7 +66,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
 
         fn = await insertHogFunction({
             name: 'Plugin test',
-            template_id: 'plugin-intercom',
+            template_id: 'plugin-posthog-intercom-plugin',
         })
         globals = {
             ...createHogExecutionGlobals({
@@ -105,7 +107,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
 
     describe('setupPlugin', () => {
         it('should setup a plugin on first call', async () => {
-            jest.spyOn(PLUGINS_BY_ID['intercom'] as any, 'setupPlugin')
+            jest.spyOn(intercomPlugin, 'setupPlugin')
 
             const results = processor.processBatch([
                 createInvocation(fn, globals),
@@ -115,8 +117,8 @@ describe('CdpCyclotronWorkerPlugins', () => {
 
             expect(await results).toMatchObject([{ finished: true }, { finished: true }, { finished: true }])
 
-            expect(PLUGINS_BY_ID['intercom'].setupPlugin).toHaveBeenCalledTimes(1)
-            expect(jest.mocked(PLUGINS_BY_ID['intercom'].setupPlugin!).mock.calls[0][0]).toMatchInlineSnapshot(`
+            expect(intercomPlugin.setupPlugin).toHaveBeenCalledTimes(1)
+            expect(jest.mocked(intercomPlugin.setupPlugin!).mock.calls[0][0]).toMatchInlineSnapshot(`
                 {
                   "config": {
                     "ignoredEmailDomains": "dev.posthog.com",
@@ -139,7 +141,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
 
     describe('onEvent', () => {
         it('should call the plugin onEvent method', async () => {
-            jest.spyOn(PLUGINS_BY_ID['intercom'] as any, 'onEvent')
+            jest.spyOn(intercomPlugin as any, 'onEvent')
 
             const invocation = createInvocation(fn, globals)
             invocation.globals.event.event = 'mycustomevent'
@@ -154,9 +156,8 @@ describe('CdpCyclotronWorkerPlugins', () => {
 
             await processor.processBatch([invocation])
 
-            expect(PLUGINS_BY_ID['intercom'].onEvent).toHaveBeenCalledTimes(1)
-            expect(forSnapshot(jest.mocked(PLUGINS_BY_ID['intercom'].onEvent!).mock.calls[0][0]))
-                .toMatchInlineSnapshot(`
+            expect(intercomPlugin.onEvent).toHaveBeenCalledTimes(1)
+            expect(forSnapshot(jest.mocked(intercomPlugin.onEvent!).mock.calls[0][0])).toMatchInlineSnapshot(`
                 {
                   "distinct_id": "distinct_id",
                   "event": "mycustomevent",
@@ -219,7 +220,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
         })
 
         it('should mock out fetch if it is a test function', async () => {
-            jest.spyOn(PLUGINS_BY_ID['intercom'] as any, 'onEvent')
+            jest.spyOn(intercomPlugin as any, 'onEvent')
 
             const invocation = createInvocation(fn, globals)
             invocation.hogFunction.name = 'My function [CDP-TEST-HIDDEN]'
@@ -232,12 +233,12 @@ describe('CdpCyclotronWorkerPlugins', () => {
 
             expect(mockFetch).toHaveBeenCalledTimes(0)
 
-            expect(PLUGINS_BY_ID['intercom'].onEvent).toHaveBeenCalledTimes(1)
+            expect(intercomPlugin.onEvent).toHaveBeenCalledTimes(1)
 
             expect(forSnapshot(getProducedKafkaMessagesForTopic('log_entries_test').map((m) => m.value.message)))
                 .toMatchInlineSnapshot(`
                 [
-                  "Executing plugin intercom",
+                  "Executing plugin posthog-intercom-plugin",
                   "Fetch called but mocked due to test function",
                   "Unable to search contact test@posthog.com in Intercom. Status Code: undefined. Error message: ",
                   "Execution successful",
@@ -246,7 +247,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
         })
 
         it('should handle and collect errors', async () => {
-            jest.spyOn(PLUGINS_BY_ID['intercom'] as any, 'onEvent')
+            jest.spyOn(intercomPlugin as any, 'onEvent')
 
             const invocation = createInvocation(fn, globals)
             invocation.globals.event.event = 'mycustomevent'
@@ -258,7 +259,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
 
             const res = await processor.processBatch([invocation])
 
-            expect(PLUGINS_BY_ID['intercom'].onEvent).toHaveBeenCalledTimes(1)
+            expect(intercomPlugin.onEvent).toHaveBeenCalledTimes(1)
 
             expect(res[0].error).toBeInstanceOf(Error)
             expect(forSnapshot(res[0].logs)).toMatchInlineSnapshot(`[]`)
@@ -277,7 +278,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
     })
 
     describe('smoke tests', () => {
-        const testCases = Object.entries(PLUGINS_BY_ID).map(([pluginId, plugin]) => ({
+        const testCases = Object.entries(DESTINATION_PLUGINS_BY_ID).map(([pluginId, plugin]) => ({
             name: pluginId,
             plugin,
         }))

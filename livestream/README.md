@@ -18,7 +18,7 @@ Hog 3000 powers live event stream on PostHog: https://us.posthog.com/project/0/a
    - `geo` - return only coordinates guessed based on IP,
  - `/debug` - dummy html for SSE testing,
  - `/debug/sse/` - backend for `/debug` generating a server side events,
- - `/metrics` - exposes metrcis in Prometheus format
+ - `/metrics` - exposes metrics in Prometheus format
  
 ## Installing
 

@@ -3,7 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
+import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -44,16 +44,13 @@ import {
     Breadcrumb,
     BreakdownAttributionType,
     BreakdownType,
-    ChartDisplayType,
     CohortType,
     CountPerActorMathType,
     DashboardType,
     Experiment,
     FeatureFlagType,
-    FunnelConversionWindowTimeUnit,
     FunnelExperimentVariant,
     FunnelStep,
-    FunnelVizType,
     InsightType,
     MultivariateFlagVariant,
     ProductKey,
@@ -632,6 +629,7 @@ export const experimentLogic = kea<experimentLogicType>([
                             },
                         }
                     )
+
                     if (response?.id) {
                         actions.updateExperiments(response)
                         actions.setEditExperiment(false)
@@ -1194,8 +1192,10 @@ export const experimentLogic = kea<experimentLogicType>([
         getMetricType: [
             () => [],
             () =>
-                (metric: ExperimentTrendsQuery | ExperimentFunnelsQuery): InsightType => {
-                    return metric?.kind === NodeKind.ExperimentTrendsQuery ? InsightType.TRENDS : InsightType.FUNNELS
+                (metric: ExperimentTrendsQuery | ExperimentFunnelsQuery | undefined): InsightType => {
+                    return metric && metric?.kind === NodeKind.ExperimentTrendsQuery
+                        ? InsightType.TRENDS
+                        : InsightType.FUNNELS
                 },
         ],
         isExperimentRunning: [
@@ -1266,16 +1266,12 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         minimumDetectableEffect: [
-            (s) => [s.experiment, s.getMetricType, s.conversionMetrics, s.trendResults],
-            (newExperiment, getMetricType, conversionMetrics, trendResults): number => {
+            (s) => [s.experiment, s.getMetricType, s.conversionMetrics, s.trendResults, s.firstPrimaryMetric],
+            (newExperiment, getMetricType, conversionMetrics, trendResults, firstPrimaryMetric): number => {
                 return (
                     newExperiment?.parameters?.minimum_detectable_effect ||
                     // :KLUDGE: extracted the method due to difficulties with logic tests
-                    getMinimumDetectableEffect(
-                        getMetricType(newExperiment?.metrics[0]),
-                        conversionMetrics,
-                        trendResults
-                    ) ||
+                    getMinimumDetectableEffect(getMetricType(firstPrimaryMetric), conversionMetrics, trendResults) ||
                     0
                 )
             },
@@ -1357,6 +1353,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 s.experiment,
                 s.variants,
                 s.getMetricType,
+                s.firstPrimaryMetric,
                 s.funnelResults,
                 s.conversionMetrics,
                 s.expectedRunningTime,
@@ -1368,6 +1365,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 experiment,
                 variants,
                 getMetricType,
+                firstPrimaryMetric,
                 funnelResults,
                 conversionMetrics,
                 expectedRunningTime,
@@ -1375,7 +1373,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 minimumSampleSizePerVariant,
                 recommendedExposureForCountData
             ): number => {
-                if (getMetricType(experiment.metrics[0]) === InsightType.FUNNELS) {
+                if (getMetricType(firstPrimaryMetric) === InsightType.FUNNELS) {
                     const currentDuration = dayjs().diff(dayjs(experiment?.start_date), 'hour')
                     const funnelEntrants = funnelResults?.[0]?.count
 
@@ -1495,8 +1493,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
         ],
         getIndexForVariant: [
-            (s) => [s.experiment, s.getMetricType],
-            (experiment, getMetricType) =>
+            (s) => [s.getMetricType, s.firstPrimaryMetric],
+            (getMetricType, firstPrimaryMetric) =>
                 (
                     metricResult: CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null,
                     variant: string
@@ -1508,7 +1506,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     }
 
                     let index = -1
-                    if (getMetricType(experiment.metrics[0]) === InsightType.FUNNELS) {
+                    if (getMetricType(firstPrimaryMetric) === InsightType.FUNNELS) {
                         // Funnel Insight is displayed in order of decreasing count
                         index = (Array.isArray(metricResult.insight) ? [...metricResult.insight] : [])
                             .sort((a, b) => {
@@ -1530,7 +1528,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     }
                     const result = index === -1 ? null : index
 
-                    if (result !== null && getMetricType(experiment.metrics[0]) === InsightType.FUNNELS) {
+                    if (result !== null && getMetricType(firstPrimaryMetric) === InsightType.FUNNELS) {
                         return result + 1
                     }
                     return result
@@ -1804,7 +1802,7 @@ export const experimentLogic = kea<experimentLogicType>([
         },
     })),
     urlToAction(({ actions, values }) => ({
-        '/experiments/:id': ({ id }, _, __, currentLocation, previousLocation) => {
+        '/experiments/:id': ({ id }, query, __, currentLocation, previousLocation) => {
             const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
 
             actions.setEditExperiment(false)
@@ -1812,7 +1810,11 @@ export const experimentLogic = kea<experimentLogicType>([
             if (id && didPathChange) {
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
                 if (parsedId === 'new') {
-                    actions.resetExperiment()
+                    actions.resetExperiment({
+                        ...NEW_EXPERIMENT,
+                        metrics: query.metric ? [query.metric] : [],
+                        name: query.name ?? '',
+                    })
                 }
                 if (parsedId !== 'new' && parsedId === values.experimentId) {
                     actions.loadExperiment()
@@ -1831,63 +1833,4 @@ export function percentageDistribution(variantCount: number): number[] {
         percentages[i] += 1
     }
     return percentages
-}
-
-export function getDefaultTrendsMetric(): ExperimentTrendsQuery {
-    return {
-        kind: NodeKind.ExperimentTrendsQuery,
-        count_query: {
-            kind: NodeKind.TrendsQuery,
-            series: [
-                {
-                    kind: NodeKind.EventsNode,
-                    name: '$pageview',
-                    event: '$pageview',
-                },
-            ],
-            interval: 'day',
-            dateRange: {
-                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
-                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-                explicitDate: true,
-            },
-            trendsFilter: {
-                display: ChartDisplayType.ActionsLineGraph,
-            },
-            filterTestAccounts: true,
-        },
-    }
-}
-
-export function getDefaultFunnelsMetric(): ExperimentFunnelsQuery {
-    return {
-        kind: NodeKind.ExperimentFunnelsQuery,
-        funnels_query: {
-            kind: NodeKind.FunnelsQuery,
-            filterTestAccounts: true,
-            dateRange: {
-                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
-                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-                explicitDate: true,
-            },
-            series: [
-                {
-                    kind: NodeKind.EventsNode,
-                    event: '$pageview',
-                    name: '$pageview',
-                },
-                {
-                    kind: NodeKind.EventsNode,
-                    event: '$pageview',
-                    name: '$pageview',
-                },
-            ],
-            funnelsFilter: {
-                funnelVizType: FunnelVizType.Steps,
-                funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Day,
-                funnelWindowInterval: 14,
-                layout: FunnelLayout.horizontal,
-            },
-        },
-    }
 }

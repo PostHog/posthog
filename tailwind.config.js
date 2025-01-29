@@ -65,6 +65,9 @@ const config = {
             'error': 'var(--border-error)',
             'success': 'var(--border-success)',
         },
+        ringColor: {
+            ...commonColors,
+        },
         fontFamily: {
             sans: [
                 '-apple-system',

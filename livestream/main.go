@@ -94,7 +94,8 @@ func main() {
 	e.Use(middleware.GzipWithConfig(middleware.GzipConfig{
 		Level: 9, // Set compression level to maximum
 	}))
-	e.Use(echoprometheus.NewMiddleware("livestream"))
+	e.Use(echoprometheus.NewMiddlewareWithConfig(
+		echoprometheus.MiddlewareConfig{DoNotUseRequestPathFor404: true, Subsystem: "livestream"}))
 
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowOrigins: []string{"*"},
@@ -117,12 +118,7 @@ func main() {
 	e.GET("/events", streamEventsHandler(e.Logger, subChan, filter))
 
 	e.GET("/jwt", func(c echo.Context) error {
-		authHeader := c.Request().Header.Get("Authorization")
-		if authHeader == "" {
-			return errors.New("authorization header is required")
-		}
-
-		claims, err := decodeAuthToken(authHeader)
+		claims, err := getAuth(c.Request().Header)
 		if err != nil {
 			return err
 		}

@@ -482,29 +482,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             label: 'Web analytics',
                             icon: <IconPieChart />,
                             to: isUsingSidebar ? undefined : urls.webAnalytics(),
-                            sideAction: featureFlags[FEATURE_FLAGS.WEB_VITALS]
-                                ? {
-                                      identifier: 'web-analytics-dropdown',
-                                      dropdown: {
-                                          overlay: (
-                                              <LemonMenuOverlay
-                                                  items={[
-                                                      {
-                                                          items: [
-                                                              {
-                                                                  label: 'Web vitals',
-                                                                  to: urls.webAnalyticsWebVitals(),
-                                                                  tag: 'beta' as const,
-                                                              },
-                                                          ],
-                                                      },
-                                                  ]}
-                                              />
-                                          ),
-                                          placement: 'bottom-end',
-                                      },
-                                  }
-                                : undefined,
                         },
                         featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY]
                             ? {

@@ -79,6 +79,7 @@
         "@posthog/hogvm": "^1.0.66",
         "@posthog/icons": "0.10.0",
         "@posthog/plugin-scaffold": "^1.4.4",
+        "@radix-ui/react-accordion": "^1.2.2",
         "@react-hook/size": "^2.1.2",
         "@rrweb/rrweb-plugin-console-record": "2.0.0-alpha.18",
         "@rrweb/types": "2.0.0-alpha.13",
