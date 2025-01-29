@@ -322,6 +322,7 @@ export function OverViewTab({
                         },
                         { label: 'Remote configuration', value: 'config' },
                         { label: 'Experiment', value: 'experiment' },
+                        { label: 'Remote config', value: 'remote_config' },
                     ]}
                     value={filters.type ?? 'all'}
                     data-attr="feature-flag-select-type"

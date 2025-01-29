@@ -539,7 +539,7 @@ class FeatureFlagViewSet(
                     )
                 elif type == "experiment":
                     queryset = queryset.filter(~Q(experiment__isnull=True))
-                elif type == "config":
+                elif type == "remote_config":
                     queryset = queryset.filter(is_remote_configuration=True)
 
         return queryset
