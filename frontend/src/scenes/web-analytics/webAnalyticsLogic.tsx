@@ -14,6 +14,7 @@ import { errorTrackingQuery } from 'scenes/error-tracking/queries'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { hogqlQuery } from '~/queries/query'
 import {
@@ -37,6 +38,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { isWebAnalyticsPropertyFilters } from '~/queries/schema-guards'
 import {
+    AvailableFeature,
     BaseMathType,
     Breadcrumb,
     ChartDisplayType,
@@ -264,7 +266,7 @@ const persistConfig = { persist: true, prefix: `${teamId}__` }
 export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     path(['scenes', 'webAnalytics', 'webAnalyticsSceneLogic']),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeam']],
+        values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeam'], userLogic, ['hasAvailableFeature']],
     })),
     actions({
         setWebAnalyticsFilters: (webAnalyticsFilters: WebAnalyticsPropertyFilters) => ({ webAnalyticsFilters }),
@@ -424,7 +426,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.geographyTab || oldTab,
             },
         ],
-        isPathCleaningEnabled: [
+        _isPathCleaningEnabled: [
             true as boolean,
             persistConfig,
             {
@@ -557,6 +559,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         deviceTab: [(s) => [s._deviceTab], (deviceTab: string | null) => deviceTab || DeviceTab.DEVICE_TYPE],
         pathTab: [(s) => [s._pathTab], (pathTab: string | null) => pathTab || PathTab.PATH],
         geographyTab: [(s) => [s._geographyTab], (geographyTab: string | null) => geographyTab || GeographyTab.MAP],
+        isPathCleaningEnabled: [
+            (s) => [s._isPathCleaningEnabled, s.hasAvailableFeature],
+            (isPathCleaningEnabled, hasAvailableFeature) =>
+                hasAvailableFeature(AvailableFeature.PATHS_ADVANCED) && isPathCleaningEnabled,
+        ],
         tabs: [
             (s) => [
                 s.graphsTab,

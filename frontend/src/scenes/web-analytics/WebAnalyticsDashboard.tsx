@@ -17,6 +17,7 @@ import { isNotNil } from 'lib/utils'
 import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
 import React, { useState } from 'react'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 import { WebAnalyticsErrorTrackingTile } from 'scenes/web-analytics/tiles/WebAnalyticsErrorTracking'
 import { WebAnalyticsRecordingsTile } from 'scenes/web-analytics/tiles/WebAnalyticsRecordings'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
@@ -37,7 +38,7 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { QuerySchema } from '~/queries/schema'
-import { ProductKey, PropertyMathType } from '~/types'
+import { AvailableFeature, ProductKey, PropertyMathType } from '~/types'
 
 import { WebAnalyticsLiveUserCount } from './WebAnalyticsLiveUserCount'
 
@@ -51,6 +52,9 @@ const Filters = (): JSX.Element => {
     } = useValues(webAnalyticsLogic)
     const { setWebAnalyticsFilters, setDates, setCompareFilter, setWebVitalsPercentile } = useActions(webAnalyticsLogic)
     const { mobileLayout } = useValues(navigationLogic)
+
+    const { hasAvailableFeature } = useValues(userLogic)
+    const hasAdvancedPaths = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
 
     const webPropertyFilters = (
         <WebPropertyFilters setWebAnalyticsFilters={setWebAnalyticsFilters} webAnalyticsFilters={webAnalyticsFilters} />
@@ -91,7 +95,7 @@ const Filters = (): JSX.Element => {
                     />
                 )}
 
-                <PathCleaningToggle />
+                {hasAdvancedPaths && <PathCleaningToggle />}
 
                 {/* Desktop filters, rendered to the left of the reload button */}
                 <div className="hidden md:block">{webPropertyFilters}</div>
