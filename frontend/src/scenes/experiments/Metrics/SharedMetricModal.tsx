@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -44,6 +44,24 @@ export function SharedMetricModal({
 
     const { hasAvailableFeature } = useValues(userLogic)
 
+    const availableSharedMetrics = sharedMetrics.filter(
+        (metric: SharedMetric) =>
+            !experiment.saved_metrics.some((savedMetric) => savedMetric.saved_metric === metric.id)
+    )
+
+    const availableTags = useMemo(
+        () =>
+            Array.from(
+                new Set(
+                    availableSharedMetrics
+                        .filter((metric: SharedMetric) => metric.tags)
+                        .flatMap((metric: SharedMetric) => metric.tags)
+                        .filter(Boolean)
+                )
+            ).sort(),
+        [availableSharedMetrics]
+    )
+
     if (!sharedMetrics) {
         return <></>
     }
@@ -65,20 +83,6 @@ export function SharedMetricModal({
             return `You can only add up to ${MAX_SECONDARY_METRICS} secondary metrics.`
         }
     }
-
-    const availableSharedMetrics = sharedMetrics.filter(
-        (metric: SharedMetric) =>
-            !experiment.saved_metrics.some((savedMetric) => savedMetric.saved_metric === metric.id)
-    )
-
-    const availableTags = Array.from(
-        new Set(
-            availableSharedMetrics
-                .filter((metric: SharedMetric) => metric.tags)
-                .flatMap((metric: SharedMetric) => metric.tags)
-                .filter(Boolean)
-        )
-    ).sort()
 
     return (
         <LemonModal
