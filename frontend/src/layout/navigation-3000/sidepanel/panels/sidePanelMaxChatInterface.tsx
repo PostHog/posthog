@@ -141,7 +141,7 @@ function MaxChatInterfaceContent(): JSX.Element {
     return (
         <div className="flex flex-col h-full">
             <div className="flex-1 overflow-y-auto p-3 space-y-4 [overflow-anchor:none]">
-                <div className="bg-bg-light dark:bg-bg-transparent rounded p-1">
+                <div className="bg-surface-primary dark:bg-bg-transparent rounded p-1">
                     <h4 className="mb-2">Tips for chatting with Max:</h4>
                     <ul className="list-disc pl-4 space-y-2 text-muted">
                         <li>Max can't handle files or images (yet.)</li>
@@ -179,8 +179,8 @@ function MaxChatInterfaceContent(): JSX.Element {
                                         <div
                                             className={`p-2 rounded-lg min-w-[90%] whitespace-pre-wrap ${
                                                 message.role === 'assistant'
-                                                    ? 'bg-bg-light dark:bg-bg-depth text-default'
-                                                    : 'bg-bg-light dark:bg-bg-side text-default'
+                                                    ? 'bg-surface-primary dark:bg-bg-depth text-default'
+                                                    : 'bg-surface-primary dark:bg-bg-side text-default'
                                             }`}
                                         >
                                             {message.role === 'assistant'
@@ -358,7 +358,7 @@ function MaxChatInterfaceContent(): JSX.Element {
                                 <div className="flex justify-start">
                                     <div className="flex flex-col">
                                         <div className="text-sm text-muted mb-1">Max</div>
-                                        <div className="p-2 rounded-lg bg-bg-light dark:bg-bg-depth text-default">
+                                        <div className="p-2 rounded-lg bg-surface-primary dark:bg-bg-depth text-default">
                                             <div className="flex items-center gap-2">
                                                 <span>
                                                     {hasServerError
