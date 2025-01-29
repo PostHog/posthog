@@ -154,7 +154,8 @@
                 "WORKER_CONCURRENCY": "2",
                 "OBJECT_STORAGE_ENABLED": "True",
                 "HOG_HOOK_URL": "http://localhost:3300/hoghook",
-                "PLUGIN_SERVER_MODE": "all-v2"
+                "PLUGIN_SERVER_MODE": "all-v2",
+                "HOG_TRANSFORMATIONS_ENABLED": "True"
             },
             "presentation": {
                 "group": "main"
