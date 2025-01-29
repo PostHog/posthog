@@ -39,6 +39,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
     "teams": [
       {
         "access_control": true,
+        "access_control_version": "v1",
         "anonymize_ips": false,
         "api_token": "default-team-api-token",
         "app_urls": [
@@ -74,7 +75,6 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         ],
         "effective_membership_level": 8,
         "flags_persistence_default": false,
-        "access_control_version": "v1",
         "has_group_types": true,
         "heatmaps_opt_in": true,
         "human_friendly_comparison_periods": false,
