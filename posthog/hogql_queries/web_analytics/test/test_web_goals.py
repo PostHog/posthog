@@ -19,11 +19,13 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
+from freezegun.api import freeze_time
 
 
 @snapshot_clickhouse_queries
 class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
-    TIMESTAMP = "2024-12-01"
+    QUERY_TIMESTAMP = "2025-01-29"
+    EVENT_TIMESTAMP = "2024-12-01"
 
     def _create_person(self):
         distinct_id = str(uuid7())
@@ -50,7 +52,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="$pageview",
             distinct_id=person.uuid,
-            timestamp=self.TIMESTAMP,
+            timestamp=self.EVENT_TIMESTAMP,
             properties={
                 "$pathname": "/project/2/web",
                 "$current_url": "https://us.posthog.com/project/2/web",
@@ -63,7 +65,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="$autocapture",
             distinct_id=person.uuid,
-            timestamp=self.TIMESTAMP,
+            timestamp=self.EVENT_TIMESTAMP,
             elements=[Element(nth_of_type=1, nth_child=0, tag_name="button", text="Pay $10")],
             properties={"$session_id": session_id or person.uuid},
         )
@@ -116,17 +118,18 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         session_table_version: SessionTableVersion = SessionTableVersion.V2,
         filter_test_accounts: Optional[bool] = False,
     ):
-        modifiers = HogQLQueryModifiers(sessionTableVersion=session_table_version)
-        query = WebGoalsQuery(
-            dateRange=DateRange(date_from=date_from, date_to=date_to),
-            properties=properties or [],
-            limit=limit,
-            filterTestAccounts=filter_test_accounts,
-            compareFilter=CompareFilter(compare=compare),
-        )
-        self.team.path_cleaning_filters = path_cleaning_filters or []
-        runner = WebGoalsQueryRunner(team=self.team, query=query, modifiers=modifiers)
-        return runner.calculate()
+        with freeze_time(self.QUERY_TIMESTAMP):
+            modifiers = HogQLQueryModifiers(sessionTableVersion=session_table_version)
+            query = WebGoalsQuery(
+                dateRange=DateRange(date_from=date_from, date_to=date_to),
+                properties=properties or [],
+                limit=limit,
+                filterTestAccounts=filter_test_accounts,
+                compareFilter=CompareFilter(compare=compare),
+            )
+            self.team.path_cleaning_filters = path_cleaning_filters or []
+            runner = WebGoalsQueryRunner(team=self.team, query=query, modifiers=modifiers)
+            return runner.calculate()
 
     def test_no_crash_when_no_data_or_actions(self):
         results = self._run_web_goals_query("2024-11-01", None).results

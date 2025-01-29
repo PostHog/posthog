@@ -1110,7 +1110,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 filtered_results = [
                     (table_name, filter_postgres_incremental_fields(columns)) for table_name, columns in result.items()
                 ]
-                rows = get_postgres_row_count(host, port, database, user, password, schema)
+                try:
+                    rows = get_postgres_row_count(host, port, database, user, password, schema, ssh_tunnel)
+                except:
+                    pass
 
             elif source_type == ExternalDataSource.Type.MYSQL:
                 filtered_results = [

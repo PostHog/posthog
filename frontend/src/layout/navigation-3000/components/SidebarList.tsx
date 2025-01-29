@@ -15,6 +15,8 @@ import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { InfiniteLoader } from 'react-virtualized/dist/es/InfiniteLoader'
 import { List, ListProps } from 'react-virtualized/dist/es/List'
 
+import SearchHighlight from '~/layout/navigation-3000/components/SearchHighlight'
+
 import { ITEM_KEY_PART_SEPARATOR, navigation3000Logic } from '../navigationLogic'
 import {
     BasicListItem,
@@ -305,7 +307,7 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
                 style={{ '--depth': item.depth } as React.CSSProperties}
             >
                 {item.icon && <div className="SidebarListItem__icon">{item.icon}</div>}
-                <h5 className="SidebarListItem__name">{item.name}</h5>
+                <SearchHighlight string={item.name} substring={navigation3000Logic.values.searchTerm} />
             </div>
         )
     } else if (!save || (!isItemTentative(item) && newName === null)) {
@@ -313,7 +315,7 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
             throw new Error('Tentative items should not be rendered in read mode')
         }
         let formattedName = item.searchMatch?.nameHighlightRanges?.length ? (
-            <TextWithHighlights ranges={item.searchMatch.nameHighlightRanges}>{item.name}</TextWithHighlights>
+            <SearchHighlight string={item.name} substring={navigation3000Logic.values.searchTerm} />
         ) : (
             item.name
         )
@@ -493,40 +495,6 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
             )}
         </li>
     )
-}
-
-/** Text with specified ranges highlighted by increased font weight. Great for higlighting search term matches. */
-function TextWithHighlights({
-    children,
-    ranges,
-}: {
-    children: string
-    ranges: readonly [number, number][]
-}): JSX.Element {
-    const segments: JSX.Element[] = []
-    let previousBoldEnd = 0
-    let segmentIndex = 0
-    // Divide the item name into bold and regular segments
-    for (let i = 0; i < ranges.length; i++) {
-        const [currentBoldStart, currentBoldEnd] = ranges[i]
-        if (currentBoldStart > previousBoldEnd) {
-            segments.push(
-                <React.Fragment key={segmentIndex}>{children.slice(previousBoldEnd, currentBoldStart)}</React.Fragment>
-            )
-            segmentIndex++
-        }
-        segments.push(<b key={segmentIndex}>{children.slice(currentBoldStart, currentBoldEnd)}</b>)
-        segmentIndex++
-        previousBoldEnd = currentBoldEnd
-    }
-    // If there is a non-highlighted segment left at the end, add it now
-    if (previousBoldEnd < children.length) {
-        segments.push(
-            <React.Fragment key={segmentIndex}>{children.slice(previousBoldEnd, children.length)}</React.Fragment>
-        )
-    }
-
-    return <>{segments}</>
 }
 
 /** Smart rendering of list item extra context. */

@@ -427,6 +427,121 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
         )
 
 
+@pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
+@pytest.mark.parametrize("use_json_type", [False, True], indirect=True)
+@pytest.mark.parametrize(
+    "model",
+    [
+        BatchExportModel(
+            name="events",
+            schema=None,
+            filters=[
+                {"key": "$browser", "operator": "exact", "type": "event", "value": ["Chrome"]},
+                {"key": "$os", "operator": "exact", "type": "event", "value": ["Mac OS X"]},
+            ],
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    "test_properties",
+    [
+        {
+            "$browser": "Chrome",
+            "$os": "Mac OS X",
+            "emoji": "🤣",
+        }
+    ],
+    indirect=True,
+)
+@pytest.mark.parametrize(
+    "test_person_properties",
+    [
+        {
+            "utm_medium": "referral",
+            "$initial_os": "Linux",
+            "emoji": "🤣",
+            "newline": "\n",
+            "emoji_with_high_surrogate": "🤣\ud83e",
+            "emoji_with_low_surrogate": "🤣\udd23",
+            "emoji_with_high_surrogate_and_newline": "🤣\ud83e\n",
+            "emoji_with_low_surrogate_and_newline": "🤣\udd23\n",
+        }
+    ],
+    indirect=True,
+)
+async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table_with_property_filters(
+    clickhouse_client,
+    activity_environment,
+    bigquery_client,
+    bigquery_config,
+    exclude_events,
+    bigquery_dataset,
+    use_json_type,
+    model: BatchExportModel | BatchExportSchema | None,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+):
+    """Test that the `insert_into_bigquery_activity` function inserts data into a BigQuery table.
+
+    This test exclusively covers a model with property filters as property filters require
+    a valid JSON. And the other test uses an invalid JSON due to unpaired surrogates.
+
+    We use the `generate_test_data` fixture function to generate several sets
+    of events. Some of these sets are expected to be exported, and others not. Expected
+    events are those that:
+    * Are created for the `team_id` of the batch export.
+    * Are created in the date range of the batch export.
+    * Are not duplicates of other events that are in the same batch.
+    * Do not have an event name contained in the batch export's `exclude_events`.
+    """
+    if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
+        pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
+
+    batch_export_schema: BatchExportSchema | None = None
+    batch_export_model: BatchExportModel | None = None
+    if isinstance(model, BatchExportModel):
+        batch_export_model = model
+    elif model is not None:
+        batch_export_schema = model
+
+    insert_inputs = BigQueryInsertInputs(
+        team_id=ateam.pk,
+        table_id=f"test_insert_activity_table_{ateam.pk}",
+        dataset_id=bigquery_dataset.dataset_id,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        exclude_events=exclude_events,
+        use_json_type=use_json_type,
+        batch_export_schema=batch_export_schema,
+        batch_export_model=batch_export_model,
+        **bigquery_config,
+    )
+
+    with freeze_time(TEST_TIME) as frozen_time, override_settings(BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES=1):
+        await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
+
+        ingested_timestamp = frozen_time().replace(tzinfo=dt.UTC)
+
+        await assert_clickhouse_records_in_bigquery(
+            bigquery_client=bigquery_client,
+            clickhouse_client=clickhouse_client,
+            table_id=f"test_insert_activity_table_{ateam.pk}",
+            dataset_id=bigquery_dataset.dataset_id,
+            team_id=ateam.pk,
+            date_ranges=[(data_interval_start, data_interval_end)],
+            exclude_events=exclude_events,
+            include_events=None,
+            batch_export_model=model,
+            use_json_type=use_json_type,
+            min_ingested_timestamp=ingested_timestamp,
+            sort_key="person_id"
+            if batch_export_model is not None and batch_export_model.name == "persons"
+            else "event",
+        )
+
+
 @pytest.mark.parametrize("use_json_type", [True], indirect=True)
 @pytest.mark.parametrize("model", TEST_MODELS)
 async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table_without_query_permissions(
@@ -1025,8 +1140,11 @@ async def test_bigquery_export_workflow(
         events_to_export_created, persons_to_export_created = generate_test_data
         run = runs[0]
         assert run.status == "Completed"
-        assert run.records_completed == len(events_to_export_created) or run.records_completed == len(
-            persons_to_export_created
+        assert (
+            run.records_completed == len(events_to_export_created)
+            or run.records_completed == len(persons_to_export_created)
+            or run.records_completed
+            == len([event for event in events_to_export_created if event["properties"] is not None])
         )
 
         ingested_timestamp = frozen_time().replace(tzinfo=dt.UTC)

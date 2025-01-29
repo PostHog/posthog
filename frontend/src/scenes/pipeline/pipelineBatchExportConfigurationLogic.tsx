@@ -27,6 +27,7 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
         paused: batchExportConfig.paused,
         interval: batchExportConfig.interval,
         model: batchExportConfig.model,
+        filters: batchExportConfig.filters,
         ...batchExportConfig.destination.config,
     }
 }
@@ -229,8 +230,18 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                     return null
                 },
                 updateBatchExportConfig: async (formdata) => {
-                    const { name, destination, interval, paused, created_at, start_at, end_at, model, ...config } =
-                        formdata
+                    const {
+                        name,
+                        destination,
+                        interval,
+                        paused,
+                        created_at,
+                        start_at,
+                        end_at,
+                        model,
+                        filters,
+                        ...config
+                    } = formdata
                     const destinationObj = {
                         type: destination,
                         config: config,
@@ -243,10 +254,12 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                         name,
                         interval,
                         model,
+                        filters,
                         destination: destinationObj,
                     }
                     if (props.id) {
                         const res = await api.batchExports.update(props.id, data)
+                        lemonToast.success('Batch export configuration updated successfully')
                         return res
                     }
                     const res = await api.batchExports.create(data)
@@ -255,6 +268,7 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
                     router.actions.replace(
                         urls.pipelineNode(PipelineStage.Destination, res.id, PipelineNodeTab.Configuration)
                     )
+                    lemonToast.success('Batch export created successfully')
                     return res
                 },
             },
@@ -403,7 +417,6 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
             if (!batchExportConfig) {
                 return
             }
-            lemonToast.success('Batch export configuration updated successfully')
 
             // Reset so that form doesn't think there are unsaved changes.
             actions.resetConfiguration(getConfigurationFromBatchExportConfig(batchExportConfig))
