@@ -659,6 +659,16 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description: 'Indicates whether the app is running on an emulator or a physical device',
             examples: ['true', 'false'],
         },
+        $is_mac_catalyst_app: {
+            label: 'Is Mac Catalyst App',
+            description: 'Indicates whether the app is a Mac Catalyst app running on macOS',
+            examples: ['true', 'false'],
+        },
+        $is_ios_running_on_mac: {
+            label: 'Is iOS App Running on Mac',
+            description: 'Indicates whether the app is an iOS app running on macOS (Apple Silicon)',
+            examples: ['true', 'false'],
+        },
         $device_name: {
             label: 'Device Name',
             description: 'Name of the device',
