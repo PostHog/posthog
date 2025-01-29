@@ -722,6 +722,7 @@ export interface ChartSettings {
     /** Whether we fill the bars to 100% in stacked mode */
     stackBars100?: boolean
     seriesBreakdownColumn?: string | null
+    showLegend?: boolean
 }
 
 export interface ConditionalFormattingRule {

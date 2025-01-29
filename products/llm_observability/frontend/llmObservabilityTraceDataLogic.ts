@@ -78,5 +78,54 @@ export const llmObservabilityTraceDataLogic = kea<llmObservabilityTraceDataLogic
                 return showableEvents.find((event) => event.id === eventId) || null
             },
         ],
+        tree: [
+            (s, p) => [p.traceId, s.trace],
+            (traceId, trace): TraceTreeNode[] => restoreTree(trace?.events || [], traceId),
+        ],
     }),
 ])
+
+export interface TraceTreeNode {
+    event: LLMTraceEvent
+    children?: TraceTreeNode[]
+}
+
+export function restoreTree(events: LLMTraceEvent[], traceId: string): TraceTreeNode[] {
+    const childrenMap = new Map<any, any[]>()
+    const idMap = new Map<any, LLMTraceEvent>()
+
+    // Map all events with parents to their parent IDs
+    for (const event of events) {
+        // Exclude all metric and feedback events.
+        if (FEEDBACK_EVENTS.has(event.event)) {
+            continue
+        }
+
+        const eventId = event.properties.$ai_generation_id ?? event.properties.$ai_span_id ?? event.id
+        idMap.set(eventId, event)
+
+        // Filters events for both SDKs with spans and without.
+        const parentId = event.properties.$ai_parent_id ?? event.properties.$ai_trace_id
+
+        if (parentId !== undefined && parentId !== null) {
+            const existingEvents = childrenMap.get(parentId)
+            if (existingEvents) {
+                existingEvents.push(eventId)
+            } else {
+                childrenMap.set(parentId, [eventId])
+            }
+        }
+    }
+
+    function traverse(spanId: any): TraceTreeNode {
+        const children = childrenMap.get(spanId)
+        return {
+            event: idMap.get(spanId)!,
+            children: children?.map((child) => traverse(child)),
+        }
+    }
+
+    // Get all direct children of the trace ID
+    const directChildren = childrenMap.get(traceId) || []
+    return directChildren.map((childId) => traverse(childId))
+}
