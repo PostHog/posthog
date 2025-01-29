@@ -442,7 +442,7 @@ function TraceMetricsTable(): JSX.Element | null {
                     {
                         title: 'Value',
                         key: 'value',
-                        render: (_, { value }) => <span>{value || '–'}</span>,
+                        render: (_, { value }) => <span>{value ?? '–'}</span>,
                         width: '60%',
                     },
                 ]}
