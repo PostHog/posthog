@@ -286,6 +286,15 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             }
             actions.setSidebarWidth(newWidth)
             actions.setSidebarOverslide(newWidthRaw - newWidth)
+            if (newWidthRaw < MINIMUM_SIDEBAR_WIDTH_PX / 2) {
+                if (values.isSidebarShown) {
+                    actions.hideSidebar()
+                }
+            } else {
+                if (!values.isSidebarShown) {
+                    actions.showSidebar()
+                }
+            }
         },
         syncSidebarWidthWithViewport: () => {
             if (values.sidebarWidth > window.innerWidth * (MAXIMUM_SIDEBAR_WIDTH_PERCENTAGE / 100)) {
@@ -482,29 +491,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             label: 'Web analytics',
                             icon: <IconPieChart />,
                             to: isUsingSidebar ? undefined : urls.webAnalytics(),
-                            sideAction: featureFlags[FEATURE_FLAGS.WEB_VITALS]
-                                ? {
-                                      identifier: 'web-analytics-dropdown',
-                                      dropdown: {
-                                          overlay: (
-                                              <LemonMenuOverlay
-                                                  items={[
-                                                      {
-                                                          items: [
-                                                              {
-                                                                  label: 'Web vitals',
-                                                                  to: urls.webAnalyticsWebVitals(),
-                                                                  tag: 'beta' as const,
-                                                              },
-                                                          ],
-                                                      },
-                                                  ]}
-                                              />
-                                          ),
-                                          placement: 'bottom-end',
-                                      },
-                                  }
-                                : undefined,
                         },
                         featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY]
                             ? {

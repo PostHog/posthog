@@ -1,0 +1,6 @@
+{
+    "name": "Timestamp Parser",
+    "url": "https://github.com/PostHog/timestamp-parser-plugin",
+    "description": "Parse your event timestamps into useful date properties.",
+    "main": "index.js"
+}

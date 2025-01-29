@@ -71,6 +71,7 @@ class PipelineNonDLT:
                 self._delta_table_helper.reset_table()
 
                 self._schema.sync_type_config.pop("reset_pipeline", None)
+                self._schema.sync_type_config.pop("incremental_field_last_value", None)
                 self._schema.save()
 
             for item in self._resource:

@@ -250,7 +250,7 @@ def create_resources(
         include_from_parent: list[str] = endpoint_resource.get("include_from_parent", [])
         if not resolved_param and include_from_parent:
             raise ValueError(
-                f"Resource {resource_name} has include_from_parent but is not " "dependent on another resource"
+                f"Resource {resource_name} has include_from_parent but is not dependent on another resource"
             )
 
         (

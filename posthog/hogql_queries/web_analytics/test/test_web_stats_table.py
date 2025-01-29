@@ -30,6 +30,8 @@ from posthog.test.base import (
 
 @snapshot_clickhouse_queries
 class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
+    QUERY_TIMESTAMP = "2025-01-29"
+
     def _create_events(self, data, event="$pageview"):
         person_result = []
         for id, timestamps in data:
@@ -138,28 +140,29 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         filter_test_accounts: Optional[bool] = False,
         bounce_rate_mode: Optional[BounceRatePageViewMode] = BounceRatePageViewMode.COUNT_PAGEVIEWS,
     ):
-        modifiers = HogQLQueryModifiers(
-            sessionTableVersion=session_table_version, bounceRatePageViewMode=bounce_rate_mode
-        )
-        query = WebStatsTableQuery(
-            dateRange=DateRange(date_from=date_from, date_to=date_to),
-            properties=properties or [],
-            breakdownBy=breakdown_by,
-            limit=limit,
-            doPathCleaning=bool(path_cleaning_filters),
-            includeBounceRate=include_bounce_rate,
-            includeScrollDepth=include_scroll_depth,
-            compareFilter=compare_filter,
-            conversionGoal=ActionConversionGoal(actionId=action.id)
-            if action
-            else CustomEventConversionGoal(customEventName=custom_event)
-            if custom_event
-            else None,
-            filterTestAccounts=filter_test_accounts,
-        )
-        self.team.path_cleaning_filters = path_cleaning_filters or []
-        runner = WebStatsTableQueryRunner(team=self.team, query=query, modifiers=modifiers)
-        return runner.calculate()
+        with freeze_time(self.QUERY_TIMESTAMP):
+            modifiers = HogQLQueryModifiers(
+                sessionTableVersion=session_table_version, bounceRatePageViewMode=bounce_rate_mode
+            )
+            query = WebStatsTableQuery(
+                dateRange=DateRange(date_from=date_from, date_to=date_to),
+                properties=properties or [],
+                breakdownBy=breakdown_by,
+                limit=limit,
+                doPathCleaning=bool(path_cleaning_filters),
+                includeBounceRate=include_bounce_rate,
+                includeScrollDepth=include_scroll_depth,
+                compareFilter=compare_filter,
+                conversionGoal=ActionConversionGoal(actionId=action.id)
+                if action
+                else CustomEventConversionGoal(customEventName=custom_event)
+                if custom_event
+                else None,
+                filterTestAccounts=filter_test_accounts,
+            )
+            self.team.path_cleaning_filters = path_cleaning_filters or []
+            runner = WebStatsTableQueryRunner(team=self.team, query=query, modifiers=modifiers)
+            return runner.calculate()
 
     def test_no_crash_when_no_data(self):
         results = self._run_web_stats_table_query(
