@@ -14,7 +14,7 @@ def get_decrypted_flag_payloads(request, encrypted_payloads: dict) -> dict:
     decrypted_payloads = {}
     for key, value in (encrypted_payloads or {}).items():
         decrypted_payloads[key] = (
-            codec.decrypt(value.encode("utf-8")).decode("utf-8") if is_personal_api_request else "********* (encrypted)"
+            codec.decrypt(value.encode("utf-8")).decode("utf-8") if is_personal_api_request else REDACTED_PAYLOAD_VALUE
         )
 
     return decrypted_payloads
