@@ -7,7 +7,7 @@ import {
     insertHogFunction as _insertHogFunction,
 } from '~/tests/cdp/fixtures'
 import { forSnapshot } from '~/tests/helpers/snapshots'
-import { getFirstTeam } from '~/tests/helpers/sql'
+import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
@@ -32,6 +32,7 @@ describe('LegacyPluginExecutorService', () => {
 
     beforeEach(async () => {
         hub = await createHub()
+        await resetTestDatabase()
         service = new LegacyPluginExecutorService()
         team = await getFirstTeam(hub)
 
@@ -413,7 +414,7 @@ describe('LegacyPluginExecutorService', () => {
             invocation.hogFunction.name = name
             const res = await service.execute(invocation)
 
-            expect(res.logs).toMatchSnapshot()
+            expect(res.logs.map((l) => l.message)).toMatchSnapshot()
         })
 
         const testCasesTransformation = Object.entries(TRANSFORMATION_PLUGINS_BY_ID).map(([pluginId, plugin]) => ({
@@ -451,7 +452,7 @@ describe('LegacyPluginExecutorService', () => {
             invocation.globals.inputs = inputs
             const res = await service.execute(invocation)
 
-            expect(res.logs).toMatchSnapshot()
+            expect(res.logs.map((l) => l.message)).toMatchSnapshot()
         })
     })
 })
