@@ -190,9 +190,9 @@ where
     Ok(fingerprinted.to_output(issue_override.issue_id))
 }
 
-// Postgres doesn't like nulls in strings, so we replace them with uFFFD.
+// Postgres doesn't like nulls (u0000) in strings, so we replace them with uFFFD.
 pub fn sanitize_string(s: String) -> String {
-    s.replace("\\u0000", "\\uFFFD")
+    s.replace('\u{0000}', "\u{FFFD}")
 }
 
 #[cfg(test)]
