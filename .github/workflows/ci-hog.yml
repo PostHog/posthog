@@ -125,6 +125,7 @@ jobs:
 
             - name: Run HogVM TypeScript tests
               run: |
+                  pnpm install --filter @posthog/frontend --prod # Only doing it for nx to work
                   pnpm install --filter @posthog/hogvm
                   bin/nx test hogvm-ts --verbose
 
