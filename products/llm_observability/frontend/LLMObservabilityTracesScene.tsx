@@ -62,12 +62,14 @@ export function LLMObservabilityTraces(): JSX.Element {
 const IDColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     return (
-        <Link
-            className="ph-no-capture font-semibold"
-            to={urls.llmObservabilityTrace(row.id, { timestamp: removeMilliseconds(row.createdAt) })}
-        >
-            {row.id}
-        </Link>
+        <strong>
+            <Link
+                className="ph-no-capture"
+                to={urls.llmObservabilityTrace(row.id, { timestamp: removeMilliseconds(row.createdAt) })}
+            >
+                {row.id.slice(0, 4)}...{row.id.slice(-4)}
+            </Link>
+        </strong>
     )
 }
 

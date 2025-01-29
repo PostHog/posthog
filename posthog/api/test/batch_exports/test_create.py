@@ -396,3 +396,77 @@ def test_create_batch_export_fails_with_invalid_query(client: HttpClient, invali
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+
+@pytest.mark.parametrize(
+    "auth_type,credentials,expected_status",
+    [
+        # Password auth type tests
+        (
+            "password",
+            {"password": "abc123"},
+            status.HTTP_201_CREATED,
+        ),
+        (
+            "password",
+            {},
+            status.HTTP_400_BAD_REQUEST,
+        ),
+        # Key pair auth type tests
+        (
+            "keypair",
+            {"private_key": "SECRET_KEY"},
+            status.HTTP_201_CREATED,
+        ),
+        (
+            "keypair",
+            {},
+            status.HTTP_400_BAD_REQUEST,
+        ),
+    ],
+)
+def test_create_snowflake_batch_export_validates_credentials(
+    client: HttpClient, auth_type, credentials, expected_status
+):
+    """Test creating a BatchExport with Snowflake destination validates credentials based on auth type."""
+    temporal = sync_connect()
+
+    destination_data = {
+        "type": "Snowflake",
+        "config": {
+            "account": "my-account",
+            "user": "user",
+            "database": "my-db",
+            "warehouse": "COMPUTE_WH",
+            "schema": "public",
+            "table_name": "my_events",
+            "authentication_type": auth_type,
+            **credentials,
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-production-snowflake-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    organization = create_organization("Test Org")
+    team = create_team(organization)
+    user = create_user("test@user.com", "Test User", organization)
+    client.force_login(user)
+
+    with start_test_worker(temporal):
+        response = create_batch_export(
+            client,
+            team.pk,
+            batch_export_data,
+        )
+
+        assert response.status_code == expected_status
+
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            if auth_type == "password":
+                assert "Password is required if authentication type is password" in response.json()["detail"]
+            else:
+                assert "Private key is required if authentication type is key pair" in response.json()["detail"]

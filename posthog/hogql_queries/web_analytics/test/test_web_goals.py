@@ -17,9 +17,11 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    snapshot_clickhouse_queries,
 )
 
 
+@snapshot_clickhouse_queries
 class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     TIMESTAMP = "2024-12-01"
 
