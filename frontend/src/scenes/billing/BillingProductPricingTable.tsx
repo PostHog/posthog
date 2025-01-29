@@ -44,7 +44,6 @@ export const BillingProductPricingTable = ({
 
     const subscribedAddons = product.addons?.filter(
         (addon) => {
-            console.log('addon', addon)
             if (!addon.tiers || addon.tiers.length === 0) {
                 return false
             }

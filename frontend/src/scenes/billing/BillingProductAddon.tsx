@@ -142,21 +142,22 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                     </div>
                 )}
 
-                {addon.subscribed && (
-                    <LemonButton
-                        icon={
-                            showTierBreakdown ? (
-                                <IconChevronDown />
-                            ) : (
-                                <IconChevronRight />
-                            )
-                        }
-                        onClick={() => setShowTierBreakdown(!showTierBreakdown)}
-                    />
-                )}
-
-                {addon.type === 'mobile_replay' && showTierBreakdown && (
-                    <BillingProductPricingTable product={addon} />
+                {addon.type === 'mobile_replay' && addon.subscribed && (
+                    <>
+                        <LemonButton
+                            icon={
+                                showTierBreakdown ? (
+                                    <IconChevronDown />
+                                ) : (
+                                    <IconChevronRight />
+                                )
+                            }
+                            onClick={() => setShowTierBreakdown(!showTierBreakdown)}
+                        />
+                        {showTierBreakdown && (
+                            <BillingProductPricingTable product={addon} />
+                        )}
+                    </>
                 )}
             </div>
 
