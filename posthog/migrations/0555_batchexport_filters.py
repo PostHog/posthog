@@ -4,7 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "0553_feature_flag_config")]
+    dependencies = [("posthog", "0554_remove_incremental_field_last_value_v2")]
 
     operations = [
         migrations.AddField(
