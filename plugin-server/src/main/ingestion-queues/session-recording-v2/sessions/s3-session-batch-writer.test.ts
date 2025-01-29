@@ -79,7 +79,7 @@ describe('S3SessionBatchWriter', () => {
                 '🔄',
                 's3_session_batch_writer_upload_complete',
                 expect.objectContaining({
-                    key: expect.stringMatching(/^test-prefix\/\d+-[a-z0-9]+\.jsonl$/),
+                    key: expect.stringMatching(/^test-prefix\/\d+-[a-z0-9]+$/),
                 })
             )
         })
@@ -100,7 +100,7 @@ describe('S3SessionBatchWriter', () => {
                 's3_session_batch_writer_upload_error',
                 expect.objectContaining({
                     error: testError,
-                    key: expect.stringMatching(/^test-prefix\/\d+-[a-z0-9]+\.jsonl$/),
+                    key: expect.stringMatching(/^test-prefix\/\d+-[a-z0-9]+$/),
                 })
             )
         })
@@ -121,7 +121,7 @@ describe('S3SessionBatchWriter', () => {
                 '🔄',
                 's3_session_batch_writer_upload_complete',
                 expect.objectContaining({
-                    key: expect.stringMatching(/^test-prefix\/\d+-[a-z0-9]+\.jsonl$/),
+                    key: expect.stringMatching(/^test-prefix\/\d+-[a-z0-9]+$/),
                 })
             )
         })
@@ -153,7 +153,7 @@ describe('S3SessionBatchWriter', () => {
             expect(keys.size).toBe(iterations)
             // All keys should match our expected format
             for (const key of keys) {
-                expect(key).toMatch(/^test-prefix\/\d+-[a-z0-9]+\.jsonl$/)
+                expect(key).toMatch(/^test-prefix\/\d+-[a-z0-9]+$/)
             }
         })
     })

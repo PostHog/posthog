@@ -54,6 +54,6 @@ export class S3SessionBatchWriter implements SessionBatchWriter {
     private generateKey(): string {
         const timestamp = Date.now()
         const suffix = randomBytes(8).toString('hex')
-        return `${this.prefix}/${timestamp}-${suffix}.jsonl`
+        return `${this.prefix}/${timestamp}-${suffix}`
     }
 }
