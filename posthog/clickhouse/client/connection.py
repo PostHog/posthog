@@ -19,8 +19,8 @@ class Workload(Enum):
     OFFLINE = "OFFLINE"
 
 
-class NodeType(Enum):
-    DEFAULT = "DEFAULT"
+class NodeRole(Enum):
+    ALL = "ALL"
     COORDINATOR = "COORDINATOR"
     WORKER = "WORKER"
 

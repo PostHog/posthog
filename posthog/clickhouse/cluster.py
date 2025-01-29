@@ -18,7 +18,7 @@ from clickhouse_driver import Client
 from clickhouse_pool import ChPool
 
 from posthog import settings
-from posthog.clickhouse.client.connection import _make_ch_pool, default_client
+from posthog.clickhouse.client.connection import NodeRole, _make_ch_pool, default_client
 from posthog.settings import CLICKHOUSE_PER_TEAM_SETTINGS
 
 K = TypeVar("K")
@@ -150,12 +150,18 @@ class ClickhouseCluster:
             host = self.__hosts[0]
             return executor.submit(self.__get_task_function(host, fn))
 
-    def map_all_hosts(self, fn: Callable[[Client], T]) -> FuturesMap[HostInfo, T]:
+    def map_all_hosts(self, fn: Callable[[Client], T], node_type: NodeRole = NodeRole.ALL) -> FuturesMap[HostInfo, T]:
         """
         Execute the callable once for each host in the cluster.
         """
         with ThreadPoolExecutor() as executor:
-            return FuturesMap({host: executor.submit(self.__get_task_function(host, fn)) for host in self.__hosts})
+            return FuturesMap(
+                {
+                    host: executor.submit(self.__get_task_function(host, fn))
+                    for host in self.__hosts
+                    if host.host_cluster_role.lower() == node_type.value.lower() or node_type == NodeRole.ALL
+                }
+            )
 
     def map_all_hosts_in_shard(self, shard_num: int, fn: Callable[[Client], T]) -> FuturesMap[HostInfo, T]:
         with ThreadPoolExecutor() as executor:
