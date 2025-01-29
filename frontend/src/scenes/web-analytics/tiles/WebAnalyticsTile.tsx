@@ -472,7 +472,6 @@ export const WebStatsTableTile = ({
     control?: JSX.Element
 }): JSX.Element => {
     const { togglePropertyFilter } = useActions(webAnalyticsLogic)
-    const { isPathCleaningEnabled } = useValues(webAnalyticsLogic)
 
     const { key, type } = webStatsBreakdownToPropertyName(breakdownBy) || {}
 
@@ -489,19 +488,14 @@ export const WebStatsTableTile = ({
 
     const context = useMemo((): QueryContext => {
         const rowProps: QueryContext['rowProps'] = (record: unknown) => {
-            if (
-                (breakdownBy === WebStatsBreakdown.InitialPage ||
-                    breakdownBy === WebStatsBreakdown.Page ||
-                    breakdownBy === WebStatsBreakdown.ExitPage) &&
-                isPathCleaningEnabled
-            ) {
-                // if the path cleaning is enabled, don't allow toggling a path by clicking a row, as this wouldn't
-                // work due to the order that the regex and filters are applied
+            // `onClick` won't know how to handle the breakdown value if these don't exist,
+            // so let's prevent from `onClick` from being set up in the first place to avoid a noop click
+            if (!key || !type) {
                 return {}
             }
 
+            // Tricky to calculate because the breakdown is a computed value rather than a DB column, make it non-filterable for now
             if (breakdownBy === WebStatsBreakdown.Language || breakdownBy === WebStatsBreakdown.Timezone) {
-                // Slightly trickier to calculate, make it non-filterable for now
                 return {}
             }
 
@@ -510,10 +504,9 @@ export const WebStatsTableTile = ({
                 return {}
             }
 
-            return {
-                onClick: key && type ? () => onClick(breakdownValue) : undefined,
-            }
+            return { onClick: () => onClick(breakdownValue) }
         }
+
         return {
             ...webAnalyticsDataTableQueryContext,
             insightProps,

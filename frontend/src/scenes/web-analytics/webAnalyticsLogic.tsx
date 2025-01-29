@@ -308,7 +308,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setWebVitalsTab: (tab: WebVitalsMetric) => ({ tab }),
     }),
     reducers({
-        webAnalyticsFilters: [
+        _webAnalyticsFilters: [
             INITIAL_WEB_ANALYTICS_FILTER,
             persistConfig,
             {
@@ -564,6 +564,18 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             (isPathCleaningEnabled, hasAvailableFeature) =>
                 hasAvailableFeature(AvailableFeature.PATHS_ADVANCED) && isPathCleaningEnabled,
         ],
+        webAnalyticsFilters: [
+            (s) => [s._webAnalyticsFilters, s.isPathCleaningEnabled],
+            (webAnalyticsFilters: WebAnalyticsPropertyFilters, isPathCleaningEnabled: boolean) => {
+                return webAnalyticsFilters.map((filter) => ({
+                    ...filter,
+                    operator:
+                        filter.operator === PropertyOperator.Exact && isPathCleaningEnabled
+                            ? PropertyOperator.IsCleanedPathExact
+                            : filter.operator,
+                }))
+            },
+        ],
         tabs: [
             (s) => [
                 s.graphsTab,
@@ -694,7 +706,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                       }
                     : undefined
 
-                // the queries don't currently revenue when the conversion goal is an action
+                // the queries don't currently include revenue when the conversion goal is an action
                 const includeRevenue =
                     !!featureFlags[FEATURE_FLAGS.WEB_REVENUE_TRACKING] &&
                     !(conversionGoal && 'actionId' in conversionGoal)
