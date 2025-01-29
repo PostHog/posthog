@@ -108,6 +108,8 @@ class HogFunction(UUIDModel):
         if self.template_id.startswith("plugin-"):
             return create_legacy_plugin_template(self.template_id)
 
+        return None
+
     @property
     def filter_action_ids(self) -> list[int]:
         if not self.filters:
