@@ -105,7 +105,9 @@ def test_delete_person_events_no_pending_deletes(mock_cluster):
     # Mock no pending deletes - return 0 for the count query
     mock_client = MagicMock()
     mock_client.execute.return_value = [[0]]
-    mock_cluster.any_host.return_value.result.return_value = 0
+    mock_cluster.any_host.return_value.result.return_value = mock_client.execute.return_value[0][
+        0
+    ]  # Should match the execute result
     mock_cluster.map_all_hosts.return_value.result.return_value = None
 
     result = delete_person_events(context, mock_cluster, table)
@@ -120,7 +122,9 @@ def test_delete_person_events_with_pending_deletes(mock_cluster):
     # Mock having pending deletes
     mock_client = MagicMock()
     mock_client.execute.return_value = [[5]]  # 5 pending deletes
-    mock_cluster.any_host.return_value.result.return_value = 5
+    mock_cluster.any_host.return_value.result.return_value = mock_client.execute.return_value[0][
+        0
+    ]  # Should match the execute result
 
     # Mock the mutation result
     mock_mutation = MagicMock(spec=Mutation)
@@ -128,18 +132,20 @@ def test_delete_person_events_with_pending_deletes(mock_cluster):
     mock_host.shard_num = 1
     mock_cluster.map_one_host_per_shard.return_value.result.return_value = {mock_host: mock_mutation}
 
-    result = delete_person_events(context, mock_cluster, table)
-    assert isinstance(result, tuple)
-    assert isinstance(result[1], dict)
-    assert len(result[1]) == 1
-    assert 1 in result[1]  # Should have mutation for shard 1
-    assert result[1][1] == mock_mutation
+    # Patch the MutationRunner class before creating an instance
+    with patch("posthog.clickhouse.cluster.MutationRunner.enqueue", return_value=mock_mutation) as mock_enqueue:
+        result = delete_person_events(context, mock_cluster, table)
 
-    # Verify the mutation runner was used
-    mock_cluster.map_one_host_per_shard.assert_called_once()
-    assert (
-        mock_cluster.map_one_host_per_shard.call_args[0][0].__name__ == "enqueue"
-    )  # Should be calling the enqueue method
+        # Verify the mutation runner's enqueue method was called
+        mock_cluster.map_one_host_per_shard.assert_called_once()
+        actual_enqueue = mock_cluster.map_one_host_per_shard.call_args[0][0]
+        assert actual_enqueue == mock_enqueue
+
+        assert isinstance(result, tuple)
+        assert isinstance(result[1], dict)
+        assert len(result[1]) == 1
+        assert 1 in result[1]  # Should have mutation for shard 1
+        assert result[1][1] == mock_mutation
 
 
 def test_cleanup_delete_assets(mock_cluster):
