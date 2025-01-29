@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from posthoganalytics import capture_exception
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
@@ -46,6 +47,7 @@ class HogFunctionTemplateSerializer(DataclassSerializer):
 
 
 class HogFunctionTemplates:
+    _cached_at: datetime | None = None
     _cached_templates: list[HogFunctionTemplate] = []
     _cached_templates_by_id: dict[str, HogFunctionTemplate] = {}
     _cached_sub_templates: list[HogFunctionTemplate] = []
@@ -68,7 +70,9 @@ class HogFunctionTemplates:
 
     @classmethod
     def _load_templates(cls):
-        # TODO: Cache this
+        if cls._cached_at and datetime.now() - cls._cached_at < timedelta(minutes=1):
+            return
+
         # First we load and convert all nodejs templates to python templates
         response = get_hog_function_templates()
         if response.status_code != 200:
