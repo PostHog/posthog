@@ -431,7 +431,7 @@ class FeatureFlagSerializer(
         # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
         # if the request was made with a personal API key
         if instance.has_encrypted_payloads:
-            instance.filters = get_decrypted_flag_payloads(request, instance.filters)
+            instance.filters["payloads"] = get_decrypted_flag_payloads(request, instance.filters)
 
         return instance
 
@@ -613,7 +613,9 @@ class FeatureFlagViewSet(
         # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
         for feature_flag in feature_flags_data:
             if feature_flag.get("has_encrypted_payloads", False):
-                feature_flag["filters"] = get_decrypted_flag_payloads(request, feature_flag["filters"])
+                feature_flag["filters"]["payloads"] = get_decrypted_flag_payloads(
+                    request, feature_flag["filters"]["payloads"]
+                )
 
         return response
 
@@ -623,7 +625,9 @@ class FeatureFlagViewSet(
 
         # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
         if feature_flag_data.get("has_encrypted_payloads", False):
-            feature_flag_data["filters"] = get_decrypted_flag_payloads(request, feature_flag_data["filters"])
+            feature_flag_data["filters"]["payloads"] = get_decrypted_flag_payloads(
+                request, feature_flag_data["filters"]["payloads"]
+            )
 
         return response
 
@@ -902,6 +906,22 @@ class FeatureFlagViewSet(
             {"status": flag_status, "reason": reason},
             status=status.HTTP_404_NOT_FOUND if flag_status == FeatureFlagStatus.UNKNOWN else status.HTTP_200_OK,
         )
+
+    @action(
+        methods=["GET"],
+        detail=True,
+        required_scopes=["feature_flag:read"],
+    )
+    def remote_config(self, request: request.Request, **kwargs):
+        feature_flag = FeatureFlag.objects.get(pk=kwargs["pk"])
+
+        # Note: This decryption step is protected by the feature_flag:read scope, so we can assume the
+        # user has access to the flag. However get_decrypted_flag_payloads will also check the authentication
+        # method used to make the request as it is used in non-protected endpoints.
+        if feature_flag.get("has_encrypted_payloads", False):
+            decrypted_flag_payloads = get_decrypted_flag_payloads(request, feature_flag["filters"]["payloads"])
+
+        return Response(decrypted_flag_payloads["true"] or None)
 
     @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
     def activity(self, request: request.Request, **kwargs):
