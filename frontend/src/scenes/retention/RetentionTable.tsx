@@ -87,7 +87,6 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                     <CohortDay
                                         percentage={column.percentage}
                                         clickable={true}
-                                        // TODO: fix latest check using dates
                                         latest={isLatestPeriod && rowIndex === tableRows.length - 1}
                                         backgroundColor={backgroundColor}
                                     />
