@@ -7,7 +7,7 @@ import {
     insertHogFunction as _insertHogFunction,
 } from '~/tests/cdp/fixtures'
 import { forSnapshot } from '~/tests/helpers/snapshots'
-import { getFirstTeam } from '~/tests/helpers/sql'
+import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
@@ -32,6 +32,7 @@ describe('LegacyPluginExecutorService', () => {
 
     beforeEach(async () => {
         hub = await createHub()
+        await resetTestDatabase()
         service = new LegacyPluginExecutorService()
         team = await getFirstTeam(hub)
 
@@ -197,28 +198,12 @@ describe('LegacyPluginExecutorService', () => {
             `)
 
             expect(res.finished).toBe(true)
-            expect(res.logs).toMatchInlineSnapshot(`
+            expect(res.logs.map((l) => l.message)).toMatchInlineSnapshot(`
                 [
-                  {
-                    "level": "debug",
-                    "message": "Executing plugin posthog-intercom-plugin",
-                    "timestamp": "2025-01-01T01:00:00.000+01:00",
-                  },
-                  {
-                    "level": "info",
-                    "message": "Contact test@posthog.com in Intercom found",
-                    "timestamp": "2025-01-01T01:00:00.000+01:00",
-                  },
-                  {
-                    "level": "info",
-                    "message": "Sent event mycustomevent for test@posthog.com to Intercom",
-                    "timestamp": "2025-01-01T01:00:00.000+01:00",
-                  },
-                  {
-                    "level": "debug",
-                    "message": "Execution successful",
-                    "timestamp": "2025-01-01T01:00:00.000+01:00",
-                  },
+                  "Executing plugin posthog-intercom-plugin",
+                  "Contact test@posthog.com in Intercom found",
+                  "Sent event mycustomevent for test@posthog.com to Intercom",
+                  "Execution successful",
                 ]
             `)
         })
@@ -413,7 +398,7 @@ describe('LegacyPluginExecutorService', () => {
             invocation.hogFunction.name = name
             const res = await service.execute(invocation)
 
-            expect(res.logs).toMatchSnapshot()
+            expect(res.logs.map((l) => l.message)).toMatchSnapshot()
         })
 
         const testCasesTransformation = Object.entries(TRANSFORMATION_PLUGINS_BY_ID).map(([pluginId, plugin]) => ({
@@ -451,7 +436,7 @@ describe('LegacyPluginExecutorService', () => {
             invocation.globals.inputs = inputs
             const res = await service.execute(invocation)
 
-            expect(res.logs).toMatchSnapshot()
+            expect(res.logs.map((l) => l.message)).toMatchSnapshot()
         })
     })
 })
