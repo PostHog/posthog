@@ -12,7 +12,7 @@ class ExperimentVariantQueryResult(TypedDict):
     num_entities: int
     sum_value: float
     sum_of_squares: float
-    variant_name: NotRequired[str]
+    key: NotRequired[str]
 
 
 class ExperimentQueryResult(TypedDict):

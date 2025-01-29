@@ -247,7 +247,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
         return final_query
 
-    def _evaluate_experiment_query(self) -> ExperimentQueryResult:
+    def _evaluate_experiment_query(self) -> list[ExperimentVariantQueryResult]:
         response = execute_hogql_query(
             query=self._prepare_new_experiment_query(),
             team=Team.objects.get(id=1),
@@ -255,15 +255,17 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             modifiers=create_default_modifiers_for_team(Team.objects.get(id=1)),
         )
 
-        variants: dict[str, ExperimentVariantQueryResult] = {}
-        for result in response.results:
-            variants[result[0]] = {
-                "num_entities": result[1],
-                "sum_value": result[2],
-                "sum_of_squares": result[3],
-            }
+        variants: list[ExperimentVariantQueryResult] = [
+            ExperimentVariantQueryResult(
+                num_entities=result[1],
+                sum_value=result[2],
+                sum_of_squares=result[3],
+                key=result[0],
+            )
+            for result in response.results
+        ]
 
-        return {"variants": variants}
+        return variants
 
     def _prepare_count_query(self) -> TrendsQuery:
         """
@@ -403,21 +405,19 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
         count_result = shared_results["count_result"]
         exposure_result = shared_results["exposure_result"]
-        experiment_result = self._evaluate_experiment_query()
 
-        if count_result is None or exposure_result is None or experiment_result is None:
+        if count_result is None or exposure_result is None:
             raise ValueError("One or both query runners failed to produce a response")
 
         self._validate_event_variants(count_result, exposure_result)
 
-        # Get variants from experiment results
-        new_variants = list(experiment_result["variants"].values())
-        new_control_variant = experiment_result["variants"].get("control")
+        # Get new variants from experiment results
+        new_variants = self._evaluate_experiment_query()
+        new_control_variant = next((variant for variant in new_variants if variant["key"] == "control"), None)
+        new_test_variants = [variant for variant in new_variants if variant["key"] != "control"]
+
         if not new_control_variant:
             raise ValueError("Control variant not found in experiment results")
-
-        new_test_variants = [variant for key, variant in experiment_result["variants"].items() if key != "control"]
-        new_variant_keys = ["control", *[key for key in experiment_result["variants"].keys() if key != "control"]]
 
         # Old code
         control_variant, test_variants = self._get_variants_with_base_stats(count_result, exposure_result)
@@ -450,7 +450,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             count_query=self.prepared_count_query,
             exposure_query=self.prepared_exposure_query,
             variants=[variant.model_dump() for variant in [control_variant, *test_variants]],
-            probability=dict(zip(new_variant_keys, probabilities)),  # Mapping variant keys to probabilities
+            probability=dict(zip([variant["key"] for variant in new_variants], probabilities)),
             significant=significance_code == ExperimentSignificanceCode.SIGNIFICANT,
             significance_code=significance_code,
             stats_version=self.stats_version,

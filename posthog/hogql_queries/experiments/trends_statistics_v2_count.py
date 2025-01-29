@@ -218,7 +218,7 @@ def calculate_credible_intervals_v2_count(
             # Calculate credible intervals using the posterior distribution
             credible_interval = gamma.ppf([lower_bound, upper_bound], alpha_posterior, scale=1 / beta_posterior)
 
-            intervals[str(i)] = (float(credible_interval[0]), float(credible_interval[1]))  # Using index as key
+            intervals[variant["key"]] = (float(credible_interval[0]), float(credible_interval[1]))  # Using index as key
         except Exception as e:
             capture_exception(
                 Exception(f"Error calculating credible interval for variant {i}"),
