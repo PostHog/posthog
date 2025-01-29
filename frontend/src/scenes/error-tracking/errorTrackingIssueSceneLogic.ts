@@ -60,11 +60,11 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     const response = await api.errorTracking.getIssue(props.id)
                     return { ...values.issue, ...response }
                 },
-                loadClickHouseIssue: async (first_seen: string) => {
+                loadClickHouseIssue: async (firstSeen: string) => {
                     const response = await api.query(
                         errorTrackingIssueQuery({
                             issueId: props.id,
-                            dateRange: generateIssueDateRange(first_seen, values.issue?.lastSeen),
+                            dateRange: generateIssueDateRange(firstSeen, values.issue?.lastSeen),
                         }),
                         {},
                         undefined,

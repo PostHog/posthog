@@ -28,8 +28,9 @@ import { InsightLogicProps } from '~/types'
 import { AlphaAccessScenePrompt } from './AlphaAccessScenePrompt'
 import { AssigneeSelect } from './AssigneeSelect'
 import { errorTrackingDataNodeLogic } from './errorTrackingDataNodeLogic'
-import ErrorTrackingFilters from './ErrorTrackingFilters'
+import { ErrorTrackingFilters } from './ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
+import { ErrorTrackingListOptions } from './ErrorTrackingListOptions'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 import { sparklineLabels, sparklineLabelsDay, sparklineLabelsMonth } from './utils'
@@ -69,30 +70,16 @@ export function ErrorTrackingScene(): JSX.Element {
             <BindLogic logic={errorTrackingDataNodeLogic} props={{ query, key: insightVizDataNodeKey(insightProps) }}>
                 <Header />
                 <FeedbackNotice text="Error tracking is currently in beta. Thanks for taking part! We'd love to hear what you think." />
-                <Filters />
+                <ErrorTrackingFilters />
                 <LemonDivider className="mt-2" />
-                {selectedIssueIds.length === 0 ? <ErrorTrackingFilters.Options /> : <ErrorTrackingActions />}
+                {selectedIssueIds.length === 0 ? <ErrorTrackingListOptions /> : <ErrorTrackingListActions />}
                 <Query query={query} context={context} />
             </BindLogic>
         </AlphaAccessScenePrompt>
     )
 }
 
-const Filters = (): JSX.Element => {
-    return (
-        <div className="flex flex-1 items-center justify-between space-x-2">
-            <div className="flex flex-1 items-center gap-2 mx-2">
-                <ErrorTrackingFilters.UniversalSearch />
-                <ErrorTrackingFilters.FilterGroup />
-            </div>
-            <div>
-                <ErrorTrackingFilters.InternalAccounts />
-            </div>
-        </div>
-    )
-}
-
-const ErrorTrackingActions = (): JSX.Element => {
+const ErrorTrackingListActions = (): JSX.Element => {
     const { selectedIssueIds } = useValues(errorTrackingSceneLogic)
     const { setSelectedIssueIds } = useActions(errorTrackingSceneLogic)
     const { mergeIssues } = useActions(errorTrackingDataNodeLogic)
@@ -177,10 +164,10 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                     <div className="space-y-1">
                         <div className="line-clamp-1">{record.description}</div>
                         <div className="space-x-1">
-                            <TZLabel time={record.first_seen} className="border-dotted border-b" />
+                            <TZLabel time={record.firstSeen} className="border-dotted border-b" />
                             <span>|</span>
-                            {record.last_seen ? (
-                                <TZLabel time={record.last_seen} className="border-dotted border-b" />
+                            {record.lastSeen ? (
+                                <TZLabel time={record.lastSeen} className="border-dotted border-b" />
                             ) : (
                                 <LemonSkeleton />
                             )}

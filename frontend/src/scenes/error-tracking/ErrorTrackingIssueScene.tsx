@@ -1,6 +1,6 @@
 import './ErrorTracking.scss'
 
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import PanelLayout from 'lib/components/PanelLayout/PanelLayout'
@@ -11,7 +11,7 @@ import { ErrorTrackingIssue } from '~/queries/schema'
 
 import { AlphaAccessScenePrompt } from './AlphaAccessScenePrompt'
 import { AssigneeSelect } from './AssigneeSelect'
-import ErrorTrackingFilters from './ErrorTrackingFilters'
+import { ErrorTrackingFilters } from './ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { Events } from './issue/Events'
 import { Metadata } from './issue/Metadata'
@@ -88,11 +88,10 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                             <PanelLayout.Panel primary={false}>
                                 <Metadata />
                             </PanelLayout.Panel>
-                            <PanelLayout.Panel primary={false}>
-                                <Filters />
-                            </PanelLayout.Panel>
                         </PanelLayout.Container>
                         <PanelLayout.Container primary column>
+                            <ErrorTrackingFilters />
+                            <LemonDivider className="my-0" />
                             <PanelLayout.Panel primary={false}>
                                 <Events />
                             </PanelLayout.Panel>
@@ -103,20 +102,5 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                 )}
             </>
         </AlphaAccessScenePrompt>
-    )
-}
-
-const Filters = (): JSX.Element => {
-    return (
-        <>
-            <PanelLayout.PanelSettings title="Filters" border="bottom" />
-            <div className="p-2 space-y-2">
-                <ErrorTrackingFilters.UniversalSearch />
-                <ErrorTrackingFilters.FilterGroup />
-            </div>
-            <PanelLayout.PanelSettings border="top">
-                <ErrorTrackingFilters.InternalAccountsPanelSetting />
-            </PanelLayout.PanelSettings>
-        </>
     )
 }

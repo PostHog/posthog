@@ -1,8 +1,6 @@
-import { IconPeople } from '@posthog/icons'
-import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { SettingsToggle } from 'lib/components/PanelLayout/PanelLayout'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
@@ -11,11 +9,23 @@ import { dateMapping } from 'lib/utils'
 import { useEffect, useState } from 'react'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
-import { AssigneeSelect } from './AssigneeSelect'
 import { errorTrackingLogic } from './errorTrackingLogic'
-import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 
 const errorTrackingDateOptions = dateMapping.filter((dm) => dm.key != 'Yesterday')
+
+export const ErrorTrackingFilters = (): JSX.Element => {
+    return (
+        <div className="flex flex-col space-y-2">
+            <div className="flex flex-1 items-center gap-2 mx-2">
+                <DateRange />
+                <UniversalSearch />
+            </div>
+            <div className="flex flex-1 items-center gap-2 mx-2">
+                <InternalAccounts />
+            </div>
+        </div>
+    )
+}
 
 const FilterGroup = (): JSX.Element => {
     const { filterGroup } = useValues(errorTrackingLogic)
@@ -53,7 +63,7 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
                         <RecordingsUniversalFilterGroup />
-                        <UniversalFilters.AddFilterButton size="small" type="secondary" />
+                        <UniversalFilters.AddFilterButton size="xsmall" className="py-[1px] rounded-r-none border-r" />
                     </UniversalFilters.Group>
                 ) : (
                     <UniversalFilters.Value
@@ -70,74 +80,20 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
     )
 }
 
-const Options = (): JSX.Element => {
-    const { dateRange, assignee } = useValues(errorTrackingLogic)
-    const { setDateRange, setAssignee } = useActions(errorTrackingLogic)
-    const { orderBy } = useValues(errorTrackingSceneLogic)
-    const { setOrderBy } = useActions(errorTrackingSceneLogic)
+const DateRange = (): JSX.Element => {
+    const { dateRange } = useValues(errorTrackingLogic)
+    const { setDateRange } = useActions(errorTrackingLogic)
 
     return (
-        <div className="flex justify-between">
-            <div className="flex gap-4 py-2">
-                <div className="flex items-center gap-1">
-                    <span>Date range:</span>
-                    <DateFilter
-                        dateFrom={dateRange.date_from}
-                        dateTo={dateRange.date_to}
-                        dateOptions={errorTrackingDateOptions}
-                        onChange={(changedDateFrom, changedDateTo) => {
-                            setDateRange({ date_from: changedDateFrom, date_to: changedDateTo })
-                        }}
-                        size="small"
-                    />
-                </div>
-                <div className="flex items-center gap-1">
-                    <span>Sort by:</span>
-                    <LemonSelect
-                        onSelect={setOrderBy}
-                        onChange={setOrderBy}
-                        value={orderBy}
-                        options={[
-                            {
-                                value: 'last_seen',
-                                label: 'Last seen',
-                            },
-                            {
-                                value: 'first_seen',
-                                label: 'First seen',
-                            },
-                            {
-                                value: 'occurrences',
-                                label: 'Occurrences',
-                            },
-                            {
-                                value: 'users',
-                                label: 'Users',
-                            },
-                            {
-                                value: 'sessions',
-                                label: 'Sessions',
-                            },
-                        ]}
-                        size="small"
-                    />
-                </div>
-            </div>
-            <div className="flex items-center gap-1">
-                <>
-                    <span>Assigned to:</span>
-                    <AssigneeSelect
-                        showName
-                        showIcon={false}
-                        assignee={assignee}
-                        onChange={(assignee) => setAssignee(assignee)}
-                        unassignedLabel="Any user"
-                        type="secondary"
-                        size="small"
-                    />
-                </>
-            </div>
-        </div>
+        <DateFilter
+            dateFrom={dateRange.date_from}
+            dateTo={dateRange.date_to}
+            dateOptions={errorTrackingDateOptions}
+            onChange={(changedDateFrom, changedDateTo) => {
+                setDateRange({ date_from: changedDateFrom, date_to: changedDateTo })
+            }}
+            size="small"
+        />
     )
 }
 
@@ -151,8 +107,9 @@ const UniversalSearch = (): JSX.Element => {
             placeholder="Search..."
             value={searchQuery}
             onChange={setSearchQuery}
-            className="flex-grow max-w-none"
+            className="flex-grow max-w-none pl-0"
             size="small"
+            prefix={<FilterGroup />}
         />
     )
 }
@@ -162,34 +119,14 @@ const InternalAccounts = (): JSX.Element => {
     const { setFilterTestAccounts } = useActions(errorTrackingLogic)
 
     return (
-        <TestAccountFilter
-            size="small"
-            filters={{ filter_test_accounts: filterTestAccounts }}
-            onChange={({ filter_test_accounts }) => {
-                setFilterTestAccounts(filter_test_accounts || false)
-            }}
-        />
+        <div>
+            <TestAccountFilter
+                size="small"
+                filters={{ filter_test_accounts: filterTestAccounts }}
+                onChange={({ filter_test_accounts }) => {
+                    setFilterTestAccounts(filter_test_accounts || false)
+                }}
+            />
+        </div>
     )
-}
-
-const InternalAccountsPanelSetting = (): JSX.Element => {
-    const { filterTestAccounts } = useValues(errorTrackingLogic)
-    const { setFilterTestAccounts } = useActions(errorTrackingLogic)
-
-    return (
-        <SettingsToggle
-            onClick={() => setFilterTestAccounts(!filterTestAccounts)}
-            icon={<IconPeople />}
-            label="Show internal people"
-            active={!filterTestAccounts}
-        />
-    )
-}
-
-export default {
-    FilterGroup,
-    Options,
-    UniversalSearch,
-    InternalAccounts,
-    InternalAccountsPanelSetting,
 }
