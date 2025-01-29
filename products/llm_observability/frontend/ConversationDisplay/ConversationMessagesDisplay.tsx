@@ -5,6 +5,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { IconExclamation } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { isObject } from 'lib/utils'
 import React, { useState } from 'react'
 
 import { LLMInputOutput } from '../LLMInputOutput'
@@ -27,6 +28,34 @@ export function ConversationMessagesDisplay({
     const inputNormalized = normalizeMessages(input, 'user')
     const outputNormalized = normalizeMessages(output, 'assistant')
 
+    const outputDisplay = raisedError ? (
+        <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--bg-fill-error-tertiary)] border-danger overflow-x-scroll">
+            <IconExclamation className="text-base" />
+            {isObject(output) ? (
+                <JSONViewer src={output} collapsed={4} />
+            ) : (
+                <span className="font-mono">
+                    {(() => {
+                        try {
+                            const parsedJson = JSON.parse(output)
+                            return isObject(parsedJson) ? (
+                                <JSONViewer src={parsedJson} collapsed={4} />
+                            ) : (
+                                JSON.stringify(output ?? null)
+                            )
+                        } catch {
+                            return JSON.stringify(output ?? null)
+                        }
+                    })()}
+                </span>
+            )}
+        </div>
+    ) : (
+        outputNormalized?.map((message, i) => <LLMMessageDisplay key={i} message={message} isOutput />) || (
+            <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">No output</div>
+        )
+    )
+
     return (
         <LLMInputOutput
             inputDisplay={
@@ -38,29 +67,17 @@ export function ConversationMessagesDisplay({
                         )}
                     </>
                 )) || (
-                    <div className="rounded border text-default p-2 italic bg-[var(--background-danger-subtle)]">
+                    <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">
                         No input
                     </div>
                 )
             }
-            outputDisplay={
-                outputNormalized?.map((message, i) => <LLMMessageDisplay key={i} message={message} isOutput />) || (
-                    <div className="flex items-center gap-1.5 rounded border text-default p-2 font-medium bg-[var(--background-danger-subtle)]">
-                        <IconExclamation className="text-base" />
-                        {raisedError ? (
-                            <span className="font-mono">
-                                {output}
-                                {httpStatus ? <span> (${httpStatus})</span> : null}
-                            </span>
-                        ) : (
-                            <span>
-                                {httpStatus ? `Generation failed with HTTP status ${httpStatus}` : 'Missing output'}
-                            </span>
-                        )}
-                    </div>
-                )
+            outputDisplay={outputDisplay}
+            outputHeading={
+                raisedError
+                    ? `Error (${httpStatus})`
+                    : `Output${outputNormalized && outputNormalized.length > 1 ? ' (multiple choices)' : ''}`
             }
-            outputHeading={`Output${outputNormalized && outputNormalized.length > 1 ? ' (multiple choices)' : ''}`}
             bordered={bordered}
         />
     )
