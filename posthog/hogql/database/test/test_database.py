@@ -599,7 +599,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         credentials = DataWarehouseCredential.objects.create(
             access_key="test_key", access_secret="test_secret", team=self.team
         )
-        warehouse_table = DataWarehouseTable.objects.create(
+        DataWarehouseTable.objects.create(
             name="warehouse_table",
             format="Parquet",
             team=self.team,
@@ -633,8 +633,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             database=db,
         )
 
-        warehouse_table = db.get_table("warehouse_table")
-        person_id_field = warehouse_table.fields.get("person_id")
+        actual_table = db.get_table("warehouse_table")
+        person_id_field = actual_table.fields.get("person_id")
 
         assert isinstance(person_id_field, FieldTraverser)
         assert person_id_field.chain == ["events_data", "person_id"]
