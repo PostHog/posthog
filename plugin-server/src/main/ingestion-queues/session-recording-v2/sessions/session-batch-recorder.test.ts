@@ -3,10 +3,10 @@ import { PassThrough } from 'stream'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { ParsedMessageData } from '../kafka/types'
 import { MessageWithTeam } from '../teams/types'
-import { BlackholeSessionBatchWriter } from './blackhole-session-batch-writer'
 import { SessionBatchMetrics } from './metrics'
 import { EndResult, SessionRecorder } from './recorder'
 import { SessionBatchRecorder } from './session-batch-recorder'
+import { SessionBatchWriter } from './session-batch-writer'
 
 // RRWeb event type constants
 const enum EventType {
@@ -83,8 +83,8 @@ jest.mock('./recorder', () => ({
 
 describe('SessionBatchRecorder', () => {
     let recorder: SessionBatchRecorder
-    let mockWriter: jest.Mocked<BlackholeSessionBatchWriter>
     let mockOffsetManager: jest.Mocked<KafkaOffsetManager>
+    let mockWriter: jest.Mocked<SessionBatchWriter>
     let mockStream: PassThrough
     let mockOpen: jest.Mock
     let mockFinish: jest.Mock
@@ -103,9 +103,7 @@ describe('SessionBatchRecorder', () => {
         mockStream = openMock.stream
         mockWriter = {
             open: mockOpen,
-        } as unknown as jest.Mocked<BlackholeSessionBatchWriter>
-
-        jest.mocked(BlackholeSessionBatchWriter).mockImplementation(() => mockWriter)
+        } as unknown as jest.Mocked<SessionBatchWriter>
 
         mockOffsetManager = {
             trackOffset: jest.fn(),
@@ -113,7 +111,7 @@ describe('SessionBatchRecorder', () => {
             commit: jest.fn(),
         } as unknown as jest.Mocked<KafkaOffsetManager>
 
-        recorder = new SessionBatchRecorder(mockOffsetManager)
+        recorder = new SessionBatchRecorder(mockOffsetManager, mockWriter)
     })
 
     const createMessage = (
@@ -189,6 +187,7 @@ describe('SessionBatchRecorder', () => {
 
             expect(mockOpen).toHaveBeenCalledTimes(1)
             expect(mockFinish).toHaveBeenCalledTimes(1)
+            expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
 
             const output = await outputPromise
             const lines = parseLines(output)
@@ -228,6 +227,7 @@ describe('SessionBatchRecorder', () => {
 
             expect(mockOpen).toHaveBeenCalledTimes(1)
             expect(mockFinish).toHaveBeenCalledTimes(1)
+            expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
 
             const output = await outputPromise
             const lines = parseLines(output)
@@ -262,6 +262,7 @@ describe('SessionBatchRecorder', () => {
 
             expect(mockOpen).toHaveBeenCalledTimes(1)
             expect(mockFinish).toHaveBeenCalledTimes(1)
+            expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
 
             const output = await outputPromise
             const lines = parseLines(output)
@@ -281,6 +282,7 @@ describe('SessionBatchRecorder', () => {
 
             expect(mockOpen).toHaveBeenCalledTimes(1)
             expect(mockFinish).toHaveBeenCalledTimes(1)
+            expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
 
             const output = await outputPromise
             expect(output).toBe('')
@@ -325,6 +327,7 @@ describe('SessionBatchRecorder', () => {
 
             expect(mockOpen).toHaveBeenCalledTimes(1)
             expect(mockFinish).toHaveBeenCalledTimes(1)
+            expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
 
             const output = await outputPromise
             const lines = parseLines(output)
@@ -461,6 +464,7 @@ describe('SessionBatchRecorder', () => {
             ])
             expect(mockOpen).toHaveBeenCalledTimes(1)
             expect(mockFinish).toHaveBeenCalledTimes(1)
+            expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
         })
 
         it('should not flush discarded partitions', async () => {
@@ -746,6 +750,18 @@ describe('SessionBatchRecorder', () => {
             await expect(flushPromise).rejects.toThrow('Stream read error')
 
             // Verify cleanup
+            expect(mockFinish).not.toHaveBeenCalled()
+            expect(mockOffsetManager.commit).not.toHaveBeenCalled()
+        })
+
+        it('should handle writer errors', async () => {
+            const error = new Error('Write failed')
+            mockWriter.open.mockRejectedValueOnce(error)
+
+            const message = createMessage('session1', [{ type: 1, timestamp: 1, data: {} }])
+            recorder.record(message)
+
+            await expect(recorder.flush()).rejects.toThrow(error)
             expect(mockFinish).not.toHaveBeenCalled()
             expect(mockOffsetManager.commit).not.toHaveBeenCalled()
         })

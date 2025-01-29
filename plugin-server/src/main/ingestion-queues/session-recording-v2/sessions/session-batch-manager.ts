@@ -2,11 +2,13 @@ import { status } from '../../../../utils/status'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { PromiseQueue } from './promise-queue'
 import { SessionBatchRecorder } from './session-batch-recorder'
+import { SessionBatchWriter } from './session-batch-writer'
 
 export interface SessionBatchManagerConfig {
     maxBatchSizeBytes: number
     maxBatchAgeMs: number
     offsetManager: KafkaOffsetManager
+    writer: SessionBatchWriter
 }
 
 export class SessionBatchManager {
@@ -15,13 +17,15 @@ export class SessionBatchManager {
     private readonly maxBatchSizeBytes: number
     private readonly maxBatchAgeMs: number
     private readonly offsetManager: KafkaOffsetManager
+    private readonly writer: SessionBatchWriter
     private lastFlushTime: number
 
     constructor(config: SessionBatchManagerConfig) {
         this.maxBatchSizeBytes = config.maxBatchSizeBytes
         this.maxBatchAgeMs = config.maxBatchAgeMs
         this.offsetManager = config.offsetManager
-        this.currentBatch = new SessionBatchRecorder(this.offsetManager)
+        this.writer = config.writer
+        this.currentBatch = new SessionBatchRecorder(this.offsetManager, this.writer)
         this.queue = new PromiseQueue()
         this.lastFlushTime = Date.now()
     }
@@ -56,7 +60,7 @@ export class SessionBatchManager {
 
     private async rotateBatch(): Promise<void> {
         await this.currentBatch.flush()
-        this.currentBatch = new SessionBatchRecorder(this.offsetManager)
+        this.currentBatch = new SessionBatchRecorder(this.offsetManager, this.writer)
         this.lastFlushTime = Date.now()
     }
 }
