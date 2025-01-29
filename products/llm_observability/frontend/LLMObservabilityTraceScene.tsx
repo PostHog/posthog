@@ -211,7 +211,7 @@ const TreeNode = React.memo(function TraceNode({
 
     const children = [
         isLLMTraceEvent(item) && item.properties.$ai_is_error && (
-            <LemonTag key="error-tag" type="warning">
+            <LemonTag key="error-tag" type="danger">
                 Error
             </LemonTag>
         ),
@@ -375,9 +375,9 @@ function EventContent({ event }: { event: LLMTrace | LLMTraceEvent | null }): JS
                             <ConversationMessagesDisplay
                                 input={event.properties.$ai_input}
                                 output={
-                                    event.properties.$ai_output_choices ??
-                                    event.properties.$ai_output ??
-                                    event.properties.$ai_error
+                                    event.properties.$ai_is_error
+                                        ? event.properties.$ai_error
+                                        : event.properties.$ai_output_choices ?? event.properties.$ai_output
                                 }
                                 httpStatus={event.properties.$ai_http_status}
                                 raisedError={event.properties.$ai_is_error}
