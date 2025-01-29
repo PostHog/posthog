@@ -212,7 +212,7 @@ export type HogFunctionInvocation = {
     teamId: Team['id']
     hogFunction: HogFunctionType
     priority: number
-    queue: 'hog' | 'fetch'
+    queue: 'hog' | 'fetch' | 'plugins'
     queueParameters?: HogFunctionInvocationQueueParameters
     // The current vmstate (set if the invocation is paused)
     vmState?: VMState
@@ -305,6 +305,7 @@ export type HogFunctionType = {
     mappings?: HogFunctionMappingType[] | null
     masking?: HogFunctionMasking | null
     depends_on_integration_ids?: Set<IntegrationType['id']>
+    template_id?: string
 }
 
 export type HogFunctionInputType = {

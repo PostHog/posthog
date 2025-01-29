@@ -156,13 +156,10 @@ export function onChartHover(
     }
 
     const target = nativeEvent?.target as HTMLDivElement
-    const point = chart.getElementsAtEventForMode(nativeEvent, 'index', { intersect: true }, true)
+    const point = chart.getElementsAtEventForMode(nativeEvent, 'index', {}, true)
 
-    if (onClick && point.length) {
-        // FIXME: Whole graph should have cursor: pointer from the get-go if it's persons modal-enabled
-        // This code gives it that style, but only once the user hovers over a data point
-        target.style.cursor = 'pointer'
-    }
+    // Give the chart `cursor: pointer` only when hovering over a clickable area
+    target.style.cursor = onClick && point.length ? 'pointer' : 'default'
 }
 
 export const filterNestedDataset = (
