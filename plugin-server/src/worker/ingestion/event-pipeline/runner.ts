@@ -34,7 +34,7 @@ import { transformEventStep } from './transformEventStep'
 
 export type EventPipelineResult = {
     // Promises that the batch handler should await on before committing offsets,
-    // contains the Kafka producer ACKs, to avoid blocking after every message.
+    // contains the Kafka producer ACKs and message promises, to avoid blocking after every message.
     ackPromises?: Array<Promise<void>>
     // Only used in tests
     // TODO: update to test for side-effects of running the pipeline rather than
@@ -133,7 +133,11 @@ export class EventPipelineRunner {
         } catch (error) {
             if (error instanceof StepErrorNoRetry) {
                 // At the step level we have chosen to drop these events and send them to DLQ
-                return { lastStep: error.step, args: [], error: error.message }
+                return {
+                    lastStep: error.step,
+                    args: [],
+                    error: error.message,
+                }
             } else {
                 // Otherwise rethrow, which leads to Kafka offsets not getting committed and retries
                 Sentry.captureException(error, {
@@ -233,11 +237,16 @@ export class EventPipelineRunner {
             return this.registerLastStep('pluginsProcessEventStep', [postCookielessEvent], kafkaAcks)
         }
 
-        const transformedEvent = await this.runStep(
+        const { event: transformedEvent, messagePromises } = await this.runStep(
             transformEventStep,
             [processedEvent, this.hogTransformer],
             event.team_id
         )
+
+        // Add message promises to kafkaAcks
+        if (messagePromises) {
+            kafkaAcks.push(...messagePromises)
+        }
 
         const [normalizedEvent, timestamp] = await this.runStep(
             normalizeEventStep,
@@ -294,7 +303,11 @@ export class EventPipelineRunner {
 
     registerLastStep(stepName: string, args: any[], ackPromises?: Array<Promise<void>>): EventPipelineResult {
         pipelineLastStepCounter.labels(stepName).inc()
-        return { ackPromises, lastStep: stepName, args }
+        return {
+            ackPromises,
+            lastStep: stepName,
+            args,
+        }
     }
 
     protected runStep<Step extends (...args: any[]) => any>(

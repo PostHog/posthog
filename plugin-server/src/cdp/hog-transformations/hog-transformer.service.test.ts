@@ -68,7 +68,7 @@ describe('HogTransformer', () => {
 
             const result = await hogTransformer.transformEvent(event)
 
-            expect(result.properties).toEqual({
+            expect(result.event.properties).toEqual({
                 $current_url: 'https://example.com',
                 $ip: '89.160.20.129',
                 $set: {
