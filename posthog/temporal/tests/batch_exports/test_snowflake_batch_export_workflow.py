@@ -32,11 +32,13 @@ from posthog.temporal.batch_exports.batch_exports import (
     start_batch_export_run,
 )
 from posthog.temporal.batch_exports.snowflake_batch_export import (
+    InvalidPrivateKeyError,
     SnowflakeBatchExportInputs,
     SnowflakeBatchExportWorkflow,
     SnowflakeHeartbeatDetails,
     SnowflakeInsertInputs,
     insert_into_snowflake_activity,
+    load_private_key,
     snowflake_default_fields,
 )
 from posthog.temporal.common.clickhouse import ClickHouseClient
@@ -356,14 +358,15 @@ def snowflake_config(database, schema) -> dict[str, str]:
     We set default configuration values to support tests against the Snowflake API
     and tests that mock it.
     """
-    password = os.getenv("SNOWFLAKE_PASSWORD", "password")
     warehouse = os.getenv("SNOWFLAKE_WAREHOUSE", "warehouse")
     account = os.getenv("SNOWFLAKE_ACCOUNT", "account")
-    username = os.getenv("SNOWFLAKE_USERNAME", "username")
     role = os.getenv("SNOWFLAKE_ROLE", "role")
+    username = os.getenv("SNOWFLAKE_USERNAME", "username")
+    password = os.getenv("SNOWFLAKE_PASSWORD", "password")
+    private_key = os.getenv("SNOWFLAKE_PRIVATE_KEY")
+    private_key_passphrase = os.getenv("SNOWFLAKE_PRIVATE_KEY_PASSPHRASE")
 
     config = {
-        "password": password,
         "user": username,
         "warehouse": warehouse,
         "account": account,
@@ -371,6 +374,15 @@ def snowflake_config(database, schema) -> dict[str, str]:
         "schema": schema,
         "role": role,
     }
+    if private_key:
+        config["private_key"] = private_key
+        config["private_key_passphrase"] = private_key_passphrase
+        config["authentication_type"] = "keypair"
+    elif password:
+        config["password"] = password
+        config["authentication_type"] = "password"
+    else:
+        raise ValueError("Either password or private key must be set")
     return config
 
 
@@ -951,13 +963,21 @@ async def assert_clickhouse_records_in_snowflake(
 
 REQUIRED_ENV_VARS = (
     "SNOWFLAKE_WAREHOUSE",
-    "SNOWFLAKE_PASSWORD",
     "SNOWFLAKE_ACCOUNT",
     "SNOWFLAKE_USERNAME",
 )
 
+
+def snowflake_env_vars_are_set():
+    if not all(env_var in os.environ for env_var in REQUIRED_ENV_VARS):
+        return False
+    if "SNOWFLAKE_PASSWORD" not in os.environ and "SNOWFLAKE_PRIVATE_KEY" not in os.environ:
+        return False
+    return True
+
+
 SKIP_IF_MISSING_REQUIRED_ENV_VARS = pytest.mark.skipif(
-    any(env_var not in os.environ for env_var in REQUIRED_ENV_VARS),
+    not snowflake_env_vars_are_set(),
     reason="Snowflake required env vars are not set",
 )
 
@@ -965,21 +985,32 @@ SKIP_IF_MISSING_REQUIRED_ENV_VARS = pytest.mark.skipif(
 @pytest.fixture
 def snowflake_cursor(snowflake_config):
     """Manage a snowflake cursor that cleans up after we are done."""
+    password = None
+    private_key = None
+    if snowflake_config["authentication_type"] == "keypair":
+        if snowflake_config.get("private_key") is None:
+            raise ValueError("Private key is required for keypair authentication")
+
+        private_key = load_private_key(snowflake_config["private_key"], snowflake_config["private_key_passphrase"])
+    else:
+        password = snowflake_config["password"]
+
     with snowflake.connector.connect(
         user=snowflake_config["user"],
-        password=snowflake_config["password"],
+        password=password,
         role=snowflake_config["role"],
         account=snowflake_config["account"],
         warehouse=snowflake_config["warehouse"],
+        private_key=private_key,
     ) as connection:
         cursor = connection.cursor()
-        cursor.execute(f"CREATE DATABASE \"{snowflake_config['database']}\"")
-        cursor.execute(f"CREATE SCHEMA \"{snowflake_config['database']}\".\"{snowflake_config['schema']}\"")
-        cursor.execute(f"USE SCHEMA \"{snowflake_config['database']}\".\"{snowflake_config['schema']}\"")
+        cursor.execute(f'CREATE DATABASE "{snowflake_config["database"]}"')
+        cursor.execute(f'CREATE SCHEMA "{snowflake_config["database"]}"."{snowflake_config["schema"]}"')
+        cursor.execute(f'USE SCHEMA "{snowflake_config["database"]}"."{snowflake_config["schema"]}"')
 
         yield cursor
 
-        cursor.execute(f"DROP DATABASE IF EXISTS \"{snowflake_config['database']}\" CASCADE")
+        cursor.execute(f'DROP DATABASE IF EXISTS "{snowflake_config["database"]}" CASCADE')
 
 
 TEST_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
@@ -1761,3 +1792,8 @@ async def test_insert_into_snowflake_activity_handles_person_schema_changes(
         sort_key="person_id",
         expected_fields=expected_fields,
     )
+
+
+def test_load_private_key_raises_error_if_key_is_invalid():
+    with pytest.raises(InvalidPrivateKeyError):
+        load_private_key("invalid_key", None)

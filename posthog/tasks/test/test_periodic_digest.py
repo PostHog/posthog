@@ -5,8 +5,16 @@ from uuid import uuid4
 from django.utils.timezone import now
 from freezegun import freeze_time
 
-from posthog.models import Dashboard, EventDefinition, Experiment, FeatureFlag, Survey
+from posthog.models import (
+    Dashboard,
+    EventDefinition,
+    Experiment,
+    FeatureFlag,
+    Survey,
+    Team,
+)
 from posthog.models.messaging import MessagingRecord
+from posthog.models.organization import OrganizationMembership
 from posthog.session_recordings.models.session_recording_playlist import (
     SessionRecordingPlaylist,
 )
@@ -129,8 +137,76 @@ class TestPeriodicDigestReport(APIBaseTest):
 
         # Check that the capture event was called with the correct data
         expected_properties = {
-            "team_id": self.team.id,
-            "team_name": self.team.name,
+            "organization_id": str(self.team.organization_id),
+            "organization_name": self.organization.name,
+            "organization_created_at": self.organization.created_at.isoformat(),
+            "teams": [
+                {
+                    "team_id": self.team.id,
+                    "team_name": self.team.name,
+                    "report": {
+                        "new_dashboards": [
+                            {
+                                "name": "Test Dashboard",
+                                "id": dashboard.id,
+                            }
+                        ],
+                        "new_event_definitions": [
+                            {
+                                "name": "Test Event",
+                                "id": event_definition.id,
+                            }
+                        ],
+                        "new_playlists": [
+                            {
+                                "name": "Test Playlist",
+                                "id": playlist.short_id,
+                            },
+                            {
+                                "name": "Derived Playlist",
+                                "id": derived_playlist.short_id,
+                            },
+                        ],
+                        "new_experiments_launched": [
+                            {
+                                "name": "Launched Experiment",
+                                "id": launched_experiment.id,
+                                "start_date": launched_experiment.start_date.isoformat(),  # type: ignore
+                            }
+                        ],
+                        "new_experiments_completed": [
+                            {
+                                "name": "Completed Experiment",
+                                "id": completed_experiment.id,
+                                "start_date": completed_experiment.start_date.isoformat(),  # type: ignore
+                                "end_date": completed_experiment.end_date.isoformat(),  # type: ignore
+                            }
+                        ],
+                        "new_external_data_sources": [
+                            {
+                                "source_type": "Stripe",
+                                "id": external_data_source.id,
+                            }
+                        ],
+                        "new_surveys_launched": [
+                            {
+                                "name": "Test Survey",
+                                "id": survey.id,
+                                "start_date": survey.start_date.isoformat(),  # type: ignore
+                                "description": "Test Description",
+                            }
+                        ],
+                        "new_feature_flags": [
+                            {
+                                "name": "Test Flag",
+                                "id": feature_flag.id,
+                                "key": "test-flag",
+                            }
+                        ],
+                    },
+                    "digest_items_with_data": 8,
+                }
+            ],
             "template_name": "periodic_digest_report",
             "users_who_logged_in": [],
             "users_who_logged_in_count": 0,
@@ -150,65 +226,7 @@ class TestPeriodicDigestReport(APIBaseTest):
             "deployment_infrastructure": "unknown",
             "helm": {},
             "instance_tag": "none",
-            "new_dashboards": [
-                {
-                    "name": "Test Dashboard",
-                    "id": dashboard.id,
-                }
-            ],
-            "new_event_definitions": [
-                {
-                    "name": "Test Event",
-                    "id": event_definition.id,
-                }
-            ],
-            "new_playlists": [
-                {
-                    "name": "Test Playlist",
-                    "id": playlist.short_id,
-                },
-                {
-                    "name": "Derived Playlist",
-                    "id": derived_playlist.short_id,
-                },
-            ],
-            "new_experiments_launched": [
-                {
-                    "name": "Launched Experiment",
-                    "id": launched_experiment.id,
-                    "start_date": launched_experiment.start_date.isoformat(),  # type: ignore
-                }
-            ],
-            "new_experiments_completed": [
-                {
-                    "name": "Completed Experiment",
-                    "id": completed_experiment.id,
-                    "start_date": completed_experiment.start_date.isoformat(),  # type: ignore
-                    "end_date": completed_experiment.end_date.isoformat(),  # type: ignore
-                }
-            ],
-            "new_external_data_sources": [
-                {
-                    "source_type": "Stripe",
-                    "id": external_data_source.id,
-                }
-            ],
-            "new_surveys_launched": [
-                {
-                    "name": "Test Survey",
-                    "id": survey.id,
-                    "start_date": survey.start_date.isoformat(),  # type: ignore
-                    "description": "Test Description",
-                }
-            ],
-            "new_feature_flags": [
-                {
-                    "name": "Test Flag",
-                    "id": feature_flag.id,
-                    "key": "test-flag",
-                }
-            ],
-            "digest_items_with_data": 8,
+            "total_digest_items_with_data": 8,
         }
 
         mock_capture.assert_called_once_with(
@@ -216,7 +234,7 @@ class TestPeriodicDigestReport(APIBaseTest):
             distinct_id=str(self.user.distinct_id),
             organization_id=str(self.team.organization_id),
             name="transactional email",
-            team_id=self.team.id,
+            team_id=None,
             properties=expected_properties,
             timestamp=None,
         )
@@ -250,9 +268,10 @@ class TestPeriodicDigestReport(APIBaseTest):
 
         # Check that the capture event was called with the correct data
         expected_properties = {
-            "team_id": self.team.id,
-            "team_name": self.team.name,
             "template_name": "periodic_digest_report",
+            "organization_id": str(self.team.organization_id),
+            "organization_name": self.organization.name,
+            "organization_created_at": self.organization.created_at.isoformat(),
             "users_who_logged_in": [],
             "users_who_logged_in_count": 0,
             "users_who_signed_up": [],
@@ -271,20 +290,29 @@ class TestPeriodicDigestReport(APIBaseTest):
             "deployment_infrastructure": "unknown",
             "helm": {},
             "instance_tag": "none",
-            "new_dashboards": [
+            "teams": [
                 {
-                    "name": "Test Dashboard",
-                    "id": dashboard.id,
+                    "report": {
+                        "new_dashboards": [
+                            {
+                                "name": "Test Dashboard",
+                                "id": dashboard.id,
+                            }
+                        ],
+                        "new_event_definitions": [],
+                        "new_playlists": [],
+                        "new_experiments_launched": [],
+                        "new_experiments_completed": [],
+                        "new_external_data_sources": [],
+                        "new_surveys_launched": [],
+                        "new_feature_flags": [],
+                    },
+                    "team_id": self.team.id,
+                    "team_name": self.team.name,
+                    "digest_items_with_data": 1,
                 }
             ],
-            "new_event_definitions": [],
-            "new_playlists": [],
-            "new_experiments_launched": [],
-            "new_experiments_completed": [],
-            "new_external_data_sources": [],
-            "new_surveys_launched": [],
-            "new_feature_flags": [],
-            "digest_items_with_data": 1,
+            "total_digest_items_with_data": 1,
         }
 
         mock_capture.assert_called_once_with(
@@ -292,7 +320,7 @@ class TestPeriodicDigestReport(APIBaseTest):
             distinct_id=str(self.user.distinct_id),
             organization_id=str(self.team.organization_id),
             name="transactional email",
-            team_id=self.team.id,
+            team_id=None,
             properties=expected_properties,
             timestamp=None,
         )
@@ -316,7 +344,7 @@ class TestPeriodicDigestReport(APIBaseTest):
 
         # Check that messaging record was created
         record = MessagingRecord.objects.get(  # type: ignore
-            raw_email=f"team_{self.team.id}", campaign_key="periodic_digest_2024-01-20_7d"
+            raw_email=f"org_{self.organization.id}", campaign_key="periodic_digest_2024-01-20_7d"
         )
         self.assertIsNotNone(record.sent_at)
 
@@ -349,7 +377,7 @@ class TestPeriodicDigestReport(APIBaseTest):
         mock_capture.assert_called_once()
 
         # Verify two different records exist
-        records = MessagingRecord.objects.filter(raw_email=f"team_{self.team.id}")  # type: ignore
+        records = MessagingRecord.objects.filter(raw_email=f"org_{self.organization.id}")  # type: ignore
         self.assertEqual(records.count(), 2)
         campaign_keys = sorted([r.campaign_key for r in records])
         self.assertEqual(campaign_keys, ["periodic_digest_2024-01-20_30d", "periodic_digest_2024-01-20_7d"])
@@ -409,12 +437,13 @@ class TestPeriodicDigestReport(APIBaseTest):
         call_args = mock_capture.call_args
         self.assertIsNotNone(call_args)
         properties = call_args[1]["properties"]
-        playlists = properties["new_playlists"]
+        team_data = next(team for team in properties["teams"] if team["team_id"] == self.team.id)
+        playlists = team_data["report"]["new_playlists"]
 
         # Verify only the valid playlist is included
-        self.assertEqual(len(playlists), 1)
-        self.assertEqual(playlists[0]["name"], "Valid Playlist")
-        self.assertEqual(playlists[0]["id"], valid_playlist.short_id)
+        assert len(playlists) == 1
+        assert playlists[0]["name"] == "Valid Playlist"
+        assert playlists[0]["id"] == valid_playlist.short_id
 
     @freeze_time("2024-01-20T00:01:00Z")
     @patch("posthog.tasks.periodic_digest.capture_event")
@@ -445,3 +474,107 @@ class TestPeriodicDigestReport(APIBaseTest):
         # Verify the call was for the original user and not the one with disabled notifications
         call_args = mock_capture.call_args[1]
         self.assertEqual(call_args["distinct_id"], str(self.user.distinct_id))
+
+    @freeze_time("2024-01-20T00:01:00Z")
+    @patch("posthog.tasks.periodic_digest.capture_event")
+    def test_periodic_digest_report_multiple_teams(self, mock_capture: MagicMock) -> None:
+        # Create a second team in the same organization
+        team_2 = Team.objects.create(organization=self.organization, name="Second Team")
+
+        # Create test data for both teams
+        with freeze_time("2024-01-15T00:01:00Z"):
+            # Data for first team
+            Dashboard.objects.create(
+                team=self.team,
+                name="Team 1 Dashboard",
+            )
+
+            # Data for second team
+            Dashboard.objects.create(
+                team=team_2,
+                name="Team 2 Dashboard",
+            )
+            FeatureFlag.objects.create(
+                team=team_2,
+                name="Team 2 Flag",
+                key="team-2-flag",
+            )
+
+        send_all_periodic_digest_reports()
+
+        # Should be called once with data for both teams
+        assert mock_capture.call_count == 1
+
+        call_args = mock_capture.call_args[1]
+        properties = call_args["properties"]
+
+        # Verify organization-level properties
+        assert properties["organization_id"] == str(self.organization.id)
+        assert properties["organization_name"] == self.organization.name
+
+        # Verify teams data
+        teams_data = properties["teams"]
+        assert len(teams_data) == 2
+
+        # Find teams by team_id in the array
+        team_1_data = next(team for team in teams_data if team["team_id"] == self.team.id)
+        team_2_data = next(team for team in teams_data if team["team_id"] == team_2.id)
+
+        # Verify first team's data
+        assert team_1_data["team_name"] == self.team.name
+        assert len(team_1_data["report"]["new_dashboards"]) == 1
+        assert team_1_data["report"]["new_dashboards"][0]["name"] == "Team 1 Dashboard"
+        assert len(team_1_data["report"]["new_feature_flags"]) == 0
+
+        # Verify second team's data
+        assert team_2_data["team_name"] == team_2.name
+        assert len(team_2_data["report"]["new_dashboards"]) == 1
+        assert team_2_data["report"]["new_dashboards"][0]["name"] == "Team 2 Dashboard"
+        assert len(team_2_data["report"]["new_feature_flags"]) == 1
+        assert team_2_data["report"]["new_feature_flags"][0]["name"] == "Team 2 Flag"
+
+    @freeze_time("2024-01-20T00:01:00Z")
+    @patch("posthog.tasks.periodic_digest.capture_event")
+    def test_periodic_digest_report_respects_team_access(self, mock_capture: MagicMock) -> None:
+        # Create a second team in the same organization
+        team_2 = Team.objects.create(organization=self.organization, name="Second Team")
+        team_2.access_control = True
+        team_2.save()
+
+        # Create test data for both teams
+        with freeze_time("2024-01-15T00:01:00Z"):
+            Dashboard.objects.create(
+                team=self.team,
+                name="Team 1 Dashboard",
+            )
+            Dashboard.objects.create(
+                team=team_2,
+                name="Team 2 Dashboard",
+            )
+
+        # Create a second user with access only to team_2
+        user_2 = self._create_user("test2@posthog.com")
+        self.organization.members.add(user_2)
+        org_membership = OrganizationMembership.objects.get(organization=self.organization, user=user_2)
+        team_2.explicit_memberships.create(parent_membership=org_membership)
+
+        # Run the periodic digest report task
+        send_all_periodic_digest_reports()
+
+        # Should be called twice - once for each user
+        assert mock_capture.call_count == 2
+
+        # Check calls to ensure each user only got their accessible teams
+        calls = mock_capture.call_args_list
+        for call in calls:
+            properties = call[1]["properties"]
+            distinct_id = call[1]["distinct_id"]
+
+            if distinct_id == str(self.user.distinct_id):
+                # First user should only see team 1 because they were not added to team 2
+                assert len(properties["teams"]) == 1
+                assert any(team["team_id"] == self.team.id for team in properties["teams"])
+            else:
+                # Second user should see team 1 and team 2
+                assert len(properties["teams"]) == 2
+                assert any(team["team_id"] == team_2.id for team in properties["teams"])
