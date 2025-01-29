@@ -152,13 +152,16 @@ class ExperimentTrendsQueryRunner(QueryRunner):
         # Get the metric event we should filter on
         metric_event = self.query.count_query.series[0].event
 
-        if self._get_metric_type() == ExperimentMetricType.COUNT:
-            # If the metric type is count, we just emit 1 so we can easily sum it up
-            metric_value = "1"
-        else:
-            # If the metric type is continuous, we need to extract the value from the event property
-            metric_property = self.query.count_query.series[0].math_property
-            metric_value = f"toFloat(JSONExtractRaw(properties, '{metric_property}'))"
+        # Pick the correct value for the aggregation chosen
+        match self._get_metric_type():
+            case ExperimentMetricType.CONTINUOUS:
+                # If the metric type is continuous, we need to extract the value from the event property
+                metric_property = self.query.count_query.series[0].math_property
+                metric_value = f"toFloat(JSONExtractRaw(properties, '{metric_property}'))"
+            case _:
+                # Else, we default to count
+                # We then just emit 1 so we can easily sum it up
+                metric_value = "1"
 
         # Filter Test Accounts
         test_accounts_filter: list[ast.Expr] = []
