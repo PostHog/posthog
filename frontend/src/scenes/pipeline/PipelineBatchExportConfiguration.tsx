@@ -160,7 +160,7 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
                                     </LemonField>
                                 </div>
                             </div>
-                            <div className="border bg-bg-light p-3 rounded space-y-2">
+                            <div className="border bg-surface-primary p-3 rounded space-y-2">
                                 <div className="flex gap-2 min-h-16">
                                     <LemonField
                                         name="model"
