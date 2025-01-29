@@ -261,6 +261,9 @@ class Cohort(models.Model):
                 fn()
                 return
 
+            # Jan 29 2025 - Temporarily commented out because of celery load issues
+            return
+
             try:
                 fn()
             except Exception:
