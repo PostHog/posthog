@@ -30,6 +30,8 @@ from posthog.test.base import (
 
 @snapshot_clickhouse_queries
 class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
+    QUERY_TIMESTAMP = "2025-01-29"
+
     def _create_events(self, data, event="$pageview"):
         person_result = []
         for id, timestamps in data:
