@@ -216,7 +216,7 @@ class OauthIntegration:
     @classmethod
     def redirect_uri(cls, kind: str) -> str:
         # The redirect uri is fixed but should always be https and include the "next" parameter for the frontend to redirect
-        return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{kind}/callback"
+        return f"https://us.posthog.com/integrations/{kind}/callback"
 
     @classmethod
     def authorize_url(cls, kind: str, next="") -> str:
@@ -503,10 +503,7 @@ class GoogleAdsIntegration:
             )
 
             if response.status_code != 200:
-                capture_exception(
-                    Exception(f"GoogleAdsIntegration: Failed to retrieve account details: {response.text}")
-                )
-                raise Exception(f"There was an internal error")
+                continue
 
             data = response.json()
             accounts_with_name.append(
