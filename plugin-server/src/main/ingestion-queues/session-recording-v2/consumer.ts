@@ -88,7 +88,10 @@ export class SessionRecordingIngester {
         const writer =
             this.config.SESSION_RECORDING_V2_S3_BUCKET &&
             this.config.SESSION_RECORDING_V2_S3_REGION &&
-            this.config.SESSION_RECORDING_V2_S3_PREFIX
+            this.config.SESSION_RECORDING_V2_S3_PREFIX &&
+            this.config.SESSION_RECORDING_V2_S3_BUCKET !== '' &&
+            this.config.SESSION_RECORDING_V2_S3_REGION !== '' &&
+            this.config.SESSION_RECORDING_V2_S3_PREFIX !== ''
                 ? new S3SessionBatchWriter({
                       bucket: this.config.SESSION_RECORDING_V2_S3_BUCKET,
                       prefix: this.config.SESSION_RECORDING_V2_S3_PREFIX,
@@ -97,7 +100,7 @@ export class SessionRecordingIngester {
                 : new BlackholeSessionBatchWriter()
 
         this.sessionBatchManager = new SessionBatchManager({
-            maxBatchSizeBytes: (config.SESSION_RECORDING_MAX_BATCH_SIZE_KB ?? 0) * 1024,
+            maxBatchSizeBytes: (config.SESSION_RECORDING_MAX_BATCH_SIZE_KB ?? 1024) * 1024,
             maxBatchAgeMs: config.SESSION_RECORDING_MAX_BATCH_AGE_MS ?? 1000,
             offsetManager,
             writer,
