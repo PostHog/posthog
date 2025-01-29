@@ -121,6 +121,11 @@ def migrate_legacy_plugins(dry_run=True, team_ids=None, test_mode=True):
         team = teams_by_id[plugin_config["team_id"]]
         serializer_context = {"team": team, "get_team": (lambda t=team: t)}
 
+        icon_url = plugin_config["plugin__icon"]
+
+        if not icon_url:
+            icon_url = f"https://raw.githubusercontent.com/PostHog/{plugin_id}/main/logo.png"
+
         data = {
             "template_id": f"plugin-{plugin_id}",
             "type": "destination",
