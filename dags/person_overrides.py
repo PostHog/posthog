@@ -72,7 +72,7 @@ class PersonOverridesSnapshotTable:
         [[count]] = client.execute(f"SELECT count() FROM {self.qualified_name}")
         assert count == 0
 
-        limit_clause = "LIMIT {limit}" if limit else ""
+        limit_clause = f"LIMIT {limit}" if limit else ""
 
         client.execute(
             f"""
