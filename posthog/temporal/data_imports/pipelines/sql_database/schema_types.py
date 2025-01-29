@@ -17,7 +17,7 @@ from sqlalchemy.sql.sqltypes import TypeEngine
 from dlt.common import logger
 from dlt.common.schema.typing import TColumnSchema, TTableSchemaColumns
 
-from posthog.temporal.data_imports.pipelines.sql_database_v2._json import BigQueryJSON
+from posthog.temporal.data_imports.pipelines.sql_database._json import BigQueryJSON
 from sqlalchemy_bigquery import STRUCT as BigQueryStruct
 
 ReflectionLevel = Literal["minimal", "full", "full_with_precision"]

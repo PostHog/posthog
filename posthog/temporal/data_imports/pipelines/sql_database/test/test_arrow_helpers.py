@@ -1,6 +1,6 @@
 import pytest
 import pyarrow as pa
-from posthog.temporal.data_imports.pipelines.sql_database_v2.arrow_helpers import json_dumps
+from posthog.temporal.data_imports.pipelines.sql_database.arrow_helpers import json_dumps
 from dlt.common.json import json
 
 

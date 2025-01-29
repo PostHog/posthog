@@ -1,12 +1,18 @@
 import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { dayjs } from 'lib/dayjs'
+import { objectsEqual } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
 import { DataTableNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { isAnyPropertyFilters } from '~/queries/schema-guards'
+import { QueryContext } from '~/queries/types'
 import {
     AnyPropertyFilter,
     BaseMathType,
@@ -15,19 +21,22 @@ import {
     HogQLMathType,
     PropertyFilterType,
     PropertyMathType,
+    PropertyOperator,
 } from '~/types'
 
 import type { llmObservabilityLogicType } from './llmObservabilityLogicType'
 
 export const LLM_OBSERVABILITY_DATA_COLLECTION_NODE_ID = 'llm-observability-data'
 
-const INITIAL_DATE_FROM = '-7d' as string | null
+const INITIAL_DASHBOARD_DATE_FROM = '-7d' as string | null
+const INITIAL_EVENTS_DATE_FROM = '-1d' as string | null
 const INITIAL_DATE_TO = null as string | null
 
 export interface QueryTile {
     title: string
     description?: string
     query: TrendsQuery
+    context?: QueryContext
     layout?: {
         className?: string
     }
@@ -35,28 +44,44 @@ export interface QueryTile {
 
 export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
     path(['products', 'llm_observability', 'frontend', 'llmObservabilityLogic']),
+
     connect({ values: [sceneLogic, ['sceneKey']] }),
+
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setDashboardDateFilter: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
         setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => ({ propertyFilters }),
     }),
+
     reducers({
         dateFilter: [
             {
-                dateFrom: INITIAL_DATE_FROM,
+                dateFrom: INITIAL_EVENTS_DATE_FROM,
                 dateTo: INITIAL_DATE_TO,
             },
             {
                 setDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
             },
         ],
+
+        dashboardDateFilter: [
+            {
+                dateFrom: INITIAL_DASHBOARD_DATE_FROM,
+                dateTo: INITIAL_DATE_TO,
+            },
+            {
+                setDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
+            },
+        ],
+
         shouldFilterTestAccounts: [
             false,
             {
                 setShouldFilterTestAccounts: (_, { shouldFilterTestAccounts }) => shouldFilterTestAccounts,
             },
         ],
+
         propertyFilters: [
             [] as AnyPropertyFilter[],
             {
@@ -84,6 +109,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
             },
         },
     }),
+
     selectors({
         activeTab: [
             (s) => [s.sceneKey],
@@ -96,9 +122,10 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 return 'dashboard'
             },
         ],
+
         tiles: [
-            (s) => [s.dateFilter, s.shouldFilterTestAccounts, s.propertyFilters],
-            (dateFilter, shouldFilterTestAccounts, propertyFilters): QueryTile[] => [
+            (s) => [s.dashboardDateFilter, s.shouldFilterTestAccounts, s.propertyFilters],
+            (dashboardDateFilter, shouldFilterTestAccounts, propertyFilters): QueryTile[] => [
                 {
                     title: 'Traces',
                     query: {
@@ -112,9 +139,26 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                                 math_hogql: 'COUNT(DISTINCT properties.$ai_trace_id)',
                             },
                         ],
-                        dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        dateRange: { date_from: dashboardDateFilter.dateFrom, date_to: dashboardDateFilter.dateTo },
                         properties: propertyFilters,
                         filterTestAccounts: shouldFilterTestAccounts,
+                    },
+                    context: {
+                        groupTypeLabel: 'traces',
+                        onDataPointClick: (series) => {
+                            if (typeof series.day === 'string') {
+                                // NOTE: This assumes the chart is day-by-day
+                                const dayStart = dayjs(series.day).startOf('day')
+                                router.actions.push(urls.llmObservabilityTraces(), {
+                                    ...router.values.searchParams,
+                                    date_from: dayStart.format('YYYY-MM-DD[T]HH:mm:ss'),
+                                    date_to: dayStart
+                                        .add(1, 'day')
+                                        .subtract(1, 'second')
+                                        .format('YYYY-MM-DD[T]HH:mm:ss'),
+                                })
+                            }
+                        },
                     },
                 },
                 {
@@ -130,7 +174,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                                 math: BaseMathType.UniqueUsers,
                             },
                         ],
-                        dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        dateRange: { date_from: dashboardDateFilter.dateFrom, date_to: dashboardDateFilter.dateTo },
                         properties: propertyFilters.concat({
                             type: PropertyFilterType.HogQL,
                             key: 'distinct_id != properties.$ai_trace_id',
@@ -156,9 +200,15 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                             decimalPlaces: 4,
                             display: ChartDisplayType.BoldNumber,
                         },
-                        dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        dateRange: { date_from: dashboardDateFilter.dateFrom, date_to: dashboardDateFilter.dateTo },
                         properties: propertyFilters,
                         filterTestAccounts: shouldFilterTestAccounts,
+                    },
+                    context: {
+                        groupTypeLabel: 'traces',
+                        onDataPointClick: () => {
+                            router.actions.push(urls.llmObservabilityTraces(), router.values.searchParams)
+                        },
                     },
                 },
                 {
@@ -186,7 +236,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                             aggregationAxisPrefix: '$',
                             decimalPlaces: 2,
                         },
-                        dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        dateRange: { date_from: dashboardDateFilter.dateFrom, date_to: dashboardDateFilter.dateTo },
                         properties: propertyFilters.concat({
                             type: PropertyFilterType.HogQL,
                             key: 'distinct_id != properties.$ai_trace_id',
@@ -217,9 +267,26 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                             display: ChartDisplayType.ActionsBarValue,
                             showValuesOnSeries: true,
                         },
-                        dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        dateRange: { date_from: dashboardDateFilter.dateFrom, date_to: dashboardDateFilter.dateTo },
                         properties: propertyFilters,
                         filterTestAccounts: shouldFilterTestAccounts,
+                    },
+                    context: {
+                        groupTypeLabel: 'traces',
+                        onDataPointClick: ({ breakdown }) => {
+                            router.actions.push(urls.llmObservabilityTraces(), {
+                                ...router.values.searchParams,
+                                filters: [
+                                    ...(router.values.searchParams.filters || []),
+                                    {
+                                        type: PropertyFilterType.Event,
+                                        key: '$ai_model',
+                                        operator: PropertyOperator.Exact,
+                                        value: breakdown as string,
+                                    },
+                                ],
+                            })
+                        },
                     },
                 },
                 {
@@ -233,9 +300,25 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                                 kind: NodeKind.EventsNode,
                             },
                         ],
-                        dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        dateRange: { date_from: dashboardDateFilter.dateFrom, date_to: dashboardDateFilter.dateTo },
                         properties: propertyFilters,
                         filterTestAccounts: shouldFilterTestAccounts,
+                    },
+                    context: {
+                        groupTypeLabel: 'generations',
+                        onDataPointClick: (series) => {
+                            if (typeof series.day === 'string') {
+                                const dayStart = dayjs(series.day).startOf('day')
+                                router.actions.push(urls.llmObservabilityGenerations(), {
+                                    ...router.values.searchParams,
+                                    date_from: dayStart.format('YYYY-MM-DD[T]HH:mm:ss'),
+                                    date_to: dayStart
+                                        .add(1, 'day')
+                                        .subtract(1, 'second')
+                                        .format('YYYY-MM-DD[T]HH:mm:ss'),
+                                })
+                            }
+                        },
                     },
                 },
                 {
@@ -258,9 +341,34 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                             aggregationAxisPostfix: ' s',
                             decimalPlaces: 2,
                         },
-                        dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        dateRange: { date_from: dashboardDateFilter.dateFrom, date_to: dashboardDateFilter.dateTo },
                         properties: propertyFilters,
                         filterTestAccounts: shouldFilterTestAccounts,
+                    },
+                    context: {
+                        groupTypeLabel: 'generations',
+                        onDataPointClick: (series) => {
+                            if (typeof series.day === 'string') {
+                                const dayStart = dayjs(series.day).startOf('day')
+                                router.actions.push(urls.llmObservabilityGenerations(), {
+                                    ...router.values.searchParams,
+                                    date_from: dayStart.format('YYYY-MM-DD[T]HH:mm:ss'),
+                                    date_to: dayStart
+                                        .add(1, 'day')
+                                        .subtract(1, 'second')
+                                        .format('YYYY-MM-DD[T]HH:mm:ss'),
+                                    filters: [
+                                        ...(router.values.searchParams.filters || []),
+                                        {
+                                            type: PropertyFilterType.Event,
+                                            key: '$ai_model',
+                                            operator: PropertyOperator.Exact,
+                                            value: series.breakdown as string,
+                                        },
+                                    ] as AnyPropertyFilter[],
+                                })
+                            }
+                        },
                     },
                 },
                 {
@@ -280,13 +388,31 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         trendsFilter: {
                             display: ChartDisplayType.ActionsBarValue,
                         },
-                        dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        dateRange: { date_from: dashboardDateFilter.dateFrom, date_to: dashboardDateFilter.dateTo },
                         properties: propertyFilters,
                         filterTestAccounts: shouldFilterTestAccounts,
+                    },
+                    context: {
+                        groupTypeLabel: 'generations',
+                        onDataPointClick: (series) => {
+                            router.actions.push(urls.llmObservabilityGenerations(), {
+                                ...router.values.searchParams,
+                                filters: [
+                                    ...(router.values.searchParams.filters || []),
+                                    {
+                                        type: PropertyFilterType.Event,
+                                        key: '$ai_http_status',
+                                        operator: PropertyOperator.Exact,
+                                        value: series.breakdown as string,
+                                    },
+                                ] as AnyPropertyFilter[],
+                            })
+                        },
                     },
                 },
             ],
         ],
+
         tracesQuery: [
             (s) => [
                 s.dateFilter,
@@ -321,6 +447,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 ],
             }),
         ],
+
         generationsQuery: [
             (s) => [
                 s.dateFilter,
@@ -371,6 +498,65 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
             }),
         ],
     }),
+
+    urlToAction(({ actions, values }) => {
+        function applySearchParams({ filters, date_from, date_to, filter_test_accounts }: Record<string, any>): void {
+            // Reusing logic and naming from webAnalyticsLogic
+            const parsedFilters = isAnyPropertyFilters(filters) ? filters : []
+            if (!objectsEqual(parsedFilters, values.propertyFilters)) {
+                actions.setPropertyFilters(parsedFilters)
+            }
+            if (
+                (date_from || INITIAL_EVENTS_DATE_FROM) !== values.dateFilter.dateFrom ||
+                (date_to || INITIAL_DATE_TO) !== values.dateFilter.dateTo
+            ) {
+                actions.setDates(date_from, date_to)
+            }
+            const filterTestAccountsValue = [true, 'true', 1, '1'].includes(filter_test_accounts)
+            if (filterTestAccountsValue !== values.shouldFilterTestAccounts) {
+                actions.setShouldFilterTestAccounts(filterTestAccountsValue)
+            }
+        }
+
+        return {
+            [urls.llmObservabilityDashboard()]: (_, searchParams) => applySearchParams(searchParams),
+            [urls.llmObservabilityGenerations()]: (_, searchParams) => applySearchParams(searchParams),
+            [urls.llmObservabilityTraces()]: (_, searchParams) => applySearchParams(searchParams),
+        }
+    }),
+
+    actionToUrl(() => ({
+        setPropertyFilters: ({ propertyFilters }) => {
+            const searchParams = router.values.searchParams
+            // The `objectsEqual` check is necessary, because kea-router as of 3.2.0 uses a `===` check on search params
+            // internally, meaning that every time the filters array is constructed, it will be considered a new object
+            // (even if actually it's identical)
+            if (!objectsEqual(propertyFilters, searchParams.filters)) {
+                return [
+                    router.values.location.pathname,
+                    {
+                        ...searchParams,
+                        filters: propertyFilters.length > 0 ? propertyFilters : undefined,
+                    },
+                ]
+            }
+        },
+        setDates: ({ dateFrom, dateTo }) => [
+            router.values.location.pathname,
+            {
+                ...router.values.searchParams,
+                date_from: dateFrom === INITIAL_EVENTS_DATE_FROM ? undefined : dateFrom || undefined,
+                date_to: dateTo || undefined,
+            },
+        ],
+        setShouldFilterTestAccounts: ({ shouldFilterTestAccounts }) => [
+            router.values.location.pathname,
+            {
+                ...router.values.searchParams,
+                filter_test_accounts: shouldFilterTestAccounts ? 'true' : undefined,
+            },
+        ],
+    })),
 
     afterMount(({ actions }) => {
         actions.loadAIEventDefinition()

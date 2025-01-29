@@ -512,3 +512,7 @@ export function isValidBreakdown(breakdownFilter?: BreakdownFilter | null): brea
             (breakdownFilter.breakdowns && breakdownFilter.breakdowns.length > 0))
     )
 }
+
+export function isValidQueryForExperiment(query: Node): boolean {
+    return isNodeWithSource(query) && isFunnelsQuery(query.source) && query.source.series.length >= 2
+}
