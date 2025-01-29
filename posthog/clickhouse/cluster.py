@@ -164,7 +164,7 @@ class ClickhouseCluster:
                 {
                     host: executor.submit(self.__get_task_function(host, fn))
                     for host in self.__hosts
-                    if host.host_cluster_role.lower() == node_type.value.lower() or node_type == NodeRole.ALL
+                    if host.host_cluster_role == node_type.value.lower() or node_type == NodeRole.ALL
                 }
             )
 
