@@ -401,7 +401,7 @@ export function HogFunctionConfiguration({
                                 <div
                                     className={clsx(
                                         'border rounded p-3 space-y-2',
-                                        showSource ? 'bg-surface-primary' : 'bg-accent-3000'
+                                        showSource ? 'bg-surface-primary' : 'bg-surface-primary'
                                     )}
                                 >
                                     <div className="flex items-center justify-end gap-2">

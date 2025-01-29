@@ -64,7 +64,7 @@ export function HogFunctionTestPlaceholder({
     description?: string | JSX.Element
 }): JSX.Element {
     return (
-        <div className="border bg-accent-3000 rounded p-3 space-y-2">
+        <div className="border bg-surface-primary rounded p-3 space-y-2">
             <h2 className="flex-1 m-0">{title || 'Testing'}</h2>
             <p>{description || 'Save your configuration to enable testing'}</p>
         </div>
@@ -97,7 +97,7 @@ export function HogFunctionTest(props: HogFunctionTestLogicProps): JSX.Element {
             <div
                 className={clsx(
                     'border rounded p-3 space-y-2',
-                    expanded ? 'bg-surface-primary min-h-120' : 'bg-accent-3000'
+                    expanded ? 'bg-surface-primary min-h-120' : 'bg-surface-primary'
                 )}
             >
                 <div className="flex items-center gap-2 justify-end">
