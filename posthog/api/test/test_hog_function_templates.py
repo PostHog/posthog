@@ -1,4 +1,5 @@
 import json
+import os
 from unittest.mock import ANY, patch
 from inline_snapshot import snapshot
 from rest_framework import status
@@ -7,7 +8,9 @@ from posthog.cdp.templates.hog_function_template import derive_sub_templates
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from posthog.cdp.templates.slack.template_slack import template
 
-MOCK_NODE_TEMPLATES = json.loads(open("posthog/api/test/__data__/hog_function_templates.json").read())
+MOCK_NODE_TEMPLATES = json.loads(
+    open(os.path.join(os.path.dirname(__file__), "__data__/hog_function_templates.json")).read()
+)
 
 # NOTE: We check this as a sanity check given that this is a public API so we want to explicitly define what is exposed
 EXPECTED_FIRST_RESULT = {
