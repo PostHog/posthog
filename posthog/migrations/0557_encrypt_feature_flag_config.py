@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0554_remove_incremental_field_last_value_v2"),
+        ("posthog", "0556_add_execution_order_to_hog_functions"),
     ]
 
     operations = [
