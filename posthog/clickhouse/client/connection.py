@@ -19,6 +19,12 @@ class Workload(Enum):
     OFFLINE = "OFFLINE"
 
 
+class NodeType(Enum):
+    DEFAULT = "DEFAULT"
+    COORDINATOR = "COORDINATOR"
+    WORKER = "WORKER"
+
+
 _default_workload = Workload.ONLINE
 
 
