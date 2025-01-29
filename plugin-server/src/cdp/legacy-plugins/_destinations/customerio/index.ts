@@ -256,7 +256,7 @@ function getEmailFromEvent(event: ProcessedPluginEvent): string | null {
 }
 
 export const customerioPlugin: LegacyDestinationPlugin = {
-    id: 'customer-io',
+    id: 'customerio-plugin',
     metadata: metadata as any,
     setupPlugin: setupPlugin as any,
     onEvent,

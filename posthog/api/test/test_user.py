@@ -847,6 +847,11 @@ class TestUserAPI(APIBaseTest):
             response = self.client.patch("/api/users/@me/", {"current_password": "wrong", "password": "12345678"})
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
+    def test_no_ratelimit_for_updates_that_are_not_password_changes(self):
+        for _ in range(10):
+            response = self.client.patch("/api/users/@me/", {"organization_name": "new name"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     # DELETING USER
 
     def test_deleting_current_user_is_not_supported(self):

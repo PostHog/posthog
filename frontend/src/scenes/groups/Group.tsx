@@ -159,7 +159,7 @@ export function Group(): JSX.Element {
                                 ) : (
                                     <div className="SessionRecordingPlaylistHeightWrapper">
                                         <SessionRecordingsPlaylist
-                                            logicKey="groups-recordings"
+                                            logicKey={`groups-recordings-${groupKey}-${groupTypeIndex}`}
                                             updateSearchParams
                                             filters={{
                                                 duration: [

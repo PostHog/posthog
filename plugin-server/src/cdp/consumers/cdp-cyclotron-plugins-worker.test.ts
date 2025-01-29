@@ -37,6 +37,8 @@ describe('CdpCyclotronWorkerPlugins', () => {
         return item
     }
 
+    const intercomPlugin = PLUGINS_BY_ID['posthog-intercom-plugin']
+
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
@@ -64,7 +66,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
 
         fn = await insertHogFunction({
             name: 'Plugin test',
-            template_id: 'plugin-intercom',
+            template_id: 'plugin-posthog-intercom-plugin',
         })
         globals = {
             ...createHogExecutionGlobals({
@@ -105,7 +107,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
 
     describe('setupPlugin', () => {
         it('should setup a plugin on first call', async () => {
-            jest.spyOn(DESTINATION_PLUGINS_BY_ID['intercom'] as any, 'setupPlugin')
+            jest.spyOn(intercomPlugin, 'setupPlugin')
 
             const results = processor.processBatch([
                 createInvocation(fn, globals),
@@ -238,7 +240,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
             expect(forSnapshot(getProducedKafkaMessagesForTopic('log_entries_test').map((m) => m.value.message)))
                 .toMatchInlineSnapshot(`
                 [
-                  "Executing plugin intercom",
+                  "Executing plugin posthog-intercom-plugin",
                   "Fetch called but mocked due to test function",
                   "Unable to search contact test@posthog.com in Intercom. Status Code: undefined. Error message: ",
                   "Execution successful",
