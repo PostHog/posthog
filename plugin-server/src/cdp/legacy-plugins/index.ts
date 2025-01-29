@@ -10,7 +10,7 @@ import { pubsubPlugin } from './pubsub'
 import { sendgridPlugin } from './sendgrid'
 import { gcsPlugin } from './posthog-gcs'
 import { salesforcePlugin } from './salesforce/src'
-
+import { laudspeakerPlugin } from './posthog-laudspeaker-app'
 export const PLUGINS_BY_ID = {
     [customerioPlugin.id]: customerioPlugin,
     [intercomPlugin.id]: intercomPlugin,
@@ -24,4 +24,5 @@ export const PLUGINS_BY_ID = {
     [sendgridPlugin.id]: sendgridPlugin,
     [gcsPlugin.id]: gcsPlugin,
     [salesforcePlugin.id]: salesforcePlugin,
+    [laudspeakerPlugin.id]: laudspeakerPlugin,
 }
