@@ -4,13 +4,13 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { brotliDecompressSync } from 'zlib'
 
+import { template as filterOutPluginTemplate } from '~/src/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { template as geoipTemplate } from '~/src/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '~/src/cdp/templates/compiler'
 import { createHogFunction } from '~/tests/cdp/fixtures'
 
 import { Hub } from '../../types'
 import { createHub } from '../../utils/db/hub'
-import { pluginFilterOutPluginTemplate } from '../legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { HogTransformerService } from './hog-transformer.service'
 
 let mockGetTeamHogFunctions: jest.Mock
@@ -132,7 +132,7 @@ describe('HogTransformer', () => {
     describe('legacy plugins', () => {
         beforeEach(() => {
             const filterOutPlugin = createHogFunction({
-                ...pluginFilterOutPluginTemplate,
+                ...filterOutPluginTemplate,
                 type: 'transformation',
                 template_id: 'plugin-posthog-filter-out-plugin',
                 inputs: {
