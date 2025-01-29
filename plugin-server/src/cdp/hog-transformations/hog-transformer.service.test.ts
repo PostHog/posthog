@@ -4,8 +4,9 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { brotliDecompressSync } from 'zlib'
 
-import { template as defaultTemplate } from '../../../src/cdp/templates/_transformations/default/default.template'
 import { template as filterOutPluginTemplate } from '~/src/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
+
+import { template as defaultTemplate } from '../../../src/cdp/templates/_transformations/default/default.template'
 import { template as geoipTemplate } from '../../../src/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '../../../src/cdp/templates/compiler'
 import { createHogFunction, insertHogFunction } from '../../../tests/cdp/fixtures'
@@ -14,7 +15,6 @@ import { Hub } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { HogFunctionTemplate } from '../templates/types'
 import { HogTransformerService } from './hog-transformer.service'
-let mockGetTeamHogFunctions: jest.Mock
 
 jest.mock('../../utils/status', () => ({
     status: {
@@ -25,17 +25,11 @@ jest.mock('../../utils/status', () => ({
     },
 }))
 
-jest.mock('../../cdp/services/hog-function-manager.service', () => ({
-    HogFunctionManagerService: jest.fn().mockImplementation(() => ({
-        getTeamHogFunctions: (mockGetTeamHogFunctions = jest.fn().mockReturnValue([])),
-    })),
-}))
-
-const createPluginEvent = (event: Partial<PluginEvent> = {}): PluginEvent => {
+const createPluginEvent = (event: Partial<PluginEvent> = {}, teamId: number = 1): PluginEvent => {
     return {
         ip: '89.160.20.129',
         site_url: 'http://localhost',
-        team_id: 1,
+        team_id: teamId,
         now: '2024-06-07T12:00:00.000Z',
         uuid: 'event-id',
         event: 'event-name',
@@ -89,7 +83,7 @@ describe('HogTransformer', () => {
             // starting the hogfunction manager which updates the cache
             await hogTransformer.start()
 
-            const event: PluginEvent = createPluginEvent()
+            const event: PluginEvent = createPluginEvent({}, teamId)
             const result = await hogTransformer.transformEvent(event)
 
             expect(result.event?.properties).toMatchInlineSnapshot(`
@@ -144,68 +138,6 @@ describe('HogTransformer', () => {
                 }
             `)
         })
-    })
-
-    describe('legacy plugins', () => {
-        beforeEach(() => {
-            const filterOutPlugin = createHogFunction({
-                ...filterOutPluginTemplate,
-                type: 'transformation',
-                template_id: 'plugin-posthog-filter-out-plugin',
-                inputs: {
-                    eventsToDrop: {
-                        value: 'drop-me',
-                    },
-                },
-            })
-
-            mockGetTeamHogFunctions.mockReturnValue([filterOutPlugin])
-        })
-
-        it('handles legacy plugin transformation to drop events', async () => {
-            const event: PluginEvent = createPluginEvent({ event: 'drop-me' })
-            const result = await hogTransformer.transformEvent(event)
-            expect(hogTransformer['pluginExecutor'].execute).toHaveBeenCalledTimes(1)
-            expect(result).toMatchInlineSnapshot(`
-                {
-                  "event": null,
-                  "messagePromises": [
-                    Promise {},
-                    Promise {},
-                  ],
-                }
-            `)
-        })
-
-        it('handles legacy plugin transformation to drop events', async () => {
-            const event: PluginEvent = createPluginEvent({ event: 'keep-me' })
-            const result = await hogTransformer.transformEvent(event)
-
-            expect(hogTransformer['pluginExecutor'].execute).toHaveBeenCalledTimes(1)
-            expect(result).toMatchInlineSnapshot(`
-                {
-                  "event": {
-                    "distinct_id": "distinct-id",
-                    "event": "keep-me",
-                    "ip": "89.160.20.129",
-                    "now": "2024-06-07T12:00:00.000Z",
-                    "properties": {
-                      "$current_url": "https://example.com",
-                      "$ip": "89.160.20.129",
-                    },
-                    "site_url": "http://localhost",
-                    "team_id": 1,
-                    "timestamp": "2024-01-01T00:00:00Z",
-                    "uuid": "event-id",
-                  },
-                  "messagePromises": [
-                    Promise {},
-                    Promise {},
-                  ],
-                }
-            `)
-        })
-
         it('should execute multiple transformations', async () => {
             const testTemplate: HogFunctionTemplate = {
                 status: 'beta',
@@ -359,7 +291,7 @@ describe('HogTransformer', () => {
              * hence the result is null
              */
             expect(createHogFunctionInvocationSpy).toHaveBeenCalledTimes(2)
-            expect(result.event.properties?.test_property).toEqual(null)
+            expect(result?.event?.properties?.test_property).toEqual(null)
         })
         it('should execute tranformation without execution_order last', async () => {
             const firstTemplate: HogFunctionTemplate = {
@@ -455,6 +387,81 @@ describe('HogTransformer', () => {
             expect(createHogFunctionInvocationSpy.mock.calls[0][1]).toMatchObject({ execution_order: 1 })
             expect(createHogFunctionInvocationSpy.mock.calls[1][1]).toMatchObject({ execution_order: 2 })
             expect(createHogFunctionInvocationSpy.mock.calls[2][1]).toMatchObject({ execution_order: null })
+        })
+    })
+
+    describe('legacy plugins', () => {
+        let executeSpy: jest.SpyInstance
+
+        beforeEach(async () => {
+            const filterOutPlugin = createHogFunction({
+                type: 'transformation',
+                name: filterOutPluginTemplate.name,
+                template_id: 'plugin-posthog-filter-out-plugin',
+                inputs: {
+                    eventsToDrop: {
+                        value: 'drop-me',
+                    },
+                },
+                team_id: teamId,
+                enabled: true,
+                hog: filterOutPluginTemplate.hog,
+                inputs_schema: filterOutPluginTemplate.inputs_schema,
+            })
+
+            await insertHogFunction(hub.db.postgres, teamId, filterOutPlugin)
+            await hogTransformer.start()
+
+            // Set up the spy after hogTransformer is initialized
+            executeSpy = jest.spyOn(hogTransformer['pluginExecutor'], 'execute')
+        })
+
+        afterEach(() => {
+            executeSpy.mockRestore()
+        })
+
+        it('handles legacy plugin transformation to drop events', async () => {
+            const event: PluginEvent = createPluginEvent({ event: 'drop-me', team_id: teamId })
+            const result = await hogTransformer.transformEvent(event)
+            expect(executeSpy).toHaveBeenCalledTimes(1)
+            expect(result).toMatchInlineSnapshot(`
+                {
+                  "event": null,
+                  "messagePromises": [
+                    Promise {},
+                    Promise {},
+                  ],
+                }
+            `)
+        })
+
+        it('handles legacy plugin transformation to keep events', async () => {
+            const event: PluginEvent = createPluginEvent({ event: 'keep-me', team_id: teamId })
+            const result = await hogTransformer.transformEvent(event)
+
+            expect(executeSpy).toHaveBeenCalledTimes(1)
+            expect(result).toMatchInlineSnapshot(`
+                {
+                  "event": {
+                    "distinct_id": "distinct-id",
+                    "event": "keep-me",
+                    "ip": "89.160.20.129",
+                    "now": "2024-06-07T12:00:00.000Z",
+                    "properties": {
+                      "$current_url": "https://example.com",
+                      "$ip": "89.160.20.129",
+                    },
+                    "site_url": "http://localhost",
+                    "team_id": ${teamId},
+                    "timestamp": "2024-01-01T00:00:00Z",
+                    "uuid": "event-id",
+                  },
+                  "messagePromises": [
+                    Promise {},
+                    Promise {},
+                  ],
+                }
+            `)
         })
     })
 })
