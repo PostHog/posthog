@@ -42,8 +42,14 @@ export class CdpApi {
         router.post('/api/projects/:team_id/hog_functions/:id/invocations', asyncHandler(this.postFunctionInvocation))
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
+        router.get('/api/hog_function_templates', asyncHandler(this.getHogFunctionTemplates))
 
         return router
+    }
+
+    private getHogFunctionTemplates = async (req: express.Request, res: express.Response): Promise<void> => {
+        const templates = await this.hogFunctionManager.fetchHogFunctionTemplates()
+        res.json(templates)
     }
 
     private getFunctionStatus =
