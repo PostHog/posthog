@@ -24,7 +24,7 @@
     pointer-events: none;
     user-select: none;
     background: var(--lemon-badge-color);
-    border: var(--lemon-badge-border-width) solid var(--accent-3000);
+    border: var(--lemon-badge-border-width) solid var(--surface-primary);
     border-radius: calc(var(--lemon-badge-size) / 2);
 
     > * {
