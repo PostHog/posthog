@@ -262,6 +262,9 @@ class ClickHouseClient:
 
         The context manager protocol is used to control when to release the response.
 
+        Query parameters will be formatted with string formatting and additionally sent to
+        ClickHouse in the query string.
+
         Arguments:
             query: The query to POST.
             *data: Iterable of values to include in the body of the request. For example, the tuples of VALUES for an INSERT query.
@@ -278,8 +281,10 @@ class ClickHouseClient:
         if query_id is not None:
             params["query_id"] = query_id
 
+        # Certain views, like person_batch_exports* still rely on us formatting arguments.
         params["query"] = self.prepare_query(query, query_parameters)
 
+        # TODO: Let clickhouse handle all parameter formatting.
         if query_parameters is not None:
             for key, value in query_parameters.items():
                 if key in query:
@@ -297,6 +302,9 @@ class ClickHouseClient:
 
         The context manager protocol is used to control when to release the response.
 
+        Query parameters will be formatted with string formatting and additionally sent to
+        ClickHouse in the query string.
+
         Arguments:
             query: The query to POST.
             *data: Iterable of values to include in the body of the request. For example, the tuples of VALUES for an INSERT query.
@@ -313,7 +321,10 @@ class ClickHouseClient:
         if query_id is not None:
             params["query_id"] = query_id
 
+        # Certain views, like person_batch_exports* still rely on us formatting arguments.
         query = self.prepare_query(query, query_parameters)
+
+        # TODO: Let clickhouse handle all parameter formatting.
         if query_parameters is not None:
             for key, value in query_parameters.items():
                 if key in query:
@@ -336,6 +347,9 @@ class ClickHouseClient:
 
         The context manager protocol is used to control when to release the response.
 
+        Query parameters will be formatted with string formatting and additionally sent to
+        ClickHouse in the query string.
+
         Arguments:
             query: The query to POST.
             *data: Iterable of values to include in the body of the request. For example, the tuples of VALUES for an INSERT query.
@@ -357,6 +371,7 @@ class ClickHouseClient:
         else:
             request_data = query.encode("utf-8")
 
+        # TODO: Let clickhouse handle all parameter formatting.
         if query_parameters is not None:
             for key, value in query_parameters.items():
                 if key in query:

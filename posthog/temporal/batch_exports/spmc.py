@@ -857,6 +857,8 @@ def compose_filters_clause(
 
     exprs = [property_to_expr(EventPropertyFilter(**filter), team=team) for filter in filters]
     and_expr = ast.And(exprs=exprs)
+    # This query only supports events at the moment.
+    # TODO: Extend for other models that also wish to implement property filtering.
     select_query = ast.SelectQuery(
         select=[parse_expr("properties as properties")],
         select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
