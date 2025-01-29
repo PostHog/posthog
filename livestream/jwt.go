@@ -3,13 +3,28 @@ package main
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/labstack/echo/v4"
 	"github.com/spf13/viper"
 )
 
 const ExpectedScope = "posthog:livestream"
+
+func getAuth(header http.Header) (jwt.MapClaims, error) {
+	authHeader := header.Get("Authorization")
+	if authHeader == "" {
+		return nil, echo.NewHTTPError(http.StatusUnauthorized, "authorization header is required")
+	}
+
+	claims, err := decodeAuthToken(authHeader)
+	if err != nil {
+		return nil, echo.NewHTTPError(http.StatusUnauthorized, err)
+	}
+	return claims, nil
+}
 
 func decodeAuthToken(authHeader string) (jwt.MapClaims, error) {
 	// split the token
