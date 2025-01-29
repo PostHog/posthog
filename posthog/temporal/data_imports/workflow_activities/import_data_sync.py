@@ -36,7 +36,7 @@ class ImportDataActivityInputs:
 
 
 def process_incremental_last_value(value: Any | None, field_type: IncrementalFieldType | None) -> Any | None:
-    if value is None or field_type is None:
+    if value is None or value == "None" or field_type is None:
         return None
 
     if field_type == IncrementalFieldType.Integer or field_type == IncrementalFieldType.Numeric:
@@ -108,12 +108,12 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
         endpoints = [schema.name]
         processed_incremental_last_value = None
 
-        processed_incremental_last_value = processed_incremental_last_value = process_incremental_last_value(
+        processed_incremental_last_value = process_incremental_last_value(
             schema.sync_type_config.get("incremental_field_last_value"),
             schema.sync_type_config.get("incremental_field_type"),
         )
         if reset_pipeline is not True:
-            processed_incremental_last_value = processed_incremental_last_value = process_incremental_last_value(
+            processed_incremental_last_value = process_incremental_last_value(
                 schema.sync_type_config.get("incremental_field_last_value"),
                 schema.sync_type_config.get("incremental_field_type"),
             )
