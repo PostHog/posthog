@@ -196,14 +196,6 @@ export function HogFunctionConfiguration({
                     }
                 />
 
-                {type === 'destination' ? (
-                    <LemonBanner type="info">
-                        Hog Functions are in <b>beta</b> and are the next generation of our data pipeline destinations.
-                        You can use pre-existing templates or modify the source Hog code to create your own custom
-                        functions.
-                    </LemonBanner>
-                ) : null}
-
                 {hogFunction?.filters?.bytecode_error ? (
                     <div>
                         <LemonBanner type="error">
