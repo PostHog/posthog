@@ -179,8 +179,8 @@ class PendingPersonEventDeletesTable:
 
         client.execute(
             f"""
-            DELETE FROM {table} WHERE (team_id, person_id, timestamp) IN (
-                SELECT e.team_id, e.person_id, e.timestamp
+            DELETE FROM {table} WHERE (uuid, event, team_id, person_id, timestamp) IN (
+                SELECT e.uuid, e.event, e.team_id, e.person_id, e.timestamp
                 FROM events e
                 INNER JOIN {self.qualified_name} d
                 ON e.team_id = d.team_id
