@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0554_remove_incremental_field_last_value_v2"),
+        ("posthog", "0555_batchexport_filters"),
     ]
 
     operations = [
