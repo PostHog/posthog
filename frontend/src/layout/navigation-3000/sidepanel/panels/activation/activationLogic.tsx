@@ -18,8 +18,9 @@ import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { EventDefinitionType, type Experiment, PipelineStage, ProductKey, TeamBasicType } from '~/types'
+import { EventDefinitionType, type Experiment, PipelineStage, ProductKey, ReplayTabs, TeamBasicType } from '~/types'
 
+import { sidePanelSettingsLogic } from '../sidePanelSettingsLogic'
 import type { activationLogicType } from './activationLogicType'
 
 export enum ActivationTask {
@@ -32,7 +33,7 @@ export enum ActivationTask {
 
     // Session Replay
     SetupSessionRecordings = 'setup_session_recordings',
-    CreateSessionRecordingPlaylist = 'create_session_recording_playlist',
+    WatchSessionRecording = 'watch_session_recording',
 
     // Feature Flags
     CreateFeatureFlag = 'create_feature_flag',
@@ -55,7 +56,7 @@ export enum ActivationSection {
     SessionReplay = ProductKey.SESSION_REPLAY,
     FeatureFlags = ProductKey.FEATURE_FLAGS,
     Experiments = ProductKey.EXPERIMENTS,
-    DataPipelines = ProductKey.DATA_PIPELINES,
+    DataWarehouse = ProductKey.DATA_WAREHOUSE,
     Surveys = ProductKey.SURVEYS,
 }
 
@@ -145,6 +146,8 @@ export const activationLogic = kea<activationLogicType>([
             ['loadExperiments', 'loadExperimentsSuccess', 'loadExperimentsFailure'],
             dataWarehouseSettingsLogic,
             ['loadSources', 'loadSourcesSuccess', 'loadSourcesFailure'],
+            sidePanelSettingsLogic,
+            ['openSettingsPanel'],
         ],
     })),
     actions({
@@ -401,16 +404,16 @@ export const activationLogic = kea<activationLogicType>([
                         title: 'Set up session recordings',
                         completed: currentTeam?.session_recording_opt_in ?? false,
                         content: <SetupSessionRecordingsContent />,
-                        canSkip: true,
+                        canSkip: false,
                         skipped: false,
                         section: ActivationSection.SessionReplay,
                     },
                     {
-                        id: ActivationTask.CreateSessionRecordingPlaylist,
-                        title: 'Create a playlist',
+                        id: ActivationTask.WatchSessionRecording,
+                        title: 'Watch a session recording',
                         completed: currentTeam?.session_recording_opt_in ?? false,
                         content: <SetupSessionRecordingsContent />,
-                        canSkip: true,
+                        canSkip: false,
                         skipped: false,
                         section: ActivationSection.SessionReplay,
                     },
@@ -442,7 +445,7 @@ export const activationLogic = kea<activationLogicType>([
                         content: <SetupSessionRecordingsContent />,
                         canSkip: true,
                         skipped: false,
-                        section: ActivationSection.DataPipelines,
+                        section: ActivationSection.DataWarehouse,
                     },
                     {
                         id: ActivationTask.ConnectDestination,
@@ -451,7 +454,7 @@ export const activationLogic = kea<activationLogicType>([
                         content: <SetupSessionRecordingsContent />,
                         canSkip: true,
                         skipped: false,
-                        section: ActivationSection.DataPipelines,
+                        section: ActivationSection.DataWarehouse,
                     },
                     // Surveys
                     {
@@ -499,16 +502,20 @@ export const activationLogic = kea<activationLogicType>([
                     router.actions.push(urls.dashboards())
                     break
                 case ActivationTask.SetupSessionRecordings:
-                    router.actions.push(urls.replay())
+                    actions.openSettingsPanel({ sectionId: 'project-replay' })
+                    router.actions.push(urls.replay(ReplayTabs.Home))
+                    break
+                case ActivationTask.WatchSessionRecording:
+                    router.actions.push(urls.replay(ReplayTabs.Playlists))
                     break
                 case ActivationTask.TrackCustomEvents:
                     router.actions.push(urls.eventDefinitions())
                     break
                 case ActivationTask.CreateFeatureFlag:
-                    router.actions.push(urls.featureFlags())
+                    router.actions.push(urls.featureFlag('new'))
                     break
                 case ActivationTask.LaunchExperiment:
-                    router.actions.push(urls.experiments())
+                    router.actions.push(urls.experiment('new'))
                     break
                 case ActivationTask.ConnectSource:
                     router.actions.push(urls.pipelineNodeNew(PipelineStage.Source))
@@ -517,7 +524,7 @@ export const activationLogic = kea<activationLogicType>([
                     router.actions.push(urls.pipelineNodeNew(PipelineStage.Destination))
                     break
                 case ActivationTask.LaunchSurvey:
-                    router.actions.push(urls.surveys())
+                    router.actions.push(urls.surveyTemplates())
                     break
                 default:
                     // For tasks with just a URL or no direct route

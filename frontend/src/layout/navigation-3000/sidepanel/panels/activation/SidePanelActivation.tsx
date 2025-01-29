@@ -47,8 +47,8 @@ const ACTIVATION_SECTIONS: Record<ActivationSection, { title: string; icon: JSX.
         title: 'Experiments',
         icon: <IconTestTube className="h-5 w-5 text-purple" />,
     },
-    [ActivationSection.DataPipelines]: {
-        title: 'Data pipelines',
+    [ActivationSection.DataWarehouse]: {
+        title: 'Data warehouse',
         icon: <IconDatabase className="h-5 w-5 text-lilac" />,
     },
     [ActivationSection.Surveys]: {
