@@ -1,6 +1,6 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`LegacyPluginExecutorService smoke tests should run the plugin: { name: 'customerio-plugin', plugin: [Object] } 1`] = `
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'customerio-plugin', plugin: [Object] } 1`] = `
 [
   {
     "level": "debug",
@@ -35,7 +35,7 @@ exports[`LegacyPluginExecutorService smoke tests should run the plugin: { name: 
 ]
 `;
 
-exports[`LegacyPluginExecutorService smoke tests should run the plugin: { name: 'posthog-intercom-plugin', plugin: [Object] } 1`] = `
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'posthog-intercom-plugin', plugin: [Object] } 1`] = `
 [
   {
     "level": "debug",
@@ -45,6 +45,169 @@ exports[`LegacyPluginExecutorService smoke tests should run the plugin: { name: 
   {
     "level": "info",
     "message": "Contact test@posthog.com in Intercom not found",
+    "timestamp": "2025-01-01T01:00:00.000+01:00",
+  },
+  {
+    "level": "debug",
+    "message": "Execution successful",
+    "timestamp": "2025-01-01T01:00:00.000+01:00",
+  },
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: {
+  name: 'posthog-app-url-parameters-to-event-properties',
+  plugin: [Object]
+} 1`] = `
+[
+  {
+    "level": "debug",
+    "message": "Executing plugin posthog-app-url-parameters-to-event-properties",
+    "timestamp": "2025-01-01T01:00:00.000+01:00",
+  },
+  {
+    "level": "debug",
+    "message": "Execution successful",
+    "timestamp": "2025-01-01T01:00:00.000+01:00",
+  },
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'downsampling-plugin', plugin: [Object] } 1`] = `
+[
+  {
+    "level": "debug",
+    "message": "Executing plugin downsampling-plugin",
+    "timestamp": "2025-01-01T01:00:00.000+01:00",
+  },
+  {
+    "level": "debug",
+    "message": "Execution successful",
+    "timestamp": "2025-01-01T01:00:00.000+01:00",
+  },
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'language-url-splitter-app', plugin: [Object] } 1`] = `
+[
+  {
+    "level": "debug",
+    "message": "Executing plugin language-url-splitter-app",
+    "timestamp": "2025-01-01T01:00:00.000+01:00",
+  },
+  {
+    "level": "debug",
+    "message": "Execution successful",
+    "timestamp": "2025-01-01T01:00:00.000+01:00",
+  },
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'posthog-filter-out-plugin', plugin: [Object] } 1`] = `
+[
+  {
+    "level": "debug",
+    "message": "Executing plugin posthog-filter-out-plugin",
+    "timestamp": "2025-01-01T01:00:00.000+01:00",
+  },
+  {
+    "level": "debug",
+    "message": "Execution successful",
+    "timestamp": "2025-01-01T01:00:00.000+01:00",
+  },
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'posthog-url-normalizer-plugin', plugin: [Object] } 1`] = `
+[
+  {
+    "level": "debug",
+    "message": "Executing plugin posthog-url-normalizer-plugin",
+    "timestamp": "2025-01-01T01:00:00.000+01:00",
+  },
+  {
+    "level": "debug",
+    "message": "event.$current_url: "https://posthog.com" normalized to "https://posthog.com/"",
+    "timestamp": "2025-01-01T01:00:00.000+01:00",
+  },
+  {
+    "level": "debug",
+    "message": "Execution successful",
+    "timestamp": "2025-01-01T01:00:00.000+01:00",
+  },
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'property-filter-plugin', plugin: [Object] } 1`] = `
+[
+  {
+    "level": "debug",
+    "message": "Executing plugin property-filter-plugin",
+    "timestamp": "2025-01-01T01:00:00.000+01:00",
+  },
+  {
+    "level": "debug",
+    "message": "Execution successful",
+    "timestamp": "2025-01-01T01:00:00.000+01:00",
+  },
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'semver-flattener-plugin', plugin: [Object] } 1`] = `
+[
+  {
+    "level": "debug",
+    "message": "Executing plugin semver-flattener-plugin",
+    "timestamp": "2025-01-01T01:00:00.000+01:00",
+  },
+  {
+    "level": "info",
+    "message": "found candidate property: , test,  matches , ",
+    "timestamp": "2025-01-01T01:00:00.000+01:00",
+  },
+  {
+    "level": "debug",
+    "message": "Execution successful",
+    "timestamp": "2025-01-01T01:00:00.000+01:00",
+  },
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'taxonomy-plugin', plugin: [Object] } 1`] = `
+[
+  {
+    "level": "debug",
+    "message": "Executing plugin taxonomy-plugin",
+    "timestamp": "2025-01-01T01:00:00.000+01:00",
+  },
+  {
+    "level": "debug",
+    "message": "Execution successful",
+    "timestamp": "2025-01-01T01:00:00.000+01:00",
+  },
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'timestamp-parser-plugin', plugin: [Object] } 1`] = `
+[
+  {
+    "level": "debug",
+    "message": "Executing plugin timestamp-parser-plugin",
+    "timestamp": "2025-01-01T01:00:00.000+01:00",
+  },
+  {
+    "level": "debug",
+    "message": "Execution successful",
+    "timestamp": "2025-01-01T01:00:00.000+01:00",
+  },
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'user-agent-plugin', plugin: [Object] } 1`] = `
+[
+  {
+    "level": "debug",
+    "message": "Executing plugin user-agent-plugin",
     "timestamp": "2025-01-01T01:00:00.000+01:00",
   },
   {

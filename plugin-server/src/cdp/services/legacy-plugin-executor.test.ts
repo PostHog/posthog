@@ -11,7 +11,7 @@ import { getFirstTeam } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
-import { DESTINATION_PLUGINS_BY_ID } from '../legacy-plugins'
+import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { LegacyPluginExecutorService } from './legacy-plugin-executor.service'
 
@@ -380,12 +380,12 @@ describe('LegacyPluginExecutorService', () => {
     })
 
     describe('smoke tests', () => {
-        const testCases = Object.entries(DESTINATION_PLUGINS_BY_ID).map(([pluginId, plugin]) => ({
+        const testCasesDestination = Object.entries(DESTINATION_PLUGINS_BY_ID).map(([pluginId, plugin]) => ({
             name: pluginId,
             plugin,
         }))
 
-        it.each(testCases)('should run the plugin: %s', async ({ name, plugin }) => {
+        it.each(testCasesDestination)('should run the destination plugin: %s', async ({ name, plugin }) => {
             globals.event.event = '$identify' // Many plugins filter for this
             const invocation = createInvocation(fn, globals)
 
@@ -411,6 +411,44 @@ describe('LegacyPluginExecutorService', () => {
             }
 
             invocation.hogFunction.name = name
+            const res = await service.execute(invocation)
+
+            expect(res.logs).toMatchSnapshot()
+        })
+
+        const testCasesTransformation = Object.entries(TRANSFORMATION_PLUGINS_BY_ID).map(([pluginId, plugin]) => ({
+            name: pluginId,
+            plugin,
+        }))
+
+        it.each(testCasesTransformation)('should run the transformation plugin: %s', async ({ name, plugin }) => {
+            globals.event.event = '$pageview'
+            const invocation = createInvocation(fn, globals)
+
+            invocation.hogFunction.type = 'transformation'
+            invocation.hogFunction.template_id = `plugin-${plugin.id}`
+
+            const inputs: Record<string, any> = {}
+
+            for (const input of plugin.metadata.config || []) {
+                if (!input.key) {
+                    continue
+                }
+
+                if (input.default) {
+                    inputs[input.key] = input.default
+                    continue
+                }
+
+                if (input.type === 'choice') {
+                    inputs[input.key] = input.choices[0]
+                } else if (input.type === 'string') {
+                    inputs[input.key] = 'test'
+                }
+            }
+
+            invocation.hogFunction.name = name
+            invocation.globals.inputs = inputs
             const res = await service.execute(invocation)
 
             expect(res.logs).toMatchSnapshot()
