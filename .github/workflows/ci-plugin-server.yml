@@ -167,8 +167,9 @@ jobs:
               if: needs.changes.outputs.plugin-server == 'true'
               run: |
                   cd plugin-server
-                  pnpm install --frozen-lockfile --filter @posthog/frontend --prod # Only doing it for nx to work
                   pnpm install --frozen-lockfile --filter @posthog/plugin-server...
+                  pnpm install --frozen-lockfile --filter @posthog/plugin-server
+                  pnpm install --frozen-lockfile --filter @posthog/frontend --prod # Only doing it for nx to work
                   cd .. && bin/nx deps:build plugin-server --verbose
 
             - name: Wait for Clickhouse, Redis & Kafka
@@ -263,8 +264,8 @@ jobs:
               if: needs.changes.outputs.plugin-server == 'true'
               run: |
                   cd plugin-server
-                  pnpm install --frozen-lockfile --filter @posthog/frontend --prod # Only doing it for nx to work
                   pnpm install --frozen-lockfile --filter @posthog/plugin-server...
+                  pnpm install --frozen-lockfile --filter @posthog/frontend --prod # Only doing it for nx to work
 
             - name: Build plugin server
               if: needs.changes.outputs.plugin-server == 'true'
