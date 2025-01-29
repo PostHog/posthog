@@ -11,7 +11,7 @@ type TreeDataItem = {
     /** The name of the item. */
     name: string
     /** The icon to use for the item. */
-    icon?: any
+    icon?: React.ReactNode
     /** The children of the item. */
     children?: TreeDataItem[]
     /** Disabled: The reason the item is disabled. */
