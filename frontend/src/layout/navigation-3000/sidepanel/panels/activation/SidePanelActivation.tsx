@@ -17,6 +17,7 @@ import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonProgressCircle } from 'lib/lemon-ui/LemonProgressCircle'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useState } from 'react'
+import { availableOnboardingProducts } from 'scenes/onboarding/onboardingLogic'
 
 import {
     activationLogic,
@@ -33,27 +34,38 @@ const ACTIVATION_SECTIONS: Record<ActivationSection, { title: string; icon: JSX.
     },
     [ActivationSection.ProductAnalytics]: {
         title: 'Product analytics',
-        icon: <IconGraph className="h-5 w-5 text-brand-blue" />,
+        icon: <IconGraph className="h-5 w-5" color={availableOnboardingProducts.product_analytics.iconColor} />,
     },
     [ActivationSection.SessionReplay]: {
         title: 'Session replay',
-        icon: <IconRewindPlay className="h-5 w-5 text-brand-yellow" />,
+        icon: (
+            <IconRewindPlay
+                className="h-5 w-5 text-brand-yellow"
+                color={availableOnboardingProducts.product_analytics.iconColor}
+            />
+        ),
     },
     [ActivationSection.FeatureFlags]: {
         title: 'Feature flags',
-        icon: <IconToggle className="h-5 w-5 text-seagreen" />,
+        icon: (
+            <IconToggle className="h-5 w-5 text-seagreen" color={availableOnboardingProducts.feature_flags.iconColor} />
+        ),
     },
     [ActivationSection.Experiments]: {
         title: 'Experiments',
-        icon: <IconTestTube className="h-5 w-5 text-purple" />,
+        icon: (
+            <IconTestTube className="h-5 w-5 text-purple" color={availableOnboardingProducts.experiments.iconColor} />
+        ),
     },
     [ActivationSection.DataWarehouse]: {
         title: 'Data warehouse',
-        icon: <IconDatabase className="h-5 w-5 text-lilac" />,
+        icon: (
+            <IconDatabase className="h-5 w-5 text-lilac" color={availableOnboardingProducts.data_warehouse.iconColor} />
+        ),
     },
     [ActivationSection.Surveys]: {
         title: 'Surveys',
-        icon: <IconMessage className="h-5 w-5 text-salmon" />,
+        icon: <IconMessage className="h-5 w-5 text-salmon" color={availableOnboardingProducts.surveys.iconColor} />,
     },
 }
 
