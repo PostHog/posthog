@@ -1,4 +1,4 @@
-import { IconCheckCircle } from '@posthog/icons'
+import { IconCheckCircle, IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonSelectOptions, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
@@ -13,6 +13,7 @@ import { BillingProductAddonActions } from './BillingProductAddonActions'
 import { billingProductLogic } from './billingProductLogic'
 import { ProductPricingModal } from './ProductPricingModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
+import { BillingProductPricingTable } from './BillingProductPricingTable'
 
 export const formatFlatRate = (flatRate: number, unit: string | null): string | ReactNode => {
     if (!unit) {
@@ -30,10 +31,10 @@ export const formatFlatRate = (flatRate: number, unit: string | null): string | 
 export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
     const productRef = useRef<HTMLDivElement | null>(null)
     const { billing } = useValues(billingLogic)
-    const { isPricingModalOpen, currentAndUpgradePlans, surveyID, trialModalOpen, trialLoading } = useValues(
+    const { isPricingModalOpen, currentAndUpgradePlans, surveyID, trialModalOpen, trialLoading, showTierBreakdown } = useValues(
         billingProductLogic({ product: addon, productRef })
     )
-    const { toggleIsPricingModalOpen, setTrialModalOpen, activateTrial } = useActions(
+    const { toggleIsPricingModalOpen, setTrialModalOpen, activateTrial, setShowTierBreakdown } = useActions(
         billingProductLogic({ product: addon })
     )
     const { openSupportForm } = useActions(supportLogic)
@@ -139,6 +140,23 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                 ))}
                         </div>
                     </div>
+                )}
+
+                {addon.subscribed && (
+                    <LemonButton
+                        icon={
+                            showTierBreakdown ? (
+                                <IconChevronDown />
+                            ) : (
+                                <IconChevronRight />
+                            )
+                        }
+                        onClick={() => setShowTierBreakdown(!showTierBreakdown)}
+                    />
+                )}
+
+                {addon.type === 'mobile_replay' && showTierBreakdown && (
+                    <BillingProductPricingTable product={addon} />
                 )}
             </div>
 

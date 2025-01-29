@@ -3,7 +3,7 @@ import { LemonBanner, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { compactNumber } from 'lib/utils'
 
-import { BillingProductV2Type, BillingTableTierRow, ProductPricingTierSubrows } from '~/types'
+import { BillingProductV2AddonType, BillingProductV2Type, BillingTableTierRow, ProductPricingTierSubrows } from '~/types'
 
 import { billingLogic } from './billingLogic'
 import { FeatureFlagUsageNotice, getTierDescription } from './BillingProduct'
@@ -19,7 +19,7 @@ function Subrows(props: ProductPricingTierSubrows): JSX.Element {
 export const BillingProductPricingTable = ({
     product,
 }: {
-    product: BillingProductV2Type
+    product: BillingProductV2Type | BillingProductV2AddonType
     usageKey?: string
 }): JSX.Element => {
     const { billing } = useValues(billingLogic)
@@ -43,7 +43,16 @@ export const BillingProductPricingTable = ({
     ]
 
     const subscribedAddons = product.addons?.filter(
-        (addon) => addon.tiers && addon.tiers?.length > 0 && (addon.subscribed || addon.inclusion_only)
+        (addon) => {
+            console.log('addon', addon)
+            if (!addon.tiers || addon.tiers.length === 0) {
+                return false
+            }
+            if (addon.tiers[0].up_to !== product.tiers?.[0]?.up_to) {
+                return false
+            }
+            return addon.subscribed || addon.inclusion_only
+        }
     )
 
     // TODO: SUPPORT NON-TIERED PRODUCT TYPES
@@ -113,7 +122,7 @@ export const BillingProductPricingTable = ({
                           product.addons?.reduce(
                               (acc, addon) => acc + (parseFloat(addon.tiers?.[i]?.projected_amount_usd || '') || 0),
                               0
-                          )
+                          ) || 0
 
                       const tierData = {
                           volume: product.tiers // this is silly because we know there are tiers since we check above, but typescript doesn't
