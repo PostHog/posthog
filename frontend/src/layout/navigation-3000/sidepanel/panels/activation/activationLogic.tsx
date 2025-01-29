@@ -6,15 +6,19 @@ import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/rev
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import posthog from 'posthog-js'
 import React from 'react'
+import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
+import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
+import { featureFlagsLogic, type FeatureFlagsResult } from 'scenes/feature-flags/featureFlagsLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
+import { surveysLogic } from 'scenes/surveys/surveysLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { EventDefinitionType, ProductKey, TeamBasicType } from '~/types'
+import { EventDefinitionType, type Experiment, PipelineStage, ProductKey, TeamBasicType } from '~/types'
 
 import type { activationLogicType } from './activationLogicType'
 
@@ -23,16 +27,36 @@ export enum ActivationTask {
     InviteTeamMember = 'invite_team_member',
     CreateFirstInsight = 'create_first_insight',
     CreateFirstDashboard = 'create_first_dashboard',
-    SetupSessionRecordings = 'setup_session_recordings',
     TrackCustomEvents = 'track_custom_events',
     SetUpReverseProxy = 'set_up_reverse_proxy',
+
+    // Session Replay
+    SetupSessionRecordings = 'setup_session_recordings',
+    CreateSessionRecordingPlaylist = 'create_session_recording_playlist',
+
+    // Feature Flags
+    CreateFeatureFlag = 'create_feature_flag',
+
+    // Experiments
+    LaunchExperiment = 'launch_experiment',
+
+    // Data Pipelines
+    ConnectSource = 'connect_source',
+    ConnectDestination = 'connect_destination',
+
+    // Surveys
+    LaunchSurvey = 'launch_survey',
+    CollectSurveyResponses = 'collect_survey_responses',
 }
 
 export enum ActivationSection {
     QuickStart = 'quick_start',
-    ProductAnalytics = 'product_analytics',
-    SessionReplay = 'session_replay',
-    FeatureFlags = 'feature_flags',
+    ProductAnalytics = ProductKey.PRODUCT_ANALYTICS,
+    SessionReplay = ProductKey.SESSION_REPLAY,
+    FeatureFlags = ProductKey.FEATURE_FLAGS,
+    Experiments = ProductKey.EXPERIMENTS,
+    DataPipelines = ProductKey.DATA_PIPELINES,
+    Surveys = ProductKey.SURVEYS,
 }
 
 function IngestFirstEventContent(): JSX.Element {
@@ -67,7 +91,7 @@ function SetUpReverseProxyContent(): JSX.Element {
  * plus metadata for completion/skipping, etc.
  */
 export type ActivationTaskType = {
-    id: ActivationTasks
+    id: ActivationTask
     section: ActivationSection
     title: string
     content: React.ReactNode
@@ -97,6 +121,14 @@ export const activationLogic = kea<activationLogicType>([
             ['rawDashboards'],
             reverseProxyCheckerLogic,
             ['hasReverseProxy'],
+            featureFlagsLogic,
+            ['featureFlags'],
+            experimentsLogic,
+            ['experiments'],
+            dataWarehouseSettingsLogic,
+            ['dataWarehouseSources'],
+            surveysLogic,
+            ['surveys'],
         ],
         actions: [
             inviteLogic,
@@ -107,6 +139,12 @@ export const activationLogic = kea<activationLogicType>([
             ['loadInsights', 'loadInsightsSuccess', 'loadInsightsFailure'],
             dashboardsModel,
             ['loadDashboardsSuccess', 'loadDashboardsFailure'],
+            featureFlagsLogic,
+            ['loadFeatureFlags', 'loadFeatureFlagsSuccess', 'loadFeatureFlagsFailure'],
+            experimentsLogic,
+            ['loadExperiments', 'loadExperimentsSuccess', 'loadExperimentsFailure'],
+            dataWarehouseSettingsLogic,
+            ['loadSources', 'loadSourcesSuccess', 'loadSourcesFailure'],
         ],
     })),
     actions({
@@ -153,6 +191,27 @@ export const activationLogic = kea<activationLogicType>([
                 loadInsightsFailure: () => false,
             },
         ],
+        areFeatureFlagsLoaded: [
+            false,
+            {
+                loadFeatureFlagsSuccess: () => true,
+                loadFeatureFlagsFailure: () => false,
+            },
+        ],
+        areExperimentsLoaded: [
+            false,
+            {
+                loadExperimentsSuccess: () => true,
+                loadExperimentsFailure: () => false,
+            },
+        ],
+        areSourcesLoaded: [
+            false,
+            {
+                loadSourcesSuccess: () => true,
+                loadSourcesFailure: () => false,
+            },
+        ],
     })),
     loaders(({ cache }) => ({
         customEventsCount: [
@@ -187,6 +246,9 @@ export const activationLogic = kea<activationLogicType>([
                 s.areDashboardsLoaded,
                 s.areCustomEventsLoaded,
                 s.areInsightsLoaded,
+                s.areFeatureFlagsLoaded,
+                s.areExperimentsLoaded,
+                s.areSourcesLoaded,
             ],
             (
                 currentTeam,
@@ -194,7 +256,10 @@ export const activationLogic = kea<activationLogicType>([
                 areInvitesLoaded,
                 areDashboardsLoaded,
                 areCustomEventsLoaded,
-                areInsightsLoaded
+                areInsightsLoaded,
+                areFeatureFlagsLoaded,
+                areExperimentsLoaded,
+                areSourcesLoaded
             ): boolean => {
                 return (
                     !!currentTeam &&
@@ -202,7 +267,10 @@ export const activationLogic = kea<activationLogicType>([
                     areInsightsLoaded &&
                     !!memberCount &&
                     areInvitesLoaded &&
-                    areDashboardsLoaded
+                    areDashboardsLoaded &&
+                    areFeatureFlagsLoaded &&
+                    areExperimentsLoaded &&
+                    areSourcesLoaded
                 )
             },
         ],
@@ -210,26 +278,64 @@ export const activationLogic = kea<activationLogicType>([
             (s) => [s.skippedTasks, s.currentTeam],
             (skippedTasks, currentTeam) => skippedTasks[currentTeam?.id ?? ''] ?? [],
         ],
+        hasCreatedDashboard: [
+            (s) => [s.rawDashboards],
+            (dashboards) => Object.values(dashboards).find((dashboard) => dashboard.created_by !== null) !== undefined,
+        ],
+        hasSources: [(s) => [s.dataWarehouseSources], (sources) => (sources?.results ?? []).length > 0],
+        hasCreatedIndependentFeatureFlag: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsResult) =>
+                (featureFlags?.results ?? []).some(
+                    (featureFlag) =>
+                        (!featureFlag.experiment_set || featureFlag.experiment_set.length === 0) &&
+                        (!featureFlag.surveys || featureFlag.surveys.length === 0)
+                ),
+        ],
+        hasLaunchedExperiment: [
+            (s) => [s.experiments],
+            (experiments: Experiment[]) => (experiments ?? []).filter((e) => e.start_date).length > 0,
+        ],
+        hasInsights: [(s) => [s.insights], (insights) => (insights?.results ?? []).length > 0],
+        hasSurveys: [(s) => [s.surveys], (surveys) => (surveys ?? []).length > 0],
+        hasInvitesOrMembers: [
+            (s) => [s.memberCount, s.invites],
+            (memberCount, invites) => memberCount > 1 || invites.length > 0,
+        ],
+        hasCustomEvents: [(s) => [s.customEventsCount], (customEventsCount) => customEventsCount > 0],
+        hasCompletedFirstOnboarding: [
+            (s) => [s.currentTeam],
+            (currentTeam) =>
+                Object.keys(currentTeam?.has_completed_onboarding_for || {}).some(
+                    (key) => currentTeam?.has_completed_onboarding_for?.[key] === true
+                ),
+        ],
         tasks: [
             (s) => [
                 s.currentTeam,
-                s.memberCount,
-                s.invites,
-                s.insights,
-                s.rawDashboards,
-                s.customEventsCount,
                 s.currentTeamSkippedTasks,
                 s.hasReverseProxy,
+                s.hasSources,
+                s.hasCreatedIndependentFeatureFlag,
+                s.hasLaunchedExperiment,
+                s.hasCreatedDashboard,
+                s.hasInsights,
+                s.hasSurveys,
+                s.hasInvitesOrMembers,
+                s.hasCustomEvents,
             ],
             (
                 currentTeam,
-                memberCount,
-                invites,
-                insights,
-                dashboards,
-                customEventsCount,
-                skippedTasks,
-                hasReverseProxy
+                currentTeamSkippedTasks,
+                hasReverseProxy,
+                hasSources,
+                hasCreatedIndependentFeatureFlag,
+                hasLaunchedExperiment,
+                hasCreatedDashboard,
+                hasInsights,
+                hasSurveys,
+                hasInvitesOrMembers,
+                hasCustomEvents
             ) => {
                 const tasks = [
                     {
@@ -245,7 +351,7 @@ export const activationLogic = kea<activationLogicType>([
                         id: ActivationTask.InviteTeamMember,
                         title: 'Invite a team member',
                         content: <InviteTeamMemberContent />,
-                        completed: memberCount > 1 || invites.length > 0,
+                        completed: hasInvitesOrMembers,
                         canSkip: true,
                         skipped: false,
                         section: ActivationSection.QuickStart,
@@ -254,7 +360,7 @@ export const activationLogic = kea<activationLogicType>([
                         id: ActivationTask.CreateFirstInsight,
                         title: 'Create your first insight',
                         content: <CreateFirstInsightContent />,
-                        completed: insights.results.find((insight) => insight.created_by !== null) !== undefined,
+                        completed: hasInsights,
                         canSkip: true,
                         skipped: false,
                         section: ActivationSection.ProductAnalytics,
@@ -263,25 +369,16 @@ export const activationLogic = kea<activationLogicType>([
                         id: ActivationTask.CreateFirstDashboard,
                         title: 'Create your first dashboard',
                         content: <CreateFirstDashboardContent />,
-                        completed:
-                            Object.values(dashboards).find((dashboard) => dashboard.created_by !== null) !== undefined,
+                        completed: hasCreatedDashboard,
                         canSkip: true,
                         skipped: false,
                         section: ActivationSection.ProductAnalytics,
                     },
-                    {
-                        id: ActivationTask.SetupSessionRecordings,
-                        title: 'Set up session recordings',
-                        completed: currentTeam?.session_recording_opt_in ?? false,
-                        content: <SetupSessionRecordingsContent />,
-                        canSkip: true,
-                        skipped: false,
-                        section: ActivationSection.SessionReplay,
-                    },
+
                     {
                         id: ActivationTask.TrackCustomEvents,
                         title: 'Track custom events',
-                        completed: customEventsCount > 0,
+                        completed: hasCustomEvents,
                         content: <TrackCustomEventsContent />,
                         canSkip: true,
                         skipped: false,
@@ -297,6 +394,74 @@ export const activationLogic = kea<activationLogicType>([
                         skipped: false,
                         section: ActivationSection.QuickStart,
                         url: 'https://posthog.com/docs/advanced/proxy',
+                    },
+                    // Sesion Replay
+                    {
+                        id: ActivationTask.SetupSessionRecordings,
+                        title: 'Set up session recordings',
+                        completed: currentTeam?.session_recording_opt_in ?? false,
+                        content: <SetupSessionRecordingsContent />,
+                        canSkip: true,
+                        skipped: false,
+                        section: ActivationSection.SessionReplay,
+                    },
+                    {
+                        id: ActivationTask.CreateSessionRecordingPlaylist,
+                        title: 'Create a playlist',
+                        completed: currentTeam?.session_recording_opt_in ?? false,
+                        content: <SetupSessionRecordingsContent />,
+                        canSkip: true,
+                        skipped: false,
+                        section: ActivationSection.SessionReplay,
+                    },
+                    // Feature Flags
+                    {
+                        id: ActivationTask.CreateFeatureFlag,
+                        section: ActivationSection.FeatureFlags,
+                        title: 'Create a feature flag',
+                        completed: hasCreatedIndependentFeatureFlag,
+                        content: <SetupSessionRecordingsContent />,
+                        canSkip: true,
+                        skipped: false,
+                    },
+                    // Experiments
+                    {
+                        id: ActivationTask.LaunchExperiment,
+                        section: ActivationSection.Experiments,
+                        title: 'Launch an experiment',
+                        completed: hasLaunchedExperiment,
+                        content: <SetupSessionRecordingsContent />,
+                        canSkip: true,
+                        skipped: false,
+                    },
+                    // Data Pipelines
+                    {
+                        id: ActivationTask.ConnectSource,
+                        title: 'Connect external data source',
+                        completed: hasSources,
+                        content: <SetupSessionRecordingsContent />,
+                        canSkip: true,
+                        skipped: false,
+                        section: ActivationSection.DataPipelines,
+                    },
+                    {
+                        id: ActivationTask.ConnectDestination,
+                        title: 'Send data to a destination',
+                        completed: hasSources,
+                        content: <SetupSessionRecordingsContent />,
+                        canSkip: true,
+                        skipped: false,
+                        section: ActivationSection.DataPipelines,
+                    },
+                    // Surveys
+                    {
+                        id: ActivationTask.LaunchSurvey,
+                        title: 'Launch a survey',
+                        completed: hasSurveys,
+                        content: <SetupSessionRecordingsContent />,
+                        canSkip: true,
+                        skipped: false,
+                        section: ActivationSection.Surveys,
                     },
                 ]
 
@@ -338,6 +503,21 @@ export const activationLogic = kea<activationLogicType>([
                     break
                 case ActivationTask.TrackCustomEvents:
                     router.actions.push(urls.eventDefinitions())
+                    break
+                case ActivationTask.CreateFeatureFlag:
+                    router.actions.push(urls.featureFlags())
+                    break
+                case ActivationTask.LaunchExperiment:
+                    router.actions.push(urls.experiments())
+                    break
+                case ActivationTask.ConnectSource:
+                    router.actions.push(urls.pipelineNodeNew(PipelineStage.Source))
+                    break
+                case ActivationTask.ConnectDestination:
+                    router.actions.push(urls.pipelineNodeNew(PipelineStage.Destination))
+                    break
+                case ActivationTask.LaunchSurvey:
+                    router.actions.push(urls.surveys())
                     break
                 default:
                     // For tasks with just a URL or no direct route

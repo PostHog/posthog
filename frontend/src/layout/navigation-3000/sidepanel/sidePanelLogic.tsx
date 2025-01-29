@@ -30,7 +30,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             preflightLogic,
             ['isCloudOrDev'],
             activationLogic,
-            ['isReady', 'hasCompletedAllTasks'],
+            ['isReady', 'hasCompletedAllTasks', 'hasCompletedFirstOnboarding'],
             sidePanelStateLogic,
             ['selectedTab', 'sidePanelOpen'],
             // We need to mount this to ensure that marking as read works when the panel closes
@@ -48,8 +48,22 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
     selectors({
         enabledTabs: [
-            (s) => [s.isCloudOrDev, s.isReady, s.hasCompletedAllTasks, s.featureFlags, s.sceneSidePanelContext],
-            (isCloudOrDev, isReady, hasCompletedAllTasks, featureflags, sceneSidePanelContext) => {
+            (s) => [
+                s.isCloudOrDev,
+                s.isReady,
+                s.hasCompletedAllTasks,
+                s.hasCompletedFirstOnboarding,
+                s.featureFlags,
+                s.sceneSidePanelContext,
+            ],
+            (
+                isCloudOrDev,
+                isReady,
+                hasCompletedAllTasks,
+                hasCompletedFirstOnboarding,
+                featureflags,
+                sceneSidePanelContext
+            ) => {
                 const tabs: SidePanelTab[] = []
 
                 tabs.push(SidePanelTab.Notebooks)
@@ -61,7 +75,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 if (featureflags[FEATURE_FLAGS.DISCUSSIONS]) {
                     tabs.push(SidePanelTab.Discussion)
                 }
-                if (isReady && !hasCompletedAllTasks) {
+                if (isReady && hasCompletedFirstOnboarding && !hasCompletedAllTasks) {
                     tabs.push(SidePanelTab.Activation)
                 }
                 if (

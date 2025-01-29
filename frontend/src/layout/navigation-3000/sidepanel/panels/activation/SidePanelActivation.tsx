@@ -1,4 +1,14 @@
-import { IconCheckCircle, IconChevronRight, IconFeatures, IconGraph, IconRewindPlay } from '@posthog/icons'
+import {
+    IconCheckCircle,
+    IconChevronRight,
+    IconDatabase,
+    IconFeatures,
+    IconGraph,
+    IconMessage,
+    IconRewindPlay,
+    IconTestTube,
+    IconToggle,
+} from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ProfessorHog } from 'lib/components/hedgehogs'
@@ -16,7 +26,7 @@ import {
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 
-const ACTIVATION_SECTIONS = {
+const ACTIVATION_SECTIONS: Record<ActivationSection, { title: string; icon: JSX.Element }> = {
     [ActivationSection.QuickStart]: {
         title: 'Get Started',
         icon: <IconFeatures className="h-5 w-5 text-accent-primary" />,
@@ -28,6 +38,22 @@ const ACTIVATION_SECTIONS = {
     [ActivationSection.SessionReplay]: {
         title: 'Session replay',
         icon: <IconRewindPlay className="h-5 w-5 text-brand-yellow" />,
+    },
+    [ActivationSection.FeatureFlags]: {
+        title: 'Feature flags',
+        icon: <IconToggle className="h-5 w-5 text-seagreen" />,
+    },
+    [ActivationSection.Experiments]: {
+        title: 'Experiments',
+        icon: <IconTestTube className="h-5 w-5 text-purple" />,
+    },
+    [ActivationSection.DataPipelines]: {
+        title: 'Data pipelines',
+        icon: <IconDatabase className="h-5 w-5 text-lilac" />,
+    },
+    [ActivationSection.Surveys]: {
+        title: 'Surveys',
+        icon: <IconMessage className="h-5 w-5 text-salmon" />,
     },
 }
 
@@ -92,11 +118,12 @@ const ActivationSectionComponent = ({
 }: {
     sectionKey: ActivationSection
     section: any
-}): JSX.Element => {
+}): JSX.Element | null => {
     const { activeTasks, completedTasks } = useValues(activationLogic)
     const [isOpen, setIsOpen] = useState(true)
 
     const tasks = [...activeTasks, ...completedTasks].filter((task) => task.section === sectionKey)
+
     if (tasks.length === 0) {
         return null
     }
@@ -122,7 +149,7 @@ const ActivationSectionComponent = ({
                 </div>
             </div>
             {isOpen && (
-                <ul className="space-y-2 mt-2 ml-4">
+                <ul className="space-y-2 mt-2">
                     {tasks.map((task: ActivationTaskType) => (
                         <ActivationTask key={task.id} {...task} />
                     ))}
