@@ -157,6 +157,8 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
         # Exposures, find those to include in the experiment
         # One row per entity, with the variant and first exposure time
+        # Currently grouping by distinct_id, but this would be changed to group_id or session_id,
+        # if that is the chosen aggregation
         exposure_query = ast.SelectQuery(
             select=[
                 ast.Field(chain=["distinct_id"]),
@@ -208,7 +210,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             ),
         )
 
-        metrics_aggregated_per_user_query = ast.SelectQuery(
+        metrics_aggregated_per_entity_query = ast.SelectQuery(
             select=[
                 ast.Field(chain=["base", "variant"]),
                 ast.Field(chain=["base", "distinct_id"]),
@@ -246,18 +248,21 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             ],
         )
 
-        final_query = ast.SelectQuery(
+        # Here we coumpute what we need for our statistical analysis
+        # We are aggregating population metrics per variant, so we can easily compute the mean and variance
+        # This is part of our methodology and not depending on the chosen metric
+        experiment_variant_results_query = ast.SelectQuery(
             select=[
                 ast.Field(chain=["maq", "variant"]),
                 parse_expr("count(maq.distinct_id) as num_users"),
                 parse_expr("sum(maq.count) as total_sum"),
                 parse_expr("sum(maq.count * maq.count) as total_sum_of_squares"),
             ],
-            select_from=ast.JoinExpr(table=metrics_aggregated_per_user_query, alias="maq"),
+            select_from=ast.JoinExpr(table=metrics_aggregated_per_entity_query, alias="maq"),
             group_by=[ast.Field(chain=["maq", "variant"])],
         )
 
-        return final_query
+        return experiment_variant_results_query
 
     def _evaluate_experiment_query(self) -> list[ExperimentVariantTrendsBaseStats]:
         response = execute_hogql_query(
