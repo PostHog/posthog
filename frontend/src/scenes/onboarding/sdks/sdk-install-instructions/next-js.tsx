@@ -37,9 +37,9 @@ export default function App({ Component, pageProps }) {
     posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY, {
       api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com',
       ${
-        isPersonProfilesDisabled
-            ? ``
-            : `person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users as well`
+          isPersonProfilesDisabled
+              ? ``
+              : `person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users as well`
       }
       // Enable debug mode in development
       loaded: (posthog) => {
@@ -75,9 +75,9 @@ export default function App({ Component, pageProps }) {
     posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY, {
       api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com',
       ${
-        isPersonProfilesDisabled
-            ? ``
-            : `person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users as well`
+          isPersonProfilesDisabled
+              ? ``
+              : `person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users as well`
       }
       // Enable debug mode in development
       loaded: (posthog) => {
@@ -120,9 +120,9 @@ export function PostHogProvider({ children }) {
     posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY, {
       api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
       ${
-        isPersonProfilesDisabled
-            ? ``
-            : `person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users as well`
+          isPersonProfilesDisabled
+              ? ``
+              : `person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users as well`
       }
     })
   }, [])
@@ -248,18 +248,16 @@ export function SDKInstallNextJSInstructions(): JSX.Element {
                 Netlify, AWS). You can find your project API key in your project settings.
             </p>
             <p>
-                These values need to start with <code>NEXT_PUBLIC_</code> to be accessible on the
-                client-side.
+                These values need to start with <code>NEXT_PUBLIC_</code> to be accessible on the client-side.
             </p>
             <NextEnvVarsSnippet />
 
             <h3>Initialize</h3>
             <h4>With App router</h4>
             <p>
-                If your Next.js app uses the <Link to="https://nextjs.org/docs/app">app router</Link>, you can
-                integrate PostHog by creating a <code>providers</code> file in your <code>app</code> folder. This is
-                 because the <code>posthog-js</code> library needs to be initialized on the client-side using the 
-                 Next.js{' '}
+                If your Next.js app uses the <Link to="https://nextjs.org/docs/app">app router</Link>, you can integrate
+                PostHog by creating a <code>providers</code> file in your <code>app</code> folder. This is because the{' '}
+                <code>posthog-js</code> library needs to be initialized on the client-side using the Next.js{' '}
                 <Link to="https://nextjs.org/docs/getting-started/react-essentials#client-components" target="_blank">
                     <code>'use client'</code> directive
                 </Link>
@@ -267,7 +265,7 @@ export function SDKInstallNextJSInstructions(): JSX.Element {
             </p>
             <NextAppRouterCodeSnippet />
             <p>
-                Afterwards, import the <code>PostHogProvider</code> component in your <code>app/layout.jsx</code> 
+                Afterwards, import the <code>PostHogProvider</code> component in your <code>app/layout.jsx</code>
                 file and wrap your app with it.
             </p>
             <NextAppRouterLayoutSnippet />
@@ -279,8 +277,8 @@ export function SDKInstallNextJSInstructions(): JSX.Element {
             <NextPagesRouterCodeSnippet />
             <h3>Capturing pageviews</h3>
             <p>
-                PostHog's $pageview autocapture relies on page load events. Since Next.js acts as a single-page app, 
-                this event doesn't trigger on navigation and we need to capture $pageview events manually. 
+                PostHog's $pageview autocapture relies on page load events. Since Next.js acts as a single-page app,
+                this event doesn't trigger on navigation and we need to capture $pageview events manually.
             </p>
             <h4>With App router</h4>
             <p>
@@ -293,8 +291,8 @@ export function SDKInstallNextJSInstructions(): JSX.Element {
             <NextAppRouterPageViewProviderSnippet />
             <h4>With Pages router</h4>
             <p>
-                We can set up a <code>handleRouteChange</code> function to capture pageviews in 
-                the <code>useEffect</code> hook in <code>pages/_app.js</code>.
+                We can set up a <code>handleRouteChange</code> function to capture pageviews in the{' '}
+                <code>useEffect</code> hook in <code>pages/_app.js</code>.
             </p>
             <NextPagesRouterPageViewSnippet />
         </>
