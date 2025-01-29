@@ -527,7 +527,7 @@ export function APISnippet({ groupType, encryptedPayload }: FeatureFlagSnippet):
             <>
                 <CodeSnippet language={Language.Bash} wrap>
                     {`curl ${apiHostOrigin()}/api/projects/${currentTeam?.id || ':projectId'}/feature_flags/${
-                        featureFlag.id
+                        featureFlag.id || ':featureFlagId'
                     }/remote_config/ \\
 -H 'Content-Type: application/json' \\
 -H 'Authorization: Bearer [personal_api_key]'`}
