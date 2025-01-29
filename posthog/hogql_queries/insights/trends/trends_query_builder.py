@@ -707,7 +707,11 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                             property_clone["key"] = f"events.person.properties.{property_clone['key']}"
                         property_clone["type"] = "data_warehouse"
                     expr = property_to_expr(property_clone, self.team)
-                    if property_clone["type"] in ("group", "element") and hasattr(expr, "left"):
+                    if (
+                        property_clone["type"] in ("group", "element")
+                        and isinstance(expr, ast.CompareOperation)
+                        and isinstance(expr.left, ast.Field)
+                    ):
                         expr.left.chain = ["events", *expr.left.chain]
                     filters.append(expr)
                 else:
