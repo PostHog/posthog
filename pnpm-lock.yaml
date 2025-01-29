@@ -621,6 +621,9 @@ devDependencies:
   babel-plugin-import:
     specifier: ^1.13.0
     version: 1.13.8
+  buffer-browserify:
+    specifier: ^0.2.5
+    version: 0.2.5
   caniuse-lite:
     specifier: ^1.0.30001689
     version: 1.0.30001689
@@ -10183,6 +10186,11 @@ packages:
     engines: {node: '>= 0.6.0'}
     dev: false
 
+  /base64-js@0.0.8:
+    resolution: {integrity: sha512-3XSA2cR/h/73EzlXXdU6YNycmYI7+kicTxks4eJg2g39biHR84slg2+des+p7iHYhbRg/udIS4TD53WabcOUkw==}
+    engines: {node: '>= 0.4'}
+    dev: true
+
   /base64-js@1.5.1:
     resolution: {integrity: sha512-AKpaYlHn8t4SVbOHCy+b5+KKgvR4vrsD8vbvrbiQJps7fKDTkjkDry6ji0rUJjC0kzbNePLwzxq8iypo41qeWA==}
     dev: true
@@ -10391,6 +10399,13 @@ packages:
     resolution: {integrity: sha512-gQxTNE/GAfIIrmHLUE3oJyp5FO6HRBfhjnw4/wMmA63ZGDJnWBmgY/lyQBpnDUkGmAhbSe39tx2d/iTOAfglwQ==}
     dependencies:
       node-int64: 0.4.0
+    dev: true
+
+  /buffer-browserify@0.2.5:
+    resolution: {integrity: sha512-3ko6TTBwXb15w2OgZuyAzLJwUFClBMvcKcmhF+iQ79G71K8Fc3RqKzroCN0a0DbZw2GM3q9lNoqfYYCTq6w7QA==}
+    deprecated: Package not maintained. Recent browserify uses https://github.com/feross/buffer
+    dependencies:
+      base64-js: 0.0.8
     dev: true
 
   /buffer-builder@0.2.0:

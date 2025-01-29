@@ -268,6 +268,7 @@
         "axe-core": "^4.4.3",
         "babel-loader": "^8.0.6",
         "babel-plugin-import": "^1.13.0",
+        "buffer-browserify": "^0.2.5",
         "caniuse-lite": "^1.0.30001689",
         "concurrently": "^5.3.0",
         "css-loader": "^3.4.2",
