@@ -214,8 +214,6 @@ function isValidObject(val) {
 }
 
 export async function setupPlugin({ config, global }) {
-    const laudBase64AuthToken = Buffer.from(`${config.writeKey}:`).toString('base64')
-
     global.laudAuthHeader = {
         headers: {
             Authorization: `Api-Key ${config.writeKey}`,
