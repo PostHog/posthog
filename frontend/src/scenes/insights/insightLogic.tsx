@@ -24,6 +24,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { DashboardFilter, HogQLVariable, Node } from '~/queries/schema'
+import { isValidQueryForExperiment } from '~/queries/utils'
 import {
     AccessControlResourceType,
     InsightLogicProps,
@@ -155,12 +156,8 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     return updatedInsight
                 },
                 setInsightMetadata: async ({ metadataUpdate }, breakpoint) => {
-                    const editMode =
-                        insightSceneLogic.isMounted() &&
-                        insightSceneLogic.values.insight === values.insight &&
-                        insightSceneLogic.values.insightMode === ItemMode.Edit
-
-                    if (editMode) {
+                    // new insight
+                    if (values.insight.short_id == null) {
                         return { ...values.insight, ...metadataUpdate }
                     }
 
@@ -336,6 +333,10 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             },
         ],
         showPersonsModal: [() => [(s) => s.query], (query) => !query || !query.hidePersonsModal],
+        supportsCreatingExperiment: [
+            (s) => [s.insight],
+            (insight: QueryBasedInsightModel) => insight?.query && isValidQueryForExperiment(insight.query),
+        ],
     }),
     listeners(({ actions, values }) => ({
         saveInsight: async ({ redirectToViewMode }) => {
