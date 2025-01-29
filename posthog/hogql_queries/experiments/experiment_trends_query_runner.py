@@ -5,6 +5,7 @@ from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql import ast
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
 from posthog.hogql_queries.experiments.types import ExperimentMetricType
@@ -142,6 +143,10 @@ class ExperimentTrendsQueryRunner(QueryRunner):
     def _get_new_experiment_query(self) -> ast.SelectQuery:
         # Lots of shortcuts taken here, but it's a proof of concept to illustrate the idea
 
+        # TODO:
+        # - Add support for other aggregation groups
+        # - Add support for data warehouse queries
+
         feature_flag_key = self.feature_flag.key
 
         # Get the metric event we should filter on
@@ -155,6 +160,16 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             metric_property = self.query.count_query.series[0].math_property
             metric_value = f"toFloat(JSONExtractRaw(properties, '{metric_property}'))"
 
+        # Filter Test Accounts
+        test_accounts_filter: list[ast.Expr] = []
+        if (
+            self.query.count_query.filterTestAccounts
+            and isinstance(self.team.test_account_filters, list)
+            and len(self.team.test_account_filters) > 0
+        ):
+            for property in self.team.test_account_filters:
+                test_accounts_filter.append(property_to_expr(property, self.team))
+
         # Exposures, find those to include in the experiment
         # One row per entity, with the variant and first exposure time
         # Currently grouping by distinct_id, but this would be changed to group_id or session_id,
@@ -166,8 +181,13 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                 parse_expr("min(timestamp) as first_exposure_time"),
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=parse_expr(
-                f"event = '$feature_flag_called' and replaceAll(JSONExtractRaw(properties, '$feature_flag'), '\"', '') = '{feature_flag_key}' "
+            where=ast.And(
+                exprs=[
+                    parse_expr(
+                        f"event = '$feature_flag_called' and replaceAll(JSONExtractRaw(properties, '$feature_flag'), '\"', '') = '{feature_flag_key}' "
+                    ),
+                    *test_accounts_filter,
+                ]
             ),
             group_by=[ast.Field(chain=["variant"]), ast.Field(chain=["distinct_id"])],
         )
