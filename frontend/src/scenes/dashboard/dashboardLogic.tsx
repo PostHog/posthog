@@ -497,7 +497,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         : state,
             },
         ],
-        maybeUrlVariables: [
+        urlVariables: [
             {} as Record<string, Partial<HogQLVariable>>,
             {
                 setURLVariables: (state, { variables }) => ({
@@ -1493,19 +1493,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
     subscriptions(({ values, actions }) => ({
         variables: (variables) => {
             // try to convert url variables to variables
-            const urlVariables = values.maybeUrlVariables
-            const overrideVariables = []
+            const urlVariables = values.urlVariables
 
             for (const [key, value] of Object.entries(urlVariables)) {
                 const variable = variables.find((variable: HogQLVariable) => variable.code_name === key)
                 if (variable) {
-                    overrideVariables.push({ ...variable, value })
+                    actions.overrideVariableValue(variable.id, value)
                 }
             }
-
-            overrideVariables.forEach((variable) => {
-                actions.overrideVariableValue(variable.id, variable.value)
-            })
         },
     })),
 
@@ -1520,7 +1515,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
 
             const newUrlVariables = {
-                ...values.maybeUrlVariables,
+                ...values.urlVariables,
                 [currentVariable.code_name]: value,
             }
 
@@ -1575,15 +1570,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
 const parseURLVariables = (searchParams: Record<string, any>): Record<string, Partial<HogQLVariable>> => {
     const variables: Record<string, Partial<HogQLVariable>> = {}
 
-    for (const [key, value] of Object.entries(searchParams)) {
-        if (key === 'query_variables') {
-            try {
-                const parsedVariables = JSON.parse(value)
-                Object.assign(variables, parsedVariables)
-            } catch (e) {
-                console.error('Failed to parse query_variables from URL:', e)
-            }
-            continue
+    if (searchParams.query_variables) {
+        try {
+            const parsedVariables = JSON.parse(searchParams.query_variables)
+            Object.assign(variables, parsedVariables)
+        } catch (e) {
+            console.error('Failed to parse query_variables from URL:', e)
         }
     }
 
