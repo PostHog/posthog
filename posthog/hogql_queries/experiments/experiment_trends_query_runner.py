@@ -6,9 +6,8 @@ from posthog.hogql import ast
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
-from posthog.hogql_queries.experiments.types import ExperimentMetricType, ExperimentVariantQueryResult
+from posthog.hogql_queries.experiments.types import ExperimentMetricType
 from posthog.hogql_queries.experiments.trends_statistics import (
     are_results_significant,
     calculate_credible_intervals,
@@ -24,11 +23,9 @@ from posthog.hogql_queries.experiments.trends_statistics_v2_continuous import (
     calculate_credible_intervals_v2_continuous,
     calculate_probabilities_v2_continuous,
 )
-from posthog.hogql_queries.experiments.types import ExperimentQueryResult
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models.experiment import Experiment
-from posthog.models.team.team import Team
 from posthog.queries.trends.util import ALL_SUPPORTED_MATH_FUNCTIONS
 from rest_framework.exceptions import ValidationError
 from posthog.schema import (
@@ -262,7 +259,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
         return final_query
 
-    def _evaluate_experiment_query(self) -> list[ExperimentVariantQueryResult]:
+    def _evaluate_experiment_query(self) -> list[ExperimentVariantTrendsBaseStats]:
         response = execute_hogql_query(
             query=self._get_new_experiment_query(),
             team=self.team,
@@ -270,11 +267,11 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             modifiers=create_default_modifiers_for_team(self.team),
         )
 
-        variants: list[ExperimentVariantQueryResult] = [
-            ExperimentVariantQueryResult(
-                num_entities=result[1],
-                sum_value=result[2],
-                sum_of_squares=result[3],
+        variants: list[ExperimentVariantTrendsBaseStats] = [
+            ExperimentVariantTrendsBaseStats(
+                absolute_exposure=result[1],
+                count=result[2],
+                exposure=result[1],
                 key=result[0],
             )
             for result in response.results
@@ -428,8 +425,8 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
         # Get new variants from experiment results
         new_variants = self._evaluate_experiment_query()
-        new_control_variant = next((variant for variant in new_variants if variant["key"] == "control"), None)
-        new_test_variants = [variant for variant in new_variants if variant["key"] != "control"]
+        new_control_variant = next((variant for variant in new_variants if variant.key == "control"), None)
+        new_test_variants = [variant for variant in new_variants if variant.key != "control"]
 
         if not new_control_variant:
             raise ValueError("Control variant not found in experiment results")
@@ -465,7 +462,10 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             count_query=self.prepared_count_query,
             exposure_query=self.prepared_exposure_query,
             variants=[variant.model_dump() for variant in [control_variant, *test_variants]],
-            probability=dict(zip([variant["key"] for variant in new_variants], probabilities)),
+            probability={
+                variant.key: probability
+                for variant, probability in zip([control_variant, *test_variants], probabilities)
+            },
             significant=significance_code == ExperimentSignificanceCode.SIGNIFICANT,
             significance_code=significance_code,
             stats_version=self.stats_version,

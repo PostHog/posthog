@@ -6,8 +6,7 @@ from posthog.hogql_queries.experiments import (
     MIN_PROBABILITY_FOR_SIGNIFICANCE,
 )
 from posthog.hogql_queries.experiments.funnels_statistics import Probability
-from posthog.hogql_queries.experiments.types import ExperimentVariantQueryResult
-from posthog.schema import ExperimentSignificanceCode
+from posthog.schema import ExperimentSignificanceCode, ExperimentVariantTrendsBaseStats
 from scipy.stats import gamma
 import numpy as np
 
@@ -18,7 +17,7 @@ SAMPLE_SIZE = 10000
 
 
 def calculate_probabilities_v2_count(
-    control_variant: ExperimentVariantQueryResult, test_variants: list[ExperimentVariantQueryResult]
+    control_variant: ExperimentVariantTrendsBaseStats, test_variants: list[ExperimentVariantTrendsBaseStats]
 ) -> list[float]:
     """
     Calculate the win probabilities for each variant in an experiment using Bayesian analysis.
@@ -29,9 +28,9 @@ def calculate_probabilities_v2_count(
 
     Parameters:
     -----------
-    control_variant : ExperimentVariantQueryResult
+    control_variant : ExperimentVariantTrendsBaseStats
         Statistics for the control group, including count (events) and absolute_exposure
-    test_variants : list[ExperimentVariantQueryResult]
+    test_variants : list[ExperimentVariantTrendsBaseStats]
         List of statistics for test variants to compare against the control
 
     Returns:
@@ -50,10 +49,10 @@ def calculate_probabilities_v2_count(
 
     Example:
     --------
-    >>> from posthog.schema import ExperimentVariantQueryResult
+    >>> from posthog.schema import ExperimentVariantTrendsBaseStats
     >>> from posthog.hogql_queries.experiments.trends_statistics_v2_count import calculate_probabilities_v2_count
-    >>> control = ExperimentVariantQueryResult(num_entities=100, sum_value=1000)
-    >>> test = ExperimentVariantQueryResult(num_entities=120, sum_value=1000)
+    >>> control = ExperimentVariantTrendsBaseStats(key="control", count=100, exposure=1, absolute_exposure=1000)
+    >>> test = ExperimentVariantTrendsBaseStats(key="test", count=120, exposure=1, absolute_exposure=1000)
     >>> calculate_probabilities_v2_count(control, [test])
     >>> # Returns: [0.088, 0.920] indicating the test variant is more likely to be the best
     """
@@ -63,8 +62,8 @@ def calculate_probabilities_v2_count(
         raise ValidationError("Can't calculate experiment results for less than 2 variants", code="no_data")
 
     # Calculate posterior parameters for control
-    alpha_control = ALPHA_0 + control_variant["sum_value"]
-    beta_control = BETA_0 + control_variant["num_entities"]
+    alpha_control = ALPHA_0 + control_variant.count
+    beta_control = BETA_0 + control_variant.absolute_exposure
 
     # Draw samples from control posterior
     samples_control = gamma.rvs(alpha_control, scale=1 / beta_control, size=SAMPLE_SIZE)
@@ -72,8 +71,8 @@ def calculate_probabilities_v2_count(
     # Draw samples for each test variant
     test_samples = []
     for test in test_variants:
-        alpha_test = ALPHA_0 + test["sum_value"]
-        beta_test = BETA_0 + test["num_entities"]
+        alpha_test = ALPHA_0 + test.count
+        beta_test = BETA_0 + test.absolute_exposure
         test_samples.append(gamma.rvs(alpha_test, scale=1 / beta_test, size=SAMPLE_SIZE))
 
     # Calculate probabilities
@@ -95,8 +94,8 @@ def calculate_probabilities_v2_count(
 
 
 def are_results_significant_v2_count(
-    control_variant: ExperimentVariantQueryResult,
-    test_variants: list[ExperimentVariantQueryResult],
+    control_variant: ExperimentVariantTrendsBaseStats,
+    test_variants: list[ExperimentVariantTrendsBaseStats],
     probabilities: list[Probability],
 ) -> tuple[ExperimentSignificanceCode, Probability]:
     """
@@ -109,9 +108,9 @@ def are_results_significant_v2_count(
 
     Parameters:
     -----------
-    control_variant : ExperimentVariantQueryResult
+    control_variant : ExperimentVariantTrendsBaseStats
         Statistics for the control group, including count and absolute_exposure
-    test_variants : list[ExperimentVariantQueryResult]
+    test_variants : list[ExperimentVariantTrendsBaseStats]
         List of statistics for test variants to compare against control
     probabilities : list[Probability]
         Win probabilities for each variant (must sum to 1), as calculated by calculate_probabilities_v2_count
@@ -135,10 +134,10 @@ def are_results_significant_v2_count(
     """
     # Check exposure thresholds
     for variant in test_variants:
-        if variant["num_entities"] < FF_DISTRIBUTION_THRESHOLD:
+        if variant.absolute_exposure < FF_DISTRIBUTION_THRESHOLD:
             return ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE, 1.0
 
-    if control_variant["num_entities"] < FF_DISTRIBUTION_THRESHOLD:
+    if control_variant.absolute_exposure < FF_DISTRIBUTION_THRESHOLD:
         return ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE, 1.0
 
     # Find highest probability among all variants
@@ -148,7 +147,7 @@ def are_results_significant_v2_count(
     if max_probability >= MIN_PROBABILITY_FOR_SIGNIFICANCE:
         # Find best performing variant
         all_variants = [control_variant, *test_variants]
-        rates = [v["sum_value"] / v["num_entities"] for v in all_variants]
+        rates = [v.count / v.absolute_exposure for v in all_variants]
         best_idx = np.argmax(rates)
         best_variant = all_variants[best_idx]
         other_variants = all_variants[:best_idx] + all_variants[best_idx + 1 :]
@@ -163,9 +162,7 @@ def are_results_significant_v2_count(
     return ExperimentSignificanceCode.LOW_WIN_PROBABILITY, 1.0
 
 
-def calculate_credible_intervals_v2_count(
-    variants: list[ExperimentVariantQueryResult], lower_bound=0.025, upper_bound=0.975
-):
+def calculate_credible_intervals_v2_count(variants, lower_bound=0.025, upper_bound=0.975):
     """
     Calculate Bayesian credible intervals for each variant's rate using a Gamma-Poisson model.
 
@@ -175,7 +172,7 @@ def calculate_credible_intervals_v2_count(
 
     Parameters:
     -----------
-    variants : list[ExperimentVariantQueryResult]
+    variants : list[ExperimentVariantTrendsBaseStats]
         List of variants containing count (number of events) and absolute_exposure data
     lower_bound : float, optional (default=0.025)
         Lower percentile for the credible interval (2.5% for 95% CI)
@@ -198,30 +195,30 @@ def calculate_credible_intervals_v2_count(
 
     Example:
     --------
-    >>> from posthog.schema import ExperimentVariantQueryResult
+    >>> from posthog.schema import ExperimentVariantTrendsBaseStats
     >>> from posthog.hogql_queries.experiments.trends_statistics_v2_count import calculate_credible_intervals_v2_count
     >>> variants = [
-    ...     ExperimentVariantQueryResult(num_entities=100, sum_value=1000),
-    ...     ExperimentVariantQueryResult(num_entities=150, sum_value=1000)
+    ...     ExperimentVariantTrendsBaseStats(key="control", count=100, exposure=1, absolute_exposure=1000),
+    ...     ExperimentVariantTrendsBaseStats(key="test", count=150, exposure=1, absolute_exposure=1000)
     ... ]
     >>> calculate_credible_intervals_v2_count(variants)
-    >>> # Returns: {"0": (0.082, 0.122), "1": (0.128, 0.176)}
+    >>> # Returns: {"control": (0.082, 0.122), "test": (0.128, 0.176)}
     """
     intervals = {}
 
-    for i, variant in enumerate(variants):
+    for variant in variants:
         try:
-            # Calculate posterior parameters using num_entities
-            alpha_posterior = ALPHA_0 + variant["sum_value"]
-            beta_posterior = BETA_0 + variant["num_entities"]
+            # Calculate posterior parameters using absolute_exposure
+            alpha_posterior = ALPHA_0 + variant.count
+            beta_posterior = BETA_0 + variant.absolute_exposure
 
             # Calculate credible intervals using the posterior distribution
             credible_interval = gamma.ppf([lower_bound, upper_bound], alpha_posterior, scale=1 / beta_posterior)
 
-            intervals[variant["key"]] = (float(credible_interval[0]), float(credible_interval[1]))  # Using index as key
+            intervals[variant.key] = (float(credible_interval[0]), float(credible_interval[1]))
         except Exception as e:
             capture_exception(
-                Exception(f"Error calculating credible interval for variant {i}"),
+                Exception(f"Error calculating credible interval for variant {variant.key}"),
                 {"error": str(e)},
             )
             return {}
@@ -230,7 +227,7 @@ def calculate_credible_intervals_v2_count(
 
 
 def calculate_expected_loss_v2_count(
-    target_variant: ExperimentVariantQueryResult, variants: list[ExperimentVariantQueryResult]
+    target_variant: ExperimentVariantTrendsBaseStats, variants: list[ExperimentVariantTrendsBaseStats]
 ) -> float:
     """
     Calculates expected loss in count/rate using Gamma-Poisson conjugate prior.
@@ -250,9 +247,9 @@ def calculate_expected_loss_v2_count(
 
     Parameters:
     -----------
-    target_variant : ExperimentVariantQueryResult
+    target_variant : ExperimentVariantTrendsBaseStats
         The variant being evaluated for loss, containing count and exposure data
-    variants : list[ExperimentVariantQueryResult]
+    variants : list[ExperimentVariantTrendsBaseStats]
         List of other variants to compare against
 
     Returns:
@@ -270,8 +267,8 @@ def calculate_expected_loss_v2_count(
     - Loss is calculated as max(0, best_alternative - target) for each sample
     """
     # Calculate posterior parameters for target variant
-    target_alpha = ALPHA_0 + target_variant["sum_value"]
-    target_beta = BETA_0 + target_variant["num_entities"]
+    target_alpha = ALPHA_0 + target_variant.count
+    target_beta = BETA_0 + target_variant.absolute_exposure
 
     # Draw samples from target variant's Gamma posterior
     target_samples = gamma.rvs(target_alpha, scale=1 / target_beta, size=SAMPLE_SIZE)
@@ -279,8 +276,8 @@ def calculate_expected_loss_v2_count(
     # Draw samples from each comparison variant's Gamma posterior
     variant_samples = []
     for variant in variants:
-        alpha = ALPHA_0 + variant["sum_value"]
-        beta = BETA_0 + variant["num_entities"]
+        alpha = ALPHA_0 + variant.count
+        beta = BETA_0 + variant.absolute_exposure
         samples = gamma.rvs(alpha, scale=1 / beta, size=SAMPLE_SIZE)
         variant_samples.append(samples)
 

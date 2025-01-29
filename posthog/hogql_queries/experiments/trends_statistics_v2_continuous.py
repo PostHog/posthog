@@ -5,8 +5,7 @@ from posthog.hogql_queries.experiments import (
     MIN_PROBABILITY_FOR_SIGNIFICANCE,
     EXPECTED_LOSS_SIGNIFICANCE_LEVEL,
 )
-from posthog.schema import ExperimentSignificanceCode
-from posthog.hogql_queries.experiments.types import ExperimentVariantQueryResult
+from posthog.schema import ExperimentSignificanceCode, ExperimentVariantTrendsBaseStats
 from scipy.stats import t
 import numpy as np
 
@@ -23,7 +22,7 @@ EPSILON = 1e-10  # Small epsilon value to handle zeros
 
 
 def calculate_probabilities_v2_continuous(
-    control_variant: ExperimentVariantQueryResult, test_variants: list[ExperimentVariantQueryResult]
+    control_variant: ExperimentVariantTrendsBaseStats, test_variants: list[ExperimentVariantTrendsBaseStats]
 ) -> list[float]:
     """
     Calculate the win probabilities for each variant in an experiment using Bayesian analysis
@@ -36,9 +35,10 @@ def calculate_probabilities_v2_continuous(
 
     Parameters:
     -----------
-    control_variant : ExperimentVariantQueryResult
-        Statistics for the control group, containing the sum value and number of entities
-    test_variants : list[ExperimentVariantQueryResult]
+    control_variant : ExperimentVariantTrendsBaseStats
+        Statistics for the control group, containing the mean value (in count field)
+        and exposure (number of users)
+    test_variants : list[ExperimentVariantTrendsBaseStats]
         List of statistics for test variants to compare against the control
 
     Returns:
@@ -82,16 +82,16 @@ def calculate_probabilities_v2_continuous(
     if len(test_variants) < 1:
         raise ValidationError("Can't calculate experiment results for less than 2 variants", code="no_data")
 
-    mean_value_control = control_variant["sum_value"] / control_variant["num_entities"]
+    mean_value_control = control_variant.count / control_variant.absolute_exposure
 
     # Calculate posterior parameters for control
     log_control_mean = np.log(mean_value_control + EPSILON)
 
     # Update parameters for control
-    kappa_n_control = KAPPA_0 + control_variant["num_entities"]
-    mu_n_control = (KAPPA_0 * MU_0 + control_variant["num_entities"] * log_control_mean) / kappa_n_control
-    alpha_n_control = ALPHA_0 + control_variant["num_entities"] / 2
-    beta_n_control = BETA_0 + 0.5 * control_variant["num_entities"] * LOG_VARIANCE
+    kappa_n_control = KAPPA_0 + control_variant.absolute_exposure
+    mu_n_control = (KAPPA_0 * MU_0 + control_variant.absolute_exposure * log_control_mean) / kappa_n_control
+    alpha_n_control = ALPHA_0 + control_variant.absolute_exposure / 2
+    beta_n_control = BETA_0 + 0.5 * control_variant.absolute_exposure * LOG_VARIANCE
 
     # Draw samples from control posterior
     control_posterior = t(
@@ -102,13 +102,13 @@ def calculate_probabilities_v2_continuous(
     # Draw samples for each test variant
     test_samples = []
     for test in test_variants:
-        mean_value_test = test["sum_value"] / test["num_entities"]
+        mean_value_test = test.count / test.absolute_exposure
         log_test_mean = np.log(mean_value_test + EPSILON)
 
-        kappa_n_test = KAPPA_0 + test["num_entities"]
-        mu_n_test = (KAPPA_0 * MU_0 + test["num_entities"] * log_test_mean) / kappa_n_test
-        alpha_n_test = ALPHA_0 + test["num_entities"] / 2
-        beta_n_test = BETA_0 + 0.5 * test["num_entities"] * LOG_VARIANCE
+        kappa_n_test = KAPPA_0 + test.absolute_exposure
+        mu_n_test = (KAPPA_0 * MU_0 + test.absolute_exposure * log_test_mean) / kappa_n_test
+        alpha_n_test = ALPHA_0 + test.absolute_exposure / 2
+        beta_n_test = BETA_0 + 0.5 * test.absolute_exposure * LOG_VARIANCE
 
         test_posterior = t(
             df=2 * alpha_n_test, loc=mu_n_test, scale=np.sqrt(beta_n_test / (kappa_n_test * alpha_n_test))
@@ -134,8 +134,8 @@ def calculate_probabilities_v2_continuous(
 
 
 def are_results_significant_v2_continuous(
-    control_variant: ExperimentVariantQueryResult,
-    test_variants: list[ExperimentVariantQueryResult],
+    control_variant: ExperimentVariantTrendsBaseStats,
+    test_variants: list[ExperimentVariantTrendsBaseStats],
     probabilities: list[float],
 ) -> tuple[ExperimentSignificanceCode, float]:
     """
@@ -144,9 +144,9 @@ def are_results_significant_v2_continuous(
 
     Parameters:
     -----------
-    control_variant : ExperimentVariantQueryResult
+    control_variant : ExperimentVariantTrendsBaseStats
         Statistics for the control group
-    test_variants : list[ExperimentVariantQueryResult]
+    test_variants : list[ExperimentVariantTrendsBaseStats]
         List of statistics for test variants to compare against control
     probabilities : list[float]
         List of win probabilities for each variant
@@ -159,10 +159,10 @@ def are_results_significant_v2_continuous(
     """
     # Check exposure thresholds
     for variant in test_variants:
-        if variant["num_entities"] < FF_DISTRIBUTION_THRESHOLD:
+        if variant.absolute_exposure < FF_DISTRIBUTION_THRESHOLD:
             return ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE, 1.0
 
-    if control_variant["num_entities"] < FF_DISTRIBUTION_THRESHOLD:
+    if control_variant.absolute_exposure < FF_DISTRIBUTION_THRESHOLD:
         return ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE, 1.0
 
     # Find highest probability among all variants
@@ -172,7 +172,7 @@ def are_results_significant_v2_continuous(
     if max_probability >= MIN_PROBABILITY_FOR_SIGNIFICANCE:
         # Find best performing variant
         all_variants = [control_variant, *test_variants]
-        means = [v["sum_value"] / v["num_entities"] for v in all_variants]
+        means = [v.count for v in all_variants]  # count field stores mean value
         best_idx = np.argmax(means)
         best_variant = all_variants[best_idx]
         other_variants = all_variants[:best_idx] + all_variants[best_idx + 1 :]
@@ -187,9 +187,7 @@ def are_results_significant_v2_continuous(
     return ExperimentSignificanceCode.LOW_WIN_PROBABILITY, 1.0
 
 
-def calculate_credible_intervals_v2_continuous(
-    variants: list[ExperimentVariantQueryResult], lower_bound=0.025, upper_bound=0.975
-):
+def calculate_credible_intervals_v2_continuous(variants, lower_bound=0.025, upper_bound=0.975):
     """
     Calculate Bayesian credible intervals for each variant's mean value using a log-normal model.
 
@@ -199,11 +197,11 @@ def calculate_credible_intervals_v2_continuous(
 
     Parameters:
     -----------
-    variants : list[ExperimentVariantQueryResult]
+    variants : list[ExperimentVariantTrendsBaseStats]
         List of variants where each variant contains:
-        - num_entities: number of entities/observations
-        - sum_value: sum of the metric values
-        - sum_of_squares: sum of the squared metric values
+        - count: the mean value of the metric
+        - absolute_exposure: number of users/observations
+        - key: identifier for the variant
     lower_bound : float, optional (default=0.025)
         Lower percentile for the credible interval (2.5% for 95% CI)
     upper_bound : float, optional (default=0.975)
@@ -212,8 +210,8 @@ def calculate_credible_intervals_v2_continuous(
     Returns:
     --------
     dict[str, tuple[float, float]]
-        Dictionary mapping variant indices to their credible intervals where:
-        - Key: variant index
+        Dictionary mapping variant keys to their credible intervals where:
+        - Key: variant identifier
         - Value: tuple of (lower_bound, upper_bound) in original scale
         Returns empty dict if any calculation errors occur
 
@@ -253,17 +251,17 @@ def calculate_credible_intervals_v2_continuous(
     """
     intervals = {}
 
-    for i, variant in enumerate(variants):
+    for variant in variants:
         try:
             # Log-transform the mean value, adding epsilon to handle zeros
-            mean_value = variant["sum_value"] / variant["num_entities"]
+            mean_value = variant.count / variant.absolute_exposure
             log_mean = np.log(mean_value + EPSILON)
 
-            # Calculate posterior parameters using num_entities
-            kappa_n = KAPPA_0 + variant["num_entities"]
-            mu_n = (KAPPA_0 * MU_0 + variant["num_entities"] * log_mean) / kappa_n
-            alpha_n = ALPHA_0 + variant["num_entities"] / 2
-            beta_n = BETA_0 + 0.5 * variant["num_entities"] * LOG_VARIANCE
+            # Calculate posterior parameters using absolute_exposure
+            kappa_n = KAPPA_0 + variant.absolute_exposure
+            mu_n = (KAPPA_0 * MU_0 + variant.absolute_exposure * log_mean) / kappa_n
+            alpha_n = ALPHA_0 + variant.absolute_exposure / 2
+            beta_n = BETA_0 + 0.5 * variant.absolute_exposure * LOG_VARIANCE
 
             # Create posterior distribution
             posterior = t(df=2 * alpha_n, loc=mu_n, scale=np.sqrt(beta_n / (kappa_n * alpha_n)))
@@ -272,13 +270,13 @@ def calculate_credible_intervals_v2_continuous(
             credible_interval = posterior.interval(upper_bound - lower_bound)
 
             # Transform back from log space and subtract epsilon
-            intervals[variant["key"]] = (
+            intervals[variant.key] = (
                 float(max(0, np.exp(credible_interval[0]) - EPSILON)),  # Ensure non-negative
                 float(max(0, np.exp(credible_interval[1]) - EPSILON)),  # Ensure non-negative
             )
         except Exception as e:
             capture_exception(
-                Exception(f"Error calculating credible interval for variant {i}"),
+                Exception(f"Error calculating credible interval for variant {variant.key}"),
                 {"error": str(e)},
             )
             return {}
@@ -287,7 +285,7 @@ def calculate_credible_intervals_v2_continuous(
 
 
 def calculate_expected_loss_v2_continuous(
-    target_variant: ExperimentVariantQueryResult, variants: list[ExperimentVariantQueryResult]
+    target_variant: ExperimentVariantTrendsBaseStats, variants: list[ExperimentVariantTrendsBaseStats]
 ) -> float:
     """
     Calculates expected loss in mean value using Normal-Inverse-Gamma conjugate prior.
@@ -298,9 +296,9 @@ def calculate_expected_loss_v2_continuous(
 
     Parameters:
     -----------
-    target_variant : ExperimentVariantQueryResult
+    target_variant : ExperimentVariantTrendsBaseStats
         The variant being evaluated for loss
-    variants : list[ExperimentVariantQueryResult]
+    variants : list[ExperimentVariantTrendsBaseStats]
         List of other variants to compare against
 
     Returns:
@@ -309,14 +307,14 @@ def calculate_expected_loss_v2_continuous(
         Expected loss in mean value if choosing the target variant
     """
     # Calculate posterior parameters for target variant
-    target_mean = target_variant["sum_value"] / target_variant["num_entities"]
+    target_mean = target_variant.count / target_variant.absolute_exposure
     log_target_mean = np.log(target_mean + EPSILON)
 
     # Update parameters for target variant
-    kappa_n_target = KAPPA_0 + target_variant["num_entities"]
-    mu_n_target = (KAPPA_0 * MU_0 + target_variant["num_entities"] * log_target_mean) / kappa_n_target
-    alpha_n_target = ALPHA_0 + target_variant["num_entities"] / 2
-    beta_n_target = BETA_0 + 0.5 * target_variant["num_entities"] * LOG_VARIANCE
+    kappa_n_target = KAPPA_0 + target_variant.absolute_exposure
+    mu_n_target = (KAPPA_0 * MU_0 + target_variant.absolute_exposure * log_target_mean) / kappa_n_target
+    alpha_n_target = ALPHA_0 + target_variant.absolute_exposure / 2
+    beta_n_target = BETA_0 + 0.5 * target_variant.absolute_exposure * LOG_VARIANCE
 
     # Draw samples from target variant's posterior
     target_posterior = t(
@@ -327,13 +325,13 @@ def calculate_expected_loss_v2_continuous(
     # Draw samples from each comparison variant's posterior
     variant_samples = []
     for variant in variants:
-        variant_mean = variant["sum_value"] / variant["num_entities"]
+        variant_mean = variant.count / variant.absolute_exposure
         log_variant_mean = np.log(variant_mean + EPSILON)
 
-        kappa_n = KAPPA_0 + variant["num_entities"]
-        mu_n = (KAPPA_0 * MU_0 + variant["num_entities"] * log_variant_mean) / kappa_n
-        alpha_n = ALPHA_0 + variant["num_entities"] / 2
-        beta_n = BETA_0 + 0.5 * variant["num_entities"] * LOG_VARIANCE
+        kappa_n = KAPPA_0 + variant.absolute_exposure
+        mu_n = (KAPPA_0 * MU_0 + variant.absolute_exposure * log_variant_mean) / kappa_n
+        alpha_n = ALPHA_0 + variant.absolute_exposure / 2
+        beta_n = BETA_0 + 0.5 * variant.absolute_exposure * LOG_VARIANCE
 
         variant_posterior = t(df=2 * alpha_n, loc=mu_n, scale=np.sqrt(beta_n / (kappa_n * alpha_n)))
         variant_samples.append(variant_posterior.rvs(SAMPLE_SIZE))
