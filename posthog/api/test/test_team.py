@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime
-from typing import Any, Optional, cast
+from typing import Any, Optional
 from unittest import mock
 from unittest.mock import ANY, MagicMock, call, patch
 

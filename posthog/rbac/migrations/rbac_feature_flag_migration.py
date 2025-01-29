@@ -3,6 +3,9 @@ from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
 from django.db import transaction
 
 
+# This migration is used to migrate over feature flag permissions to the new RBAC system
+# It will find all feature flag role access for the organization and migrate them over to the new system
+# It will also remove the feature flag role access so we know it's been migrated
 def rbac_feature_flag_role_access_migration(organization_id: str):
     # Get feature flag role access for the organization
     feature_flag_role_access = FeatureFlagRoleAccess.objects.filter(role__organization_id=organization_id)
@@ -19,3 +22,5 @@ def rbac_feature_flag_role_access_migration(organization_id: str):
                 resource_id=feature_flag.id,
                 role=role,
             )
+            # Remove the feature flag role access
+            role_access.delete()

@@ -711,7 +711,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
     @cached_property
     def user_permissions(self):
-        team = self.get_object() if self.action in ["reset_token"] else None
+        team = self.get_object() if self.action == "reset_token" else None
         return UserPermissions(cast(User, self.request.user), team)
 
 
