@@ -2,7 +2,7 @@ import { PassThrough } from 'stream'
 import { createGunzip } from 'zlib'
 
 import { ParsedMessageData } from '../kafka/types'
-import { SessionRecorder } from './recorder'
+import { SessionRecorder } from './session-recorder'
 
 // RRWeb event type constants
 const enum EventType {
@@ -64,7 +64,7 @@ describe('SessionRecorder', () => {
             // Handle completion
             gunzip.on('end', () => {
                 try {
-                    const result = Buffer.concat(chunks)
+                    const result = Buffer.concat(chunks as any)
                         .toString()
                         .trim()
                         .split('\n')

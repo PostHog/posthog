@@ -1,9 +1,9 @@
 import { PassThrough } from 'stream'
 
 import { status } from '../../../../utils/status'
-import { SessionBatchWriter, StreamWithFinish } from './session-batch-writer'
+import { SessionBatchFileWriter, StreamWithFinish } from './session-batch-file-writer'
 
-export class BlackholeSessionBatchWriter implements SessionBatchWriter {
+export class BlackholeSessionBatchWriter implements SessionBatchFileWriter {
     public async newBatch(): Promise<StreamWithFinish> {
         status.debug('🔁', 'blackhole_writer_creating_stream')
         const stream = new PassThrough()

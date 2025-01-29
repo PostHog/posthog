@@ -1,7 +1,7 @@
 import { KafkaOffsetManager } from '../kafka/offset-manager'
+import { SessionBatchFileWriter } from './session-batch-file-writer'
 import { SessionBatchManager } from './session-batch-manager'
 import { SessionBatchRecorder } from './session-batch-recorder'
-import { SessionBatchWriter } from './session-batch-writer'
 
 jest.setTimeout(1000)
 jest.mock('./session-batch-recorder')
@@ -11,7 +11,7 @@ describe('SessionBatchManager', () => {
     let executionOrder: number[]
     let currentBatch: jest.Mocked<SessionBatchRecorder>
     let mockOffsetManager: jest.Mocked<KafkaOffsetManager>
-    let mockWriter: jest.Mocked<SessionBatchWriter>
+    let mockWriter: jest.Mocked<SessionBatchFileWriter>
 
     const createMockBatch = (): jest.Mocked<SessionBatchRecorder> =>
         ({
@@ -37,7 +37,7 @@ describe('SessionBatchManager', () => {
 
         mockWriter = {
             open: jest.fn(),
-        } as unknown as jest.Mocked<SessionBatchWriter>
+        } as unknown as jest.Mocked<SessionBatchFileWriter>
 
         manager = new SessionBatchManager({
             maxBatchSizeBytes: 100,

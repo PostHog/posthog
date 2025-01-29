@@ -2,18 +2,62 @@ import { status } from '../../../../utils/status'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithTeam } from '../teams/types'
 import { SessionBatchMetrics } from './metrics'
-import { SessionRecorder } from './recorder'
-import { SessionBatchWriter } from './session-batch-writer'
+import { SessionBatchFileWriter } from './session-batch-file-writer'
+import { SessionRecorder } from './session-recorder'
 
+/**
+ * Manages the recording of a batch of session recordings:
+ *
+ * - Appends new events into the appropriate session
+ * - Tracks Kafka partition offsets, so that the consumer group can make progress after the batch is persisted
+ * - Persists the batch to storage
+ * - Handles partition revocation
+ *
+ * One SessionBatchRecorder corresponds to one batch file:
+ * ```
+ * Session Batch File 1 (previous)
+ * └── ... (previous batch)
+ *
+ * Session Batch File 2 <── One SessionBatchRecorder corresponds to one batch file
+ * ├── Gzipped Session Recording Block 1
+ * │   └── JSONL Session Recording Block
+ * │       ├── [windowId, event1]
+ * │       ├── [windowId, event2]
+ * │       └── ...
+ * ├── Gzipped Session Recording Block 2
+ * │   └── JSONL Session Recording Block
+ * │       ├── [windowId, event1]
+ * │       └── ...
+ * └── ...
+ *
+ * Session Batch File 3 (next)
+ * └── ... (future batch)
+ * ```
+ *
+ * A session batch is written as a sequence of independently-readable session blocks.
+ * Each block:
+ * - Contains events for one session recording
+ * - Can be read in isolation without reading the entire batch file
+ * - Allows for compression of each session block independently
+ *
+ * This format allows efficient access to individual session recordings within a batch,
+ * as only the relevant session block needs to be retrieved and decompressed.
+ */
 export class SessionBatchRecorder {
     private readonly partitionSessions = new Map<number, Map<string, SessionRecorder>>()
     private readonly partitionSizes = new Map<number, number>()
     private _size: number = 0
 
-    constructor(private readonly offsetManager: KafkaOffsetManager, private readonly writer: SessionBatchWriter) {
+    constructor(private readonly offsetManager: KafkaOffsetManager, private readonly writer: SessionBatchFileWriter) {
         status.debug('🔁', 'session_batch_recorder_created')
     }
 
+    /**
+     * Appends events into the appropriate session
+     *
+     * @param message - The message to record, including team context
+     * @returns Number of raw bytes written (without compression)
+     */
     public record(message: MessageWithTeam): number {
         const { partition } = message.message.metadata
         const sessionId = message.message.session_id
@@ -31,7 +75,6 @@ export class SessionBatchRecorder {
         const recorder = sessions.get(sessionId)!
         const bytesWritten = recorder.recordMessage(message.message)
 
-        // Update both partition size and total size
         const currentPartitionSize = this.partitionSizes.get(partition)!
         this.partitionSizes.set(partition, currentPartitionSize + bytesWritten)
         this._size += bytesWritten
@@ -51,6 +94,10 @@ export class SessionBatchRecorder {
         return bytesWritten
     }
 
+    /**
+     * Discards all sessions for a given partition, so that they are not persisted in this batch
+     * Used when partitions are revoked during Kafka rebalancing
+     */
     public discardPartition(partition: number): void {
         const partitionSize = this.partitionSizes.get(partition)
         if (partitionSize) {
@@ -65,6 +112,11 @@ export class SessionBatchRecorder {
         }
     }
 
+    /**
+     * Flushes the session recordings to storage and commits Kafka offsets
+     *
+     * @throws If the flush operation fails
+     */
     public async flush(): Promise<void> {
         status.info('🔁', 'session_batch_recorder_flushing', {
             totalSessions: this.partitionSessions.size,
@@ -133,6 +185,9 @@ export class SessionBatchRecorder {
         }
     }
 
+    /**
+     * Returns the total raw size in bytes of all recorded session data in the batch
+     */
     public get size(): number {
         return this._size
     }

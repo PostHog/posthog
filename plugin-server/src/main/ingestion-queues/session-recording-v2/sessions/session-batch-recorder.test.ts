@@ -4,9 +4,9 @@ import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { ParsedMessageData } from '../kafka/types'
 import { MessageWithTeam } from '../teams/types'
 import { SessionBatchMetrics } from './metrics'
-import { EndResult, SessionRecorder } from './recorder'
+import { SessionBatchFileWriter } from './session-batch-file-writer'
 import { SessionBatchRecorder } from './session-batch-recorder'
-import { SessionBatchWriter } from './session-batch-writer'
+import { EndResult, SessionRecorder } from './session-recorder'
 
 // RRWeb event type constants
 const enum EventType {
@@ -84,7 +84,7 @@ jest.mock('./recorder', () => ({
 describe('SessionBatchRecorder', () => {
     let recorder: SessionBatchRecorder
     let mockOffsetManager: jest.Mocked<KafkaOffsetManager>
-    let mockWriter: jest.Mocked<SessionBatchWriter>
+    let mockWriter: jest.Mocked<SessionBatchFileWriter>
     let mockStream: PassThrough
     let mockNewBatch: jest.Mock
     let mockFinish: jest.Mock
@@ -103,7 +103,7 @@ describe('SessionBatchRecorder', () => {
         mockStream = openMock.stream
         mockWriter = {
             newBatch: mockNewBatch,
-        } as unknown as jest.Mocked<SessionBatchWriter>
+        } as unknown as jest.Mocked<SessionBatchFileWriter>
 
         mockOffsetManager = {
             trackOffset: jest.fn(),

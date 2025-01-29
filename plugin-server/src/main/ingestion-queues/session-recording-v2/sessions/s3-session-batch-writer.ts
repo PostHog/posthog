@@ -4,9 +4,12 @@ import { randomBytes } from 'crypto'
 import { PassThrough } from 'stream'
 
 import { status } from '../../../../utils/status'
-import { SessionBatchWriter, StreamWithFinish } from './session-batch-writer'
+import { SessionBatchFileWriter, StreamWithFinish } from './session-batch-file-writer'
 
-export class S3SessionBatchWriter implements SessionBatchWriter {
+/**
+ * Writes session batch files to S3
+ */
+export class S3SessionBatchWriter implements SessionBatchFileWriter {
     private readonly s3: S3Client
     private readonly bucket: string
     private readonly prefix: string
@@ -30,7 +33,7 @@ export class S3SessionBatchWriter implements SessionBatchWriter {
                 Bucket: this.bucket,
                 Key: key,
                 Body: passThrough,
-                ContentType: 'application/jsonl',
+                ContentType: 'application/octet-stream',
             },
         })
 
