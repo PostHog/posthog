@@ -201,7 +201,7 @@ mod test {
 
     #[test]
     fn it_replaces_null_characters() {
-        let content = sanitize_string("\\u0000 is not valid JSON".to_string());
-        assert_eq!(content, "\\uFFFD is not valid JSON");
+        let content = sanitize_string("\u{0000} is not valid JSON".to_string());
+        assert_eq!(content, "� is not valid JSON");
     }
 }
