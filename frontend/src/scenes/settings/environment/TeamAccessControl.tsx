@@ -218,6 +218,7 @@ export function TeamAccessControl(): JSX.Element {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { migrateAccessControlVersion } = useActions(organizationLogic)
+    const { migrateAccessControlVersionLoading } = useValues(organizationLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
@@ -242,6 +243,7 @@ export function TeamAccessControl(): JSX.Element {
                         action={{
                             children: 'Upgrade now',
                             onClick: () => migrateAccessControlVersion(),
+                            loading: migrateAccessControlVersionLoading,
                         }}
                     >
                         You're eligible to upgrade to our new access control system. This will allow you to better
