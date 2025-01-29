@@ -36,7 +36,6 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
 @dataclass
 class PersonOverridesSnapshotTable:
     id: uuid.UUID
-    timestamp: str
 
     @property
     def name(self) -> str:
@@ -66,12 +65,14 @@ class PersonOverridesSnapshotTable:
     def drop(self, client: Client) -> None:
         client.execute(f"DROP TABLE IF EXISTS {self.qualified_name} SYNC")
 
-    def populate(self, client: Client) -> None:
+    def populate(self, client: Client, timestamp: str, limit: int | None = None) -> None:
         # NOTE: this is theoretically subject to replication lag and accuracy of this result is not a guarantee
         # this could optionally support truncate as a config option if necessary to reset the table state, or
         # force an optimize after insertion to compact the table before dictionary insertion (if that's even needed)
         [[count]] = client.execute(f"SELECT count() FROM {self.qualified_name}")
         assert count == 0
+
+        limit_clause = f"LIMIT {limit}" if limit else ""
 
         client.execute(
             f"""
@@ -80,8 +81,9 @@ class PersonOverridesSnapshotTable:
             FROM {settings.CLICKHOUSE_DATABASE}.{PERSON_DISTINCT_ID_OVERRIDES_TABLE}
             WHERE _timestamp < %(timestamp)s
             GROUP BY team_id, distinct_id
+            {limit_clause}
             """,
-            {"timestamp": self.timestamp},
+            {"timestamp": timestamp},
         )
 
     def sync(self, client: Client) -> None:
@@ -204,7 +206,18 @@ class PersonOverridesSnapshotDictionary:
 # Snapshot Table Management
 
 
-class SnapshotTableConfig(dagster.Config):
+@dagster.op
+def create_snapshot_table(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+) -> PersonOverridesSnapshotTable:
+    """Create the snapshot table on all hosts in the cluster."""
+    table = PersonOverridesSnapshotTable(id=uuid.UUID(context.run.run_id))
+    cluster.map_all_hosts(table.create).result()
+    return table
+
+
+class PopulateSnapshotTableConfig(dagster.Config):
     """
     Configuration for creating and populating the initial snapshot table.
     """
@@ -215,30 +228,20 @@ class SnapshotTableConfig(dagster.Config):
         "the past that there is no reasonable likelihood that events or overrides prior to this time have not yet been "
         "written to the database and replicated to all hosts in the cluster."
     )
-
-
-@dagster.op
-def create_snapshot_table(
-    context: dagster.OpExecutionContext,
-    cluster: dagster.ResourceParam[ClickhouseCluster],
-    config: SnapshotTableConfig,
-) -> PersonOverridesSnapshotTable:
-    """Create the snapshot table on all hosts in the cluster."""
-    table = PersonOverridesSnapshotTable(
-        id=uuid.UUID(context.run.run_id),
-        timestamp=config.timestamp,
+    limit: int | None = pydantic.Field(
+        description="The number of rows to include in the snapshot. If provided, this can be used to limit the total "
+        "amount of memory consumed by the squash process during execution."
     )
-    cluster.map_all_hosts(table.create).result()
-    return table
 
 
 @dagster.op
 def populate_snapshot_table(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     table: PersonOverridesSnapshotTable,
+    config: PopulateSnapshotTableConfig,
 ) -> PersonOverridesSnapshotTable:
     """Fill the snapshot data with the selected overrides based on the configuration timestamp."""
-    cluster.any_host(table.populate).result()
+    cluster.any_host(partial(table.populate, timestamp=config.timestamp, limit=config.limit)).result()
     return table
 
 
