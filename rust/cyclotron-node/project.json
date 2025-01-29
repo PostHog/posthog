@@ -10,8 +10,8 @@
                 "commands": ["pnpm run build"],
                 "cwd": "{projectRoot}"
             },
-            "inputs": ["{projectRoot}/src", "{projectRoot}/package.json"],
-            "outputs": ["{projectRoot}/dist"],
+            "inputs": ["{projectRoot}/src", "{projectRoot}/Cargo.toml", "{projectRoot}/package.json", "{projectRoot}/pnpm-lock.yaml"],
+            "outputs": ["{projectRoot}/dist", "{projectRoot}/index.node"],
             "dependsOn": ["deps:build"]
         }
     }

@@ -134,7 +134,7 @@ dependencies:
     specifier: ^2.6.1
     version: 2.6.9
   node-rdkafka:
-    specifier: ^2.17.0
+    specifier: 2.17.0
     version: 2.17.0(patch_hash=bugorwxdhlhl2utknko2c5ibqm)
   node-schedule:
     specifier: ^2.1.0
