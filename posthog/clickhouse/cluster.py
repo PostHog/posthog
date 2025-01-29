@@ -61,7 +61,7 @@ class FuturesMap(dict[K, Future[V]]):
 
 class ConnectionInfo(NamedTuple):
     address: str
-    port: int
+    port: int | None
 
     def make_pool(self, client_settings: Mapping[str, str] | None = None) -> ChPool:
         return _make_ch_pool(host=self.address, port=self.port, settings=client_settings)
@@ -193,7 +193,7 @@ def get_cluster(
 ) -> ClickhouseCluster:
     extra_hosts = []
     for host_config in map(copy, CLICKHOUSE_PER_TEAM_SETTINGS.values()):
-        extra_hosts.append(ConnectionInfo(host_config.pop("host")))
+        extra_hosts.append(ConnectionInfo(host_config.pop("host"), None))
         assert len(host_config) == 0, f"unexpected values: {host_config!r}"
     return ClickhouseCluster(
         default_client(), extra_hosts=extra_hosts, logger=logger, client_settings=client_settings, cluster=cluster
