@@ -5,7 +5,6 @@ import { randomBytes } from 'crypto'
 import { LegacyPlugin, LegacyPluginMeta } from '../types'
 import metadata from './plugin.json'
 
-
 type gcsMeta = LegacyPluginMeta & {
     global: {
         bucket: Bucket
@@ -17,7 +16,7 @@ type gcsMeta = LegacyPluginMeta & {
     }
     jobs: {
         exportEventsWithRetry: string[]
-    },
+    }
     attachments: any
 }
 
@@ -160,7 +159,6 @@ const onEvent = async (event: ProcessedPluginEvent, { global, logger }: gcsMeta)
         logger.error(`Failed to upload ${rows.length} event${rows.length > 1 ? 's' : ''} to GCS. Retrying later.`)
         throw new RetryError()
     }
-
 }
 
 export const gcsPlugin: LegacyPlugin = {
@@ -168,5 +166,4 @@ export const gcsPlugin: LegacyPlugin = {
     metadata: metadata as any,
     setupPlugin: setupPlugin as any,
     onEvent,
-  }
-  
+}

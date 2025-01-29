@@ -62,7 +62,8 @@
             "hint": "Any valid CSS color. For example: \"#ff0000\" or \"red\"",
             "default": "",
             "site": true
-        },        {
+        },
+        {
             "key": "buttonBackground",
             "name": "Button background",
             "type": "string",

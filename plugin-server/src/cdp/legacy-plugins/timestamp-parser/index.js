@@ -14,5 +14,5 @@ function processEvent(event) {
 }
 
 module.exports = {
-    processEvent
+    processEvent,
 }

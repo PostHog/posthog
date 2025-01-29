@@ -9,10 +9,11 @@ const {
 } = require('@posthog/plugin-scaffold/test/utils.js')
 const { setupPlugin, processEvent } = require('../index')
 
-
 test('processEvent adds the right properties', async () => {
-
-    const event0 = createEvent({ event: 'Monday 27/01/2021', properties: { $time: 1611772203.557, keepMe: 'nothing changes' } })
+    const event0 = createEvent({
+        event: 'Monday 27/01/2021',
+        properties: { $time: 1611772203.557, keepMe: 'nothing changes' },
+    })
 
     const event1 = await processEvent(clone(event0), getMeta())
     expect(event1).toEqual({
@@ -26,7 +27,10 @@ test('processEvent adds the right properties', async () => {
         },
     })
 
-    const event2 = createEvent({ event: 'Monday 25/01/2021', properties: { $time: 1611587425.118, keepMe: 'nothing changes' } })
+    const event2 = createEvent({
+        event: 'Monday 25/01/2021',
+        properties: { $time: 1611587425.118, keepMe: 'nothing changes' },
+    })
 
     const event3 = await processEvent(clone(event2), getMeta())
     expect(event3).toEqual({
@@ -39,7 +43,6 @@ test('processEvent adds the right properties', async () => {
             year: '2021',
         },
     })
-
 })
 
 test('processEvent does not crash with identify', async () => {

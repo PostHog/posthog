@@ -679,5 +679,4 @@ describe('ParamsToPropertiesPlugin', () => {
             expect(sourceEvent.properties).toBeDefined()
         }
     })
-
 })

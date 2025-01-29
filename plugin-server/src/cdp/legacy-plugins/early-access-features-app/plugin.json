@@ -17,10 +17,7 @@
             "name": "Show features button on the page",
             "hint": "If enabled, a button will be shown on the page that will open the features modal.",
             "type": "choice",
-            "choices": [
-                "Yes",
-                "No"
-            ],
+            "choices": ["Yes", "No"],
             "default": "No",
             "required": false,
             "site": true

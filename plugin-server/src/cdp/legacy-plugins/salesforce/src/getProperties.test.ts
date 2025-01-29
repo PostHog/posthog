@@ -5,35 +5,35 @@ describe('filtering by property allow list', () => {
     describe('filtering', () => {
         it('does not filter if there is no allow list', () => {
             const properties = { a: 'a', b: 'b' }
-            const filteredProperties = getProperties(({ properties } as unknown) as PluginEvent, '')
+            const filteredProperties = getProperties({ properties } as unknown as PluginEvent, '')
             expect(filteredProperties).toEqual(properties)
         })
 
         it('does filter if there is an allow list', () => {
             const properties = { a: 'a', b: 'b', c: 'c' }
-            const filteredProperties = getProperties(({ properties } as unknown) as PluginEvent, 'a,c')
+            const filteredProperties = getProperties({ properties } as unknown as PluginEvent, 'a,c')
             expect(filteredProperties).toEqual({ a: 'a', c: 'c' })
         })
 
         it('copes with spaces in the config', () => {
             const properties = { a: 'a', b: 'b', c: 'c' }
-            const filteredProperties = getProperties(({ properties } as unknown) as PluginEvent, 'a,   c')
+            const filteredProperties = getProperties({ properties } as unknown as PluginEvent, 'a,   c')
             expect(filteredProperties).toEqual({ a: 'a', c: 'c' })
         })
 
         it('converts properties using field mappings', () => {
             const properties = { email: 'a', b: 'b', surname: 'c', d: 'e' }
-            const filteredProperties = getProperties(
-                ({ properties } as unknown) as PluginEvent, 'email,surname,d',
-                { email: 'Email', surname: 'LastName' }
-            )
+            const filteredProperties = getProperties({ properties } as unknown as PluginEvent, 'email,surname,d', {
+                email: 'Email',
+                surname: 'LastName',
+            })
             expect(filteredProperties).toEqual({ Email: 'a', LastName: 'c', d: 'e' })
         })
 
         it('can handle nested properties', () => {
-            const properties = { name: 'a@b.com', person_properties: {middle: {bottom:'val'}, surname: 'Smith'} }
+            const properties = { name: 'a@b.com', person_properties: { middle: { bottom: 'val' }, surname: 'Smith' } }
             const filteredProperties = getProperties(
-                ({ properties } as unknown) as PluginEvent,
+                { properties } as unknown as PluginEvent,
                 'person_properties.surname,name',
                 {
                     name: 'Name',
@@ -43,43 +43,39 @@ describe('filtering by property allow list', () => {
 
             expect(filteredProperties).toEqual({
                 Name: 'a@b.com',
-                LastName: 'Smith'
+                LastName: 'Smith',
             })
         })
 
         it('can handle deeply nested properties', () => {
-            const properties = { name: 'a@b.com', person_properties: {middle: {bottom:'val'}, surname: 'Smith'} }
+            const properties = { name: 'a@b.com', person_properties: { middle: { bottom: 'val' }, surname: 'Smith' } }
             const filteredProperties = getProperties(
-                ({ properties } as unknown) as PluginEvent,
+                { properties } as unknown as PluginEvent,
                 'person_properties.middle.bottom,name',
                 {
                     name: 'Name',
                     'person_properties.surname': 'LastName',
-                    'person_properties.middle.bottom': 'MiddleBottom'
+                    'person_properties.middle.bottom': 'MiddleBottom',
                 }
             )
 
             expect(filteredProperties).toEqual({
                 Name: 'a@b.com',
-                MiddleBottom: 'val'
+                MiddleBottom: 'val',
             })
         })
 
         it('maps fields when there are no properties to include provided', () => {
             const properties = { name: 'a@b.com', another: 'value' }
-            const filteredProperties = getProperties(
-                ({ properties } as unknown) as PluginEvent,
-                '     ',
-                {
-                    name: 'Name',
-                    // redundant mapping is safely ignored
-                    'person_properties.surname': 'LastName',
-                }
-            )
+            const filteredProperties = getProperties({ properties } as unknown as PluginEvent, '     ', {
+                name: 'Name',
+                // redundant mapping is safely ignored
+                'person_properties.surname': 'LastName',
+            })
 
             expect(filteredProperties).toEqual({
                 Name: 'a@b.com',
-                another: 'value'
+                another: 'value',
             })
         })
     })

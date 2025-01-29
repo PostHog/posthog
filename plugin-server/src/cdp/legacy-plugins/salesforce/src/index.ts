@@ -15,7 +15,7 @@ export interface EventSink {
     fieldMappings?: FieldMappings
 }
 
-export type FieldMappings = Record<string, string>;
+export type FieldMappings = Record<string, string>
 
 export type EventToSinkMapping = Record<string, EventSink>
 
@@ -166,8 +166,7 @@ export async function sendEventToSalesforce(
                 salesforcePath: config.eventPath,
                 method: config.eventMethodType,
                 propertiesToInclude: config.propertiesToInclude,
-                fieldMappings: {}
-
+                fieldMappings: {},
             }
             logger.debug('v1: processing event: ', event?.event, ' with sink ', eventSink)
         }
@@ -177,15 +176,10 @@ export async function sendEventToSalesforce(
             sink: eventSink,
             token,
             event,
-            meta
+            meta,
         })
     } catch (error) {
-        meta.logger.error(
-            'error while sending event to salesforce. event: ',
-            event.event,
-            ' the error was ',
-            error
-        )
+        meta.logger.error('error while sending event to salesforce. event: ', event.event, ' the error was ', error)
         throw error
     }
 }
@@ -276,10 +270,14 @@ async function statusOk(res: Response, logger: SalesforceMeta['logger']): Promis
 // we allow `any` since we don't know what type the properties are, and `unknown` is too restrictive here
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function getNestedProperty(properties: Record<string, any>, path: string): any {
-    return path.split('.').reduce((acc, part) => acc[part], properties);
+    return path.split('.').reduce((acc, part) => acc[part], properties)
 }
 
-export function getProperties(event: ProcessedPluginEvent, propertiesToInclude: string, fieldMappings: FieldMappings = {}): Properties {
+export function getProperties(
+    event: ProcessedPluginEvent,
+    propertiesToInclude: string,
+    fieldMappings: FieldMappings = {}
+): Properties {
     const { properties } = event
 
     if (!properties) {
@@ -287,7 +285,9 @@ export function getProperties(event: ProcessedPluginEvent, propertiesToInclude: 
     }
 
     // if no propertiesToInclude is set then all properties are allowed
-    const propertiesAllowList = !!propertiesToInclude?.trim().length ? propertiesToInclude.split(',').map((e) => e.trim()) : Object.keys(properties)
+    const propertiesAllowList = !!propertiesToInclude?.trim().length
+        ? propertiesToInclude.split(',').map((e) => e.trim())
+        : Object.keys(properties)
 
     const mappedProperties: Record<string, any> = {}
 

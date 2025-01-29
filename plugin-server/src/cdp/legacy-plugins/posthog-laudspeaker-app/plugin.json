@@ -38,13 +38,13 @@
             "required": false
         },
         {
-          "key": "phDeviceToken",
-          "hint": "Provide attribute name for firebase device token",
-          "name": "Device Token attribute name",
-          "type": "string",
-          "default": "",
-          "required": false
-      },
+            "key": "phDeviceToken",
+            "hint": "Provide attribute name for firebase device token",
+            "name": "Device Token attribute name",
+            "type": "string",
+            "default": "",
+            "required": false
+        },
         {
             "key": "phCustom",
             "hint": "Provide attribute name for your custom field.",
@@ -53,4 +53,4 @@
             "required": false
         }
     ]
-  }
+}

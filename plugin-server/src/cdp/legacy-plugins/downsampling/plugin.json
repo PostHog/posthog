@@ -18,10 +18,7 @@
             "hint": "`Distinct ID aware sampling` will sample based on distinct IDs, meaning that a user's events will all be ingested or all be dropped at a given sample percentage.",
             "name": "Sampling method",
             "type": "choice",
-            "choices": [
-                "Random sampling",
-                "Distinct ID aware sampling"
-            ],
+            "choices": ["Random sampling", "Distinct ID aware sampling"],
             "default": "Distinct ID aware sampling",
             "required": false
         }

@@ -1,6 +1,6 @@
 export type Route = {
-  path: string;
-  include: string[];
-};
+    path: string
+    include: string[]
+}
 
-export type Routes = Route[];
+export type Routes = Route[]

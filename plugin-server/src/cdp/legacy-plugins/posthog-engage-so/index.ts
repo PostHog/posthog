@@ -4,36 +4,36 @@ import { LegacyPlugin, LegacyPluginMeta } from '../types'
 import metadata from './plugin.json'
 
 const onEvent = async (_event: ProcessedPluginEvent, { config, fetch }: LegacyPluginMeta): Promise<void> => {
-  const event = _event.event
-  if (event.startsWith('$')) {
-    // only process a specific set of custom events
-    if (!['$identify', '$groupidentify', '$set', '$unset', '$create_alias'].includes(event)) {
-      return
+    const event = _event.event
+    if (event.startsWith('$')) {
+        // only process a specific set of custom events
+        if (!['$identify', '$groupidentify', '$set', '$unset', '$create_alias'].includes(event)) {
+            return
+        }
     }
-  }
-  // Ignore plugin events
-  if (event.startsWith('plugin')) {
-    return
-  }
+    // Ignore plugin events
+    if (event.startsWith('plugin')) {
+        return
+    }
 
-  const auth = 'Basic ' + Buffer.from(`${config.publicKey}:${config.secret}`).toString('base64')
-  delete config.publicKey
-  delete config.secret
-  _event.config = config
+    const auth = 'Basic ' + Buffer.from(`${config.publicKey}:${config.secret}`).toString('base64')
+    delete config.publicKey
+    delete config.secret
+    _event.config = config
 
-  await fetch('https://api.engage.so/posthog', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: auth
-    },
-    body: JSON.stringify(_event)
-  })
+    await fetch('https://api.engage.so/posthog', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: auth,
+        },
+        body: JSON.stringify(_event),
+    })
 }
 
 export const engagePlugin: LegacyPlugin = {
-  id: 'engage',
-  metadata: metadata as any,
-  setupPlugin: () => Promise.resolve(),
-  onEvent,
+    id: 'engage',
+    metadata: metadata as any,
+    setupPlugin: () => Promise.resolve(),
+    onEvent,
 }

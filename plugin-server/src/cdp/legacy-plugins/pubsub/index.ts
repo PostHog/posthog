@@ -3,7 +3,7 @@ import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { LegacyPlugin, LegacyPluginMeta } from '../types'
 import metadata from './plugin.json'
 import { RetryError } from '@posthog/plugin-scaffold'
-import { PubSub, Topic } from "@google-cloud/pubsub"
+import { PubSub, Topic } from '@google-cloud/pubsub'
 
 type PubSubMeta = LegacyPluginMeta & {
     global: {
@@ -12,7 +12,7 @@ type PubSubMeta = LegacyPluginMeta & {
     }
     config: {
         topicId: string
-    },
+    }
     attachments: any
 }
 
@@ -31,13 +31,13 @@ export const setupPlugin = async (meta: PubSubMeta): Promise<void> => {
             projectId: credentials['project_id'],
             credentials,
         })
-        global.pubSubTopic = global.pubSubClient.topic(config.topicId);
+        global.pubSubTopic = global.pubSubClient.topic(config.topicId)
 
         // topic exists
         await global.pubSubTopic.getMetadata()
     } catch (error) {
         // some other error? abort!
-        if (!error.message.includes("NOT_FOUND")) {
+        if (!error.message.includes('NOT_FOUND')) {
             throw new Error(error)
         }
         logger.log(`Creating PubSub Topic - ${config.topicId}`)
@@ -91,10 +91,7 @@ export async function onEvent(fullEvent: ProcessedPluginEvent, { global, config 
             return messageId
         })
     } catch (error) {
-        console.error(
-            `Error publishing ${fullEvent.uuid} to ${config.topicId}: `,
-            error
-        )
+        console.error(`Error publishing ${fullEvent.uuid} to ${config.topicId}: `, error)
         throw new RetryError(`Error publishing to Pub/Sub! ${JSON.stringify(error.errors)}`)
     }
 }

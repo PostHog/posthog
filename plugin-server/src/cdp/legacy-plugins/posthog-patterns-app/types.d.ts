@@ -1,1 +1,1 @@
-declare module '@posthog/plugin-scaffold/test/utils';
+declare module '@posthog/plugin-scaffold/test/utils'

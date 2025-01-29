@@ -1,2 +1,2 @@
-export * from './checkIsValidHttpUrl';
-export * from './censorUrlPath';
+export * from './checkIsValidHttpUrl'
+export * from './censorUrlPath'

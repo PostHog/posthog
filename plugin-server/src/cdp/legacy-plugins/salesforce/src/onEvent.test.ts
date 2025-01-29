@@ -5,7 +5,6 @@ describe('onEvent', () => {
     let config: SalesforcePluginConfig
 
     beforeEach(() => {
-
         config = {
             salesforceHost: 'https://example.io',
             eventPath: 'test',

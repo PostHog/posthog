@@ -25,7 +25,7 @@ async function processEvent(event, { global }) {
 
         recursiveRemoveFilterObject(propertiesCopy, propertyToFilter.split('.'))
     }
-    
+
     return { ...event, properties: propertiesCopy }
 }
 

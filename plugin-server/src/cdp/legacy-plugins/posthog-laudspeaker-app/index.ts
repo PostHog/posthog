@@ -1,5 +1,5 @@
-import { ProcessedPluginEvent } from "@posthog/plugin-scaffold"
-import { LegacyPlugin, LegacyPluginMeta } from "../types"
+import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { LegacyPlugin, LegacyPluginMeta } from '../types'
 import metadata from './plugin.json'
 
 const alias = {
@@ -108,7 +108,6 @@ function result(target, path, value) {
 function isObject(val) {
     return val !== null && (typeof val === 'object' || typeof val === 'function')
 }
-
 
 // Ref: https://github.com/jonschlinkert/get-value
 function get(target, path, options) {
@@ -224,10 +223,10 @@ export async function setupPlugin({ config, global }) {
 }
 
 function getElementByOrderZero(json) {
-  if (!json.elements || !Array.isArray(json.elements)) {
-    return null; // or whatever default value you'd like to return
-  }
-  return json.elements.find(x => x.order === 0) || null
+    if (!json.elements || !Array.isArray(json.elements)) {
+        return null // or whatever default value you'd like to return
+    }
+    return json.elements.find((x) => x.order === 0) || null
 }
 
 const onEvent = async (event: ProcessedPluginEvent, { config, global, fetch }: LegacyPluginMeta): Promise<void> => {
@@ -255,31 +254,31 @@ const onEvent = async (event: ProcessedPluginEvent, { config, global, fetch }: L
         }
     })
 
-    //check for messageId 
+    //check for messageId
     //add if not
-    if (!("messageId" in laudspeakerPayload)) {
-        if ("$insert_id" in event.properties) {
-            laudspeakerPayload['messageId'] = event.properties["$insert_id"]
+    if (!('messageId' in laudspeakerPayload)) {
+        if ('$insert_id' in event.properties) {
+            laudspeakerPayload['messageId'] = event.properties['$insert_id']
         }
         //else {
 
         //}
     }
 
-    //check for event name 
+    //check for event name
     //add if not
-    if (!("event" in laudspeakerPayload)) {
-        if ("event" in event) {
-            laudspeakerPayload['event'] = event["event"]
+    if (!('event' in laudspeakerPayload)) {
+        if ('event' in event) {
+            laudspeakerPayload['event'] = event['event']
         }
         //else {
 
         //}
     }
-    
+
     // add top level element if there is a click, change, or submit
-    if(['click', 'change', 'submit'].includes(laudspeakerPayload["event"])) {
-       laudspeakerPayload['context']['elements'] = [getElementByOrderZero(event)];
+    if (['click', 'change', 'submit'].includes(laudspeakerPayload['event'])) {
+        laudspeakerPayload['context']['elements'] = [getElementByOrderZero(event)]
     }
 
     const userSet = get(event, 'properties.$set')
@@ -288,7 +287,7 @@ const onEvent = async (event: ProcessedPluginEvent, { config, global, fetch }: L
         if (config.phEmail) {
             set(laudspeakerPayload, 'phEmail', userSet[config.phEmail])
         }
-        
+
         if (config.phPhoneNumber) {
             set(laudspeakerPayload, 'phPhoneNumber', userSet[config.phPhoneNumber])
         }
@@ -312,7 +311,7 @@ const onEvent = async (event: ProcessedPluginEvent, { config, global, fetch }: L
             'Content-Type': 'application/json',
             ...global.laudAuthHeader.headers,
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
     })
 }
 
@@ -343,5 +342,4 @@ export const laudspeakerPlugin: LegacyPlugin = {
     metadata: metadata as any,
     setupPlugin: () => Promise.resolve(),
     onEvent,
-  }
-  
+}

@@ -9,11 +9,11 @@ import { randomUUID } from 'crypto'
 
 interface AvoInspectorMeta {
     global: {
-        defaultHeaders: Record<string, string>,
-        excludeEvents: Set<String>,
-        includeEvents: Set<String>,
-        excludeProperties: Set<String>,
-        includeProperties: Set<String>,
+        defaultHeaders: Record<string, string>
+        excludeEvents: Set<String>
+        includeEvents: Set<String>
+        excludeProperties: Set<String>
+        includeProperties: Set<String>
     }
     config: {
         appName: string
@@ -53,7 +53,7 @@ const onEvent = async (event: ProcessedPluginEvent, { config, global, fetch }: L
     const isIncluded = global.includeEvents.length > 0 ? global.includeEvents.has(event.event) : true
     const isExcluded = global.excludeEvents.has(event.event)
 
-    if (event.event.startsWith("$") || (isExcluded || !isIncluded)) {
+    if (event.event.startsWith('$') || isExcluded || !isIncluded) {
         return
     }
 
@@ -77,28 +77,34 @@ const onEvent = async (event: ProcessedPluginEvent, { config, global, fetch }: L
         type: 'event',
         eventName: event.event,
         messageId: event.uuid,
-        eventProperties: event.properties ? convertPosthogPropsToAvoProps(event.properties, global.excludeProperties, global.includeProperties) : [],
+        eventProperties: event.properties
+            ? convertPosthogPropsToAvoProps(event.properties, global.excludeProperties, global.includeProperties)
+            : [],
     }
 
     await fetch('https://api.avo.app/inspector/posthog/v1/track', {
         method: 'POST',
         headers: global.defaultHeaders,
-        body: JSON.stringify([avoEvent])
-      })
+        body: JSON.stringify([avoEvent]),
+    })
 }
 
-const convertPosthogPropsToAvoProps = (properties: Record<string, any>, excludeProperties: Set<String>, includeProperties: Set<String>): Record<string, string>[] => {
+const convertPosthogPropsToAvoProps = (
+    properties: Record<string, any>,
+    excludeProperties: Set<String>,
+    includeProperties: Set<String>
+): Record<string, string>[] => {
     const avoProps = []
 
     for (const [propertyName, propertyValue] of Object.entries(properties)) {
         const isIncluded = includeProperties.size > 0 ? includeProperties.has(propertyName) : true
         const isExcluded = excludeProperties.has(propertyName)
 
-        if (propertyName.startsWith("$") || (isExcluded || !isIncluded)) {
-            continue;
+        if (propertyName.startsWith('$') || isExcluded || !isIncluded) {
+            continue
         }
 
-        avoProps.push({ propertyName, propertyType: getPropValueType(propertyValue) });
+        avoProps.push({ propertyName, propertyType: getPropValueType(propertyValue) })
     }
     return avoProps
 }

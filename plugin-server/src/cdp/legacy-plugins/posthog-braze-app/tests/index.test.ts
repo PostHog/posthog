@@ -1,6 +1,4 @@
-import {
-    ISODateString,
-} from '../index'
+import { ISODateString } from '../index'
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 

@@ -44,21 +44,21 @@ describe('event sink mapping', () => {
 
     describe('parsing', () => {
         it('can parse a valid event sink mapping', () => {
-            const config = ({ eventEndpointMapping: JSON.stringify(validMapping) } as unknown) as SalesforcePluginConfig
+            const config = { eventEndpointMapping: JSON.stringify(validMapping) } as unknown as SalesforcePluginConfig
             const mapping = parseEventSinkConfig(config)
             expect(mapping).toEqual(validMapping)
         })
 
         it('can parse an empty event sink mapping', () => {
-            const config = ({ eventEndpointMapping: '' } as unknown) as SalesforcePluginConfig
+            const config = { eventEndpointMapping: '' } as unknown as SalesforcePluginConfig
             const mapping = parseEventSinkConfig(config)
             expect(mapping).toEqual(null)
         })
 
         it('can parse nonsense as an empty event sink mapping', () => {
-            const config = ({ eventEndpointMapping: '🤘' } as unknown) as SalesforcePluginConfig
+            const config = { eventEndpointMapping: '🤘' } as unknown as SalesforcePluginConfig
             expect(() => parseEventSinkConfig(config)).toThrowError(
-                'eventEndpointMapping must be an empty string or contain valid JSON!',
+                'eventEndpointMapping must be an empty string or contain valid JSON!'
             )
         })
     })
@@ -66,44 +66,44 @@ describe('event sink mapping', () => {
     describe('validation', () => {
         it('can validate an event sink mapping with missing salesforcePath', () => {
             expect(() => {
-                verifyConfig(({
+                verifyConfig({
                     config: {
                         eventEndpointMapping: JSON.stringify(invalidMapping),
                     },
-                } as unknown) as SalesforceMeta)
+                } as unknown as SalesforceMeta)
             }).toThrowError('You must provide a salesforce path for each mapping in config.eventEndpointMapping.')
         })
 
         it('can validate an event sink mapping with missing method', () => {
             expect(() => {
-                verifyConfig(({
+                verifyConfig({
                     config: {
                         eventEndpointMapping: JSON.stringify(missingMethodInvalidMapping),
                     },
-                } as unknown) as SalesforceMeta)
+                } as unknown as SalesforceMeta)
             }).toThrowError('You must provide a method for each mapping in config.eventEndpointMapping.')
         })
 
         it('can validate invalid JSON in EventToSinkMapping', () => {
-            const mapping = ({
+            const mapping = {
                 really: 'not an event to sink mapping',
-            } as unknown) as EventToSinkMapping
+            } as unknown as EventToSinkMapping
             expect(() => {
-                verifyConfig(({
+                verifyConfig({
                     config: {
                         eventEndpointMapping: JSON.stringify(mapping),
                     },
-                } as unknown) as SalesforceMeta)
+                } as unknown as SalesforceMeta)
             }).toThrowError('You must provide a salesforce path for each mapping in config.eventEndpointMapping.')
         })
 
         it('can validate eventsToInclude must be present if an event sink mapping is not', () => {
             expect(() => {
-                verifyConfig(({
+                verifyConfig({
                     config: {
                         eventEndpointMapping: '',
                     },
-                } as unknown) as SalesforceMeta)
+                } as unknown as SalesforceMeta)
             }).toThrowError('If you are not providing an eventEndpointMapping then you must provide events to include.')
         })
 
@@ -116,23 +116,23 @@ describe('event sink mapping', () => {
                 },
             }
             expect(() => {
-                verifyConfig(({
+                verifyConfig({
                     config: {
                         eventEndpointMapping: JSON.stringify(mapping),
                         eventsToInclude: '$pageView',
                     },
-                } as unknown) as SalesforceMeta)
+                } as unknown as SalesforceMeta)
             }).toThrowError('You should not provide both eventsToInclude and eventMapping.')
         })
     })
 
     describe('sending to sink', () => {
-        const global = ({
+        const global = {
             logger: {
                 debug: jest.fn(),
                 error: jest.fn(),
             },
-        } as unknown) as SalesforceMeta['global']
+        } as unknown as SalesforceMeta['global']
         const config = {
             salesforceHost: 'https://example.io',
             eventMethodType: 'POST',
@@ -154,30 +154,30 @@ describe('event sink mapping', () => {
         it('does not send to a sink if there is no mapping for the event', async () => {
             await sendEventToSalesforce(
                 { event: 'uninteresting' } as ProcessedPluginEvent,
-                ({ 
+                {
                     config,
                     global,
-                    logger: { error: jest.fn(), debug: jest.fn() }
-                } as unknown) as SalesforceMeta,
-                'token',
+                    logger: { error: jest.fn(), debug: jest.fn() },
+                } as unknown as SalesforceMeta,
+                'token'
             )
             expect(mockFetch).not.toHaveBeenCalled()
         })
 
         it('does send to a sink if there is a mapping for the event', async () => {
             await sendEventToSalesforce(
-                ({
+                {
                     event: '$pageview',
                     properties: { unwanted: 'excluded', two: 'includes' },
-                } as unknown) as ProcessedPluginEvent,
-                ({
+                } as unknown as ProcessedPluginEvent,
+                {
                     global: global,
                     config: config,
                     cache: undefined,
                     fetch: mockFetch as unknown,
-                    logger: { error: jest.fn(), debug: jest.fn() }
-                } as unknown) as SalesforceMeta,
-                'the bearer token',
+                    logger: { error: jest.fn(), debug: jest.fn() },
+                } as unknown as SalesforceMeta,
+                'the bearer token'
             )
             expect(mockFetch).toHaveBeenCalledWith('https://example.io/something', {
                 body: '{"two":"includes"}',

@@ -3,6 +3,5 @@
     "url": "https://github.com/PostHog/posthog-hello-world-plugin",
     "description": "Calculate costs for AI generations events based on the number of tokens.",
     "main": "dist/index.js",
-    "config": [
-    ]
+    "config": []
 }

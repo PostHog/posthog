@@ -17,7 +17,14 @@ async function processEvent(event, { config }) {
     return event
 }
 
-const propertyDenyList = ['$elements', '$elements_chain', '$groups', '$active_feature_flags', '$heatmap_data', '$web_vitals_data']
+const propertyDenyList = [
+    '$elements',
+    '$elements_chain',
+    '$groups',
+    '$active_feature_flags',
+    '$heatmap_data',
+    '$web_vitals_data',
+]
 
 const flattenProperties = (props, sep, nestedChain = []) => {
     let newProps = {}
@@ -47,5 +54,5 @@ const flattenProperties = (props, sep, nestedChain = []) => {
 }
 
 module.exports = {
-    processEvent
+    processEvent,
 }

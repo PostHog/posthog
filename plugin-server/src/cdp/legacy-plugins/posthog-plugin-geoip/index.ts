@@ -23,13 +23,10 @@ const defaultLocationSetProps = Object.entries(props).reduce((acc, [key]) => {
     return acc
 }, {} as Record<string, any>)
 
-
 const defaultLocationSetOnceProps = Object.entries(props).reduce((acc, [key]) => {
     acc[`$initial_geoip_${key}`] = null
     return acc
 }, {} as Record<string, any>)
-
-
 
 const plugin: Plugin = {
     processEvent: async (event, { geoip }) => {
@@ -50,7 +47,7 @@ const plugin: Plugin = {
                     if (typeof response.city.confidence === 'number') {
                         // NOTE: Confidence is part of the enterprise maxmind DB, not typically installed
                         location['city_confidence'] = response.city.confidence
-                    }   
+                    }
                 }
                 if (response.country) {
                     location['country_name'] = response.country.names?.en

@@ -10,7 +10,8 @@ const global = {
         'nonExisting',
         '$set.$not_in_props',
         'no-such.with-dot',
-]}
+    ],
+}
 
 const properties = {
     properties: {
@@ -44,8 +45,7 @@ test('event properties are filtered', async () => {
     expect(event.properties).toHaveProperty('foo')
     expect(event.properties.$set).toHaveProperty('firstName', 'Post')
     expect(event.properties.foo.bar.baz).toHaveProperty('two', 'two')
-    expect(event.properties).toEqual(
-    {
+    expect(event.properties).toEqual({
         name: 'Mr. Hog',
         age: 12,
         $set: {

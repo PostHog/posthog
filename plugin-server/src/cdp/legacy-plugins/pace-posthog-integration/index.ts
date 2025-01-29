@@ -13,23 +13,23 @@ const onEvent = async (event: ProcessedPluginEvent, { config, fetch }: PaceMetaI
     await fetch('https://data.production.paceapp.com/events', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': config.api_key,
+            'Content-Type': 'application/json',
+            'x-api-key': config.api_key,
         },
         body: JSON.stringify({
             data: {
                 ...event,
                 properties: Object.fromEntries(
                     Object.entries(event.properties || {}).filter(([key, _]) => !key.startsWith('$'))
-                )
-            }
-        })
-      })
+                ),
+            },
+        }),
+    })
 }
 
 export const pacePlugin: LegacyPlugin = {
-  id: 'pace',
-  metadata: metadata as any,
-  setupPlugin: () => Promise.resolve(),
-  onEvent,
+    id: 'pace',
+    metadata: metadata as any,
+    setupPlugin: () => Promise.resolve(),
+    onEvent,
 }

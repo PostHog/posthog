@@ -1,5 +1,5 @@
-import { ProcessedPluginEvent } from "@posthog/plugin-scaffold"
-import { LegacyPlugin, LegacyPluginMeta } from "../types"
+import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { LegacyPlugin, LegacyPluginMeta } from '../types'
 import metadata from './plugin.json'
 
 const setupPlugin = async ({ config, global, logger, fetch }: LegacyPluginMeta): Promise<void> => {
@@ -8,8 +8,8 @@ const setupPlugin = async ({ config, global, logger, fetch }: LegacyPluginMeta):
     const fieldsDefResponse = await fetch('https://api.sendgrid.com/v3/marketing/field_definitions', {
         method: 'GET',
         headers: {
-            Authorization: `Bearer ${config.sendgridApiKey}`
-        }
+            Authorization: `Bearer ${config.sendgridApiKey}`,
+        },
     })
     if (!statusOk(fieldsDefResponse)) {
         throw new Error('Unable to connect to Sendgrid')
@@ -44,7 +44,10 @@ const setupPlugin = async ({ config, global, logger, fetch }: LegacyPluginMeta):
     global.customFieldsMap = posthogPropsToSendgridCustomFieldIDsMap
 }
 
-const onEvent = async (event: ProcessedPluginEvent, { config, global, logger, fetch }: LegacyPluginMeta): Promise<void> => {
+const onEvent = async (
+    event: ProcessedPluginEvent,
+    { config, global, logger, fetch }: LegacyPluginMeta
+): Promise<void> => {
     if (event.event !== '$identify') {
         return
     }
@@ -65,7 +68,7 @@ const onEvent = async (event: ProcessedPluginEvent, { config, global, logger, fe
         contacts.push({
             email: email,
             ...sendgridFilteredProps,
-            custom_fields: customFields
+            custom_fields: customFields,
         })
     }
 
@@ -74,9 +77,9 @@ const onEvent = async (event: ProcessedPluginEvent, { config, global, logger, fe
             method: 'PUT',
             headers: {
                 Authorization: `Bearer ${config.sendgridApiKey}`,
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ contacts: contacts })
+            body: JSON.stringify({ contacts: contacts }),
         })
 
         if (!statusOk(exportContactsResponse)) {
@@ -94,7 +97,8 @@ const onEvent = async (event: ProcessedPluginEvent, { config, global, logger, fe
 }
 
 function isEmail(email) {
-    const re = /^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/
+    const re =
+        /^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/
     return re.test(String(email).toLowerCase())
 }
 
@@ -122,7 +126,7 @@ const sendgridPropsMap = {
     postCode: 'postal_code',
     post_code: 'postal_code',
     postalCode: 'postal_code',
-    postal_code: 'postal_code'
+    postal_code: 'postal_code',
 }
 
 // parseCustomFieldsMap parses custom properties in a format like "myProp1=my_prop1,my_prop2".

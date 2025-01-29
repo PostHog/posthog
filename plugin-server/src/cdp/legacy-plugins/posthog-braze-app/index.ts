@@ -213,7 +213,6 @@ export const onEvent = async (pluginEvent: ProcessedPluginEvent, meta: BrazePlug
     meta.logger.log(`🚀 Exported 1 event to Braze in ${elapsedTime} seconds.`)
 }
 
-
 export const brazePlugin: LegacyPlugin = {
     id: 'braze',
     metadata: metadata as any,

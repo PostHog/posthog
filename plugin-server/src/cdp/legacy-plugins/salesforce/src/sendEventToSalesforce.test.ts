@@ -27,13 +27,13 @@ describe('sendEventsToSalesforce', () => {
         } as SalesforcePluginConfig
 
         await sendEventToSalesforce(
-            ({ event: '$pageview', properties: { $current_url: 'https://home/io' } } as unknown) as ProcessedPluginEvent,
-            ({
+            { event: '$pageview', properties: { $current_url: 'https://home/io' } } as unknown as ProcessedPluginEvent,
+            {
                 config,
                 global,
                 logger: { error: jest.fn(), debug: jest.fn() },
                 fetch: mockFetch as unknown,
-            } as unknown) as SalesforceMeta,
+            } as unknown as SalesforceMeta,
             'token'
         )
 
@@ -52,8 +52,11 @@ describe('sendEventsToSalesforce', () => {
         } as SalesforcePluginConfig
 
         await sendEventToSalesforce(
-            ({ event: 'should not send', properties: { $current_url: 'https://home/io' } } as unknown) as ProcessedPluginEvent,
-            ({ config, global, logger: { error: jest.fn(), debug: jest.fn() } } as unknown) as SalesforceMeta,
+            {
+                event: 'should not send',
+                properties: { $current_url: 'https://home/io' },
+            } as unknown as ProcessedPluginEvent,
+            { config, global, logger: { error: jest.fn(), debug: jest.fn() } } as unknown as SalesforceMeta,
             'token'
         )
 

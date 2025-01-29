@@ -14,13 +14,13 @@
             "name": "Property key to filter on",
             "type": "string",
             "required": true
-          },
-          {
+        },
+        {
             "key": "property_values",
             "hint": "Which value to match to drop events. Split multiple values by comma to filter.",
             "name": "Property value to filter on",
             "type": "string",
             "required": false
-          } 
+        }
     ]
 }

@@ -7,21 +7,21 @@ const nestedEventProperties = {
             c: {
                 d: {
                     e: {
-                        f: 'nested under e'
+                        f: 'nested under e',
                     },
-                    z: 'nested under d'
+                    z: 'nested under d',
                 },
-                z: 'nested under c'
+                z: 'nested under c',
             },
-            z: 'nested under b'
+            z: 'nested under b',
         },
-        z: 'nested under a'
+        z: 'nested under a',
     },
     w: {
-        array: [{ z: 'nested in w array' }]
+        array: [{ z: 'nested in w array' }],
     },
     x: 'not nested',
-    y: 'not nested either'
+    y: 'not nested either',
 }
 
 describe('the property flattener', () => {
@@ -40,7 +40,7 @@ describe('the property flattener', () => {
             a__b__c__z: 'nested under c',
             a__b__z: 'nested under b',
             a__z: 'nested under a',
-            w__array__0__z: 'nested in w array'
+            w__array__0__z: 'nested in w array',
         }
 
         expect(eventsOutput).toEqual(createEvent({ event: 'test', properties: expectedProperties }))
@@ -52,10 +52,10 @@ describe('the property flattener', () => {
             properties: {
                 $elements: [
                     { tag_name: 'span', nth_child: 1 },
-                    { tag_name: 'div', nth_child: 1 }
+                    { tag_name: 'div', nth_child: 1 },
                 ],
-                $elements_chain: 'span:nth_child="1";div:nth_child="1"'
-            }
+                $elements_chain: 'span:nth_child="1";div:nth_child="1"',
+            },
         })
 
         const eventsOutput = await processEvent(event, { config: { separator: '__' } })
@@ -63,9 +63,9 @@ describe('the property flattener', () => {
         const expectedProperties = {
             $elements: [
                 { tag_name: 'span', nth_child: 1 },
-                { tag_name: 'div', nth_child: 1 }
+                { tag_name: 'div', nth_child: 1 },
             ],
-            $elements_chain: 'span:nth_child="1";div:nth_child="1"'
+            $elements_chain: 'span:nth_child="1";div:nth_child="1"',
         }
 
         expect(eventsOutput).toEqual(createEvent({ event: '$autocapture', properties: expectedProperties }))
@@ -75,21 +75,19 @@ describe('the property flattener', () => {
         const event = createEvent({
             event: 'organization usage report',
             properties: {
-                any: [
-                    { nested: 'property' }
-                ]
-            }
+                any: [{ nested: 'property' }],
+            },
         })
 
         const eventsOutput = await processEvent(event, { config: { separator: '__' } })
 
         const expectedProperties = {
-            any: [
-                { nested: 'property' }
-            ]
+            any: [{ nested: 'property' }],
         }
 
-        expect(eventsOutput).toEqual(createEvent({ event: 'organization usage report', properties: expectedProperties }))
+        expect(eventsOutput).toEqual(
+            createEvent({ event: 'organization usage report', properties: expectedProperties })
+        )
     })
 
     test('set and set once', async () => {
@@ -99,16 +97,16 @@ describe('the property flattener', () => {
                 $set: {
                     example: {
                         company_size: 20,
-                        category: ['a', 'b']
-                    }
+                        category: ['a', 'b'],
+                    },
                 },
                 $set_once: {
                     example: {
                         company_size: 20,
-                        category: ['a', 'b']
-                    }
-                }
-            }
+                        category: ['a', 'b'],
+                    },
+                },
+            },
         })
 
         const eventsOutput = await processEvent(event, { config: { separator: '__' } })
@@ -117,21 +115,21 @@ describe('the property flattener', () => {
             $set: {
                 example: {
                     company_size: 20,
-                    category: ['a', 'b']
+                    category: ['a', 'b'],
                 },
                 example__company_size: 20,
                 example__category__0: 'a',
-                example__category__1: 'b'
+                example__category__1: 'b',
             },
             $set_once: {
                 example: {
                     company_size: 20,
-                    category: ['a', 'b']
+                    category: ['a', 'b'],
                 },
                 example__company_size: 20,
                 example__category__0: 'a',
-                example__category__1: 'b'
-            }
+                example__category__1: 'b',
+            },
         }
 
         expect(eventsOutput.properties).toEqual(expectedProperties)
@@ -150,16 +148,16 @@ describe('the property flattener', () => {
                         'pinterest-ads': false,
                         'snapchat-ads': false,
                         fairing: false,
-                        slack: false
+                        slack: false,
                     },
                     pixel: true,
                     pixel_settings: {
-                        allow_auto_install: true
+                        allow_auto_install: true,
                     },
                     currency: 'USD',
-                    timezone: 'XXX'
-                }
-            }
+                    timezone: 'XXX',
+                },
+            },
         })
 
         const eventsOutput = await processEvent(event, { config: { separator: '__' } })
@@ -174,11 +172,11 @@ describe('the property flattener', () => {
                     'pinterest-ads': false,
                     'snapchat-ads': false,
                     fairing: false,
-                    slack: false
+                    slack: false,
                 },
                 pixel: true,
                 pixel_settings: {
-                    allow_auto_install: true
+                    allow_auto_install: true,
                 },
                 currency: 'USD',
                 timezone: 'XXX',
@@ -189,11 +187,10 @@ describe('the property flattener', () => {
                 ads__slack: false,
                 'ads__snapchat-ads': false,
                 'ads__tiktok-ads': false,
-                pixel_settings__allow_auto_install: true
-            }
+                pixel_settings__allow_auto_install: true,
+            },
         }
 
         expect(eventsOutput.properties).toEqual(expectedProperties)
     })
-
 })
