@@ -36,7 +36,7 @@ class ImportDataActivityInputs:
 
 
 def process_incremental_last_value(value: Any | None, field_type: IncrementalFieldType | None) -> Any | None:
-    if value is None or field_type is None:
+    if value is None or value == "None" or field_type is None:
         return None
 
     if field_type == IncrementalFieldType.Integer or field_type == IncrementalFieldType.Numeric:
