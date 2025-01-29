@@ -1,4 +1,5 @@
 import { PassThrough } from 'stream'
+import { createGunzip } from 'zlib'
 
 import { ParsedMessageData } from '../kafka/types'
 import { SessionRecorder } from './recorder'
@@ -39,15 +40,26 @@ describe('SessionRecorder', () => {
         },
     })
 
-    const parseLines = (data: string): Array<[string, any]> => {
-        return data
+    const readGzippedStream = async (stream: PassThrough): Promise<string[]> => {
+        const gunzip = createGunzip()
+        stream.pipe(gunzip)
+
+        const chunks: Buffer[] = []
+        for await (const chunk of gunzip) {
+            chunks.push(chunk)
+        }
+
+        return Buffer.concat(chunks as any[])
+            .toString()
             .trim()
             .split('\n')
+            .map((line) => line.trim())
+            .filter(Boolean)
             .map((line) => JSON.parse(line))
     }
 
     describe('recordMessage', () => {
-        it('should record events in JSONL format', async () => {
+        it('should record events in gzipped JSONL format', async () => {
             const events = [
                 {
                     type: EventType.FullSnapshot,
@@ -65,24 +77,19 @@ describe('SessionRecorder', () => {
             ]
             const message = createMessage('window1', events)
 
-            const bytesWritten = recorder.recordMessage(message)
+            const rawBytesWritten = recorder.recordMessage(message)
+            expect(rawBytesWritten).toBeGreaterThan(0)
 
             const stream = new PassThrough()
-            let streamData = ''
-            stream.on('data', (chunk) => {
-                streamData += chunk
-            })
-
-            const result = await recorder.write(stream)
-            const lines = parseLines(streamData)
+            const { stream: gzipStream, eventCount } = recorder.end()
+            gzipStream.pipe(stream)
+            const lines = await readGzippedStream(stream)
 
             expect(lines).toEqual([
                 ['window1', events[0]],
                 ['window1', events[1]],
             ])
-            expect(bytesWritten).toBeGreaterThan(0)
-            expect(result.eventCount).toBe(2)
-            expect(result.bytesWritten).toBe(bytesWritten)
+            expect(eventCount).toBe(2)
         })
 
         it('should handle multiple windows with multiple events', async () => {
@@ -123,13 +130,9 @@ describe('SessionRecorder', () => {
             recorder.recordMessage(message)
 
             const stream = new PassThrough()
-            let streamData = ''
-            stream.on('data', (chunk) => {
-                streamData += chunk
-            })
-
-            const result = await recorder.write(stream)
-            const lines = parseLines(streamData)
+            const { stream: gzipStream, eventCount } = recorder.end()
+            gzipStream.pipe(stream)
+            const lines = await readGzippedStream(stream)
 
             expect(lines).toEqual([
                 ['window1', events.window1[0]],
@@ -137,139 +140,46 @@ describe('SessionRecorder', () => {
                 ['window2', events.window2[0]],
                 ['window2', events.window2[1]],
             ])
-            expect(result.eventCount).toBe(4)
-            expect(result.bytesWritten).toBeGreaterThan(0)
+            expect(eventCount).toBe(4)
         })
 
         it('should handle empty events array', async () => {
             const message = createMessage('window1', [])
-            const bytesWritten = recorder.recordMessage(message)
-
-            const stream = new PassThrough()
-            let streamData = ''
-            stream.on('data', (chunk) => {
-                streamData += chunk
-            })
-
-            const result = await recorder.write(stream)
-            expect(streamData).toBe('')
-            expect(bytesWritten).toBe(0)
-            expect(result.eventCount).toBe(0)
-            expect(result.bytesWritten).toBe(0)
-        })
-
-        it('should correctly count bytes for multi-byte characters', async () => {
-            let bytesWritten = 0
-
-            const events1 = {
-                window1: [{ type: EventType.Custom, timestamp: 1000, data: { message: 'Testowanie z jeżem 🦔' } }],
-            }
-            const message1: ParsedMessageData = {
-                ...createMessage('', []),
-                eventsByWindowId: events1,
-            }
-            bytesWritten += recorder.recordMessage(message1)
-
-            const events2 = {
-                window1: [
-                    {
-                        type: EventType.Custom,
-                        timestamp: 1500,
-                        data: { message: '🦔 What do you call a hedgehog in the desert? A cactus impersonator!' },
-                    },
-                ],
-            }
-            const message2: ParsedMessageData = {
-                ...createMessage('', []),
-                eventsByWindowId: events2,
-            }
-            bytesWritten += recorder.recordMessage(message2)
-
-            const events3 = {
-                window2: [
-                    {
-                        type: EventType.Custom,
-                        timestamp: 2000,
-                        data: { message: "🦔 What's a hedgehog's favorite exercise? Spike jumps!" },
-                    },
-                ],
-            }
-            const message3: ParsedMessageData = {
-                ...createMessage('', []),
-                eventsByWindowId: events3,
-            }
-            bytesWritten += recorder.recordMessage(message3)
-
-            const stream = new PassThrough()
-            let bytesReceived = 0
-            stream.on('data', (chunk) => {
-                bytesReceived += Buffer.byteLength(chunk)
-            })
-
-            const result = await recorder.write(stream)
-            expect(bytesReceived).toBe(bytesWritten)
-            expect(result.bytesWritten).toBe(bytesWritten)
-            expect(result.eventCount).toBe(3)
-        })
-    })
-
-    describe('write', () => {
-        it('should ensure last line ends with newline', async () => {
-            const events = [
-                { type: EventType.FullSnapshot, timestamp: 1000, data: {} },
-                { type: EventType.IncrementalSnapshot, timestamp: 2000, data: {} },
-            ]
-            const message = createMessage('window1', events)
             recorder.recordMessage(message)
 
             const stream = new PassThrough()
-            let streamData = ''
-            stream.on('data', (chunk) => {
-                streamData += chunk
-            })
+            const { stream: gzipStream, eventCount } = recorder.end()
+            gzipStream.pipe(stream)
+            const lines = await readGzippedStream(stream)
 
-            const result = await recorder.write(stream)
-            expect(streamData.endsWith('\n')).toBe(true)
-            expect(result.eventCount).toBe(2)
-            expect(result.bytesWritten).toBeGreaterThan(0)
+            expect(lines).toEqual([])
+            expect(eventCount).toBe(0)
         })
-
-        it('should handle backpressure', async () => {
-            const events = Array.from({ length: 100 }, (_, i) => ({
+        it('should handle large amounts of data', async () => {
+            const events = Array.from({ length: 10000 }, (_, i) => ({
                 type: EventType.Custom,
-                timestamp: i * 1000,
-                data: { large: 'x'.repeat(1000) }, // Create large events
+                timestamp: i * 100,
+                data: { value: 'x'.repeat(1000) },
             }))
-            const message = createMessage('window1', events)
-            recorder.recordMessage(message)
 
-            const stream = new PassThrough({ highWaterMark: 100 }) // Small buffer to trigger backpressure
-            let bytesWrittenBeforeDrain = 0
-            let drainOccurred = false
+            // Split events into 100 messages of 100 events each
+            for (let i = 0; i < events.length; i += 100) {
+                const messageEvents = events.slice(i, i + 100)
+                const message = createMessage('window1', messageEvents)
+                recorder.recordMessage(message)
+            }
 
-            stream.on('data', (chunk) => {
-                if (!drainOccurred) {
-                    bytesWrittenBeforeDrain += Buffer.byteLength(chunk)
-                }
-            })
+            const stream = new PassThrough()
+            const { stream: gzipStream, eventCount } = recorder.end()
+            gzipStream.pipe(stream)
+            const lines = await readGzippedStream(stream)
 
-            const writePromise = recorder.write(stream)
+            expect(lines.length).toBe(10000)
+            expect(eventCount).toBe(10000)
 
-            // Wait a tick to allow some data to be written
-            await new Promise((resolve) => process.nextTick(resolve))
-
-            // Verify that not all data was written before drain
-            expect(bytesWrittenBeforeDrain).toBeGreaterThan(0)
-            expect(bytesWrittenBeforeDrain).toBeLessThan(100000)
-
-            // Now let the stream drain
-            drainOccurred = true
-            stream.resume()
-
-            const result = await writePromise
-            expect(result.eventCount).toBe(100)
-            expect(result.bytesWritten).toBeGreaterThan(100000) // Should be large due to the event size
-            expect(result.bytesWritten).toBeGreaterThan(bytesWrittenBeforeDrain) // More data written after drain
+            // Verify first and last events
+            expect(lines[0]).toEqual(['window1', events[0]])
+            expect(lines[lines.length - 1]).toEqual(['window1', events[events.length - 1]])
         })
     })
 })

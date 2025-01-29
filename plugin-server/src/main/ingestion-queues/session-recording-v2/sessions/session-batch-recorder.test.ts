@@ -1,9 +1,11 @@
 import { PassThrough } from 'stream'
 
 import { KafkaOffsetManager } from '../kafka/offset-manager'
+import { ParsedMessageData } from '../kafka/types'
 import { MessageWithTeam } from '../teams/types'
 import { BlackholeSessionBatchWriter } from './blackhole-session-batch-writer'
 import { SessionBatchMetrics } from './metrics'
+import { EndResult, SessionRecorder } from './recorder'
 import { SessionBatchRecorder } from './session-batch-recorder'
 
 // RRWeb event type constants
@@ -30,6 +32,39 @@ interface MessageMetadata {
     rawSize?: number
 }
 
+export class SessionRecorderMock {
+    private chunks: string[] = []
+    private size: number = 0
+
+    public recordMessage(message: ParsedMessageData): number {
+        let bytesWritten = 0
+
+        Object.entries(message.eventsByWindowId).forEach(([windowId, events]) => {
+            events.forEach((event) => {
+                const serializedLine = JSON.stringify([windowId, event]) + '\n'
+                this.chunks.push(serializedLine)
+                bytesWritten += Buffer.byteLength(serializedLine)
+            })
+        })
+
+        this.size += bytesWritten
+        return bytesWritten
+    }
+
+    public end(): EndResult {
+        const stream = new PassThrough()
+        // Write all chunks to the stream and end it
+        for (const chunk of this.chunks) {
+            stream.write(chunk)
+        }
+        stream.end()
+        return {
+            stream,
+            eventCount: this.chunks.length,
+        }
+    }
+}
+
 jest.setTimeout(1000)
 
 jest.mock('./metrics', () => ({
@@ -42,6 +77,9 @@ jest.mock('./metrics', () => ({
 }))
 
 jest.mock('./blackhole-session-batch-writer')
+jest.mock('./recorder', () => ({
+    SessionRecorder: jest.fn().mockImplementation(() => new SessionRecorderMock()),
+}))
 
 describe('SessionBatchRecorder', () => {
     let recorder: SessionBatchRecorder
@@ -668,6 +706,48 @@ describe('SessionBatchRecorder', () => {
             expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenCalledTimes(3)
             expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenLastCalledWith(1) // Only the new session
             expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenLastCalledWith(1) // Only the new event
+        })
+    })
+
+    describe('error handling', () => {
+        it('should handle errors from session streams', async () => {
+            class ErrorStream extends PassThrough {
+                _read() {
+                    this.emit('error', new Error('Stream read error'))
+                }
+            }
+
+            const events = [
+                {
+                    type: EventType.FullSnapshot,
+                    timestamp: 1000,
+                    data: { source: 1, adds: [{ parentId: 1, nextId: 2, node: { tag: 'div' } }] },
+                },
+            ]
+
+            // Mock one of the recorders to return a stream that errors
+            const errorStream = new ErrorStream()
+
+            jest.mocked(SessionRecorder).mockImplementation(
+                () =>
+                    ({
+                        recordMessage: jest.fn().mockReturnValue(1),
+                        end: () => ({
+                            stream: errorStream,
+                            eventCount: 1,
+                        }),
+                    } as unknown as SessionRecorder)
+            )
+
+            recorder.record(createMessage('session', events))
+
+            const flushPromise = recorder.flush()
+
+            await expect(flushPromise).rejects.toThrow('Stream read error')
+
+            // Verify cleanup
+            expect(mockFinish).not.toHaveBeenCalled()
+            expect(mockOffsetManager.commit).not.toHaveBeenCalled()
         })
     })
 })

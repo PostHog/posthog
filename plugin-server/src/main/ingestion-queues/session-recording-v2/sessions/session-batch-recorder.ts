@@ -84,42 +84,66 @@ export class SessionBatchRecorder {
             totalSize: this._size,
         })
 
-        const { stream, finish } = await this.writer.open()
+        const { stream: outputStream, finish } = await this.writer.open()
 
         let totalEvents = 0
         let totalSessions = 0
         let totalBytes = 0
 
-        // Flush sessions grouped by partition
-        for (const sessions of this.partitionSessions.values()) {
-            for (const recorder of sessions.values()) {
-                const { eventCount, bytesWritten } = await recorder.write(stream)
-                totalEvents += eventCount
-                totalBytes += bytesWritten
+        try {
+            for (const sessions of this.partitionSessions.values()) {
+                for (const recorder of sessions.values()) {
+                    const { stream, eventCount } = recorder.end()
+
+                    const trackBytesWritten = new Promise<number>((resolve, reject) => {
+                        let bytesWritten = 0
+                        stream.on('data', (chunk) => {
+                            bytesWritten += chunk.length
+                        })
+                        stream.on('end', () => resolve(bytesWritten))
+                        stream.on('error', reject)
+                    })
+
+                    stream.pipe(outputStream, { end: false })
+                    const bytesWritten = await trackBytesWritten
+
+                    totalEvents += eventCount
+                    totalBytes += bytesWritten
+                }
+                totalSessions += sessions.size
             }
-            totalSessions += sessions.size
+
+            outputStream.end()
+            await finish()
+            await this.offsetManager.commit()
+
+            // Update metrics
+            SessionBatchMetrics.incrementBatchesFlushed()
+            SessionBatchMetrics.incrementSessionsFlushed(totalSessions)
+            SessionBatchMetrics.incrementEventsFlushed(totalEvents)
+            SessionBatchMetrics.incrementBytesWritten(totalBytes)
+
+            // Clear sessions, partition sizes, and total size after successful flush
+            this.partitionSessions.clear()
+            this.partitionSizes.clear()
+            this._size = 0
+
+            status.info('🔁', 'session_batch_recorder_flushed', {
+                totalEvents,
+                totalSessions,
+                totalBytes,
+            })
+        } catch (error) {
+            // Log error and cleanup
+            status.error('🔁', 'session_batch_recorder_flush_error', {
+                error,
+                totalEvents,
+                totalSessions,
+                totalBytes,
+            })
+            outputStream.destroy()
+            throw error
         }
-
-        stream.end()
-        await finish()
-        await this.offsetManager.commit()
-
-        // Update metrics
-        SessionBatchMetrics.incrementBatchesFlushed()
-        SessionBatchMetrics.incrementSessionsFlushed(totalSessions)
-        SessionBatchMetrics.incrementEventsFlushed(totalEvents)
-        SessionBatchMetrics.incrementBytesWritten(totalBytes)
-
-        // Clear sessions, partition sizes, and total size after successful flush
-        this.partitionSessions.clear()
-        this.partitionSizes.clear()
-        this._size = 0
-
-        status.info('🔁', 'session_batch_recorder_flushed', {
-            totalEvents,
-            totalSessions,
-            totalBytes,
-        })
     }
 
     public get size(): number {
