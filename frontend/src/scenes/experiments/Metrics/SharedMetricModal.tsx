@@ -1,4 +1,4 @@
-import { LemonBanner, LemonButton, LemonLabel, LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonLabel, LemonModal, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -138,8 +138,10 @@ export function SharedMetricModal({
                                 <div className="flex flex-wrap gap-2">
                                     <LemonLabel>Quick select:</LemonLabel>
                                     {availableTags.map((tag: string, index: number) => (
-                                        <LemonTag
+                                        <LemonButton
                                             key={index}
+                                            size="xsmall"
+                                            type="secondary"
                                             onClick={() => {
                                                 setSelectedMetricIds(
                                                     availableSharedMetrics
@@ -149,7 +151,7 @@ export function SharedMetricModal({
                                             }}
                                         >
                                             {tag}
-                                        </LemonTag>
+                                        </LemonButton>
                                     ))}
                                 </div>
                             )}
