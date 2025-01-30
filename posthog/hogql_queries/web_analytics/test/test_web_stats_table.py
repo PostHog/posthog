@@ -24,10 +24,14 @@ from posthog.test.base import (
     _create_event,
     _create_person,
     flush_persons_and_events,
+    snapshot_clickhouse_queries,
 )
 
 
+@snapshot_clickhouse_queries
 class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
+    QUERY_TIMESTAMP = "2025-01-29"
+
     def _create_events(self, data, event="$pageview"):
         person_result = []
         for id, timestamps in data:
@@ -136,35 +140,36 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         filter_test_accounts: Optional[bool] = False,
         bounce_rate_mode: Optional[BounceRatePageViewMode] = BounceRatePageViewMode.COUNT_PAGEVIEWS,
     ):
-        modifiers = HogQLQueryModifiers(
-            sessionTableVersion=session_table_version, bounceRatePageViewMode=bounce_rate_mode
-        )
-        query = WebStatsTableQuery(
-            dateRange=DateRange(date_from=date_from, date_to=date_to),
-            properties=properties or [],
-            breakdownBy=breakdown_by,
-            limit=limit,
-            doPathCleaning=bool(path_cleaning_filters),
-            includeBounceRate=include_bounce_rate,
-            includeScrollDepth=include_scroll_depth,
-            compareFilter=compare_filter,
-            conversionGoal=ActionConversionGoal(actionId=action.id)
-            if action
-            else CustomEventConversionGoal(customEventName=custom_event)
-            if custom_event
-            else None,
-            filterTestAccounts=filter_test_accounts,
-        )
-        self.team.path_cleaning_filters = path_cleaning_filters or []
-        runner = WebStatsTableQueryRunner(team=self.team, query=query, modifiers=modifiers)
-        return runner.calculate()
+        with freeze_time(self.QUERY_TIMESTAMP):
+            modifiers = HogQLQueryModifiers(
+                sessionTableVersion=session_table_version, bounceRatePageViewMode=bounce_rate_mode
+            )
+            query = WebStatsTableQuery(
+                dateRange=DateRange(date_from=date_from, date_to=date_to),
+                properties=properties or [],
+                breakdownBy=breakdown_by,
+                limit=limit,
+                doPathCleaning=bool(path_cleaning_filters),
+                includeBounceRate=include_bounce_rate,
+                includeScrollDepth=include_scroll_depth,
+                compareFilter=compare_filter,
+                conversionGoal=ActionConversionGoal(actionId=action.id)
+                if action
+                else CustomEventConversionGoal(customEventName=custom_event)
+                if custom_event
+                else None,
+                filterTestAccounts=filter_test_accounts,
+            )
+            self.team.path_cleaning_filters = path_cleaning_filters or []
+            runner = WebStatsTableQueryRunner(team=self.team, query=query, modifiers=modifiers)
+            return runner.calculate()
 
     def test_no_crash_when_no_data(self):
         results = self._run_web_stats_table_query(
             "2023-12-08",
             "2023-12-15",
         ).results
-        self.assertEqual([], results)
+        assert [] == results
 
     def test_increase_in_users(self):
         s1a = str(uuid7("2023-12-02"))
@@ -179,13 +184,10 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         results = self._run_web_stats_table_query("2023-12-01", "2023-12-11").results
 
-        self.assertEqual(
-            [
-                ["/", (2, None), (2, None)],
-                ["/login", (1, None), (1, None)],
-            ],
-            results,
-        )
+        assert [
+            ["/", (2, None), (2, None), ""],
+            ["/login", (1, None), (1, None), ""],
+        ] == results
 
     def test_increase_in_users_on_mobile(self):
         s1a = str(uuid7("2023-12-02"))
@@ -203,13 +205,10 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2023-12-01", "2023-12-11", breakdown_by=WebStatsBreakdown.SCREEN_NAME
         ).results
 
-        self.assertEqual(
-            [
-                ["Home", (2, None), (2, None)],
-                ["Login", (1, None), (1, None)],
-            ],
-            results,
-        )
+        assert [
+            ["Home", (2, None), (2, None), ""],
+            ["Login", (1, None), (1, None), ""],
+        ] == results
 
     def test_all_time(self):
         s1a = str(uuid7("2023-12-02"))
@@ -224,14 +223,11 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         results = self._run_web_stats_table_query("all", "2023-12-15").results
 
-        self.assertEqual(
-            [
-                ["/", (2, None), (2, None)],
-                ["/docs", (1, None), (1, None)],
-                ["/login", (1, None), (1, None)],
-            ],
-            results,
-        )
+        assert [
+            ["/", (2, None), (2, None), ""],
+            ["/docs", (1, None), (1, None), ""],
+            ["/login", (1, None), (1, None), ""],
+        ] == results
 
     def test_comparison(self):
         s1a = str(uuid7("2023-12-02"))
@@ -248,14 +244,11 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2023-12-06", "2023-12-13", compare_filter=CompareFilter(compare=True)
         ).results
 
-        self.assertEqual(
-            [
-                ["/", (1, 1), (1, 1)],
-                ["/docs", (1, 0), (1, 0)],
-                ["/login", (0, 1), (0, 1)],
-            ],
-            results,
-        )
+        assert [
+            ["/", (1, 1), (1, 1), ""],
+            ["/docs", (1, 0), (1, 0), ""],
+            ["/login", (0, 1), (0, 1), ""],
+        ] == results
 
     def test_filter_test_accounts(self):
         s1 = str(uuid7("2023-12-02"))
@@ -264,10 +257,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         results = self._run_web_stats_table_query("2023-12-01", "2023-12-03", filter_test_accounts=True).results
 
-        self.assertEqual(
-            [],
-            results,
-        )
+        assert [] == results
 
     def test_dont_filter_test_accounts(self):
         s1 = str(uuid7("2023-12-02"))
@@ -276,10 +266,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         results = self._run_web_stats_table_query("2023-12-01", "2023-12-03", filter_test_accounts=False).results
 
-        self.assertEqual(
-            [["/", (1, None), (1, None)], ["/login", (1, None), (1, None)]],
-            results,
-        )
+        assert [["/", (1.0, None), (1.0, None), ""], ["/login", (1.0, None), (1.0, None), ""]] == results
 
     def test_breakdown_channel_type_doesnt_throw(self):
         s1a = str(uuid7("2023-12-02"))
@@ -299,10 +286,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             breakdown_by=WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
         ).results
 
-        self.assertEqual(
-            1,
-            len(results),
-        )
+        assert 1 == len(results)
 
     def test_limit(self):
         s1 = str(uuid7("2023-12-02"))
@@ -315,23 +299,17 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         response_1 = self._run_web_stats_table_query("all", "2023-12-15", limit=1)
-        self.assertEqual(
-            [
-                ["/", (2, None), (2, None)],
-            ],
-            response_1.results,
-        )
-        self.assertEqual(True, response_1.hasMore)
+        assert [
+            ["/", (2, None), (2, None), ""],
+        ] == response_1.results
+        assert response_1.hasMore is True
 
         response_2 = self._run_web_stats_table_query("all", "2023-12-15", limit=2)
-        self.assertEqual(
-            [
-                ["/", (2, None), (2, None)],
-                ["/login", (1, None), (1, None)],
-            ],
-            response_2.results,
-        )
-        self.assertEqual(False, response_2.hasMore)
+        assert [
+            ["/", (2, None), (2, None), ""],
+            ["/login", (1, None), (1, None), ""],
+        ] == response_2.results
+        assert response_2.hasMore is False
 
     def test_path_filters(self):
         s1 = str(uuid7("2023-12-02"))
@@ -360,15 +338,12 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
         ).results
 
-        self.assertEqual(
-            [
-                ["/cleaned/:id", (2, None), (2, None)],
-                ["/cleaned/:id/path/:id", (1, None), (1, None)],
-                ["/not-cleaned", (1, None), (1, None)],
-                ["/thing_c", (1, None), (1, None)],
-            ],
-            results,
-        )
+        assert [
+            ["/cleaned/:id", (2, None), (2, None), ""],
+            ["/cleaned/:id/path/:id", (1, None), (1, None), ""],
+            ["/not-cleaned", (1, None), (1, None), ""],
+            ["/thing_c", (1, None), (1, None), ""],
+        ] == results
 
     def test_scroll_depth_bounce_rate_one_user(self):
         self._create_pageviews(
@@ -388,14 +363,11 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             include_bounce_rate=True,
         ).results
 
-        self.assertEqual(
-            [
-                ["/a", (1, 0), (1, 0), (0, None), (0.1, None), (0, None)],
-                ["/b", (1, 0), (1, 0), (None, None), (0.2, None), (0, None)],
-                ["/c", (1, 0), (1, 0), (None, None), (0.9, None), (1, None)],
-            ],
-            results,
-        )
+        assert [
+            ["/a", (1, 0), (1, 0), (0, None), (0.1, None), (0, None), ""],
+            ["/b", (1, 0), (1, 0), (None, None), (0.2, None), (0, None), ""],
+            ["/c", (1, 0), (1, 0), (None, None), (0.9, None), (1, None), ""],
+        ] == results
 
     def test_scroll_depth_bounce_rate(self):
         self._create_pageviews(
@@ -430,14 +402,11 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             include_bounce_rate=True,
         ).results
 
-        self.assertEqual(
-            [
-                ["/a", (3, 0), (4, 0), (1 / 3, None), (0.5, None), (0.5, None)],
-                ["/b", (2, 0), (2, 0), (None, None), (0.2, None), (0, None)],
-                ["/c", (2, 0), (2, 0), (None, None), (0.9, None), (1, None)],
-            ],
-            results,
-        )
+        assert [
+            ["/a", (3, 0), (4, 0), (1 / 3, None), (0.5, None), (0.5, None), ""],
+            ["/b", (2, 0), (2, 0), (None, None), (0.2, None), (0, None), ""],
+            ["/c", (2, 0), (2, 0), (None, None), (0.9, None), (1, None), ""],
+        ] == results
 
     def test_scroll_depth_bounce_rate_with_filter(self):
         self._create_pageviews(
@@ -473,12 +442,9 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             properties=[EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value="/a")],
         ).results
 
-        self.assertEqual(
-            [
-                ["/a", (3, 0), (4, 0), (1 / 3, None), (0.5, None), (0.5, None)],
-            ],
-            results,
-        )
+        assert [
+            ["/a", (3, 0), (4, 0), (1 / 3, None), (0.5, None), (0.5, None), ""],
+        ] == results
 
     def test_scroll_depth_bounce_rate_path_cleaning(self):
         self._create_pageviews(
@@ -503,14 +469,11 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
         ).results
 
-        self.assertEqual(
-            [
-                ["/a/:id", (1, 0), (1, 0), (0, None), (0.1, None), (0, None)],
-                ["/b/:id", (1, 0), (1, 0), (None, None), (0.2, None), (0, None)],
-                ["/c/:id", (1, 0), (1, 0), (None, None), (0.9, None), (1, None)],
-            ],
-            results,
-        )
+        assert [
+            ["/a/:id", (1, 0), (1, 0), (0, None), (0.1, None), (0, None), ""],
+            ["/b/:id", (1, 0), (1, 0), (None, None), (0.2, None), (0, None), ""],
+            ["/c/:id", (1, 0), (1, 0), (None, None), (0.9, None), (1, None), ""],
+        ] == results
 
     def test_bounce_rate_one_user(self):
         self._create_pageviews(
@@ -529,14 +492,11 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             include_bounce_rate=True,
         ).results
 
-        self.assertEqual(
-            [
-                ["/a", (1, 0), (1, 0), (0, None)],
-                ["/b", (1, 0), (1, 0), (None, None)],
-                ["/c", (1, 0), (1, 0), (None, None)],
-            ],
-            results,
-        )
+        assert [
+            ["/a", (1, 0), (1, 0), (0, None), ""],
+            ["/b", (1, 0), (1, 0), (None, None), ""],
+            ["/c", (1, 0), (1, 0), (None, None), ""],
+        ] == results
 
     def test_bounce_rate(self):
         self._create_pageviews(
@@ -570,14 +530,11 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             include_bounce_rate=True,
         ).results
 
-        self.assertEqual(
-            [
-                ["/a", (3, 0), (4, 0), (1 / 3, None)],
-                ["/b", (2, 0), (2, 0), (None, None)],
-                ["/c", (2, 0), (2, 0), (None, None)],
-            ],
-            results,
-        )
+        assert [
+            ["/a", (3, 0), (4, 0), (1 / 3, None), ""],
+            ["/b", (2, 0), (2, 0), (None, None), ""],
+            ["/c", (2, 0), (2, 0), (None, None), ""],
+        ] == results
 
     def test_bounce_rate_with_property(self):
         self._create_pageviews(
@@ -612,12 +569,9 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             properties=[EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value="/a")],
         ).results
 
-        self.assertEqual(
-            [
-                ["/a", (3, 0), (4, 0), (1 / 3, None)],
-            ],
-            results,
-        )
+        assert [
+            ["/a", (3, 0), (4, 0), (1 / 3, None), ""],
+        ] == results
 
     def test_bounce_rate_path_cleaning(self):
         self._create_pageviews(
@@ -641,14 +595,11 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
         ).results
 
-        self.assertEqual(
-            [
-                ["/a/:id", (1, 0), (1, 0), (0, None)],
-                ["/b/:id", (1, 0), (1, 0), (None, None)],
-                ["/c/:id", (1, 0), (1, 0), (None, None)],
-            ],
-            results,
-        )
+        assert [
+            ["/a/:id", (1, 0), (1, 0), (0, None), ""],
+            ["/b/:id", (1, 0), (1, 0), (None, None), ""],
+            ["/c/:id", (1, 0), (1, 0), (None, None), ""],
+        ] == results
 
     def test_entry_bounce_rate_one_user(self):
         self._create_pageviews(
@@ -667,12 +618,9 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             include_bounce_rate=True,
         ).results
 
-        self.assertEqual(
-            [
-                ["/a", (1, None), (3, None), (0, None)],
-            ],
-            results,
-        )
+        assert [
+            ["/a", (1, None), (3, None), (0, None), ""],
+        ] == results
 
     def test_entry_bounce_rate(self):
         self._create_pageviews(
@@ -706,12 +654,9 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             include_bounce_rate=True,
         ).results
 
-        self.assertEqual(
-            [
-                ["/a", (3, None), (8, None), (1 / 3, None)],
-            ],
-            results,
-        )
+        assert [
+            ["/a", (3, None), (8, None), (1 / 3, None), ""],
+        ] == results
 
     def test_entry_bounce_rate_with_property(self):
         self._create_pageviews(
@@ -746,12 +691,9 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             properties=[EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value="/a")],
         ).results
 
-        self.assertEqual(
-            [
-                ["/a", (3, None), (4, None), (1 / 3, None)],
-            ],
-            results,
-        )
+        assert [
+            ["/a", (3, None), (4, None), (1 / 3, None), ""],
+        ] == results
 
     def test_entry_bounce_rate_path_cleaning(self):
         self._create_pageviews(
@@ -775,12 +717,9 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
         ).results
 
-        self.assertEqual(
-            [
-                ["/a/:id", (1, None), (3, None), (0, None)],
-            ],
-            results,
-        )
+        assert [
+            ["/a/:id", (1, None), (3, None), (0, None), ""],
+        ] == results
 
     def test_source_medium_campaign(self):
         d1 = "d1"
@@ -824,13 +763,10 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             breakdown_by=WebStatsBreakdown.INITIAL_UTM_SOURCE_MEDIUM_CAMPAIGN,
         ).results
 
-        self.assertEqual(
-            [
-                ["google / (none) / (none)", (1, None), (1, None)],
-                ["news.ycombinator.com / referral / (none)", (1, None), (1, None)],
-            ],
-            results,
-        )
+        assert [
+            ["google / (none) / (none)", (1, None), (1, None), ""],
+            ["news.ycombinator.com / referral / (none)", (1, None), (1, None), ""],
+        ] == results
 
     def test_null_in_utm_tags(self):
         d1 = "d1"
@@ -876,10 +812,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             breakdown_by=WebStatsBreakdown.INITIAL_UTM_SOURCE,
         ).results
 
-        self.assertEqual(
-            [["google", (1, None), (1, None)], [None, (1, None), (1, None)]],
-            results,
-        )
+        assert [["google", (1, None), (1, None), ""], [None, (1, None), (1, None), ""]] == results
 
     def test_is_not_set_filter(self):
         d1 = "d1"
@@ -926,10 +859,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             properties=[EventPropertyFilter(key="utm_source", operator=PropertyOperator.IS_NOT_SET)],
         ).results
 
-        self.assertEqual(
-            [[None, (1, None), (1, None)]],
-            results,
-        )
+        assert [[None, (1, None), (1, None), ""]] == results
 
     def test_same_user_multiple_sessions(self):
         d1 = "d1"
@@ -963,7 +893,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2024-07-31",
             breakdown_by=WebStatsBreakdown.INITIAL_UTM_SOURCE,
         ).results
-        assert [["google", (1, None), (2, None)]] == results_session
+        assert [["google", (1, None), (2, None), ""]] == results_session
 
         # Try this with a query that uses event properties
         results_event = self._run_web_stats_table_query(
@@ -971,13 +901,13 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2024-07-31",
             breakdown_by=WebStatsBreakdown.PAGE,
         ).results
-        assert [["/path", (1, None), (2, None)]] == results_event
+        assert [["/path", (1, None), (2, None), ""]] == results_event
 
         # Try this with a query using the bounce rate
         results_event = self._run_web_stats_table_query(
             "all", "2024-07-31", breakdown_by=WebStatsBreakdown.PAGE, include_bounce_rate=True
         ).results
-        assert [["/path", (1, 0), (2, 0), (None, None)]] == results_event
+        assert [["/path", (1, 0), (2, 0), (None, None), ""]] == results_event
 
         # Try this with a query using the scroll depth
         results_event = self._run_web_stats_table_query(
@@ -987,7 +917,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             include_bounce_rate=True,
             include_scroll_depth=True,
         ).results
-        assert [["/path", (1, 0), (2, 0), (None, None), (None, None), (None, None)]] == results_event
+        assert [["/path", (1, 0), (2, 0), (None, None), (None, None), (None, None), ""]] == results_event
 
     def test_no_session_id(self):
         d1 = "d1"
@@ -1027,7 +957,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             breakdown_by=WebStatsBreakdown.PAGE,
         ).results
 
-        assert [["/path", (1, None), (1, None)]] == results
+        assert [["/path", (1, None), (1, None), ""]] == results
 
     def test_cohort_test_filters(self):
         d1 = "d1"
@@ -1089,7 +1019,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             breakdown_by=WebStatsBreakdown.PAGE,
         ).results
 
-        assert results == [["/path1", (1, None), (1, None)]]
+        assert results == [["/path1", (1, None), (1, None), ""]]
 
     def test_language_filter(self):
         d1, s1 = "d1", str(uuid7("2024-07-30"))
@@ -1215,10 +1145,10 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # Brasilia UTC-3, New York UTC-4, Calcutta UTC+5:30, UTC
         assert results == [
-            [-3, (1, None), (4, None)],
-            [-4, (1, None), (3, None)],
-            [5.5, (1, None), (2, None)],
-            [0, (1, None), (1, None)],
+            [-3, (1, None), (4, None), ""],
+            [-4, (1, None), (3, None), ""],
+            [5.5, (1, None), (2, None), ""],
+            [0, (1, None), (1, None), ""],
         ]
 
     def test_timezone_filter_dst_change(self):
@@ -1248,7 +1178,10 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ).results
 
         # Change from UTC-2 to UTC-3 in the middle of the night
-        assert results == [[-3, (1, None), (4, None)], [-2, (1, None), (2, None)]]
+        assert results == [
+            [-3.0, (1.0, None), (4.0, None), ""],
+            [-2.0, (1.0, None), (2.0, None), ""],
+        ]
 
     def test_timezone_filter_with_invalid_timezone(self):
         date = "2024-07-30"
@@ -1354,13 +1287,14 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2023-12-01", "2023-12-03", breakdown_by=WebStatsBreakdown.PAGE, action=action
         )
 
-        assert [["https://www.example.com/foo", (1, None), (0, None), (0, None), (0, None)]] == response.results
+        assert [["https://www.example.com/foo", (1, None), (0, None), (0, None), (0, None), ""]] == response.results
         assert [
             "context.columns.breakdown_value",
             "context.columns.visitors",
             "context.columns.total_conversions",
             "context.columns.unique_conversions",
             "context.columns.conversion_rate",
+            "context.columns.replay_url",
         ] == response.columns
 
     def test_conversion_goal_one_pageview_conversion(self):
@@ -1391,13 +1325,14 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2023-12-01", "2023-12-03", breakdown_by=WebStatsBreakdown.PAGE, action=action
         )
 
-        assert [["https://www.example.com/foo", (1, None), (1, None), (1, None), (1, None)]] == response.results
+        assert [["https://www.example.com/foo", (1, None), (1, None), (1, None), (1, None), ""]] == response.results
         assert [
             "context.columns.breakdown_value",
             "context.columns.visitors",
             "context.columns.total_conversions",
             "context.columns.unique_conversions",
             "context.columns.conversion_rate",
+            "context.columns.replay_url",
         ] == response.columns
 
     def test_conversion_goal_one_custom_event_conversion(self):
@@ -1416,13 +1351,14 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             custom_event="custom_event",
         )
 
-        assert [[None, (1, None), (1, None), (1, None), (1, None)]] == response.results
+        assert [[None, (1, None), (1, None), (1, None), (1, None), ""]] == response.results
         assert [
             "context.columns.breakdown_value",
             "context.columns.visitors",
             "context.columns.total_conversions",
             "context.columns.unique_conversions",
             "context.columns.conversion_rate",
+            "context.columns.replay_url",
         ] == response.columns
 
     def test_conversion_goal_one_custom_action_conversion(self):
@@ -1451,13 +1387,14 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             action=action,
         )
 
-        assert [[None, (1, None), (1, None), (1, None), (1, None)]] == response.results
+        assert [[None, (1, None), (1, None), (1, None), (1, None), ""]] == response.results
         assert [
             "context.columns.breakdown_value",
             "context.columns.visitors",
             "context.columns.total_conversions",
             "context.columns.unique_conversions",
             "context.columns.conversion_rate",
+            "context.columns.replay_url",
         ] == response.columns
 
     def test_conversion_goal_one_autocapture_conversion(self):
@@ -1488,13 +1425,14 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             action=action,
         )
 
-        assert [[None, (1, None), (1, None), (1, None), (1, None)]] == response.results
+        assert [[None, (1, None), (1, None), (1, None), (1, None), ""]] == response.results
         assert [
             "context.columns.breakdown_value",
             "context.columns.visitors",
             "context.columns.total_conversions",
             "context.columns.unique_conversions",
             "context.columns.conversion_rate",
+            "context.columns.replay_url",
         ] == response.columns
 
     def test_conversion_rate(self):
@@ -1539,8 +1477,8 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert [
-            ["https://www.example.com/foo", (2, None), (3, None), (2, None), (1, None)],
-            ["https://www.example.com/bar", (2, None), (0, None), (0, None), (0, None)],
+            ["https://www.example.com/foo", (2, None), (3, None), (2, None), (1, None), ""],
+            ["https://www.example.com/bar", (2, None), (0, None), (0, None), (0, None), ""],
         ] == response.results
         assert [
             "context.columns.breakdown_value",
@@ -1548,4 +1486,5 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "context.columns.total_conversions",
             "context.columns.unique_conversions",
             "context.columns.conversion_rate",
+            "context.columns.replay_url",
         ] == response.columns

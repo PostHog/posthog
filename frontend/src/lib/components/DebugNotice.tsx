@@ -38,7 +38,7 @@ export function DebugNotice(): JSX.Element | null {
         return (
             <NavbarButton
                 identifier="debug-notice"
-                icon={<IconBranch className="text-primary" />}
+                icon={<IconBranch className="text-accent-primary" />}
                 title={
                     <div className="font-mono">
                         <div>

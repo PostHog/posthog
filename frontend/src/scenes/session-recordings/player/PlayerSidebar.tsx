@@ -11,8 +11,6 @@ import { useRef } from 'react'
 
 import { SessionRecordingSidebarStacking, SessionRecordingSidebarTab } from '~/types'
 
-import { TabToIcon } from './inspector/PlayerInspectorControls'
-import { PlayerPersonMeta } from './PlayerPersonMeta'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { playerSidebarLogic } from './sidebar/playerSidebarLogic'
 import { PlayerSidebarTab } from './sidebar/PlayerSidebarTab'
@@ -67,7 +65,7 @@ export function PlayerSidebar(): JSX.Element {
                 containerRef={ref}
                 closeThreshold={100}
             />
-            {sidebarOpen ? (
+            {sidebarOpen && (
                 <>
                     <div className="flex bg-bg-light">
                         <div className="w-2.5 border-b shrink-0" />
@@ -105,23 +103,6 @@ export function PlayerSidebar(): JSX.Element {
                     </div>
                     <PlayerSidebarTab />
                 </>
-            ) : (
-                <div className="flex flex-col items-center gap-1 px-1 pt-2">
-                    <PlayerPersonMeta />
-                    {Object.values(TabToIcon).map((Icon, idx) => {
-                        return Icon ? (
-                            <LemonButton
-                                key={idx}
-                                size="small"
-                                icon={<Icon />}
-                                onClick={() => {
-                                    setSidebarOpen(true)
-                                    setTab(SessionRecordingSidebarTab.INSPECTOR)
-                                }}
-                            />
-                        ) : null
-                    })}
-                </div>
             )}
         </div>
     )

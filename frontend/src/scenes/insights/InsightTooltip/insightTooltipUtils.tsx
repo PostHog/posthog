@@ -41,6 +41,7 @@ export interface TooltipConfig {
     renderCount?: (value: number) => React.ReactNode
     showHeader?: boolean
     hideColorCol?: boolean
+    groupTypeLabel?: string
 }
 
 export interface InsightTooltipProps extends Omit<TooltipConfig, 'renderSeries' | 'renderCount'> {

@@ -162,7 +162,18 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query,
     )
     # replace explicit timestamps in cohort queries
-    query = re.sub(r"timestamp > '20\d\d-\d\d-\d\d \d\d:\d\d:\d\d'", r"timestamp > 'explicit_timestamp'", query)
+    query = re.sub(
+        r"timestamp > '20\d\d-\d\d-\d\d \d\d:\d\d:\d\d'", r"timestamp > 'explicit_redacted_timestamp'", query
+    )
+    # and where the HogQL doesn't match the above
+    # KLUDGE we tend not to replace dates in tests so trying to avoid replacing every date here
+    if "equals(argMax(person_distinct_id_overrides.is_deleted" in query or "INSERT INTO cohortpeople" in query:
+        # those tests have multiple varying dates like toDateTime64('2025-01-08 00:00:00.000000', 6, 'UTC')
+        query = re.sub(
+            r"toDateTime64\('20\d\d-\d\d-\d\d \d\d:\d\d:\d\d(.\d+)', 6, 'UTC'\)",
+            r"toDateTime64('explicit_redacted_timestamp\1', 6, 'UTC')",
+            query,
+        )
     # replace cohort generated conditions
     query = re.sub(
         r"_condition_\d+_level",
@@ -498,7 +509,7 @@ class MemoryLeakTestMixin:
         self.assertLessEqual(
             avg_memory_increase_factor,
             self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT,
-            f"Possible memory leak - exceeded {self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT*100:.2f}% limit of incremental memory per parse",
+            f"Possible memory leak - exceeded {self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT * 100:.2f}% limit of incremental memory per parse",
         )
 
 
@@ -760,9 +771,9 @@ class BaseTestMigrations(QueryMatchingTest):
     assert_snapshots = False
 
     def setUp(self):
-        assert hasattr(self, "migrate_from") and hasattr(
-            self, "migrate_to"
-        ), "TestCase '{}' must define migrate_from and migrate_to properties".format(type(self).__name__)
+        assert hasattr(self, "migrate_from") and hasattr(self, "migrate_to"), (
+            "TestCase '{}' must define migrate_from and migrate_to properties".format(type(self).__name__)
+        )
         migrate_from = [(self.app, self.migrate_from)]
         migrate_to = [(self.app, self.migrate_to)]
         executor = MigrationExecutor(connection)
@@ -1112,7 +1123,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
         )
 
 
-def snapshot_clickhouse_queries(fn):
+def snapshot_clickhouse_queries(fn_or_class):
     """
     Captures and snapshots SELECT queries from test using `syrupy` library.
 
@@ -1122,10 +1133,18 @@ def snapshot_clickhouse_queries(fn):
     Update snapshots via --snapshot-update.
     """
 
-    @wraps(fn)
+    # check if fn_or_class is a class
+    if inspect.isclass(fn_or_class):
+        # wrap every class method that starts with test_ with this decorator
+        for attr in dir(fn_or_class):
+            if callable(getattr(fn_or_class, attr)) and attr.startswith("test_"):
+                setattr(fn_or_class, attr, snapshot_clickhouse_queries(getattr(fn_or_class, attr)))
+        return fn_or_class
+
+    @wraps(fn_or_class)
     def wrapped(self, *args, **kwargs):
         with self.capture_select_queries() as queries:
-            fn(self, *args, **kwargs)
+            fn_or_class(self, *args, **kwargs)
 
         for query in queries:
             if "FROM system.columns" not in query:

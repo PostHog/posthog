@@ -463,6 +463,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitHogqlxChildElement(HogQLParser::HogqlxChildElementContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitHogqlxTagElementClosed(HogQLParser::HogqlxTagElementClosedContext *ctx) override {
     return visitChildren(ctx);
   }

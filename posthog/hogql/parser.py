@@ -1134,6 +1134,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitColumnExprCallSelect(self, ctx: HogQLParser.ColumnExprCallSelectContext):
         return ast.Call(name=self.visit(ctx.identifier()), args=[self.visit(ctx.selectSetStmt())])
 
+    def visitHogqlxChildElement(self, ctx: HogQLParser.HogqlxChildElementContext):
+        return self.visit(ctx.hogqlxTagElement() or ctx.columnExpr())
+
     def visitHogqlxTagElementClosed(self, ctx: HogQLParser.HogqlxTagElementClosedContext):
         kind = self.visit(ctx.identifier())
         attributes = [self.visit(a) for a in ctx.hogqlxTagAttribute()] if ctx.hogqlxTagAttribute() else []
@@ -1146,18 +1149,15 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             raise SyntaxError(f"Opening and closing HogQLX tags must match. Got {opening} and {closing}")
 
         attributes = [self.visit(a) for a in ctx.hogqlxTagAttribute()] if ctx.hogqlxTagAttribute() else []
-        if ctx.hogqlxTagElement():
-            source = self.visit(ctx.hogqlxTagElement())
+
+        if ctx.hogqlxChildElement():
             for a in attributes:
-                if a.name == "source":
-                    raise SyntaxError(f"Nested HogQLX tags cannot have a source attribute")
-            attributes.append(ast.HogQLXAttribute(name="source", value=source))
-        if ctx.columnExpr():
-            source = self.visit(ctx.columnExpr())
-            for a in attributes:
-                if a.name == "source":
-                    raise SyntaxError(f"Nested HogQLX tags cannot have a source attribute")
-            attributes.append(ast.HogQLXAttribute(name="source", value=source))
+                if a.name == "children":
+                    raise SyntaxError("Can't have a HogQLX tag with both children and a 'children' attribute")
+            children = []
+            for element in ctx.hogqlxChildElement():
+                children.append(self.visit(element))
+            attributes.append(ast.HogQLXAttribute(name="children", value=children))
         return ast.HogQLXTag(kind=opening, attributes=attributes)
 
     def visitHogqlxTagAttribute(self, ctx: HogQLParser.HogqlxTagAttributeContext):

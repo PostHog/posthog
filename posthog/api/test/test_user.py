@@ -847,6 +847,11 @@ class TestUserAPI(APIBaseTest):
             response = self.client.patch("/api/users/@me/", {"current_password": "wrong", "password": "12345678"})
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
+    def test_no_ratelimit_for_updates_that_are_not_password_changes(self):
+        for _ in range(10):
+            response = self.client.patch("/api/users/@me/", {"organization_name": "new name"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     # DELETING USER
 
     def test_deleting_current_user_is_not_supported(self):
@@ -944,9 +949,9 @@ class TestUserAPI(APIBaseTest):
 
         for field, value in fields.items():
             response = self.client.patch("/api/users/@me/", {field: value})
-            assert (
-                response.json()[field] == initial_user[field]
-            ), f"Updating field '{field}' to '{value}' worked when it shouldn't! Was {initial_user[field]} and is now {response.json()[field]}"
+            assert response.json()[field] == initial_user[field], (
+                f"Updating field '{field}' to '{value}' worked when it shouldn't! Was {initial_user[field]} and is now {response.json()[field]}"
+            )
 
     def test_can_update_notification_settings(self):
         response = self.client.patch(
