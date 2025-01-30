@@ -2,12 +2,12 @@ import { LemonButton, LemonDialog, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconCancel } from 'lib/lemon-ui/icons'
+import { IconCancel, IconRefresh } from 'lib/lemon-ui/icons'
 
 import { BatchExportBackfillModal } from './BatchExportBackfillModal'
 import { pipelineAccessLogic } from './pipelineAccessLogic'
 import { batchExportBackfillsLogic, BatchExportBackfillsLogicProps } from './batchExportBackfillsLogic'
-import { BatchExportConfiguration, BatchExportBackfill, BatchExportRun } from '~/types'
+import { BatchExportBackfill } from '~/types'
 
 export function BatchExportBackfills({ id }: BatchExportBackfillsLogicProps): JSX.Element {
     const logic = batchExportBackfillsLogic({ id })
@@ -25,10 +25,25 @@ export function BatchExportBackfills({ id }: BatchExportBackfillsLogicProps): JS
                 }
             />
             <div className="space-y-2">
+                <BatchExportBackfillsControls id={id} />
                 <BatchExportLatestBackfills id={id} />
             </div>
             <BatchExportBackfillModal id={id} />
         </>
+    )
+}
+
+function BatchExportBackfillsControls({ id }: BatchExportBackfillsLogicProps): JSX.Element {
+    const logic = batchExportBackfillsLogic({ id })
+    const { loading } = useValues(logic)
+    const { loadBackfills } = useActions(logic)
+
+    return (
+        <div className="flex items-center gap-2">
+            <LemonButton onClick={loadBackfills} loading={loading} type="secondary" icon={<IconRefresh />} size="small">
+                Refresh
+            </LemonButton>
+        </div>
     )
 }
 
@@ -70,11 +85,6 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                                 </span>
                             )
                         },
-                    },
-                    {
-                        title: 'Progress',
-                        key: 'progress',
-                        render: (_, backfill) => <div>TODO</div>,
                     },
                     {
                         title: 'ID',

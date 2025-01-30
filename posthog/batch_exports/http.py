@@ -560,7 +560,7 @@ class BatchExportBackfillSerializer(serializers.ModelSerializer):
 
 
 class BackfillsCursorPagination(CursorPagination):
-    page_size = 100
+    page_size = 50
 
 
 class BatchExportBackfillViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
