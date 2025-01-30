@@ -238,7 +238,7 @@ def _expr_to_compare_op(
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
             left=apply_path_cleaning(expr, team),
-            right=ast.Constant(value=_handle_bool_values(value, expr, property, team)),
+            right=apply_path_cleaning(ast.Constant(value=value), team),
         )
     else:
         raise NotImplementedError(f"PropertyOperator {operator} not implemented")
