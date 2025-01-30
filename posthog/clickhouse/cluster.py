@@ -107,6 +107,10 @@ class ClickhouseCluster:
         self.__logger = logger
         self.__client_settings = client_settings
 
+    @property
+    def shards(self) -> list[int]:
+        return list({host.shard_num for host in self.__hosts if host.shard_num is not None})
+
     def __get_task_function(self, host: HostInfo, fn: Callable[[Client], T]) -> Callable[[], T]:
         pool = self.__pools.get(host)
         if pool is None:
@@ -114,14 +118,14 @@ class ClickhouseCluster:
 
         def task():
             with pool.get_client() as client:
-                self.__logger.debug("Executing %r on %r...", fn, host)
+                self.__logger.info("Executing %r on %r...", fn, host)
                 try:
                     result = fn(client)
                 except Exception:
-                    self.__logger.debug("Failed to execute %r on %r!", fn, host, exc_info=True)
+                    self.__logger.warn("Failed to execute %r on %r!", fn, host, exc_info=True)
                     raise
                 else:
-                    self.__logger.debug("Successfully executed %r on %r.", fn, host)
+                    self.__logger.info("Successfully executed %r on %r.", fn, host)
                 return result
 
         return task
@@ -157,6 +161,31 @@ class ClickhouseCluster:
                     for host in self.__hosts
                     if host.shard_num == shard_num
                 }
+            )
+
+    def map_all_hosts_in_shards(
+        self, shard_fns: dict[int, Callable[[Client], T]], concurrency: int | None = None
+    ) -> FuturesMap[HostInfo, T]:
+        """
+        Execute the callable once for each host in the specified shards.
+
+        The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
+        default limit of the executor.
+
+        Wait for all to return before returning upon ``.values()``
+        """
+
+        shard_host_fn = {}
+        for shard, fn in shard_fns.items():
+            if shard not in self.shards:
+                raise ValueError(f"Shard {shard} not found in cluster")
+            for host in self.__hosts:
+                if host.shard_num == shard:
+                    shard_host_fn[host] = fn
+
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
+            return FuturesMap(
+                {host: executor.submit(self.__get_task_function(host, fn)) for host, fn in shard_host_fn.items()}
             )
 
     def map_one_host_per_shard(
