@@ -1,34 +1,33 @@
 import { LemonButton, LemonDialog, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { dataWarehouseTableLogic } from 'scenes/data-warehouse/new/dataWarehouseTableLogic'
 import { DataWarehouseSourceIcon, mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { urls } from 'scenes/urls'
 
-import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema'
 import { PipelineNodeTab, PipelineStage } from '~/types'
 
 import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 
 export function DataWarehouseSelfManagedSourcesTable(): JSX.Element {
-    const { selfManagedTables } = useValues(dataWarehouseSettingsLogic)
     const { deleteSelfManagedTable, refreshSelfManagedTableSchema } = useActions(dataWarehouseSettingsLogic)
+    const { tables } = useValues(dataWarehouseTableLogic())
 
     return (
         <LemonTable
-            dataSource={selfManagedTables}
+            dataSource={tables}
             pagination={{ pageSize: 10 }}
             columns={[
                 {
                     width: 0,
-                    render: (_, item: DatabaseSchemaDataWarehouseTable) => (
-                        <DataWarehouseSourceIcon type={mapUrlToProvider(item.url_pattern)} />
-                    ),
+                    render: (_, item) => <DataWarehouseSourceIcon type={mapUrlToProvider(item.url_pattern)} />,
                 },
                 {
                     title: 'Source',
                     dataIndex: 'name',
                     key: 'name',
-                    render: (_, item: DatabaseSchemaDataWarehouseTable) => (
+                    render: (_, item) => (
                         <LemonTableLink
                             to={urls.pipelineNode(
                                 PipelineStage.Source,
@@ -40,8 +39,20 @@ export function DataWarehouseSelfManagedSourcesTable(): JSX.Element {
                     ),
                 },
                 {
+                    title: 'Created at',
+                    dataIndex: 'created_at',
+                    key: 'created_at',
+                    render: (_, item) => {
+                        return item.created_at ? (
+                            <TZLabel time={item.created_at} formatDate="MMM DD, YYYY" formatTime="HH:mm" />
+                        ) : (
+                            'N/A'
+                        )
+                    },
+                },
+                {
                     key: 'actions',
-                    render: (_, item: DatabaseSchemaDataWarehouseTable) => (
+                    render: (_, item) => (
                         <div className="flex flex-row justify-end">
                             <LemonButton
                                 data-attr={`refresh-data-warehouse-${item.name}`}

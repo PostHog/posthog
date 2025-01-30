@@ -4077,6 +4077,7 @@ export interface DataWarehouseTable {
     /** UUID */
     id: string
     name: string
+    created_at?: string
     format: DataWarehouseTableTypes
     url_pattern: string
     credential: DataWarehouseCredential
