@@ -77,7 +77,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         updateBatchExportConfig: (batchExportConfig: BatchExportConfiguration) => ({ batchExportConfig }),
         openReorderTransformationsModal: true,
         closeReorderTransformationsModal: true,
-        setTemporaryTransformationOrder: (tempOrder: Record<number, number>) => ({
+        setTemporaryTransformationOrder: (tempOrder: Record<string, number>) => ({
             tempOrder,
         }),
         saveTransformationsOrder: (newOrders: Record<number, number>) => ({ newOrders }),
@@ -233,7 +233,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             },
         ],
         temporaryTransformationOrder: [
-            {} as Record<number, number>,
+            {} as Record<string, number>,
             {
                 setTemporaryTransformationOrder: async ({ tempOrder }) => tempOrder,
                 closeReorderTransformationsModal: async () => ({}),

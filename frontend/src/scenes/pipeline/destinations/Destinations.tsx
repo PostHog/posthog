@@ -26,7 +26,7 @@ import { hogFunctionTypeToPipelineStage } from '../hogfunctions/urls'
 import { AppMetricSparkLineV2 } from '../metrics/AppMetricsV2Sparkline'
 import { NewButton } from '../NewButton'
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
-import { Destination, PipelineBackend, SiteApp, Transformation } from '../types'
+import { Destination, FunctionDestination, PipelineBackend, SiteApp, Transformation } from '../types'
 import { pipelineNodeMenuCommonItems, RenderApp, RenderBatchExportIcon } from '../utils'
 import { DestinationsFilters } from './DestinationsFilters'
 import { destinationsFiltersLogic } from './destinationsFiltersLogic'
@@ -113,7 +113,9 @@ export function DestinationsTable({
             ? 'site app'
             : 'Hog function'
 
-    const enabledTransformations = destinations.filter((d) => d.stage === PipelineStage.Transformation && d.enabled)
+    const enabledTransformations = destinations.filter(
+        (d): d is FunctionDestination => d.stage === PipelineStage.Transformation && d.enabled
+    )
 
     return (
         <div className="space-y-4">
@@ -307,7 +309,9 @@ function ReorderTransformationsModal({ types }: { types: HogFunctionTypeType[] }
     )
     const [initialOrders, setInitialOrders] = useState<Record<string, number>>({})
 
-    const enabledTransformations = destinations.filter((d) => d.stage === PipelineStage.Transformation && d.enabled)
+    const enabledTransformations = destinations.filter(
+        (d): d is FunctionDestination => d.stage === PipelineStage.Transformation && d.enabled
+    )
 
     // Store initial orders when modal opens
     useEffect(() => {
