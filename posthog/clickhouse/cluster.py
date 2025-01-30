@@ -13,6 +13,7 @@ from concurrent.futures import (
 )
 from copy import copy
 from dataclasses import dataclass
+from functools import reduce
 from typing import Any, Literal, NamedTuple, TypeVar
 
 from clickhouse_driver import Client
@@ -158,6 +159,23 @@ class ClickhouseCluster:
                     if host.shard_num == shard_num
                 }
             )
+
+    def map_all_hosts_in_shards(
+        self, shards: Sequence[int], fn: Sequence[Callable[[Client], T]], concurrency: int | None = None
+    ) -> FuturesMap[HostInfo, T]:
+        """
+        Execute the callable once for each host in the specified shards.
+
+        The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
+        default limit of the executor.
+
+        Wait for all to return before returning
+        """
+
+        return reduce(
+            lambda x, y: x.merge(y),
+            [self.map_all_hosts_in_shard(shard, fn, concurrency) for shard in shards],
+        )
 
     def map_one_host_per_shard(
         self, fn: Callable[[Client], T], concurrency: int | None = None
