@@ -522,12 +522,14 @@ export async function startPluginsServer(
             const consumer = new CdpInternalEventsConsumer(hub)
             await consumer.start()
             services.push(consumer.service)
+        }
 
-            // NOTE: This processor is generally very idle so doubles as our api
-            if (capabilities.http) {
-                const api = new CdpApi(hub, consumer)
-                expressApp.use('/', api.router())
-            }
+        if (capabilities.cdpApi) {
+            const hub = await setupHub()
+            const api = new CdpApi(hub)
+            await api.start()
+            services.push(api.service)
+            expressApp.use('/', api.router())
         }
 
         if (capabilities.cdpCyclotronWorker) {

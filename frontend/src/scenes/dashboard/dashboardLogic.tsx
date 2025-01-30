@@ -1049,7 +1049,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.dashboard],
             (dashboard): SidePanelSceneContext | null => {
-                return dashboard
+                // Only render the new access control  on side panel if they are not using the old dashboard permissions (v1)
+                return dashboard && dashboard.access_control_version === 'v2'
                     ? {
                           activity_scope: ActivityScope.DASHBOARD,
                           activity_item_id: `${dashboard.id}`,
