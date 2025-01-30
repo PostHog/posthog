@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+import re
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from concurrent.futures import (
     ALL_COMPLETED,
@@ -218,6 +219,10 @@ class MutationRunner:
 
     def find(self, client: Client) -> Mutation | None:
         """Find the running mutation task, if one exists."""
+
+        if self.is_lightweight_delete:
+            self.command = self.__convert_lightweight_delete_to_mutation_command(self.command)
+
         results = client.execute(
             f"""
             SELECT mutation_id
@@ -253,6 +258,9 @@ class MutationRunner:
         if task := self.find(client):
             return task
 
+        if self.is_lightweight_delete:
+            client.execute(self.command)
+
         client.execute(
             f"ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} {self.command}",
             self.parameters,
@@ -262,3 +270,11 @@ class MutationRunner:
         assert task is not None
 
         return task
+
+    @property
+    def is_lightweight_delete(self) -> bool:
+        return re.match(r"^DELETE FROM \w+ WHERE .*", self.command) is not None
+
+    def __convert_lightweight_delete_to_mutation_command(self, command: str) -> str:
+        # converts DELETE FROM table WHERE foo='bar' to UPDATE _row_exists = 0 WHERE foo='bar'
+        return f"UPDATE _row_exists = 0 WHERE {command}"
