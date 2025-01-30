@@ -45,10 +45,12 @@ from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
 from posthog.schema import (
     ActionsNode,
+    Breakdown,
     BreakdownFilter,
     DataWarehouseNode,
     EventsNode,
     DateRange,
+    MultipleBreakdownType,
     PropertyGroupFilter,
     TrendsFilter,
     TrendsQuery,
@@ -208,10 +210,14 @@ def convert_filter_to_trends_query(filter: Filter) -> TrendsQuery:
 class TestTrends(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
-    def _run(self, filter: Filter, team: Team):
+    def _run(self, query: Union[Filter, TrendsQuery], team: Team):
         flush_persons_and_events()
 
-        trend_query = convert_filter_to_trends_query(filter)
+        if isinstance(query, Filter):
+            trend_query = convert_filter_to_trends_query(query)
+        else:
+            trend_query = query
+
         tqr = TrendsQueryRunner(team=team, query=trend_query)
         return tqr.calculate().results
 
@@ -9347,3 +9353,33 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             response[0]["data"],
             [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
         )
+
+    def test_breakdown_values_incorrectly_displayed_as_zero(self):
+        journey = {
+            "person1": [
+                *[{"event": "event a", "timestamp": datetime(2020, 1, 2, hour, 30)} for hour in range(5)],
+                {"event": "event b", "timestamp": datetime(2020, 1, 2, 0, 30)},
+            ],
+            "person2": [{"event": "event a", "timestamp": datetime(2020, 1, 2, hour, 30)} for hour in range(4)],
+            "person3": [{"event": "event a", "timestamp": datetime(2020, 1, 2, hour, 30)} for hour in range(3)],
+            "person4": [{"event": "event a", "timestamp": datetime(2020, 1, 2, hour, 30)} for hour in range(2)],
+            "person5": [
+                *[{"event": "event a", "timestamp": datetime(2020, 1, 2, hour, 30)} for hour in range(1)],
+                {"event": "event b", "timestamp": datetime(2020, 1, 2, 0, 30)},
+                {"event": "event b", "timestamp": datetime(2020, 1, 2, 1, 30)},
+            ],
+        }
+        journeys_for(events_by_person=journey, team=self.team)
+
+        query = TrendsQuery(
+            series=[EventsNode(event="event a"), EventsNode(event="event b")],
+            trendsFilter=TrendsFilter(formula="(B/A)*100"),
+            breakdownFilter=BreakdownFilter(
+                breakdowns=[Breakdown(type=MultipleBreakdownType.HOGQL, property="distinct_id")], breakdown_limit=3
+            ),
+        )
+
+        with freeze_time("2020-01-03 13:06:02"):
+            response = self._run(query, self.team)
+
+        assert len(response) == 3
