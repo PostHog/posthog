@@ -1,5 +1,6 @@
 from ee.hogai.summarizer.format import (
     _extract_series_label,
+    _format_date,
     _format_duration,
     _format_funnels_results,
     _format_number,
@@ -268,3 +269,8 @@ class TestFormat(BaseTest):
             "Date range: 2025-01-20 to 2025-01-22\n\n---au\nMetric|$pageview|signup\nTotal person count|5|2\nConversion rate|100%|40%\nDropoff rate|0%|60%\nAverage conversion time|-|10s\nMedian conversion time|-|11s\n\n---us\nMetric|$pageview|signup\nTotal person count|5|2\nConversion rate|100%|40%\nDropoff rate|0%|60%\nAverage conversion time|-|10s\nMedian conversion time|-|11s",
             compress_and_format_funnels_results(results, date_from="2025-01-20", date_to="2025-01-22"),
         )
+
+    def test_format_date(self):
+        self.assertEqual(_format_date("2025-01-20"), "2025-01-20")
+        self.assertEqual(_format_date("2025-01-20 00:00:00"), "2025-01-20 00:00")
+        self.assertEqual(_format_date("2025-01-20 15:00"), "2025-01-20 15:00")

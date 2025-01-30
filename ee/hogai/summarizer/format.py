@@ -1,3 +1,4 @@
+from datetime import datetime
 from math import floor
 from typing import Any, Optional, Union
 
@@ -98,6 +99,10 @@ def _format_duration(
     return " ".join(units)
 
 
+def _strip_datetime_seconds(date: str) -> str:
+    return datetime.fromisoformat(date).strftime("%Y-%m-%d %H:%M" if ":" in date else "%Y-%m-%d")
+
+
 def _replace_breakdown_labels(name: str) -> str:
     return name.replace(BREAKDOWN_OTHER_STRING_LABEL, BREAKDOWN_OTHER_DISPLAY).replace(
         BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_NULL_DISPLAY
@@ -134,7 +139,7 @@ def _format_trends_results(results: list[dict]) -> str:
 
     # Build data rows
     for i, date in enumerate(dates):
-        row = [date]
+        row = [_strip_datetime_seconds(date)]
         for result in results:
             row.append(_format_number(result["data"][i]))
         matrix.append(row)
