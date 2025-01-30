@@ -246,9 +246,12 @@ $xxl: 1600px;
     // Texts which are on colourful fills, ensures contrast
     // //////////////////////////////////////////////////////////
     --text-on-bg-fill-input: var(--text-primary);
-    --text-warning-on-bg-fill: var(--color-orange-800); /* On-fill text for warning */
-    --text-error-on-bg-fill: var(--color-red-800); /* On-fill text for error */
-    --text-success-on-bg-fill: var(--color-green-800); /* On-fill text for success */
+    --text-warning-on-bg-fill: light-dark(
+        var(--color-orange-800),
+        var(--color-orange-50)
+    ); /* On-fill text for warning */
+    --text-error-on-bg-fill: light-dark(var(--color-red-800), var(--color-red-50)); /* On-fill text for error */
+    --text-success-on-bg-fill: light-dark(var(--color-green-800), var(--color-green-50)); /* On-fill text for success */
 
     // Borders
     // Borders for surfaces/fills (TODO: perhaps we need to do border-fill-primary, border-fill-warning, etc.)
@@ -737,6 +740,10 @@ $xxl: 1600px;
     --border-color-warning: var(--border-warning);
     --border-color-error: var(--border-error);
     --border-color-success: var(--border-success);
+    --border-color-accent-primary: var(--accent-primary);
+    --border-color-accent-primary-hover: var(--accent-primary-hover);
+    --border-color-accent-primary-active: var(--accent-primary-active);
+    --border-color-accent-primary-highlight: var(--accent-primary-highlight);
 
     // Text
     // //////////////////////////////////////////////////////////
