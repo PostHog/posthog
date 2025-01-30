@@ -1,3 +1,29 @@
+/**
+ * Integration tests for the session recording batch file format
+ *
+ * The batch file format is a sequence of independently-readable session blocks:
+ * ```
+ * Session Batch File
+ * ├── Snappy Session Recording Block 1
+ * │   └── JSONL Session Recording Block
+ * │       ├── [windowId, event1]
+ * │       ├── [windowId, event2]
+ * │       └── ...
+ * ├── Snappy Session Recording Block 2
+ * │   └── JSONL Session Recording Block
+ * │       ├── [windowId, event1]
+ * │       └── ...
+ * └── ...
+ * ```
+ *
+ * Each session block:
+ * - Contains all events for one session recording
+ * - Is compressed independently with Snappy
+ * - Can be read in isolation using the block metadata (offset and length)
+ * - Contains newline-delimited JSON records after decompression
+ * - Each record is an array of [windowId, event]
+ */
+
 import snappy from 'snappy'
 import { PassThrough } from 'stream'
 
