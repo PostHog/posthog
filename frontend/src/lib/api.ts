@@ -64,6 +64,7 @@ import {
     HogFunctionStatus,
     HogFunctionSubTemplateIdType,
     HogFunctionTemplateType,
+    HogFunctionTestInvocationResult,
     HogFunctionType,
     HogFunctionTypeType,
     InsightModel,
@@ -1912,7 +1913,7 @@ const api = {
                 mock_async_functions: boolean
                 globals: any
             }
-        ): Promise<any> {
+        ): Promise<HogFunctionTestInvocationResult> {
             return await new ApiRequest().hogFunction(id).withAction('invocations').create({ data })
         },
 

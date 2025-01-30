@@ -58,21 +58,6 @@ const HogFunctionTestEditor = ({
     )
 }
 
-export function HogFunctionTestPlaceholder({
-    title,
-    description,
-}: {
-    title?: string | JSX.Element
-    description?: string | JSX.Element
-}): JSX.Element {
-    return (
-        <div className="p-3 space-y-2 border rounded bg-accent-3000">
-            <h2 className="flex-1 m-0">{title || 'Testing'}</h2>
-            <p>{description || 'Save your configuration to enable testing'}</p>
-        </div>
-    )
-}
-
 export function HogFunctionTest(): JSX.Element {
     const { logicProps } = useValues(hogFunctionConfigurationLogic)
     const {
@@ -85,6 +70,7 @@ export function HogFunctionTest(): JSX.Element {
         savedGlobals,
         testInvocation,
         testResultMode,
+        sortedTestsResult,
     } = useValues(hogFunctionTestLogic(logicProps))
     const {
         submitTestInvocation,
@@ -242,7 +228,7 @@ export function HogFunctionTest(): JSX.Element {
                                     {testResult.status === 'success' ? 'Success' : 'Error'}
                                 </LemonBanner>
 
-                                {type === 'transformation' ? (
+                                {type === 'transformation' && testResult.status === 'success' ? (
                                     <>
                                         <div className="flex items-center justify-between gap-2">
                                             <LemonLabel>Transformation result</LemonLabel>
@@ -262,15 +248,9 @@ export function HogFunctionTest(): JSX.Element {
                                             <CodeEditorResizeable
                                                 language="json"
                                                 originalValue={
-                                                    testResultMode === 'diff'
-                                                        ? JSON.stringify(
-                                                              JSON.parse(testInvocation.globals).event,
-                                                              null,
-                                                              2
-                                                          )
-                                                        : undefined
+                                                    testResultMode === 'diff' ? sortedTestsResult?.input : undefined
                                                 }
-                                                value={JSON.stringify(testResult.result, null, 2)}
+                                                value={sortedTestsResult?.output}
                                                 height={400}
                                                 options={{
                                                     readOnly: true,

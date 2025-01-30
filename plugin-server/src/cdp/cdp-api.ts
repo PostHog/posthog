@@ -110,7 +110,7 @@ export class CdpApi {
 
             status.info('⚡️', 'Received invocation', { id, team_id, body: req.body })
 
-            if (!globals) {
+            if (!globals || !globals.event) {
                 res.status(400).json({ error: 'Missing event' })
                 return
             }
