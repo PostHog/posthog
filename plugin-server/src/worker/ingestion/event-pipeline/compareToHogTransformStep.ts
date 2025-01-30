@@ -53,14 +53,19 @@ export const compareEvents = (pluginEvent: PluginEvent, hogEvent: PluginEvent): 
 export async function compareToHogTransformStep(
     hogTransformer: HogTransformerService | null,
     prePluginsEvent: PluginEvent,
-    postPluginsEvent: PluginEvent | null
+    postPluginsEvent: PluginEvent | null,
+    samplePercentage?: number
 ): Promise<void> {
     if (!hogTransformer) {
         return
     }
 
+    if (!samplePercentage || Math.random() > samplePercentage) {
+        return
+    }
+
     try {
-        // TRICKY: We
+        // TRICKY: We really want to make sure that the other event is unaffected
         const clonedEvent = cloneObject(prePluginsEvent)
         const result = await hogTransformer.transformEvent(clonedEvent)
         const hogEvent = result.event

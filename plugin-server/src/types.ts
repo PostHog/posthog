@@ -323,6 +323,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
 
     // HOG Transformations (Alpha feature)
     HOG_TRANSFORMATIONS_ENABLED: boolean
+    HOG_TRANSFORMATIONS_COMPARISON_PERCENTAGE: number | undefined
 
     SESSION_RECORDING_MAX_BATCH_SIZE_KB: number | undefined
     SESSION_RECORDING_MAX_BATCH_AGE_MS: number | undefined
