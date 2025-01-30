@@ -364,14 +364,10 @@ export function DeltaChart({
                             <svg
                                 ref={chartSvgRef}
                                 viewBox={`0 0 ${VIEW_BOX_WIDTH} ${chartHeight}`}
-                                preserveAspectRatio="xMinYMid slice"
+                                preserveAspectRatio="xMidYMid meet"
                                 className="ml-12"
                                 // eslint-disable-next-line react/forbid-dom-props
-                                style={{
-                                    minHeight: `${chartHeight}px`,
-                                    maxWidth: `${CHART_MAX_WIDTH}px`,
-                                    width: '100%', // Added to maintain consistent scaling
-                                }}
+                                style={{ minHeight: `${chartHeight}px`, maxWidth: `${CHART_MAX_WIDTH}px` }}
                             >
                                 {/* Vertical grid lines */}
                                 {tickValues.map((value, index) => {
