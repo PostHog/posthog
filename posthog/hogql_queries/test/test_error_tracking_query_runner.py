@@ -325,7 +325,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # returns a single group with multiple errors
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["id"], self.issue_id_one)
-        self.assertEqual(results[0]["occurrences"], 2)
+        self.assertEqual(results[0]["aggregations"]["occurrences"], 2)
 
     @snapshot_clickhouse_queries
     def test_search_query(self):
@@ -361,14 +361,14 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(results), 2)
         self.assertEqual(results[0]["id"], "01936e81-b0ce-7b56-8497-791e505b0d0c")
-        self.assertEqual(results[0]["occurrences"], 1)
-        self.assertEqual(results[0]["sessions"], 0)
-        self.assertEqual(results[0]["users"], 1)
+        self.assertEqual(results[0]["aggregations"]["occurrences"], 1)
+        self.assertEqual(results[0]["aggregations"]["sessions"], 0)
+        self.assertEqual(results[0]["aggregations"]["users"], 1)
 
         self.assertEqual(results[1]["id"], "01936e81-f5ce-79b1-99f1-f0e9675fcfef")
-        self.assertEqual(results[1]["occurrences"], 1)
-        self.assertEqual(results[1]["sessions"], 0)
-        self.assertEqual(results[1]["users"], 1)
+        self.assertEqual(results[1]["aggregations"]["occurrences"], 1)
+        self.assertEqual(results[1]["aggregations"]["sessions"], 0)
+        self.assertEqual(results[1]["aggregations"]["users"], 1)
 
     def test_empty_search_query(self):
         results = self._calculate(searchQuery="probs not found")["results"]
@@ -410,9 +410,9 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["id"], "01936e81-b0ce-7b56-8497-791e505b0d0c")
-        self.assertEqual(results[0]["occurrences"], 1)
-        self.assertEqual(results[0]["sessions"], 0)
-        self.assertEqual(results[0]["users"], 1)
+        self.assertEqual(results[0]["aggregations"]["occurrences"], 1)
+        self.assertEqual(results[0]["aggregations"]["sessions"], 0)
+        self.assertEqual(results[0]["aggregations"]["users"], 1)
 
     def test_only_returns_exception_events(self):
         with freeze_time("2020-01-10 12:11:00"):
@@ -454,7 +454,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._calculate(issueId=self.issue_id_one)["results"]
         self.assertEqual(results[0]["id"], self.issue_id_one)
         # only includes valid session ids
-        self.assertEqual(results[0]["sessions"], 2)
+        self.assertEqual(results[0]["aggregations"]["sessions"], 2)
 
     @snapshot_clickhouse_queries
     def test_hogql_filters(self):
@@ -491,10 +491,10 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # count is (2 x issue_one) + (1 x issue_three)
         self.assertEqual(results[0]["id"], self.issue_id_one)
-        self.assertEqual(results[0]["occurrences"], 3)
+        self.assertEqual(results[0]["aggregations"]["occurrences"], 3)
 
         self.assertEqual(results[1]["id"], self.issue_id_two)
-        self.assertEqual(results[1]["occurrences"], 1)
+        self.assertEqual(results[1]["aggregations"]["occurrences"], 1)
 
     @snapshot_clickhouse_queries
     def test_user_assignee(self):

@@ -73,8 +73,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         issue: [
             null as ErrorTrackingIssue | null,
             {
-                loadRelationalIssue: async (_, breakpoint) => {
-                    breakpoint()
+                loadRelationalIssue: async () => {
                     const response = await api.errorTracking.getIssue(props.id)
                     return { ...values.issue, ...response }
                 },
@@ -141,11 +140,13 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
 
     listeners(({ values, actions }) => ({
         loadIssue: () => {
-            const issue = values.issue
-            if (!issue) {
-                actions.loadRelationalIssue()
-            } else if (!issue.last_seen) {
-                actions.loadClickHouseIssue(issue.first_seen)
+            if (!values.issueLoading) {
+                const issue = values.issue
+                if (!issue) {
+                    actions.loadRelationalIssue()
+                } else if (!issue.last_seen) {
+                    actions.loadClickHouseIssue(issue.first_seen)
+                }
             }
         },
         loadRelationalIssueSuccess: ({ issue }) => actions.loadClickHouseIssue(issue.first_seen),
