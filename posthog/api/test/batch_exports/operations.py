@@ -141,3 +141,13 @@ def list_batch_export_backfills_ok(client: TestClient, team_id: int, batch_expor
     response = list_batch_export_backfills(client, team_id, batch_export_id)
     assert response.status_code == status.HTTP_200_OK, response.json()
     return response.json()
+
+
+def get_batch_export_backfill(client: TestClient, team_id: int, batch_export_id: str, backfill_id: str):
+    return client.get(f"/api/projects/{team_id}/batch_exports/{batch_export_id}/backfills/{backfill_id}")
+
+
+def get_batch_export_backfill_ok(client: TestClient, team_id: int, batch_export_id: str, backfill_id: str):
+    response = get_batch_export_backfill(client, team_id, batch_export_id, backfill_id)
+    assert response.status_code == status.HTTP_200_OK, response.json()
+    return response.json()
