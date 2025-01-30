@@ -33,7 +33,7 @@ import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInputs } from './HogFunctionInputs'
 import { HogFunctionStatusIndicator } from './HogFunctionStatusIndicator'
-import { HogFunctionTest, HogFunctionTestPlaceholder } from './HogFunctionTest'
+import { HogFunctionTest } from './HogFunctionTest'
 import { HogFunctionMappings } from './mapping/HogFunctionMappings'
 import { HogFunctionEventEstimates } from './metrics/HogFunctionEventEstimates'
 
@@ -178,12 +178,11 @@ export function HogFunctionConfiguration({
         )
     const canEditSource =
         displayOptions.canEditSource ??
-        (['destination', 'email', 'site_destination', 'site_app', 'transformation'].includes(type) && !isLegacyPlugin)
+        (['destination', 'email', 'site_destination', 'site_app'].includes(type) && !isLegacyPlugin)
     const showPersonsCount = displayOptions.showPersonsCount ?? ['broadcast'].includes(type)
     const showTesting =
         displayOptions.showTesting ??
-        (['destination', 'internal_destination', 'transformation', 'broadcast', 'email'].includes(type) &&
-            !isLegacyPlugin)
+        ['destination', 'internal_destination', 'transformation', 'broadcast', 'email'].includes(type)
 
     return (
         <div className="space-y-3">
@@ -196,14 +195,6 @@ export function HogFunctionConfiguration({
                         </>
                     }
                 />
-
-                {type === 'destination' ? (
-                    <LemonBanner type="info">
-                        Hog Functions are in <b>beta</b> and are the next generation of our data pipeline destinations.
-                        You can use pre-existing templates or modify the source Hog code to create your own custom
-                        functions.
-                    </LemonBanner>
-                ) : null}
 
                 {hogFunction?.filters?.bytecode_error ? (
                     <div>
@@ -469,13 +460,7 @@ export function HogFunctionConfiguration({
                                     ) : null}
                                 </div>
                             )}
-                            {showTesting ? (
-                                !id || id === 'new' ? (
-                                    <HogFunctionTestPlaceholder />
-                                ) : (
-                                    <HogFunctionTest id={id} />
-                                )
-                            ) : null}
+                            {showTesting ? <HogFunctionTest /> : null}
                             <div className="flex justify-end gap-2">{saveButtons}</div>
                         </div>
                     </div>
