@@ -1,12 +1,12 @@
-import { IconAIText, IconReceipt } from '@posthog/icons'
-import { LemonDivider, LemonTag, LemonTagProps, Link, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
+import { IconAIText, IconMessage, IconReceipt } from '@posthog/icons'
+import { LemonDivider, LemonTable, LemonTag, LemonTagProps, Link, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 import classNames from 'classnames'
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { NotFound } from 'lib/components/NotFound'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
-import { isObject, pluralize } from 'lib/utils'
+import { identifierToHuman, isObject, pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import React, { useState } from 'react'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
@@ -337,7 +337,7 @@ function EventContentDisplay({
     )
 }
 
-function EventContent({ event }: { event: LLMTrace | LLMTraceEvent | null }): JSX.Element {
+const EventContent = React.memo(({ event }: { event: LLMTrace | LLMTraceEvent | null }): JSX.Element => {
     return (
         <div className="flex-1 bg-bg-light max-h-fit border rounded flex flex-col border-border p-4 overflow-y-auto">
             {!event ? (
@@ -390,13 +390,17 @@ function EventContent({ event }: { event: LLMTrace | LLMTraceEvent | null }): JS
                             />
                         )
                     ) : (
-                        <EventContentDisplay input={event.inputState} output={event.outputState} />
+                        <>
+                            <TraceMetricsTable />
+                            <EventContentDisplay input={event.inputState} output={event.outputState} />
+                        </>
                     )}
                 </>
             )}
         </div>
     )
-}
+})
+EventContent.displayName = 'EventContent'
 
 function EventTypeTag({ event, size }: { event: LLMTrace | LLMTraceEvent; size?: LemonTagProps['size'] }): JSX.Element {
     let eventType = 'trace'
@@ -411,5 +415,39 @@ function EventTypeTag({ event, size }: { event: LLMTrace | LLMTraceEvent; size?:
         >
             {eventType}
         </LemonTag>
+    )
+}
+
+function TraceMetricsTable(): JSX.Element | null {
+    const { metricsAndFeedbackEvents } = useValues(llmObservabilityTraceDataLogic)
+
+    if (!metricsAndFeedbackEvents?.length) {
+        return null
+    }
+
+    return (
+        <div className="mb-3">
+            <h4 className="flex items-center gap-x-1.5 text-xs font-semibold mb-2">
+                <IconMessage className="text-base" />
+                Metrics and user feedback
+            </h4>
+            <LemonTable
+                columns={[
+                    {
+                        title: 'Metric',
+                        key: 'metric',
+                        render: (_, { metric }) => <span>{identifierToHuman(metric)}</span>,
+                        width: '40%',
+                    },
+                    {
+                        title: 'Value',
+                        key: 'value',
+                        render: (_, { value }) => <span>{value ?? '–'}</span>,
+                        width: '60%',
+                    },
+                ]}
+                dataSource={metricsAndFeedbackEvents}
+            />
+        </div>
     )
 }
