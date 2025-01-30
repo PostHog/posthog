@@ -7,7 +7,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql.utils import deserialize_hog_ast
+from posthog.hogql.utils import deserialize_hx_ast
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
@@ -36,7 +36,7 @@ class HogQLQueryRunner(QueryRunner):
             if isinstance(self.query, HogQLQuery):
                 parsed_select = parse_select(self.query.query, timings=self.timings, placeholders=values)
             elif isinstance(self.query, HogQLASTQuery):
-                parsed_select = cast(ast.SelectQuery, deserialize_hog_ast(self.query.query))
+                parsed_select = cast(ast.SelectQuery, deserialize_hx_ast(self.query.query))
 
         if self.query.filters:
             with self.timings.measure("filters"):

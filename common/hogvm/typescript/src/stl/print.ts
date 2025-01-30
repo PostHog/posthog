@@ -88,7 +88,7 @@ export function printHogValue(obj: any, marked: Set<any> | undefined = undefined
                 return `fn<${escapeIdentifier(obj.name ?? 'lambda')}(${printHogValue(obj.argCount)})>`
             }
             if (isHogAST(obj)) {
-                return `sql(${new SQLPrinter(false, marked).print(obj)})`
+                return `sql(${new HogQLPrinter(false, marked).print(obj)})`
             }
             if (obj instanceof Map) {
                 return `{${Array.from(obj.entries())
@@ -120,7 +120,9 @@ export function printHogStringOutput(obj: any): string {
 
 type ASTNode = Map<string, any> | null
 
-export class SQLPrinter {
+// Note: this printer currently is experimental and used for debugging/printing SQL only.
+// When making queries via run(query), we send the AST nodes directly to the server.
+export class HogQLPrinter {
     private stack: ASTNode[] = []
     private indentLevel: number = -1
     private tabSize: number = 4
