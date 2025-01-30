@@ -83,7 +83,6 @@ class HogFunctionTemplates:
                 raise Exception("Failed to fetch hog function templates from the node service")
 
             nodejs_templates_json = response.json()
-            nodejs_templates: list[HogFunctionTemplate] = []
             for template_data in nodejs_templates_json:
                 try:
                     serializer = HogFunctionTemplateSerializer(data=template_data)
