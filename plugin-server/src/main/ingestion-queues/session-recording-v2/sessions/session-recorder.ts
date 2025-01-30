@@ -38,13 +38,17 @@ export class SessionRecorder {
     private eventCount: number = 0
     private rawBytesWritten: number = 0
     private ended = false
+    // Store any gzip error that occurs - these should be rare/never happen in practice
+    // We keep the error until end() to keep the recordMessage interface simple
+    private gzipError: Error | null = null
 
     constructor() {
         this.gzip = createGzip()
-
-        // Collect compressed chunks as they're produced
         this.gzip.on('data', (chunk: Buffer) => {
             this.chunks.push(chunk)
+        })
+        this.gzip.on('error', (error) => {
+            this.gzipError = error
         })
     }
 
@@ -89,14 +93,22 @@ export class SessionRecorder {
         this.ended = true
 
         return new Promise((resolve, reject) => {
+            if (this.gzipError) {
+                reject(this.gzipError)
+                return
+            }
+
             this.gzip.on('end', () => {
+                if (this.gzipError) {
+                    reject(this.gzipError)
+                    return
+                }
                 resolve({
                     // Buffer.concat typings are missing the signature with Buffer[]
                     buffer: Buffer.concat(this.chunks as any[]),
                     eventCount: this.eventCount,
                 })
             })
-            this.gzip.on('error', reject)
 
             this.gzip.end()
         })
