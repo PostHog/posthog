@@ -1,3 +1,3 @@
-{'__hqx': 'SelectQuery', 'select': [{'__hqx': 'Field', 'chain': ['*']}, {'__hqx': 'Field', 'chain': ['event']}], 'select_from': {'__hqx': 'JoinExpr', 'table': {'__hqx': 'Field', 'chain': ['events']}}}
-[{'__hqx': 'Field', 'chain': ['*']}, {'__hqx': 'Field', 'chain': ['event']}]
-{'__hqx': 'SelectQuery', 'select': [{'__hqx': 'Field', 'chain': ['*']}], 'select_from': {'__hqx': 'JoinExpr', 'table': {'__hqx': 'Field', 'chain': ['events']}}, 'where': {'__hqx': 'CompareOperation', 'left': {'__hqx': 'Field', 'chain': ['event']}, 'right': '$pageview', 'op': '=='}}
+sql(SELECT *, event FROM events)
+[sql(*), sql(event)]
+sql(SELECT * FROM events WHERE equals(event, '$pageview'))
