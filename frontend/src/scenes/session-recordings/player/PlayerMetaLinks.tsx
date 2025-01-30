@@ -13,6 +13,7 @@ import {
     SessionRecordingPlayerMode,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
+import { PlayerShareMenu } from 'scenes/session-recordings/player/share/PlayerShareMenu'
 import { personsModalLogic } from 'scenes/trends/persons-modal/personsModalLogic'
 
 import { NotebookNodeType } from '~/types'
@@ -139,6 +140,7 @@ export function PlayerMetaLinks({ iconsOnly }: { iconsOnly: boolean }): JSX.Elem
                     <LemonButton icon={<IconShare />} onClick={onShare} {...commonProps} tooltip="Share this recording">
                         {buttonContent('Share')}
                     </LemonButton>
+                    <PlayerShareMenu iconsOnly={iconsOnly} />
 
                     {nodeLogic?.props.nodeType === NotebookNodeType.RecordingPlaylist ? (
                         <LemonButton

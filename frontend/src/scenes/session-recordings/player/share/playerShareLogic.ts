@@ -9,6 +9,7 @@ import type { playerShareLogicType } from './playerShareLogicType'
 export type PlayerShareLogicProps = {
     seconds: number | null
     id: string
+    shareType?: 'private' | 'public' | 'linear'
 }
 
 export const playerShareLogic = kea<playerShareLogicType>([
