@@ -27,7 +27,7 @@ let geoipProperties := {
     'accuracy_radius': null,
     'time_zone': null
 }
-// Check if the event has an IP address l
+// Check if the event has an IP address
 if (event.properties?.$geoip_disable or empty(event.properties?.$ip)) {
     print('geoip disabled or no ip.')
     return event

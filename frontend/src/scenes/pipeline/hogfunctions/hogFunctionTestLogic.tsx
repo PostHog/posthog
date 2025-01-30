@@ -187,7 +187,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
 
                     actions.setTestResult(res)
                 } catch (e) {
-                    lemonToast.error(`An unexpected server error occurred while trying to testing the function. ${e}`)
+                    lemonToast.error(`An unexpected server error occurred while testing the function. ${e}`)
                 }
             },
         },

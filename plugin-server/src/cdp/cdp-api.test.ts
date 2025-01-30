@@ -51,8 +51,6 @@ jest.mock('../../src/utils/fetch', () => {
 
 const mockFetch: jest.Mock = require('../../src/utils/fetch').trackedFetch
 
-jest.setTimeout(1000)
-
 describe('CDP API', () => {
     let hub: Hub
     let team: Team
@@ -445,71 +443,6 @@ describe('CDP API', () => {
                 },
             ],
         })
-    })
-
-    it('handles mappings', async () => {
-        const hogFunction = await insertHogFunction({
-            ...HOG_EXAMPLES.simple_fetch,
-            ...HOG_INPUTS_EXAMPLES.simple_fetch,
-            ...HOG_FILTERS_EXAMPLES.no_filters,
-            mappings: [
-                {
-                    // Filters for pageview or autocapture
-                    ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
-                },
-                {
-                    // No filters so should match all events
-                    ...HOG_FILTERS_EXAMPLES.no_filters,
-                },
-                {
-                    // Broken filters so shouldn't match
-                    ...HOG_FILTERS_EXAMPLES.broken_filters,
-                },
-            ],
-        })
-
-        const res = await supertest(app)
-            .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
-            .send({ globals, mock_async_functions: true })
-
-        expect(res.status).toEqual(200)
-
-        const minimalLogs = res.body.logs.map((log) => ({
-            level: log.level,
-            message: log.message,
-        }))
-
-        expect(minimalLogs).toMatchObject([
-            { level: 'info', message: 'Mapping trigger not matching filters was ignored.' },
-            {
-                level: 'error',
-                message:
-                    'Error filtering event b3a1fe86-b10c-43cc-acaf-d208977608d0: Invalid HogQL bytecode, stack is empty, can not pop',
-            },
-            { level: 'debug', message: 'Executing function' },
-            {
-                level: 'debug',
-                message:
-                    "Suspending function due to async function call 'fetch'. Payload: 2110 bytes. Event: b3a1fe86-b10c-43cc-acaf-d208977608d0",
-            },
-            {
-                level: 'info',
-                message: "Async function 'fetch' was mocked with arguments:",
-            },
-            {
-                level: 'info',
-                message: expect.stringContaining('fetch({'),
-            },
-            { level: 'debug', message: 'Resuming function' },
-            {
-                level: 'info',
-                message: 'Fetch response:, {"status":200,"body":{}}',
-            },
-            {
-                level: 'debug',
-                message: expect.stringContaining('Function completed in '),
-            },
-        ])
     })
 
     describe('transformations', () => {

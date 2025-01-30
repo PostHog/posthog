@@ -45,6 +45,7 @@ export class CdpApi {
     }
 
     isHealthy() {
+        // NOTE: There isn't really anything to check for here so we are just always healthy
         return true
     }
 
