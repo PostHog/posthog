@@ -3,6 +3,7 @@ import { LemonButton, LemonTable, LemonTableColumns, LemonTag, Tooltip } from '@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils'
 import posthog from 'posthog-js'
@@ -43,6 +44,7 @@ export function SummaryTable({
         countDataForVariant,
         getHighestProbabilityVariant,
         credibleIntervalForVariant,
+        featureFlags,
     } = useValues(experimentLogic)
     const metricType = getMetricType(metric)
     const result = isSecondary ? secondaryMetricResults?.[metricIndex] : metricResults?.[metricIndex]
@@ -270,6 +272,32 @@ export function SummaryTable({
                     )
                 },
             })
+    }
+
+    if (featureFlags[FEATURE_FLAGS.EXPERIMENT_P_VALUE]) {
+        columns.push({
+            key: 'pValue',
+            title: 'P-value',
+            render: function Key(_, item): JSX.Element {
+                const variantKey = item.key
+                const pValue =
+                    result?.probability?.[variantKey] !== undefined ? 1 - result.probability[variantKey] : undefined
+
+                return (
+                    <>
+                        {pValue != undefined ? (
+                            <span className="inline-flex items-center w-52 space-x-4">
+                                <span className="w-1/4 font-semibold">
+                                    {pValue < 0.001 ? '< 0.001' : pValue.toFixed(3)}
+                                </span>
+                            </span>
+                        ) : (
+                            '—'
+                        )}
+                    </>
+                )
+            },
+        })
     }
 
     columns.push({
