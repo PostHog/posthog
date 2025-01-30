@@ -225,3 +225,24 @@ return fibonacci(6);"""
         self.assertIn(
             'Variable "globalVar" not declared in this scope. Cannot assign to globals.', str(context.exception)
         )
+
+    def test_bytecode_sql(self):
+        self.assertEqual(
+            to_js_expr("sql(1 + 1)"),
+            '{"__hqx": "ArithmeticOperation", "left": {"__hqx": "Constant", "value": 1}, "right": {"__hqx": "Constant", "value": 1}, "op": "+"}',
+        )
+
+    def test_bytecode_sql_select(self):
+        self.assertEqual(
+            to_js_expr("(select 1)"),
+            '{"__hqx": "SelectQuery", "select": [{"__hqx": "Constant", "value": 1}]}',
+        )
+
+        self.assertEqual(
+            to_js_expr("(select b.* from b join a on a.id = b.id)"),
+            '{"__hqx": "SelectQuery", "select": [{"__hqx": "Field", "chain": ["b", "*"]}], "select_from": {"__hqx": "JoinExpr", '
+            '"table": {"__hqx": "Field", "chain": ["b"]}, "next_join": {"__hqx": "JoinExpr", "join_type": "JOIN", "table": '
+            '{"__hqx": "Field", "chain": ["a"]}, "constraint": {"__hqx": "JoinConstraint", "expr": {"__hqx": "CompareOperation", '
+            '"left": {"__hqx": "Field", "chain": ["a", "id"]}, "right": {"__hqx": "Field", "chain": ["b", "id"]}, "op": "=="}, '
+            '"constraint_type": "ON"}}}}',
+        )

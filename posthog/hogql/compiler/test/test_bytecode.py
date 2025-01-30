@@ -212,7 +212,50 @@ class TestBytecode(BaseTest):
             [_H, HOGQL_BYTECODE_VERSION, op.STRING, "a", op.STRING, "b", op.TUPLE, 2],
         )
 
-    def test_bytecode_create_not_implemented_error(self):
+    def test_bytecode_sql(self):
+        self.assertEqual(
+            to_bytecode("sql(1 + 1)"),
+            [
+                "_H",
+                1,
+                op.STRING,
+                "__hqx",
+                op.STRING,
+                "ArithmeticOperation",
+                op.STRING,
+                "left",
+                op.STRING,
+                "__hqx",
+                op.STRING,
+                "Constant",
+                op.STRING,
+                "value",
+                op.INTEGER,
+                1,
+                op.DICT,
+                2,
+                op.STRING,
+                "right",
+                op.STRING,
+                "__hqx",
+                op.STRING,
+                "Constant",
+                op.STRING,
+                "value",
+                op.INTEGER,
+                1,
+                op.DICT,
+                2,
+                op.STRING,
+                "op",
+                op.STRING,
+                "+",
+                op.DICT,
+                4,
+            ],
+        )
+
+    def test_bytecode_sql_select(self):
         self.assertEqual(
             to_bytecode("(select 1)"),
             [
