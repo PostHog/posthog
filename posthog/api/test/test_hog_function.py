@@ -1318,3 +1318,40 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "Function 3",  # execution_order=2
             "Function 4",  # execution_order=null
         ]
+
+    def test_transformation_type_gets_execution_order_automatically(self):
+        # Create first transformation function
+        response1 = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "type": "transformation",
+                "name": "First Transformation",
+            },
+        )
+        assert response1.status_code == status.HTTP_201_CREATED
+        assert response1.json()["execution_order"] == 1
+
+        # Create second transformation function
+        response2 = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "type": "transformation",
+                "name": "Second Transformation",
+            },
+        )
+        assert response2.status_code == status.HTTP_201_CREATED
+        assert response2.json()["execution_order"] == 2
+
+        # Create a non-transformation function - should not get execution_order
+        response3 = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "type": "destination",
+                "name": "Destination Function",
+            },
+        )
+        assert response3.status_code == status.HTTP_201_CREATED
+        assert response3.json()["execution_order"] is None
