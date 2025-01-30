@@ -1,10 +1,10 @@
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { CacheExtension, Properties, RetryError } from '@posthog/plugin-scaffold'
+import type { Response } from 'node-fetch'
+import { URL } from 'url'
 
 import { LegacyPlugin, LegacyPluginMeta } from '../../types'
 import metadata from '../plugin.json'
-import { CacheExtension, RetryError, Properties } from '@posthog/plugin-scaffold'
-import type { Response } from 'node-fetch'
-import { URL } from 'url'
 
 export interface EventSink {
     salesforcePath: string
@@ -128,7 +128,7 @@ const callSalesforce = async ({
         body: JSON.stringify(getProperties(event, sink.propertiesToInclude, sink.fieldMappings)),
     })
 
-    const isOk = await statusOk(response, meta.logger)
+    const isOk = statusOk(response, meta.logger)
     if (!isOk) {
         throw new Error(`Not a 200 response from event hook ${response.status}. Response: ${JSON.stringify(response)}`)
     }
@@ -222,7 +222,7 @@ async function generateAndSetToken({ config, cache, logger, fetch }: SalesforceM
         throw new Error(`Got bad response getting the token ${response.status}`)
     }
     const body = await response.json()
-    cache.set(CACHE_TOKEN, body.access_token, CACHE_TTL)
+    void cache.set(CACHE_TOKEN, body.access_token, CACHE_TTL)
     return body.access_token
 }
 
@@ -262,13 +262,13 @@ export async function onEvent(event: ProcessedPluginEvent, meta: SalesforceMeta)
     await sendEventToSalesforce(event, meta, await getToken(meta))
 }
 
-async function statusOk(res: Response, logger: SalesforceMeta['logger']): Promise<boolean> {
+function statusOk(res: Response, logger: SalesforceMeta['logger']): boolean {
     logger.debug('testing response for whether it is "ok". has status: ', res.status, ' debug: ', JSON.stringify(res))
     return String(res.status)[0] === '2'
 }
 
 // we allow `any` since we don't know what type the properties are, and `unknown` is too restrictive here
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+
 function getNestedProperty(properties: Record<string, any>, path: string): any {
     return path.split('.').reduce((acc, part) => acc[part], properties)
 }

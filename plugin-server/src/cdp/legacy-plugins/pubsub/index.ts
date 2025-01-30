@@ -1,10 +1,9 @@
-// @ts-nocheck
+import { PubSub, Topic } from '@google-cloud/pubsub'
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { RetryError } from '@posthog/plugin-scaffold'
 
 import { LegacyPlugin, LegacyPluginMeta } from '../types'
 import metadata from './plugin.json'
-import { RetryError } from '@posthog/plugin-scaffold'
-import { PubSub, Topic } from '@google-cloud/pubsub'
 
 type PubSubMeta = LegacyPluginMeta & {
     global: {
@@ -59,8 +58,7 @@ export async function onEvent(fullEvent: ProcessedPluginEvent, { global, config 
         throw new Error('No PubSub client initialized!')
     }
     try {
-        const { event, properties, $set, $set_once, distinct_id, team_id, site_url, now, sent_at, uuid, ...rest } =
-            fullEvent
+        const { event, properties, $set, $set_once, distinct_id, team_id, site_url, now, sent_at, uuid } = fullEvent
         const ip = properties?.['$ip'] || fullEvent.ip
         const timestamp = fullEvent.timestamp || properties?.timestamp || now || sent_at
         let ingestedProperties = properties

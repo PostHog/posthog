@@ -56,7 +56,6 @@ const plugin: Plugin<ReplicatorMetaInput> = {
             return
         }
 
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { team_id, person: _, ...sendableEvent } = { ...event, token: config.project_api_key }
 
         if (config.disable_geoip === 'Yes') {

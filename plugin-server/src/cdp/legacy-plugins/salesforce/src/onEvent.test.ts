@@ -1,5 +1,6 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
-import { shouldSendEvent, SalesforcePluginConfig, SalesforcePluginGlobal, SalesforcePluginMeta } from '.'
+import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+
+import { SalesforceMeta, SalesforcePluginConfig, shouldSendEvent } from '.'
 
 describe('onEvent', () => {
     let config: SalesforcePluginConfig
@@ -20,35 +21,35 @@ describe('onEvent', () => {
         }
     })
 
-    it('adds the event with v1 mapping that matches', async () => {
+    it('adds the event with v1 mapping that matches', () => {
         config.eventsToInclude = 'test'
 
-        const res = await shouldSendEvent({ event: 'test' } as PluginEvent, { config } as SalesforcePluginMeta)
+        const res = shouldSendEvent({ event: 'test' } as ProcessedPluginEvent, { config } as SalesforceMeta)
         expect(res).toBeTruthy()
     })
 
-    it('skips the event with v1 mapping that does not match', async () => {
+    it('skips the event with v1 mapping that does not match', () => {
         config.eventsToInclude = 'to match'
 
-        const res = await shouldSendEvent({ event: 'not to match' } as PluginEvent, { config } as SalesforcePluginMeta)
+        const res = shouldSendEvent({ event: 'not to match' } as ProcessedPluginEvent, { config } as SalesforceMeta)
         expect(res).toBeFalsy()
     })
 
-    it('adds the event with v2 mapping that matches', async () => {
+    it('adds the event with v2 mapping that matches', () => {
         config.eventsToInclude = ''
         config.eventPath = ''
         config.eventEndpointMapping = JSON.stringify({ test: { salesforcePath: '/test', method: 'POST' } })
 
-        const res = await shouldSendEvent({ event: 'test' } as PluginEvent, { config } as SalesforcePluginMeta)
+        const res = shouldSendEvent({ event: 'test' } as ProcessedPluginEvent, { config } as SalesforceMeta)
         expect(res).toBeTruthy()
     })
 
-    it('skips the event with v2 mapping that does not match', async () => {
+    it('skips the event with v2 mapping that does not match', () => {
         config.eventsToInclude = ''
         config.eventPath = ''
         config.eventEndpointMapping = JSON.stringify({ 'to match': { salesforcePath: '/test', method: 'POST' } })
 
-        const res = await shouldSendEvent({ event: 'not to match' } as PluginEvent, { config } as SalesforcePluginMeta)
+        const res = shouldSendEvent({ event: 'not to match' } as ProcessedPluginEvent, { config } as SalesforceMeta)
         expect(res).toBeFalsy()
     })
 })

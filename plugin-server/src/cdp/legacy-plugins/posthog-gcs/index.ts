@@ -1,7 +1,8 @@
+import { Bucket, Storage } from '@google-cloud/storage'
 import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
-import { Storage, Bucket } from '@google-cloud/storage'
-import { PassThrough } from 'stream'
 import { randomBytes } from 'crypto'
+import { PassThrough } from 'stream'
+
 import { LegacyPlugin, LegacyPluginMeta } from '../types'
 import metadata from './plugin.json'
 
@@ -41,8 +42,7 @@ interface TableRow {
 }
 
 function transformEventToRow(fullEvent: ProcessedPluginEvent): TableRow {
-    const { event, properties, $set, $set_once, distinct_id, team_id, site_url, now, sent_at, uuid, ...rest } =
-        fullEvent
+    const { event, properties, $set, $set_once, distinct_id, team_id, site_url, now, sent_at, uuid } = fullEvent
     const ip = properties?.['$ip'] || fullEvent.ip
     const timestamp = fullEvent.timestamp || properties?.timestamp || now || sent_at
     let ingestedProperties = properties
@@ -92,6 +92,7 @@ const setupPlugin = async ({ attachments, global, config }: gcsMeta): Promise<vo
     })
     global.bucket = storage.bucket(config.bucketName)
     global.eventsToIgnore = new Set<string>((config.exportEventsToIgnore || '').split(',').map((event) => event.trim()))
+    return Promise.resolve()
 }
 
 const onEvent = async (event: ProcessedPluginEvent, { global, logger }: gcsMeta) => {

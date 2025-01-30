@@ -1,10 +1,10 @@
-// @ts-nocheck
 import { ProcessedPluginEvent, Properties, RetryError } from '@posthog/plugin-scaffold'
+import crypto from 'crypto'
 
 import { Response } from '~/src/utils/fetch'
+
 import { LegacyPlugin, LegacyPluginMeta } from '../types'
 import metadata from './plugin.json'
-import crypto from 'crypto'
 
 export type FetchBraze = (
     endpoint: string,
@@ -112,7 +112,7 @@ const _generateBrazeRequestBody = (pluginEvent: ProcessedPluginEvent, meta: Braz
 
     // If we have an event name in the exportEvents config option then we
     // should export the event to Braze.
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+
     const { $set: _set, ...eventProperties } = properties ?? {}
     const events: Array<BrazeEvent> = meta.config.eventsToExport?.split(',').includes(event)
         ? [

@@ -1,5 +1,5 @@
-// @ts-nocheck
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+
 import { LegacyPlugin, LegacyPluginMeta } from '../types'
 import metadata from './plugin.json'
 
@@ -83,11 +83,11 @@ const eventToMapping = {
 }
 
 function set(target, path, value) {
-    let keys = path.split('.')
-    let len = keys.length
+    const keys = path.split('.')
+    const len = keys.length
 
     for (let i = 0; i < len; i++) {
-        let prop = keys[i]
+        const prop = keys[i]
 
         if (!isObject(target[prop])) {
             target[prop] = {}
@@ -137,8 +137,8 @@ function get(target, path, options) {
         return isValid(path, target, options) ? target[path] : options.default
     }
 
-    let segs = isArray ? path : split(path, splitChar, options)
-    let len = segs.length
+    const segs = isArray ? path : split(path, splitChar, options)
+    const len = segs.length
     let idx = 0
 
     do {
@@ -221,6 +221,7 @@ export async function setupPlugin({ config, global }) {
     }
     global.writeKey = config.writeKey
     global.dataPlaneUrl = config.dataPlaneUrl
+    return Promise.resolve()
 }
 
 function getElementByOrderZero(json) {
@@ -231,7 +232,7 @@ function getElementByOrderZero(json) {
 }
 
 const onEvent = async (event: ProcessedPluginEvent, { config, global, fetch }: LegacyPluginMeta): Promise<void> => {
-    let laudspeakerPayload = {}
+    const laudspeakerPayload = {}
     // add const value props
     constructPayload(laudspeakerPayload, event, constants, true)
 
@@ -318,7 +319,7 @@ const onEvent = async (event: ProcessedPluginEvent, { config, global, fetch }: L
 
 function constructPayload(outPayload, inPayload, mapping, direct = false) {
     Object.keys(mapping).forEach((laudKeyPath) => {
-        let pHKeyPath = mapping[laudKeyPath]
+        const pHKeyPath = mapping[laudKeyPath]
         let pHKeyVal = undefined
         if (direct) {
             pHKeyVal = pHKeyPath

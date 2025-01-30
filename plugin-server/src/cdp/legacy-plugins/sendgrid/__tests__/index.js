@@ -1,8 +1,8 @@
 const { getMeta, resetMeta } = require('@posthog/plugin-scaffold/test/utils.js')
 const { setupPlugin, onEvent } = require('../index')
 
-global.fetch = jest.fn(async (url) => ({
-    json: async () =>
+global.fetch = jest.fn((url) => ({
+    json: () =>
         url.includes('/field_definitions')
             ? {
                   custom_fields: [

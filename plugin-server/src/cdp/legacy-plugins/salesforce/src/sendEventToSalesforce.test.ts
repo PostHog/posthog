@@ -1,8 +1,9 @@
-import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
-import { SalesforcePluginConfig, SalesforceMeta, sendEventToSalesforce } from '.'
+import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+
+import { SalesforceMeta, SalesforcePluginConfig, sendEventToSalesforce } from '.'
 
 const mockFetch = jest.fn()
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+
 ;(global as any).fetch = mockFetch
 
 describe('sendEventsToSalesforce', () => {

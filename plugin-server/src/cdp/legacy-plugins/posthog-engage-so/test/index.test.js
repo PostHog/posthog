@@ -134,8 +134,6 @@ test('composeWebhook to send the correct data to track group event', async () =>
 })
 
 test('composeWebhook should not track non-custom events besides $identify and $groupidentify', async () => {
-    const auth = 'Basic ' + Buffer.from(`${config.publicKey}:${config.secret}`).toString('base64')
-
     const event = {
         event: '$pageview',
         properties: {

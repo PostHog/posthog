@@ -1,4 +1,5 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
+
 import { getProperties } from '.'
 
 describe('filtering by property allow list', () => {

@@ -3,7 +3,7 @@ import fetchMock from 'jest-fetch-mock'
 
 fetchMock.enableMocks()
 
-import { PatternsMeta, onEvent, setupPlugin } from './index'
+import { onEvent, PatternsMeta, setupPlugin } from './index'
 
 const testWebhookUrl = 'https://api-staging.patterns.app/api/app/webhooks/wh1234'
 
@@ -12,17 +12,16 @@ beforeEach(() => {
 })
 
 test('onEvent called for event', async () => {
-    let meta = {
+    const meta = {
         config: {
             webhookUrl: testWebhookUrl,
         },
         global: {},
         fetch: fetchMock as unknown,
     } as PatternsMeta
-    setupPlugin(meta)
+    void setupPlugin(meta)
     const event1 = createEvent({ event: '$pageView' })
 
-    // @ts-ignore
     await onEvent(event1, meta)
 
     expect(fetchMock.mock.calls.length).toEqual(1)
@@ -35,7 +34,7 @@ test('onEvent called for event', async () => {
 })
 
 test('onEvent called for allowed event', async () => {
-    let meta = {
+    const meta = {
         config: {
             webhookUrl: testWebhookUrl,
             allowedEventTypes: '$pageView, $autoCapture, $customEvent1',
@@ -43,11 +42,10 @@ test('onEvent called for allowed event', async () => {
         global: {},
         fetch: fetchMock as unknown,
     } as PatternsMeta
-    setupPlugin(meta)
+    void setupPlugin(meta)
 
     const event = createEvent({ event: '$pageView' })
-    // @ts-ignore
-    await onEvent(event, meta)
+    void (await onEvent(event, meta))
     expect(fetchMock.mock.calls.length).toEqual(1)
     expect(fetchMock.mock.calls[0][0]).toEqual(testWebhookUrl)
     expect(fetchMock.mock.calls[0][1]).toEqual({
@@ -57,7 +55,6 @@ test('onEvent called for allowed event', async () => {
     })
 
     const event2 = createEvent({ event: '$pageLeave' })
-    // @ts-ignore
     await onEvent(event2, meta)
     expect(fetchMock.mock.calls.length).toEqual(1)
 })

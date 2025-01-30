@@ -1,4 +1,5 @@
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+
 import {
     EventSink,
     EventToSinkMapping,
@@ -10,7 +11,7 @@ import {
 } from '.'
 
 const mockFetch = jest.fn()
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+
 ;(global as any).fetch = mockFetch
 
 describe('event sink mapping', () => {

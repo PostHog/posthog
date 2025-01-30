@@ -1,5 +1,5 @@
-// @ts-nocheck
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+
 import { LegacyPlugin, LegacyPluginMeta } from '../types'
 import metadata from './plugin.json'
 
@@ -52,13 +52,13 @@ const onEvent = async (
     if (event.event !== '$identify') {
         return
     }
-    let contacts = []
+    const contacts = []
     const customFieldsMap = global.customFieldsMap
 
     const email = getEmailFromIdentifyEvent(event)
     if (email) {
-        let sendgridFilteredProps = {}
-        let customFields = {}
+        const sendgridFilteredProps = {}
+        const customFields = {}
         for (const [key, val] of Object.entries(event['$set'] ?? {})) {
             if (sendgridPropsMap[key]) {
                 sendgridFilteredProps[sendgridPropsMap[key]] = val

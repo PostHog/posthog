@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
 import { LegacyPlugin, LegacyPluginMeta } from '../types'
@@ -83,11 +82,11 @@ const eventToMapping = {
 }
 
 function set(target, path, value) {
-    let keys = path.split('.')
-    let len = keys.length
+    const keys = path.split('.')
+    const len = keys.length
 
     for (let i = 0; i < len; i++) {
-        let prop = keys[i]
+        const prop = keys[i]
 
         if (!isObject(target[prop])) {
             target[prop] = {}
@@ -137,8 +136,8 @@ function get(target, path, options) {
         return isValid(path, target, options) ? target[path] : options.default
     }
 
-    let segs = isArray ? path : split(path, splitChar, options)
-    let len = segs.length
+    const segs = isArray ? path : split(path, splitChar, options)
+    const len = segs.length
     let idx = 0
 
     do {
@@ -235,6 +234,7 @@ export async function setupPlugin({ config, global }: RudderstackMeta) {
     }
     global.writeKey = config.writeKey
     global.dataPlaneUrl = config.dataPlaneUrl
+    return Promise.resolve()
 }
 
 export async function onEvent(event: ProcessedPluginEvent, { global, fetch }: RudderstackMeta) {
@@ -254,7 +254,7 @@ export async function onEvent(event: ProcessedPluginEvent, { global, fetch }: Ru
 }
 
 function constructRudderPayload(event: ProcessedPluginEvent) {
-    let rudderPayload = {}
+    const rudderPayload = {}
     // add const value props
     constructPayload(rudderPayload, event, constants, true)
 
@@ -283,7 +283,7 @@ function constructRudderPayload(event: ProcessedPluginEvent) {
 
 function constructPayload(outPayload, inPayload, mapping, direct = false) {
     Object.keys(mapping).forEach((rudderKeyPath) => {
-        let pHKeyPath = mapping[rudderKeyPath]
+        const pHKeyPath = mapping[rudderKeyPath]
         let pHKeyVal = undefined
         if (direct) {
             pHKeyVal = pHKeyPath

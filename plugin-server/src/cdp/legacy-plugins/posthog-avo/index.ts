@@ -1,19 +1,16 @@
-import { ProcessedPluginEvent, Plugin } from '@posthog/plugin-scaffold'
-import { RetryError } from '@posthog/plugin-scaffold'
-
-import { Response } from '~/src/utils/fetch'
+import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { randomUUID } from 'crypto'
 
 import { LegacyPlugin, LegacyPluginMeta } from '../types'
 import metadata from './plugin.json'
-import { randomUUID } from 'crypto'
 
-interface AvoInspectorMeta {
+type AvoPluginMeta = LegacyPluginMeta & {
     global: {
         defaultHeaders: Record<string, string>
-        excludeEvents: Set<String>
-        includeEvents: Set<String>
-        excludeProperties: Set<String>
-        includeProperties: Set<String>
+        excludeEvents: Set<string>
+        includeEvents: Set<string>
+        excludeProperties: Set<string>
+        includeProperties: Set<string>
     }
     config: {
         appName: string
@@ -25,9 +22,7 @@ interface AvoInspectorMeta {
         includeProperties: string
     }
 }
-type AvoInspectorPlugin = Plugin<AvoInspectorMeta>
-
-export const setupPlugin: AvoInspectorPlugin['setupPlugin'] = async ({ config, global }) => {
+export const setupPlugin = ({ config, global }: AvoPluginMeta): Promise<void> => {
     global.defaultHeaders = {
         env: config.environment,
         'api-key': config.avoApiKey,
@@ -47,6 +42,7 @@ export const setupPlugin: AvoInspectorPlugin['setupPlugin'] = async ({ config, g
     global.includeProperties = new Set(
         config.includeProperties ? config.includeProperties.split(',').map((event) => event.trim()) : null
     )
+    return Promise.resolve()
 }
 
 const onEvent = async (event: ProcessedPluginEvent, { config, global, fetch }: LegacyPluginMeta): Promise<void> => {
@@ -91,8 +87,8 @@ const onEvent = async (event: ProcessedPluginEvent, { config, global, fetch }: L
 
 const convertPosthogPropsToAvoProps = (
     properties: Record<string, any>,
-    excludeProperties: Set<String>,
-    includeProperties: Set<String>
+    excludeProperties: Set<string>,
+    includeProperties: Set<string>
 ): Record<string, string>[] => {
     const avoProps = []
 
@@ -111,7 +107,7 @@ const convertPosthogPropsToAvoProps = (
 
 // Compatible with the Avo Rudderstack integration
 const getPropValueType = (propValue: any): string => {
-    let propType = typeof propValue
+    const propType = typeof propValue
     if (propValue == null) {
         return 'null'
     } else if (propType === 'string') {

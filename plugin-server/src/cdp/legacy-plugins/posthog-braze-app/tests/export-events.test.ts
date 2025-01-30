@@ -435,7 +435,6 @@ test('Braze offline error (500 response)', async () => {
         throw new Error('Should not reach here')
     } catch (e) {
         expect(e instanceof RetryError).toBeTruthy()
-        // @ts-ignore
         expect(e.message).toMatch('Service is down, retry later. Request ID: ')
     }
 })
@@ -486,7 +485,6 @@ test('Braze offline error (network error)', async () => {
         throw new Error('Should not reach here')
     } catch (e) {
         expect(e instanceof RetryError).toBeTruthy()
-        // @ts-ignore
         expect(e.message).toMatch('Fetch failed, retrying.')
     }
 })

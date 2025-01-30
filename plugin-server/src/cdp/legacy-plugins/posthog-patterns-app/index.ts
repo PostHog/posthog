@@ -1,10 +1,9 @@
-import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
+
+import { Response } from '~/src/utils/fetch'
 
 import { LegacyPlugin, LegacyPluginMeta } from '../types'
 import metadata from './plugin.json'
-
-import { PluginInput, RetryError } from '@posthog/plugin-scaffold'
-import { Response } from '~/src/utils/fetch'
 
 export type PatternsMeta = LegacyPluginMeta & {
     config: {
@@ -17,13 +16,13 @@ export type PatternsMeta = LegacyPluginMeta & {
 }
 
 // Plugin method that runs on plugin load
-//@ts-ignore
 export async function setupPlugin({ config, global }: PatternsMeta): Promise<void> {
     if (config.allowedEventTypes) {
         let allowedEventTypes = config.allowedEventTypes.split(',')
         allowedEventTypes = allowedEventTypes.map((eventType: string) => eventType.trim())
         global.allowedEventTypesSet = new Set(allowedEventTypes)
     }
+    return Promise.resolve()
 }
 
 // Plugin method to export events
@@ -34,8 +33,7 @@ export const onEvent = async (event: ProcessedPluginEvent, { config, global, fet
         }
     }
 
-    let response: Response
-    response = await fetch(config.webhookUrl, {
+    const response: Response = await fetch(config.webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify([event]),
