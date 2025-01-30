@@ -365,7 +365,11 @@ class HogFunctionViewSet(
 
     @action(detail=True, methods=["POST"])
     def invocations(self, request: Request, *args, **kwargs):
-        hog_function = self.get_object()
+        try:
+            hog_function = self.get_object()
+        except Exception:
+            hog_function = None
+
         serializer = HogFunctionInvocationSerializer(
             data=request.data, context={**self.get_serializer_context(), "instance": hog_function}
         )
@@ -380,8 +384,8 @@ class HogFunctionViewSet(
         mock_async_functions = serializer.validated_data["mock_async_functions"]
 
         res = create_hog_invocation_test(
-            team_id=hog_function.team_id,
-            hog_function_id=hog_function.id,
+            team_id=self.team_id,
+            hog_function_id=str(hog_function.id) if hog_function else "new",
             globals=hog_globals,
             configuration=configuration,
             mock_async_functions=mock_async_functions,
