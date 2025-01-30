@@ -203,16 +203,19 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
             ): {
                 input: string
                 output: string
+                hasDiff: boolean
             } | null => {
                 if (!testResult || configuration.type !== 'transformation') {
                     return null
                 }
 
-                const input = JSON.parse(testInvocation.globals)
+                const input = JSON.stringify(JSON.parse(testInvocation.globals), null, 2)
+                const output = JSON.stringify(testResult.result, null, 2)
 
                 return {
-                    input: JSON.stringify(input, null, 2),
-                    output: JSON.stringify(testResult.result, null, 2),
+                    input,
+                    output,
+                    hasDiff: input !== output,
                 }
             },
         ],

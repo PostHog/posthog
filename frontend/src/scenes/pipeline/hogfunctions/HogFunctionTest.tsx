@@ -233,47 +233,58 @@ export function HogFunctionTest(): JSX.Element {
                                         <div className="flex items-center justify-between gap-2">
                                             <LemonLabel>Transformation result</LemonLabel>
 
-                                            <LemonSegmentedButton
-                                                size="xsmall"
-                                                options={[
-                                                    { value: 'raw', label: 'Output' },
-                                                    { value: 'diff', label: 'Diff' },
-                                                ]}
-                                                onChange={(value) => setTestResultMode(value as 'raw' | 'diff')}
-                                                value={testResultMode}
-                                            />
+                                            {sortedTestsResult?.hasDiff && (
+                                                <LemonSegmentedButton
+                                                    size="xsmall"
+                                                    options={[
+                                                        { value: 'raw', label: 'Output' },
+                                                        { value: 'diff', label: 'Diff' },
+                                                    ]}
+                                                    onChange={(value) => setTestResultMode(value as 'raw' | 'diff')}
+                                                    value={testResultMode}
+                                                />
+                                            )}
                                         </div>
                                         <p>Below you can see the event after the transformation has been applied.</p>
                                         {testResult.result ? (
-                                            <CodeEditorResizeable
-                                                language="json"
-                                                originalValue={
-                                                    testResultMode === 'diff' ? sortedTestsResult?.input : undefined
-                                                }
-                                                value={sortedTestsResult?.output}
-                                                height={400}
-                                                options={{
-                                                    readOnly: true,
-                                                    lineNumbers: 'off',
-                                                    minimap: {
-                                                        enabled: false,
-                                                    },
-                                                    quickSuggestions: {
-                                                        other: true,
-                                                        strings: true,
-                                                    },
-                                                    suggest: {
-                                                        showWords: false,
-                                                        showFields: false,
-                                                        showKeywords: false,
-                                                    },
-                                                    scrollbar: {
-                                                        vertical: 'hidden',
-                                                        verticalScrollbarSize: 0,
-                                                    },
-                                                    folding: true,
-                                                }}
-                                            />
+                                            <>
+                                                {!sortedTestsResult?.hasDiff && (
+                                                    <LemonBanner type="info">
+                                                        The event was unmodified by the transformation.
+                                                    </LemonBanner>
+                                                )}
+                                                <CodeEditorResizeable
+                                                    language="json"
+                                                    originalValue={
+                                                        sortedTestsResult?.hasDiff && testResultMode === 'diff'
+                                                            ? sortedTestsResult?.input
+                                                            : undefined
+                                                    }
+                                                    value={sortedTestsResult?.output}
+                                                    height={400}
+                                                    options={{
+                                                        readOnly: true,
+                                                        lineNumbers: 'off',
+                                                        minimap: {
+                                                            enabled: false,
+                                                        },
+                                                        quickSuggestions: {
+                                                            other: true,
+                                                            strings: true,
+                                                        },
+                                                        suggest: {
+                                                            showWords: false,
+                                                            showFields: false,
+                                                            showKeywords: false,
+                                                        },
+                                                        scrollbar: {
+                                                            vertical: 'hidden',
+                                                            verticalScrollbarSize: 0,
+                                                        },
+                                                        folding: true,
+                                                    }}
+                                                />
+                                            </>
                                         ) : (
                                             <LemonBanner type="warning">
                                                 The event was dropped by the transformation. If this is expected then
