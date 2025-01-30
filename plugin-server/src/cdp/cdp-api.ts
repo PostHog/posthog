@@ -103,7 +103,7 @@ export class CdpApi {
             res.json(await this.hogWatcher.getState(id))
         }
 
-    private postFunctionInvocation = async (req: express.Request, res: express.Response): Promise<void> => {
+    private postFunctionInvocation = async (req: express.Request, res: express.Response): Promise<any> => {
         try {
             const { id, team_id } = req.params
             const { globals, mock_async_functions, configuration } = req.body
@@ -115,14 +115,21 @@ export class CdpApi {
                 return
             }
 
-            const hogFunction = await this.hogFunctionManager.fetchHogFunction(req.params.id).catch(() => null)
+            const isNewFunction = req.params.id === 'new'
+
+            const hogFunction = isNewFunction
+                ? null
+                : await this.hogFunctionManager.fetchHogFunction(req.params.id).catch(() => null)
             const team = await this.hub.teamManager.fetchTeam(parseInt(team_id)).catch(() => null)
+
+            if (!team) {
+                return res.status(404).json({ error: 'Team not found' })
+            }
 
             // NOTE: We allow the hog function to be null if it is a "new" hog function
             // The real security happens at the django layer so this is more of a sanity check
-            if (!team || (hogFunction && hogFunction.team_id !== team.id)) {
-                res.status(404).json({ error: 'Hog function not found' })
-                return
+            if (!isNewFunction && (!hogFunction || hogFunction.team_id !== team.id)) {
+                return res.status(404).json({ error: 'Hog function not found' })
             }
 
             // We use the provided config if given, otherwise the function's config
@@ -232,7 +239,7 @@ export class CdpApi {
                 compoundConfiguration.id = new UUIDT().toString()
                 const response = await this.hogTransformer.executeHogFunction(compoundConfiguration, triggerGlobals)
                 logs = logs.concat(response.logs)
-                result = response.execResult
+                result = response.execResult ?? null
 
                 if (response.error) {
                     errors.push(response.error)
