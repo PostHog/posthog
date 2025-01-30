@@ -75,7 +75,7 @@ const getMetricTitle = (metric: any, metricType: InsightType): JSX.Element => {
     return <span className="text-muted truncate">Untitled metric</span>
 }
 
-function generateViolinPath(x1: number, x2: number, y: number, height: number, distribution: number[]): string {
+function generateViolinPath(x1: number, x2: number, y: number, height: number): string {
     // Create points for the violin curve
     const points: [number, number][] = []
     const steps = 20
@@ -179,9 +179,9 @@ export function DeltaChart({
         TICK_TEXT_COLOR: 'var(--text-secondary-3000)',
         BOUNDARY_LINES: 'var(--border-primary)',
         ZERO_LINE: 'var(--border-bold)',
-        BAR_NEGATIVE: isDarkModeOn ? 'rgba(195, 47, 69, 0.8)' : 'rgba(248, 66, 87, 0.8)',
-        BAR_POSITIVE: isDarkModeOn ? 'rgba(18, 164, 97, 0.8)' : 'rgba(54, 205, 111, 0.8)',
-        BAR_DEFAULT: isDarkModeOn ? 'rgba(121, 121, 121, 0.5)' : 'rgba(217, 217, 217, 0.5)',
+        BAR_NEGATIVE: isDarkModeOn ? '#c32f45' : '#f84257',
+        BAR_POSITIVE: isDarkModeOn ? '#12a461' : '#36cd6f',
+        BAR_DEFAULT: isDarkModeOn ? 'rgb(121 121 121)' : 'rgb(217 217 217)',
         BAR_CONTROL: isDarkModeOn ? 'rgba(217, 217, 217, 0.2)' : 'rgba(217, 217, 217, 0.4)',
         BAR_MIDDLE_POINT: 'black',
         BAR_MIDDLE_POINT_CONTROL: 'rgba(0, 0, 0, 0.4)',
