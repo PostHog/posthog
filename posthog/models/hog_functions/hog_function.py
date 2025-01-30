@@ -96,12 +96,20 @@ class HogFunction(UUIDModel):
 
     @property
     def template(self) -> Optional[HogFunctionTemplate]:
-        from posthog.cdp.templates import ALL_HOG_FUNCTION_TEMPLATES_BY_ID
+        from posthog.api.hog_function_template import HogFunctionTemplates
 
-        if self.template_id and self.template_id.startswith("plugin-"):
+        if not self.template_id:
+            return None
+
+        template = HogFunctionTemplates.template(self.template_id)
+
+        if template:
+            return template
+
+        if self.template_id.startswith("plugin-"):
             return create_legacy_plugin_template(self.template_id)
 
-        return ALL_HOG_FUNCTION_TEMPLATES_BY_ID.get(self.template_id, None)
+        return None
 
     @property
     def filter_action_ids(self) -> list[int]:

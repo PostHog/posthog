@@ -6,7 +6,7 @@ export const template: HogFunctionTemplate = {
     id: 'plugin-property-filter-plugin',
     name: 'Property Filter',
     description: 'This plugin will set all configured properties to null inside an ingested event.',
-    icon_url: 'https://raw.githubusercontent.com/posthog/posthog-property-filter-plugin/main/logo.png',
+    icon_url: 'https://raw.githubusercontent.com/posthog/property-filter-plugin/dev/logo.png',
     category: ['Transformation'],
     hog: `return event`,
     inputs_schema: [

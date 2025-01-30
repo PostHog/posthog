@@ -8,6 +8,7 @@ import { FetchExecutorService } from './services/fetch-executor.service'
 import { HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
 import { HogFunctionManagerService } from './services/hog-function-manager.service'
 import { HogWatcherService, HogWatcherState } from './services/hog-watcher.service'
+import { HOG_FUNCTION_TEMPLATES } from './templates'
 import { HogFunctionInvocationResult, HogFunctionQueueParametersFetchRequest, HogFunctionType, LogEntry } from './types'
 
 export class CdpApi {
@@ -42,8 +43,13 @@ export class CdpApi {
         router.post('/api/projects/:team_id/hog_functions/:id/invocations', asyncHandler(this.postFunctionInvocation))
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
+        router.get('/api/hog_function_templates', this.getHogFunctionTemplates)
 
         return router
+    }
+
+    private getHogFunctionTemplates = (req: express.Request, res: express.Response): void => {
+        res.json(HOG_FUNCTION_TEMPLATES)
     }
 
     private getFunctionStatus =
