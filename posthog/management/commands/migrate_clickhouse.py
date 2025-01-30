@@ -112,6 +112,5 @@ class Command(BaseCommand):
     def _create_database_if_not_exists(self, database: str, cluster: str):
         with default_client() as client:
             client.execute(
-                "CREATE DATABASE IF NOT EXISTS %(database)s ON CLUSTER %(cluster)s",
-                {"database": database, "cluster": cluster},
+                f"CREATE DATABASE IF NOT EXISTS {database} ON CLUSTER {cluster}",
             )
