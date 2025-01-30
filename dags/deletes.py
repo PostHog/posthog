@@ -292,17 +292,15 @@ def delete_person_events(
 
 @op
 def wait_for_delete_mutations(
+    context: OpExecutionContext,
     cluster: ResourceParam[ClickhouseCluster],
-    delete_person_events: tuple[PendingPersonEventDeletesTable, Mutation],
+    delete_person_events: tuple[PendingPersonEventDeletesTable, ShardMutations],
 ) -> PendingPersonEventDeletesTable:
     pending_person_deletions, shard_mutations = delete_person_events
 
-    if not shard_mutations:
-        return pending_person_deletions
+    cluster.map_all_hosts_in_shards({shard: mutation.wait for shard, mutation in shard_mutations.items()}).result()
 
-    [table, mutations] = delete_person_events
-    cluster.map_all_hosts(mutations.wait).result()
-    return table
+    return pending_person_deletions
 
 
 @op
