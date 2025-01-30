@@ -3,6 +3,8 @@
 from django.db import migrations, models
 import django.db.models.deletion
 
+from django.contrib.postgres.operations import AddConstraintNotValid
+
 
 class Migration(migrations.Migration):
     dependencies = [
@@ -36,7 +38,7 @@ class Migration(migrations.Migration):
                 to="posthog.experimentsavedmetric",
             ),
         ),
-        migrations.AddConstraint(
+        AddConstraintNotValid(
             model_name="taggeditem",
             constraint=models.CheckConstraint(
                 check=models.Q(
