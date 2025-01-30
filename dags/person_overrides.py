@@ -292,10 +292,7 @@ def load_and_verify_snapshot_dictionary(
     dictionary: PersonOverridesSnapshotDictionary,
 ) -> PersonOverridesSnapshotDictionary:
     """Load the dictionary data on all hosts in the cluster, and ensure all hosts have identical data."""
-    # Loading and verifying the dictionary can consume a lot of CPU and memory, so we limit the amount of parallel
-    # queries to avoid substantial load increases on all hosts in the cluster at the same time, and instead try to
-    # spread the load out more evenly and gracefully.
-    checksums = cluster.map_all_hosts(dictionary.load, concurrency=1).result()
+    checksums = cluster.map_all_hosts(dictionary.load).result()
     assert len(set(checksums.values())) == 1
     return dictionary
 
