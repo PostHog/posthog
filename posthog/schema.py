@@ -650,8 +650,8 @@ class Type1(StrEnum):
 
 
 class OrderBy(StrEnum):
-    LAST_SEEN = "last_seen"
-    FIRST_SEEN = "first_seen"
+    LAST_SEEN = "lastSeen"
+    FIRST_SEEN = "firstSeen"
     OCCURRENCES = "occurrences"
     USERS = "users"
     SESSIONS = "sessions"

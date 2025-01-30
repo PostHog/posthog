@@ -6094,7 +6094,7 @@
                     "$ref": "#/definitions/integer"
                 },
                 "orderBy": {
-                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
+                    "enum": ["lastSeen", "firstSeen", "occurrences", "users", "sessions"],
                     "type": "string"
                 },
                 "response": {

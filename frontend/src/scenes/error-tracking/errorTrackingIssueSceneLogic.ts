@@ -50,7 +50,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     key((props) => props.id),
 
     connect({
-        values: [errorTrackingLogic, ['filterTestAccounts', 'filterGroup', 'dateRange']],
+        values: [errorTrackingLogic, ['dateRange', 'filterTestAccounts', 'filterGroup']],
     }),
 
     actions({
@@ -73,11 +73,13 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         issue: [
             null as ErrorTrackingIssue | null,
             {
-                loadRelationalIssue: async () => {
+                loadRelationalIssue: async (_, breakpoint) => {
+                    breakpoint()
                     const response = await api.errorTracking.getIssue(props.id)
                     return { ...values.issue, ...response }
                 },
-                loadClickHouseIssue: async (firstSeen: string) => {
+                loadClickHouseIssue: async (firstSeen: string, breakpoint) => {
+                    breakpoint()
                     const response = await api.query(
                         errorTrackingIssueQuery({
                             issueId: props.id,
@@ -139,13 +141,11 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
 
     listeners(({ values, actions }) => ({
         loadIssue: () => {
-            if (!values.issueLoading) {
-                const issue = values.issue
-                if (!issue) {
-                    actions.loadRelationalIssue()
-                } else if (!issue.lastSeen) {
-                    actions.loadClickHouseIssue(issue.firstSeen)
-                }
+            const issue = values.issue
+            if (!issue) {
+                actions.loadRelationalIssue()
+            } else if (!issue.lastSeen) {
+                actions.loadClickHouseIssue(issue.firstSeen)
             }
         },
         loadRelationalIssueSuccess: ({ issue }) => actions.loadClickHouseIssue(issue.firstSeen),

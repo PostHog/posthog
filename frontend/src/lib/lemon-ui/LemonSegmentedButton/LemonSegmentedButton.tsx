@@ -18,7 +18,7 @@ export interface LemonSegmentedButtonOption<T extends React.Key> {
 
 export interface LemonSegmentedButtonProps<T extends React.Key> {
     value?: T
-    onChange?: (newValue: T, e: React.MouseEvent<HTMLElement, MouseEvent>) => void
+    onChange?: (newValue: T) => void
     options: LemonSegmentedButtonOption<T>[]
     size?: LemonButtonProps['size']
     className?: string
@@ -89,9 +89,9 @@ export function LemonSegmentedButton<T extends React.Key>({
                             size={size}
                             fullWidth
                             disabledReason={option.disabledReason}
-                            onClick={(e) => {
+                            onClick={() => {
                                 if (!option.disabledReason) {
-                                    onChange?.(option.value, e)
+                                    onChange?.(option.value)
                                 }
                             }}
                             icon={option.icon}
