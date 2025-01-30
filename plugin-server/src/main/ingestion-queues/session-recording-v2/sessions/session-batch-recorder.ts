@@ -61,6 +61,7 @@ export class SessionBatchRecorder {
     public record(message: MessageWithTeam): number {
         const { partition } = message.message.metadata
         const sessionId = message.message.session_id
+        const teamId = message.team.teamId
 
         if (!this.partitionSessions.has(partition)) {
             this.partitionSessions.set(partition, new Map())
@@ -69,7 +70,7 @@ export class SessionBatchRecorder {
 
         const sessions = this.partitionSessions.get(partition)!
         if (!sessions.has(sessionId)) {
-            sessions.set(sessionId, new SnappySessionRecorder())
+            sessions.set(sessionId, new SnappySessionRecorder(sessionId, teamId))
         }
 
         const recorder = sessions.get(sessionId)!

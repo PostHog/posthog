@@ -33,6 +33,8 @@ interface MessageMetadata {
 }
 
 export class SnappySessionRecorderMock {
+    constructor(private readonly sessionId: string, private readonly teamId: number) {}
+
     private chunks: Buffer[] = []
     private size: number = 0
 
@@ -73,7 +75,9 @@ jest.mock('./metrics', () => ({
 
 jest.mock('./blackhole-session-batch-writer')
 jest.mock('./snappy-session-recorder', () => ({
-    SnappySessionRecorder: jest.fn().mockImplementation(() => new SnappySessionRecorderMock()),
+    SnappySessionRecorder: jest
+        .fn()
+        .mockImplementation((sessionId: string, teamId: number) => new SnappySessionRecorderMock(sessionId, teamId)),
 }))
 
 describe('SessionBatchRecorder', () => {
@@ -95,7 +99,8 @@ describe('SessionBatchRecorder', () => {
         jest.clearAllMocks()
 
         jest.mocked(SnappySessionRecorder).mockImplementation(
-            () => new SnappySessionRecorderMock() as unknown as SnappySessionRecorder
+            (sessionId: string, teamId: number) =>
+                new SnappySessionRecorderMock(sessionId, teamId) as unknown as SnappySessionRecorder
         )
 
         const openMock = createOpenMock()
