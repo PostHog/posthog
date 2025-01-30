@@ -17,7 +17,7 @@ from posthog.temporal.common.logger import get_internal_logger
 SELECT_QUERY = """
     SELECT id
     FROM posthog_person
-    WHERE team_id=%(team_id)s {person_id_filter}
+    WHERE team_id=%(team_id)s {person_ids_filter}
     ORDER BY id ASC
     LIMIT %(limit)s
 """

@@ -68,9 +68,7 @@ def test_job_inputs_with_whitespace(activity_environment, team, **kwargs):
     activity_inputs = _setup(team, job_inputs)
 
     with (
-        mock.patch(
-            "posthog.temporal.data_imports.pipelines.sql_database_v2.sql_source_for_type"
-        ) as sql_source_for_type,
+        mock.patch("posthog.temporal.data_imports.pipelines.sql_database.sql_source_for_type") as sql_source_for_type,
         mock.patch("posthog.temporal.data_imports.workflow_activities.import_data_sync._run"),
     ):
         activity_environment.run(import_data_activity_sync, activity_inputs)
@@ -107,9 +105,7 @@ def test_postgres_source_without_ssh_tunnel(activity_environment, team, **kwargs
     activity_inputs = _setup(team, job_inputs)
 
     with (
-        mock.patch(
-            "posthog.temporal.data_imports.pipelines.sql_database_v2.sql_source_for_type"
-        ) as sql_source_for_type,
+        mock.patch("posthog.temporal.data_imports.pipelines.sql_database.sql_source_for_type") as sql_source_for_type,
         mock.patch("posthog.temporal.data_imports.workflow_activities.import_data_sync._run"),
     ):
         activity_environment.run(import_data_activity_sync, activity_inputs)
@@ -149,9 +145,7 @@ def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, team, **
     activity_inputs = _setup(team, job_inputs)
 
     with (
-        mock.patch(
-            "posthog.temporal.data_imports.pipelines.sql_database_v2.sql_source_for_type"
-        ) as sql_source_for_type,
+        mock.patch("posthog.temporal.data_imports.pipelines.sql_database.sql_source_for_type") as sql_source_for_type,
         mock.patch("posthog.temporal.data_imports.workflow_activities.import_data_sync._run"),
     ):
         activity_environment.run(import_data_activity_sync, activity_inputs)
@@ -209,7 +203,7 @@ def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, team, **k
 
     with (
         mock.patch(
-            "posthog.temporal.data_imports.pipelines.sql_database_v2.sql_source_for_type"
+            "posthog.temporal.data_imports.pipelines.sql_database.sql_source_for_type"
         ) as sql_source_for_type_v2,
         mock.patch("posthog.temporal.data_imports.workflow_activities.import_data_sync._run"),
         mock.patch.object(SSHTunnel, "get_tunnel", mock_get_tunnel),
