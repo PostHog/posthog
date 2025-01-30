@@ -1,4 +1,4 @@
-import { IconMagicWand, IconPlusSmall, IconSparkles, IconTrash } from '@posthog/icons'
+import { IconPlusSmall, IconSparkles, IconToggle, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonDivider, LemonInput, LemonModal, LemonTextArea, Link, Tooltip } from '@posthog/lemon-ui'
 import { LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
@@ -55,12 +55,16 @@ const ExperimentFormFields = (): JSX.Element => {
                                         setShowFeatureFlagSelector(true)
                                     }}
                                 >
-                                    <IconMagicWand className="mr-1" /> Choose existing
+                                    <IconToggle className="mr-1" /> Choose
                                 </LemonButton>
                                 <LemonButton
                                     type="secondary"
                                     size="xsmall"
-                                    disabledReason={experiment.name ? undefined : 'Fill out the experiment name first.'}
+                                    disabledReason={
+                                        experiment.name
+                                            ? undefined
+                                            : 'Fill out the experiment name first to generate a key from it.'
+                                    }
                                     tooltip={experiment.name ? 'Generate a key from the experiment name' : undefined}
                                     onClick={() => {
                                         setExperiment({
@@ -355,7 +359,8 @@ const SelectExistingFeatureFlagModal = ({
             <div className="space-y-2">
                 <div className="text-muted mb-2">
                     Select an existing feature flag to use with this experiment. The feature flag must use multiple
-                    variants with `control` as the first, and not be associated with an existing experiment.
+                    variants with <code>'control'</code> as the first, and not be associated with an existing
+                    experiment.
                 </div>
                 <LemonTable
                     dataSource={featureFlags.results}
