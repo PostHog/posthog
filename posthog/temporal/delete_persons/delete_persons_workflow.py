@@ -63,7 +63,7 @@ async def mogrify_delete_queries_activity(inputs: MogrifyDeleteQueriesActivityIn
         logger = get_internal_logger()
 
         select_query = SELECT_QUERY.format(
-            person_ids_filter=f"AND id IN ({inputs.person_ids})" if inputs.person_ids else ""
+            person_ids_filter=f"AND id IN {inputs.person_ids}" if tuple(inputs.person_ids) else ""
         )
         delete_query_person_distinct_ids = DELETE_QUERY_PERSON_DISTINCT_IDS.format(select_query=select_query)
         delete_query_person_override = DELETE_QUERY_PERSON_OVERRIDE.format(select_query=select_query)
@@ -116,7 +116,7 @@ async def delete_persons_activity(inputs: DeletePersonsActivityInputs) -> tuple[
         logger = get_internal_logger()
 
         select_query = SELECT_QUERY.format(
-            person_ids_filter=f"AND id IN ({inputs.person_ids})" if inputs.person_ids else ""
+            person_ids_filter=f"AND id IN {inputs.person_ids}" if tuple(inputs.person_ids) else ""
         )
         delete_query_person_distinct_ids = DELETE_QUERY_PERSON_DISTINCT_IDS.format(select_query=select_query)
         delete_query_person_override = DELETE_QUERY_PERSON_OVERRIDE.format(select_query=select_query)
