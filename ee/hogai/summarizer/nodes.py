@@ -15,7 +15,7 @@ from ee.hogai.summarizer.format import (
     compress_and_format_retention_results,
     compress_and_format_trends_results,
 )
-from ee.hogai.summarizer.prompts import SUMMARIZER_INSTRUCTION_PROMPT, SUMMARIZER_SYSTEM_PROMPT
+from ee.hogai.summarizer.prompts import SUMMARIZER_INSTRUCTION_PROMPT, SUMMARIZER_SYSTEM_PROMPT, TRENDS_EXAMPLE
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
 from posthog.api.services.query import process_query_dict
@@ -100,6 +100,7 @@ class SummarizerNode(AssistantNode):
                 "utc_datetime_display": utc_now.strftime("%Y-%m-%d %H:%M:%S"),
                 "project_datetime_display": project_now.strftime("%Y-%m-%d %H:%M:%S"),
                 "project_timezone": self._team.timezone_info.tzname(utc_now),
+                "example": self._get_example_prompt(viz_message),
             },
             config,
         )
@@ -131,4 +132,9 @@ class SummarizerNode(AssistantNode):
             return compress_and_format_funnels_results(results)
         elif isinstance(viz_message.answer, AssistantRetentionQuery):
             return compress_and_format_retention_results(results)
+        raise NotImplementedError(f"Unsupported query type: {type(viz_message.answer)}")
+
+    def _get_example_prompt(self, viz_message: VisualizationMessage) -> str:
+        if isinstance(viz_message.answer, AssistantTrendsQuery):
+            return TRENDS_EXAMPLE
         raise NotImplementedError(f"Unsupported query type: {type(viz_message.answer)}")
