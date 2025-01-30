@@ -59,7 +59,7 @@ function QueryTabComponent({ model, active, onClear, onClick, onRename }: QueryT
             onClick={() => onClick?.(model)}
             className={clsx(
                 'space-y-px rounded-t p-1 flex flex-row items-center gap-1 hover:bg-[var(--surface-primary)] cursor-pointer',
-                active ? 'bg-[var(--surface-primary)] border-t border-l border-r' : 'bg-bg-3000',
+                active ? 'bg-[var(--surface-primary)] border-t border-l border-r' : 'bg-primary',
                 onClear ? 'pl-3 pr-2' : 'px-3'
             )}
         >

@@ -227,7 +227,7 @@ const List = ({
         <div className="flex flex-col relative w-full bg-surface-primary overflow-hidden h-full Playlist__list">
             <DraggableToNotebook href={notebooksHref}>
                 <div className="flex flex-col gap-1">
-                    <div className="shrink-0 bg-bg-3000 relative flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
+                    <div className="shrink-0 bg-primary relative flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
                         {title && <TitleWithCount title={title} count={itemsCount} />}
                         {headerActions}
                     </div>
