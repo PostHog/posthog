@@ -94,6 +94,10 @@ export class HogTransformerService {
         await this.hogFunctionManager.start(hogTypes)
     }
 
+    public async stop(): Promise<void> {
+        await this.hogFunctionManager.stop()
+    }
+
     private produceAppMetric(metric: HogFunctionAppMetric): Promise<void> {
         const appMetric: AppMetric2Type = {
             app_source: 'hog_function',
