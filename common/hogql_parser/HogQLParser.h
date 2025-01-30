@@ -1572,7 +1572,7 @@ public:
   public:
     ColumnExprCallSelectContext(ColumnExprContext *ctx);
 
-    IdentifierContext *identifier();
+    ColumnExprContext *columnExpr();
     antlr4::tree::TerminalNode *LPAREN();
     SelectSetStmtContext *selectSetStmt();
     antlr4::tree::TerminalNode *RPAREN();

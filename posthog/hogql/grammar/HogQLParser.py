@@ -88,14 +88,14 @@ def serializedATN():
         59,3,59,884,8,59,1,59,3,59,887,8,59,1,59,3,59,890,8,59,1,59,1,59,
         1,59,1,59,1,59,1,59,3,59,898,8,59,1,59,3,59,901,8,59,1,59,1,59,3,
         59,905,8,59,1,59,3,59,908,8,59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,
-        1,59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,3,59,927,8,59,
-        1,59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,
-        1,59,1,59,3,59,944,8,59,1,59,1,59,1,59,3,59,949,8,59,1,59,1,59,1,
-        59,3,59,954,8,59,1,59,1,59,1,59,1,59,3,59,960,8,59,1,59,1,59,1,59,
-        1,59,1,59,3,59,967,8,59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,
-        1,59,1,59,3,59,979,8,59,1,59,1,59,3,59,983,8,59,1,59,3,59,986,8,
-        59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,3,59,995,8,59,1,59,1,59,1,
-        59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,3,59,1009,8,59,1,
+        1,59,1,59,1,59,1,59,1,59,3,59,922,8,59,1,59,1,59,1,59,1,59,1,59,
+        1,59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,3,59,939,8,59,
+        1,59,1,59,1,59,3,59,944,8,59,1,59,1,59,1,59,3,59,949,8,59,1,59,1,
+        59,1,59,1,59,3,59,955,8,59,1,59,1,59,1,59,1,59,1,59,3,59,962,8,59,
+        1,59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,3,59,974,8,59,
+        1,59,1,59,3,59,978,8,59,1,59,3,59,981,8,59,1,59,1,59,1,59,1,59,1,
+        59,1,59,1,59,3,59,990,8,59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,1,
+        59,1,59,1,59,1,59,1,59,3,59,1004,8,59,1,59,1,59,1,59,1,59,1,59,1,
         59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,1,
         59,3,59,1025,8,59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,1,
         59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,1,59,1,
@@ -150,7 +150,7 @@ def serializedATN():
         90,642,1,0,0,0,92,650,1,0,0,0,94,668,1,0,0,0,96,670,1,0,0,0,98,678,
         1,0,0,0,100,683,1,0,0,0,102,691,1,0,0,0,104,695,1,0,0,0,106,699,
         1,0,0,0,108,708,1,0,0,0,110,722,1,0,0,0,112,724,1,0,0,0,114,783,
-        1,0,0,0,116,785,1,0,0,0,118,953,1,0,0,0,120,1095,1,0,0,0,122,1107,
+        1,0,0,0,116,785,1,0,0,0,118,948,1,0,0,0,120,1095,1,0,0,0,122,1107,
         1,0,0,0,124,1140,1,0,0,0,126,1153,1,0,0,0,128,1155,1,0,0,0,130,1176,
         1,0,0,0,132,1185,1,0,0,0,134,1187,1,0,0,0,136,1204,1,0,0,0,138,1217,
         1,0,0,0,140,1227,1,0,0,0,142,1231,1,0,0,0,144,1242,1,0,0,0,146,1252,
@@ -356,94 +356,94 @@ def serializedATN():
         805,3,118,59,0,805,807,1,0,0,0,806,801,1,0,0,0,807,808,1,0,0,0,808,
         806,1,0,0,0,808,809,1,0,0,0,809,812,1,0,0,0,810,811,5,25,0,0,811,
         813,3,118,59,0,812,810,1,0,0,0,812,813,1,0,0,0,813,814,1,0,0,0,814,
-        815,5,26,0,0,815,954,1,0,0,0,816,817,5,13,0,0,817,818,5,133,0,0,
+        815,5,26,0,0,815,949,1,0,0,0,816,817,5,13,0,0,817,818,5,133,0,0,
         818,819,3,118,59,0,819,820,5,6,0,0,820,821,3,114,57,0,821,822,5,
-        152,0,0,822,954,1,0,0,0,823,824,5,20,0,0,824,954,5,113,0,0,825,826,
-        5,48,0,0,826,954,5,113,0,0,827,828,5,48,0,0,828,829,3,118,59,0,829,
-        830,3,152,76,0,830,954,1,0,0,0,831,832,5,85,0,0,832,833,5,133,0,
+        152,0,0,822,949,1,0,0,0,823,824,5,20,0,0,824,949,5,113,0,0,825,826,
+        5,48,0,0,826,949,5,113,0,0,827,828,5,48,0,0,828,829,3,118,59,0,829,
+        830,3,152,76,0,830,949,1,0,0,0,831,832,5,85,0,0,832,833,5,133,0,
         0,833,834,3,118,59,0,834,835,5,35,0,0,835,838,3,118,59,0,836,837,
         5,34,0,0,837,839,3,118,59,0,838,836,1,0,0,0,838,839,1,0,0,0,839,
-        840,1,0,0,0,840,841,5,152,0,0,841,954,1,0,0,0,842,843,5,89,0,0,843,
-        954,5,113,0,0,844,845,5,94,0,0,845,846,5,133,0,0,846,847,7,10,0,
+        840,1,0,0,0,840,841,5,152,0,0,841,949,1,0,0,0,842,843,5,89,0,0,843,
+        949,5,113,0,0,844,845,5,94,0,0,845,846,5,133,0,0,846,847,7,10,0,
         0,847,848,3,166,83,0,848,849,5,35,0,0,849,850,3,118,59,0,850,851,
-        5,152,0,0,851,954,1,0,0,0,852,853,3,160,80,0,853,855,5,133,0,0,854,
+        5,152,0,0,851,949,1,0,0,0,852,853,3,160,80,0,853,855,5,133,0,0,854,
         856,3,116,58,0,855,854,1,0,0,0,855,856,1,0,0,0,856,857,1,0,0,0,857,
         858,5,152,0,0,858,867,1,0,0,0,859,861,5,133,0,0,860,862,5,24,0,0,
         861,860,1,0,0,0,861,862,1,0,0,0,862,864,1,0,0,0,863,865,3,116,58,
         0,864,863,1,0,0,0,864,865,1,0,0,0,865,866,1,0,0,0,866,868,5,152,
         0,0,867,859,1,0,0,0,867,868,1,0,0,0,868,869,1,0,0,0,869,870,5,69,
-        0,0,870,871,5,133,0,0,871,872,3,100,50,0,872,873,5,152,0,0,873,954,
+        0,0,870,871,5,133,0,0,871,872,3,100,50,0,872,873,5,152,0,0,873,949,
         1,0,0,0,874,875,3,160,80,0,875,877,5,133,0,0,876,878,3,116,58,0,
         877,876,1,0,0,0,877,878,1,0,0,0,878,879,1,0,0,0,879,880,5,152,0,
         0,880,889,1,0,0,0,881,883,5,133,0,0,882,884,5,24,0,0,883,882,1,0,
         0,0,883,884,1,0,0,0,884,886,1,0,0,0,885,887,3,116,58,0,886,885,1,
         0,0,0,886,887,1,0,0,0,887,888,1,0,0,0,888,890,5,152,0,0,889,881,
         1,0,0,0,889,890,1,0,0,0,890,891,1,0,0,0,891,892,5,69,0,0,892,893,
-        3,160,80,0,893,954,1,0,0,0,894,900,3,160,80,0,895,897,5,133,0,0,
+        3,160,80,0,893,949,1,0,0,0,894,900,3,160,80,0,895,897,5,133,0,0,
         896,898,3,116,58,0,897,896,1,0,0,0,897,898,1,0,0,0,898,899,1,0,0,
         0,899,901,5,152,0,0,900,895,1,0,0,0,900,901,1,0,0,0,901,902,1,0,
         0,0,902,904,5,133,0,0,903,905,5,24,0,0,904,903,1,0,0,0,904,905,1,
         0,0,0,905,907,1,0,0,0,906,908,3,116,58,0,907,906,1,0,0,0,907,908,
-        1,0,0,0,908,909,1,0,0,0,909,910,5,152,0,0,910,954,1,0,0,0,911,912,
-        3,160,80,0,912,913,5,133,0,0,913,914,3,48,24,0,914,915,5,152,0,0,
-        915,954,1,0,0,0,916,954,3,124,62,0,917,954,3,168,84,0,918,954,3,
-        150,75,0,919,920,5,121,0,0,920,954,3,118,59,20,921,922,5,61,0,0,
-        922,954,3,118,59,14,923,924,3,140,70,0,924,925,5,123,0,0,925,927,
-        1,0,0,0,926,923,1,0,0,0,926,927,1,0,0,0,927,928,1,0,0,0,928,954,
-        5,115,0,0,929,930,5,133,0,0,930,931,3,48,24,0,931,932,5,152,0,0,
-        932,954,1,0,0,0,933,934,5,133,0,0,934,935,3,118,59,0,935,936,5,152,
-        0,0,936,954,1,0,0,0,937,938,5,133,0,0,938,939,3,116,58,0,939,940,
-        5,152,0,0,940,954,1,0,0,0,941,943,5,132,0,0,942,944,3,116,58,0,943,
-        942,1,0,0,0,943,944,1,0,0,0,944,945,1,0,0,0,945,954,5,151,0,0,946,
-        948,5,131,0,0,947,949,3,40,20,0,948,947,1,0,0,0,948,949,1,0,0,0,
-        949,950,1,0,0,0,950,954,5,150,0,0,951,954,3,120,60,0,952,954,3,132,
-        66,0,953,796,1,0,0,0,953,816,1,0,0,0,953,823,1,0,0,0,953,825,1,0,
-        0,0,953,827,1,0,0,0,953,831,1,0,0,0,953,842,1,0,0,0,953,844,1,0,
-        0,0,953,852,1,0,0,0,953,874,1,0,0,0,953,894,1,0,0,0,953,911,1,0,
-        0,0,953,916,1,0,0,0,953,917,1,0,0,0,953,918,1,0,0,0,953,919,1,0,
-        0,0,953,921,1,0,0,0,953,926,1,0,0,0,953,929,1,0,0,0,953,933,1,0,
-        0,0,953,937,1,0,0,0,953,941,1,0,0,0,953,946,1,0,0,0,953,951,1,0,
-        0,0,953,952,1,0,0,0,954,1065,1,0,0,0,955,959,10,19,0,0,956,960,5,
-        115,0,0,957,960,5,154,0,0,958,960,5,141,0,0,959,956,1,0,0,0,959,
-        957,1,0,0,0,959,958,1,0,0,0,960,961,1,0,0,0,961,1064,3,118,59,20,
-        962,966,10,18,0,0,963,967,5,142,0,0,964,967,5,121,0,0,965,967,5,
-        120,0,0,966,963,1,0,0,0,966,964,1,0,0,0,966,965,1,0,0,0,967,968,
-        1,0,0,0,968,1064,3,118,59,19,969,994,10,17,0,0,970,995,5,124,0,0,
-        971,995,5,125,0,0,972,995,5,136,0,0,973,995,5,134,0,0,974,995,5,
-        135,0,0,975,995,5,126,0,0,976,995,5,127,0,0,977,979,5,61,0,0,978,
-        977,1,0,0,0,978,979,1,0,0,0,979,980,1,0,0,0,980,982,5,44,0,0,981,
-        983,5,15,0,0,982,981,1,0,0,0,982,983,1,0,0,0,983,995,1,0,0,0,984,
-        986,5,61,0,0,985,984,1,0,0,0,985,986,1,0,0,0,986,987,1,0,0,0,987,
-        995,7,11,0,0,988,995,5,148,0,0,989,995,5,149,0,0,990,995,5,138,0,
-        0,991,995,5,129,0,0,992,995,5,130,0,0,993,995,5,137,0,0,994,970,
-        1,0,0,0,994,971,1,0,0,0,994,972,1,0,0,0,994,973,1,0,0,0,994,974,
-        1,0,0,0,994,975,1,0,0,0,994,976,1,0,0,0,994,978,1,0,0,0,994,985,
-        1,0,0,0,994,988,1,0,0,0,994,989,1,0,0,0,994,990,1,0,0,0,994,991,
-        1,0,0,0,994,992,1,0,0,0,994,993,1,0,0,0,995,996,1,0,0,0,996,1064,
-        3,118,59,18,997,998,10,15,0,0,998,999,5,140,0,0,999,1064,3,118,59,
-        16,1000,1001,10,13,0,0,1001,1002,5,2,0,0,1002,1064,3,118,59,14,1003,
-        1004,10,12,0,0,1004,1005,5,66,0,0,1005,1064,3,118,59,13,1006,1008,
-        10,11,0,0,1007,1009,5,61,0,0,1008,1007,1,0,0,0,1008,1009,1,0,0,0,
-        1009,1010,1,0,0,0,1010,1011,5,9,0,0,1011,1012,3,118,59,0,1012,1013,
-        5,2,0,0,1013,1014,3,118,59,12,1014,1064,1,0,0,0,1015,1016,10,10,
-        0,0,1016,1017,5,143,0,0,1017,1018,3,118,59,0,1018,1019,5,118,0,0,
-        1019,1020,3,118,59,10,1020,1064,1,0,0,0,1021,1022,10,30,0,0,1022,
-        1024,5,133,0,0,1023,1025,3,116,58,0,1024,1023,1,0,0,0,1024,1025,
-        1,0,0,0,1025,1026,1,0,0,0,1026,1064,5,152,0,0,1027,1028,10,26,0,
-        0,1028,1029,5,132,0,0,1029,1030,3,118,59,0,1030,1031,5,151,0,0,1031,
-        1064,1,0,0,0,1032,1033,10,25,0,0,1033,1034,5,123,0,0,1034,1064,5,
-        111,0,0,1035,1036,10,24,0,0,1036,1037,5,123,0,0,1037,1064,3,160,
-        80,0,1038,1039,10,23,0,0,1039,1040,5,139,0,0,1040,1041,5,132,0,0,
-        1041,1042,3,118,59,0,1042,1043,5,151,0,0,1043,1064,1,0,0,0,1044,
-        1045,10,22,0,0,1045,1046,5,139,0,0,1046,1064,5,111,0,0,1047,1048,
-        10,21,0,0,1048,1049,5,139,0,0,1049,1064,3,160,80,0,1050,1051,10,
-        16,0,0,1051,1053,5,49,0,0,1052,1054,5,61,0,0,1053,1052,1,0,0,0,1053,
-        1054,1,0,0,0,1054,1055,1,0,0,0,1055,1064,5,62,0,0,1056,1061,10,9,
-        0,0,1057,1058,5,6,0,0,1058,1062,3,160,80,0,1059,1060,5,6,0,0,1060,
-        1062,5,113,0,0,1061,1057,1,0,0,0,1061,1059,1,0,0,0,1062,1064,1,0,
-        0,0,1063,955,1,0,0,0,1063,962,1,0,0,0,1063,969,1,0,0,0,1063,997,
-        1,0,0,0,1063,1000,1,0,0,0,1063,1003,1,0,0,0,1063,1006,1,0,0,0,1063,
-        1015,1,0,0,0,1063,1021,1,0,0,0,1063,1027,1,0,0,0,1063,1032,1,0,0,
+        1,0,0,0,908,909,1,0,0,0,909,910,5,152,0,0,910,949,1,0,0,0,911,949,
+        3,124,62,0,912,949,3,168,84,0,913,949,3,150,75,0,914,915,5,121,0,
+        0,915,949,3,118,59,20,916,917,5,61,0,0,917,949,3,118,59,14,918,919,
+        3,140,70,0,919,920,5,123,0,0,920,922,1,0,0,0,921,918,1,0,0,0,921,
+        922,1,0,0,0,922,923,1,0,0,0,923,949,5,115,0,0,924,925,5,133,0,0,
+        925,926,3,48,24,0,926,927,5,152,0,0,927,949,1,0,0,0,928,929,5,133,
+        0,0,929,930,3,118,59,0,930,931,5,152,0,0,931,949,1,0,0,0,932,933,
+        5,133,0,0,933,934,3,116,58,0,934,935,5,152,0,0,935,949,1,0,0,0,936,
+        938,5,132,0,0,937,939,3,116,58,0,938,937,1,0,0,0,938,939,1,0,0,0,
+        939,940,1,0,0,0,940,949,5,151,0,0,941,943,5,131,0,0,942,944,3,40,
+        20,0,943,942,1,0,0,0,943,944,1,0,0,0,944,945,1,0,0,0,945,949,5,150,
+        0,0,946,949,3,120,60,0,947,949,3,132,66,0,948,796,1,0,0,0,948,816,
+        1,0,0,0,948,823,1,0,0,0,948,825,1,0,0,0,948,827,1,0,0,0,948,831,
+        1,0,0,0,948,842,1,0,0,0,948,844,1,0,0,0,948,852,1,0,0,0,948,874,
+        1,0,0,0,948,894,1,0,0,0,948,911,1,0,0,0,948,912,1,0,0,0,948,913,
+        1,0,0,0,948,914,1,0,0,0,948,916,1,0,0,0,948,921,1,0,0,0,948,924,
+        1,0,0,0,948,928,1,0,0,0,948,932,1,0,0,0,948,936,1,0,0,0,948,941,
+        1,0,0,0,948,946,1,0,0,0,948,947,1,0,0,0,949,1065,1,0,0,0,950,954,
+        10,19,0,0,951,955,5,115,0,0,952,955,5,154,0,0,953,955,5,141,0,0,
+        954,951,1,0,0,0,954,952,1,0,0,0,954,953,1,0,0,0,955,956,1,0,0,0,
+        956,1064,3,118,59,20,957,961,10,18,0,0,958,962,5,142,0,0,959,962,
+        5,121,0,0,960,962,5,120,0,0,961,958,1,0,0,0,961,959,1,0,0,0,961,
+        960,1,0,0,0,962,963,1,0,0,0,963,1064,3,118,59,19,964,989,10,17,0,
+        0,965,990,5,124,0,0,966,990,5,125,0,0,967,990,5,136,0,0,968,990,
+        5,134,0,0,969,990,5,135,0,0,970,990,5,126,0,0,971,990,5,127,0,0,
+        972,974,5,61,0,0,973,972,1,0,0,0,973,974,1,0,0,0,974,975,1,0,0,0,
+        975,977,5,44,0,0,976,978,5,15,0,0,977,976,1,0,0,0,977,978,1,0,0,
+        0,978,990,1,0,0,0,979,981,5,61,0,0,980,979,1,0,0,0,980,981,1,0,0,
+        0,981,982,1,0,0,0,982,990,7,11,0,0,983,990,5,148,0,0,984,990,5,149,
+        0,0,985,990,5,138,0,0,986,990,5,129,0,0,987,990,5,130,0,0,988,990,
+        5,137,0,0,989,965,1,0,0,0,989,966,1,0,0,0,989,967,1,0,0,0,989,968,
+        1,0,0,0,989,969,1,0,0,0,989,970,1,0,0,0,989,971,1,0,0,0,989,973,
+        1,0,0,0,989,980,1,0,0,0,989,983,1,0,0,0,989,984,1,0,0,0,989,985,
+        1,0,0,0,989,986,1,0,0,0,989,987,1,0,0,0,989,988,1,0,0,0,990,991,
+        1,0,0,0,991,1064,3,118,59,18,992,993,10,15,0,0,993,994,5,140,0,0,
+        994,1064,3,118,59,16,995,996,10,13,0,0,996,997,5,2,0,0,997,1064,
+        3,118,59,14,998,999,10,12,0,0,999,1000,5,66,0,0,1000,1064,3,118,
+        59,13,1001,1003,10,11,0,0,1002,1004,5,61,0,0,1003,1002,1,0,0,0,1003,
+        1004,1,0,0,0,1004,1005,1,0,0,0,1005,1006,5,9,0,0,1006,1007,3,118,
+        59,0,1007,1008,5,2,0,0,1008,1009,3,118,59,12,1009,1064,1,0,0,0,1010,
+        1011,10,10,0,0,1011,1012,5,143,0,0,1012,1013,3,118,59,0,1013,1014,
+        5,118,0,0,1014,1015,3,118,59,10,1015,1064,1,0,0,0,1016,1017,10,31,
+        0,0,1017,1018,5,133,0,0,1018,1019,3,48,24,0,1019,1020,5,152,0,0,
+        1020,1064,1,0,0,0,1021,1022,10,30,0,0,1022,1024,5,133,0,0,1023,1025,
+        3,116,58,0,1024,1023,1,0,0,0,1024,1025,1,0,0,0,1025,1026,1,0,0,0,
+        1026,1064,5,152,0,0,1027,1028,10,26,0,0,1028,1029,5,132,0,0,1029,
+        1030,3,118,59,0,1030,1031,5,151,0,0,1031,1064,1,0,0,0,1032,1033,
+        10,25,0,0,1033,1034,5,123,0,0,1034,1064,5,111,0,0,1035,1036,10,24,
+        0,0,1036,1037,5,123,0,0,1037,1064,3,160,80,0,1038,1039,10,23,0,0,
+        1039,1040,5,139,0,0,1040,1041,5,132,0,0,1041,1042,3,118,59,0,1042,
+        1043,5,151,0,0,1043,1064,1,0,0,0,1044,1045,10,22,0,0,1045,1046,5,
+        139,0,0,1046,1064,5,111,0,0,1047,1048,10,21,0,0,1048,1049,5,139,
+        0,0,1049,1064,3,160,80,0,1050,1051,10,16,0,0,1051,1053,5,49,0,0,
+        1052,1054,5,61,0,0,1053,1052,1,0,0,0,1053,1054,1,0,0,0,1054,1055,
+        1,0,0,0,1055,1064,5,62,0,0,1056,1061,10,9,0,0,1057,1058,5,6,0,0,
+        1058,1062,3,160,80,0,1059,1060,5,6,0,0,1060,1062,5,113,0,0,1061,
+        1057,1,0,0,0,1061,1059,1,0,0,0,1062,1064,1,0,0,0,1063,950,1,0,0,
+        0,1063,957,1,0,0,0,1063,964,1,0,0,0,1063,992,1,0,0,0,1063,995,1,
+        0,0,0,1063,998,1,0,0,0,1063,1001,1,0,0,0,1063,1010,1,0,0,0,1063,
+        1016,1,0,0,0,1063,1021,1,0,0,0,1063,1027,1,0,0,0,1063,1032,1,0,0,
         0,1063,1035,1,0,0,0,1063,1038,1,0,0,0,1063,1044,1,0,0,0,1063,1047,
         1,0,0,0,1063,1050,1,0,0,0,1063,1056,1,0,0,0,1064,1067,1,0,0,0,1065,
         1063,1,0,0,0,1065,1066,1,0,0,0,1066,119,1,0,0,0,1067,1065,1,0,0,
@@ -543,8 +543,8 @@ def serializedATN():
         547,550,556,564,570,572,576,581,584,587,591,595,598,600,603,607,
         611,614,616,618,623,634,640,647,652,656,660,666,668,675,683,686,
         689,708,722,738,742,753,757,768,772,779,783,790,794,799,808,812,
-        838,855,861,864,867,877,883,886,889,897,900,904,907,926,943,948,
-        953,959,966,978,982,985,994,1008,1024,1053,1061,1063,1065,1074,1078,
+        838,855,861,864,867,877,883,886,889,897,900,904,907,921,938,943,
+        948,954,961,973,977,980,989,1003,1024,1053,1061,1063,1065,1074,1078,
         1087,1091,1095,1100,1107,1114,1125,1132,1140,1153,1160,1164,1176,
         1182,1185,1192,1204,1210,1214,1220,1227,1236,1240,1250,1252,1255,
         1263,1268,1278,1283,1295,1301,1311,1317,1327
@@ -6223,8 +6223,8 @@ class HogQLParser ( Parser ):
             super().__init__(parser)
             self.copyFrom(ctx)
 
-        def identifier(self):
-            return self.getTypedRuleContext(HogQLParser.IdentifierContext,0)
+        def columnExpr(self):
+            return self.getTypedRuleContext(HogQLParser.ColumnExprContext,0)
 
         def LPAREN(self):
             return self.getToken(HogQLParser.LPAREN, 0)
@@ -6883,7 +6883,7 @@ class HogQLParser ( Parser ):
         self._la = 0 # Token type
         try:
             self.enterOuterAlt(localctx, 1)
-            self.state = 953
+            self.state = 948
             self._errHandler.sync(self)
             la_ = self._interp.adaptivePredict(self._input,119,self._ctx)
             if la_ == 1:
@@ -7199,166 +7199,152 @@ class HogQLParser ( Parser ):
                 pass
 
             elif la_ == 12:
-                localctx = HogQLParser.ColumnExprCallSelectContext(self, localctx)
-                self._ctx = localctx
-                _prevctx = localctx
-                self.state = 911
-                self.identifier()
-                self.state = 912
-                self.match(HogQLParser.LPAREN)
-                self.state = 913
-                self.selectSetStmt()
-                self.state = 914
-                self.match(HogQLParser.RPAREN)
-                pass
-
-            elif la_ == 13:
                 localctx = HogQLParser.ColumnExprTagElementContext(self, localctx)
                 self._ctx = localctx
                 _prevctx = localctx
-                self.state = 916
+                self.state = 911
                 self.hogqlxTagElement()
                 pass
 
-            elif la_ == 14:
+            elif la_ == 13:
                 localctx = HogQLParser.ColumnExprTemplateStringContext(self, localctx)
                 self._ctx = localctx
                 _prevctx = localctx
-                self.state = 917
+                self.state = 912
                 self.templateString()
                 pass
 
-            elif la_ == 15:
+            elif la_ == 14:
                 localctx = HogQLParser.ColumnExprLiteralContext(self, localctx)
                 self._ctx = localctx
                 _prevctx = localctx
-                self.state = 918
+                self.state = 913
                 self.literal()
                 pass
 
-            elif la_ == 16:
+            elif la_ == 15:
                 localctx = HogQLParser.ColumnExprNegateContext(self, localctx)
                 self._ctx = localctx
                 _prevctx = localctx
-                self.state = 919
+                self.state = 914
                 self.match(HogQLParser.DASH)
-                self.state = 920
+                self.state = 915
                 self.columnExpr(20)
                 pass
 
-            elif la_ == 17:
+            elif la_ == 16:
                 localctx = HogQLParser.ColumnExprNotContext(self, localctx)
                 self._ctx = localctx
                 _prevctx = localctx
-                self.state = 921
+                self.state = 916
                 self.match(HogQLParser.NOT)
-                self.state = 922
+                self.state = 917
                 self.columnExpr(14)
                 pass
 
-            elif la_ == 18:
+            elif la_ == 17:
                 localctx = HogQLParser.ColumnExprAsteriskContext(self, localctx)
                 self._ctx = localctx
                 _prevctx = localctx
-                self.state = 926
+                self.state = 921
                 self._errHandler.sync(self)
                 _la = self._input.LA(1)
                 if (((_la) & ~0x3f) == 0 and ((1 << _la) & -5800812384855539714) != 0) or ((((_la - 64)) & ~0x3f) == 0 and ((1 << (_la - 64)) & 25834219896831) != 0):
-                    self.state = 923
+                    self.state = 918
                     self.tableIdentifier()
-                    self.state = 924
+                    self.state = 919
                     self.match(HogQLParser.DOT)
 
 
-                self.state = 928
+                self.state = 923
                 self.match(HogQLParser.ASTERISK)
                 pass
 
-            elif la_ == 19:
+            elif la_ == 18:
                 localctx = HogQLParser.ColumnExprSubqueryContext(self, localctx)
                 self._ctx = localctx
                 _prevctx = localctx
-                self.state = 929
+                self.state = 924
                 self.match(HogQLParser.LPAREN)
-                self.state = 930
+                self.state = 925
                 self.selectSetStmt()
-                self.state = 931
+                self.state = 926
+                self.match(HogQLParser.RPAREN)
+                pass
+
+            elif la_ == 19:
+                localctx = HogQLParser.ColumnExprParensContext(self, localctx)
+                self._ctx = localctx
+                _prevctx = localctx
+                self.state = 928
+                self.match(HogQLParser.LPAREN)
+                self.state = 929
+                self.columnExpr(0)
+                self.state = 930
                 self.match(HogQLParser.RPAREN)
                 pass
 
             elif la_ == 20:
-                localctx = HogQLParser.ColumnExprParensContext(self, localctx)
+                localctx = HogQLParser.ColumnExprTupleContext(self, localctx)
                 self._ctx = localctx
                 _prevctx = localctx
-                self.state = 933
+                self.state = 932
                 self.match(HogQLParser.LPAREN)
+                self.state = 933
+                self.columnExprList()
                 self.state = 934
-                self.columnExpr(0)
-                self.state = 935
                 self.match(HogQLParser.RPAREN)
                 pass
 
             elif la_ == 21:
-                localctx = HogQLParser.ColumnExprTupleContext(self, localctx)
-                self._ctx = localctx
-                _prevctx = localctx
-                self.state = 937
-                self.match(HogQLParser.LPAREN)
-                self.state = 938
-                self.columnExprList()
-                self.state = 939
-                self.match(HogQLParser.RPAREN)
-                pass
-
-            elif la_ == 22:
                 localctx = HogQLParser.ColumnExprArrayContext(self, localctx)
                 self._ctx = localctx
                 _prevctx = localctx
-                self.state = 941
+                self.state = 936
                 self.match(HogQLParser.LBRACKET)
+                self.state = 938
+                self._errHandler.sync(self)
+                _la = self._input.LA(1)
+                if (((_la) & ~0x3f) == 0 and ((1 << _la) & -36169677449216002) != 0) or ((((_la - 64)) & ~0x3f) == 0 and ((1 << (_la - 64)) & 723944289947615231) != 0) or ((((_la - 131)) & ~0x3f) == 0 and ((1 << (_la - 131)) & 18455) != 0):
+                    self.state = 937
+                    self.columnExprList()
+
+
+                self.state = 940
+                self.match(HogQLParser.RBRACKET)
+                pass
+
+            elif la_ == 22:
+                localctx = HogQLParser.ColumnExprDictContext(self, localctx)
+                self._ctx = localctx
+                _prevctx = localctx
+                self.state = 941
+                self.match(HogQLParser.LBRACE)
                 self.state = 943
                 self._errHandler.sync(self)
                 _la = self._input.LA(1)
                 if (((_la) & ~0x3f) == 0 and ((1 << _la) & -36169677449216002) != 0) or ((((_la - 64)) & ~0x3f) == 0 and ((1 << (_la - 64)) & 723944289947615231) != 0) or ((((_la - 131)) & ~0x3f) == 0 and ((1 << (_la - 131)) & 18455) != 0):
                     self.state = 942
-                    self.columnExprList()
-
-
-                self.state = 945
-                self.match(HogQLParser.RBRACKET)
-                pass
-
-            elif la_ == 23:
-                localctx = HogQLParser.ColumnExprDictContext(self, localctx)
-                self._ctx = localctx
-                _prevctx = localctx
-                self.state = 946
-                self.match(HogQLParser.LBRACE)
-                self.state = 948
-                self._errHandler.sync(self)
-                _la = self._input.LA(1)
-                if (((_la) & ~0x3f) == 0 and ((1 << _la) & -36169677449216002) != 0) or ((((_la - 64)) & ~0x3f) == 0 and ((1 << (_la - 64)) & 723944289947615231) != 0) or ((((_la - 131)) & ~0x3f) == 0 and ((1 << (_la - 131)) & 18455) != 0):
-                    self.state = 947
                     self.kvPairList()
 
 
-                self.state = 950
+                self.state = 945
                 self.match(HogQLParser.RBRACE)
                 pass
 
-            elif la_ == 24:
+            elif la_ == 23:
                 localctx = HogQLParser.ColumnExprLambdaContext(self, localctx)
                 self._ctx = localctx
                 _prevctx = localctx
-                self.state = 951
+                self.state = 946
                 self.columnLambdaExpr()
                 pass
 
-            elif la_ == 25:
+            elif la_ == 24:
                 localctx = HogQLParser.ColumnExprIdentifierContext(self, localctx)
                 self._ctx = localctx
                 _prevctx = localctx
-                self.state = 952
+                self.state = 947
                 self.columnIdentifier()
                 pass
 
@@ -7379,29 +7365,29 @@ class HogQLParser ( Parser ):
                         localctx = HogQLParser.ColumnExprPrecedence1Context(self, HogQLParser.ColumnExprContext(self, _parentctx, _parentState))
                         localctx.left = _prevctx
                         self.pushNewRecursionContext(localctx, _startState, self.RULE_columnExpr)
-                        self.state = 955
+                        self.state = 950
                         if not self.precpred(self._ctx, 19):
                             from antlr4.error.Errors import FailedPredicateException
                             raise FailedPredicateException(self, "self.precpred(self._ctx, 19)")
-                        self.state = 959
+                        self.state = 954
                         self._errHandler.sync(self)
                         token = self._input.LA(1)
                         if token in [115]:
-                            self.state = 956
+                            self.state = 951
                             localctx.operator = self.match(HogQLParser.ASTERISK)
                             pass
                         elif token in [154]:
-                            self.state = 957
+                            self.state = 952
                             localctx.operator = self.match(HogQLParser.SLASH)
                             pass
                         elif token in [141]:
-                            self.state = 958
+                            self.state = 953
                             localctx.operator = self.match(HogQLParser.PERCENT)
                             pass
                         else:
                             raise NoViableAltException(self)
 
-                        self.state = 961
+                        self.state = 956
                         localctx.right = self.columnExpr(20)
                         pass
 
@@ -7409,29 +7395,29 @@ class HogQLParser ( Parser ):
                         localctx = HogQLParser.ColumnExprPrecedence2Context(self, HogQLParser.ColumnExprContext(self, _parentctx, _parentState))
                         localctx.left = _prevctx
                         self.pushNewRecursionContext(localctx, _startState, self.RULE_columnExpr)
-                        self.state = 962
+                        self.state = 957
                         if not self.precpred(self._ctx, 18):
                             from antlr4.error.Errors import FailedPredicateException
                             raise FailedPredicateException(self, "self.precpred(self._ctx, 18)")
-                        self.state = 966
+                        self.state = 961
                         self._errHandler.sync(self)
                         token = self._input.LA(1)
                         if token in [142]:
-                            self.state = 963
+                            self.state = 958
                             localctx.operator = self.match(HogQLParser.PLUS)
                             pass
                         elif token in [121]:
-                            self.state = 964
+                            self.state = 959
                             localctx.operator = self.match(HogQLParser.DASH)
                             pass
                         elif token in [120]:
-                            self.state = 965
+                            self.state = 960
                             localctx.operator = self.match(HogQLParser.CONCAT)
                             pass
                         else:
                             raise NoViableAltException(self)
 
-                        self.state = 968
+                        self.state = 963
                         localctx.right = self.columnExpr(19)
                         pass
 
@@ -7439,79 +7425,79 @@ class HogQLParser ( Parser ):
                         localctx = HogQLParser.ColumnExprPrecedence3Context(self, HogQLParser.ColumnExprContext(self, _parentctx, _parentState))
                         localctx.left = _prevctx
                         self.pushNewRecursionContext(localctx, _startState, self.RULE_columnExpr)
-                        self.state = 969
+                        self.state = 964
                         if not self.precpred(self._ctx, 17):
                             from antlr4.error.Errors import FailedPredicateException
                             raise FailedPredicateException(self, "self.precpred(self._ctx, 17)")
-                        self.state = 994
+                        self.state = 989
                         self._errHandler.sync(self)
                         la_ = self._interp.adaptivePredict(self._input,125,self._ctx)
                         if la_ == 1:
-                            self.state = 970
+                            self.state = 965
                             localctx.operator = self.match(HogQLParser.EQ_DOUBLE)
                             pass
 
                         elif la_ == 2:
-                            self.state = 971
+                            self.state = 966
                             localctx.operator = self.match(HogQLParser.EQ_SINGLE)
                             pass
 
                         elif la_ == 3:
-                            self.state = 972
+                            self.state = 967
                             localctx.operator = self.match(HogQLParser.NOT_EQ)
                             pass
 
                         elif la_ == 4:
-                            self.state = 973
+                            self.state = 968
                             localctx.operator = self.match(HogQLParser.LT_EQ)
                             pass
 
                         elif la_ == 5:
-                            self.state = 974
+                            self.state = 969
                             localctx.operator = self.match(HogQLParser.LT)
                             pass
 
                         elif la_ == 6:
-                            self.state = 975
+                            self.state = 970
                             localctx.operator = self.match(HogQLParser.GT_EQ)
                             pass
 
                         elif la_ == 7:
-                            self.state = 976
+                            self.state = 971
                             localctx.operator = self.match(HogQLParser.GT)
                             pass
 
                         elif la_ == 8:
-                            self.state = 978
+                            self.state = 973
                             self._errHandler.sync(self)
                             _la = self._input.LA(1)
                             if _la==61:
-                                self.state = 977
+                                self.state = 972
                                 localctx.operator = self.match(HogQLParser.NOT)
 
 
-                            self.state = 980
+                            self.state = 975
                             self.match(HogQLParser.IN)
-                            self.state = 982
+                            self.state = 977
                             self._errHandler.sync(self)
                             la_ = self._interp.adaptivePredict(self._input,123,self._ctx)
                             if la_ == 1:
-                                self.state = 981
+                                self.state = 976
                                 self.match(HogQLParser.COHORT)
 
 
                             pass
 
                         elif la_ == 9:
-                            self.state = 985
+                            self.state = 980
                             self._errHandler.sync(self)
                             _la = self._input.LA(1)
                             if _la==61:
-                                self.state = 984
+                                self.state = 979
                                 localctx.operator = self.match(HogQLParser.NOT)
 
 
-                            self.state = 987
+                            self.state = 982
                             _la = self._input.LA(1)
                             if not(_la==43 or _la==56):
                                 self._errHandler.recoverInline(self)
@@ -7521,122 +7507,137 @@ class HogQLParser ( Parser ):
                             pass
 
                         elif la_ == 10:
-                            self.state = 988
+                            self.state = 983
                             localctx.operator = self.match(HogQLParser.REGEX_SINGLE)
                             pass
 
                         elif la_ == 11:
-                            self.state = 989
+                            self.state = 984
                             localctx.operator = self.match(HogQLParser.REGEX_DOUBLE)
                             pass
 
                         elif la_ == 12:
-                            self.state = 990
+                            self.state = 985
                             localctx.operator = self.match(HogQLParser.NOT_REGEX)
                             pass
 
                         elif la_ == 13:
-                            self.state = 991
+                            self.state = 986
                             localctx.operator = self.match(HogQLParser.IREGEX_SINGLE)
                             pass
 
                         elif la_ == 14:
-                            self.state = 992
+                            self.state = 987
                             localctx.operator = self.match(HogQLParser.IREGEX_DOUBLE)
                             pass
 
                         elif la_ == 15:
-                            self.state = 993
+                            self.state = 988
                             localctx.operator = self.match(HogQLParser.NOT_IREGEX)
                             pass
 
 
-                        self.state = 996
+                        self.state = 991
                         localctx.right = self.columnExpr(18)
                         pass
 
                     elif la_ == 4:
                         localctx = HogQLParser.ColumnExprNullishContext(self, HogQLParser.ColumnExprContext(self, _parentctx, _parentState))
                         self.pushNewRecursionContext(localctx, _startState, self.RULE_columnExpr)
-                        self.state = 997
+                        self.state = 992
                         if not self.precpred(self._ctx, 15):
                             from antlr4.error.Errors import FailedPredicateException
                             raise FailedPredicateException(self, "self.precpred(self._ctx, 15)")
-                        self.state = 998
+                        self.state = 993
                         self.match(HogQLParser.NULLISH)
-                        self.state = 999
+                        self.state = 994
                         self.columnExpr(16)
                         pass
 
                     elif la_ == 5:
                         localctx = HogQLParser.ColumnExprAndContext(self, HogQLParser.ColumnExprContext(self, _parentctx, _parentState))
                         self.pushNewRecursionContext(localctx, _startState, self.RULE_columnExpr)
-                        self.state = 1000
+                        self.state = 995
                         if not self.precpred(self._ctx, 13):
                             from antlr4.error.Errors import FailedPredicateException
                             raise FailedPredicateException(self, "self.precpred(self._ctx, 13)")
-                        self.state = 1001
+                        self.state = 996
                         self.match(HogQLParser.AND)
-                        self.state = 1002
+                        self.state = 997
                         self.columnExpr(14)
                         pass
 
                     elif la_ == 6:
                         localctx = HogQLParser.ColumnExprOrContext(self, HogQLParser.ColumnExprContext(self, _parentctx, _parentState))
                         self.pushNewRecursionContext(localctx, _startState, self.RULE_columnExpr)
-                        self.state = 1003
+                        self.state = 998
                         if not self.precpred(self._ctx, 12):
                             from antlr4.error.Errors import FailedPredicateException
                             raise FailedPredicateException(self, "self.precpred(self._ctx, 12)")
-                        self.state = 1004
+                        self.state = 999
                         self.match(HogQLParser.OR)
-                        self.state = 1005
+                        self.state = 1000
                         self.columnExpr(13)
                         pass
 
                     elif la_ == 7:
                         localctx = HogQLParser.ColumnExprBetweenContext(self, HogQLParser.ColumnExprContext(self, _parentctx, _parentState))
                         self.pushNewRecursionContext(localctx, _startState, self.RULE_columnExpr)
-                        self.state = 1006
+                        self.state = 1001
                         if not self.precpred(self._ctx, 11):
                             from antlr4.error.Errors import FailedPredicateException
                             raise FailedPredicateException(self, "self.precpred(self._ctx, 11)")
-                        self.state = 1008
+                        self.state = 1003
                         self._errHandler.sync(self)
                         _la = self._input.LA(1)
                         if _la==61:
-                            self.state = 1007
+                            self.state = 1002
                             self.match(HogQLParser.NOT)
 
 
-                        self.state = 1010
+                        self.state = 1005
                         self.match(HogQLParser.BETWEEN)
-                        self.state = 1011
+                        self.state = 1006
                         self.columnExpr(0)
-                        self.state = 1012
+                        self.state = 1007
                         self.match(HogQLParser.AND)
-                        self.state = 1013
+                        self.state = 1008
                         self.columnExpr(12)
                         pass
 
                     elif la_ == 8:
                         localctx = HogQLParser.ColumnExprTernaryOpContext(self, HogQLParser.ColumnExprContext(self, _parentctx, _parentState))
                         self.pushNewRecursionContext(localctx, _startState, self.RULE_columnExpr)
-                        self.state = 1015
+                        self.state = 1010
                         if not self.precpred(self._ctx, 10):
                             from antlr4.error.Errors import FailedPredicateException
                             raise FailedPredicateException(self, "self.precpred(self._ctx, 10)")
-                        self.state = 1016
+                        self.state = 1011
                         self.match(HogQLParser.QUERY)
-                        self.state = 1017
+                        self.state = 1012
                         self.columnExpr(0)
-                        self.state = 1018
+                        self.state = 1013
                         self.match(HogQLParser.COLON)
-                        self.state = 1019
+                        self.state = 1014
                         self.columnExpr(10)
                         pass
 
                     elif la_ == 9:
+                        localctx = HogQLParser.ColumnExprCallSelectContext(self, HogQLParser.ColumnExprContext(self, _parentctx, _parentState))
+                        self.pushNewRecursionContext(localctx, _startState, self.RULE_columnExpr)
+                        self.state = 1016
+                        if not self.precpred(self._ctx, 31):
+                            from antlr4.error.Errors import FailedPredicateException
+                            raise FailedPredicateException(self, "self.precpred(self._ctx, 31)")
+                        self.state = 1017
+                        self.match(HogQLParser.LPAREN)
+                        self.state = 1018
+                        self.selectSetStmt()
+                        self.state = 1019
+                        self.match(HogQLParser.RPAREN)
+                        pass
+
+                    elif la_ == 10:
                         localctx = HogQLParser.ColumnExprCallContext(self, HogQLParser.ColumnExprContext(self, _parentctx, _parentState))
                         self.pushNewRecursionContext(localctx, _startState, self.RULE_columnExpr)
                         self.state = 1021
@@ -7657,7 +7658,7 @@ class HogQLParser ( Parser ):
                         self.match(HogQLParser.RPAREN)
                         pass
 
-                    elif la_ == 10:
+                    elif la_ == 11:
                         localctx = HogQLParser.ColumnExprArrayAccessContext(self, HogQLParser.ColumnExprContext(self, _parentctx, _parentState))
                         self.pushNewRecursionContext(localctx, _startState, self.RULE_columnExpr)
                         self.state = 1027
@@ -7672,7 +7673,7 @@ class HogQLParser ( Parser ):
                         self.match(HogQLParser.RBRACKET)
                         pass
 
-                    elif la_ == 11:
+                    elif la_ == 12:
                         localctx = HogQLParser.ColumnExprTupleAccessContext(self, HogQLParser.ColumnExprContext(self, _parentctx, _parentState))
                         self.pushNewRecursionContext(localctx, _startState, self.RULE_columnExpr)
                         self.state = 1032
@@ -7685,7 +7686,7 @@ class HogQLParser ( Parser ):
                         self.match(HogQLParser.DECIMAL_LITERAL)
                         pass
 
-                    elif la_ == 12:
+                    elif la_ == 13:
                         localctx = HogQLParser.ColumnExprPropertyAccessContext(self, HogQLParser.ColumnExprContext(self, _parentctx, _parentState))
                         self.pushNewRecursionContext(localctx, _startState, self.RULE_columnExpr)
                         self.state = 1035
@@ -7698,7 +7699,7 @@ class HogQLParser ( Parser ):
                         self.identifier()
                         pass
 
-                    elif la_ == 13:
+                    elif la_ == 14:
                         localctx = HogQLParser.ColumnExprNullArrayAccessContext(self, HogQLParser.ColumnExprContext(self, _parentctx, _parentState))
                         self.pushNewRecursionContext(localctx, _startState, self.RULE_columnExpr)
                         self.state = 1038
@@ -7715,7 +7716,7 @@ class HogQLParser ( Parser ):
                         self.match(HogQLParser.RBRACKET)
                         pass
 
-                    elif la_ == 14:
+                    elif la_ == 15:
                         localctx = HogQLParser.ColumnExprNullTupleAccessContext(self, HogQLParser.ColumnExprContext(self, _parentctx, _parentState))
                         self.pushNewRecursionContext(localctx, _startState, self.RULE_columnExpr)
                         self.state = 1044
@@ -7728,7 +7729,7 @@ class HogQLParser ( Parser ):
                         self.match(HogQLParser.DECIMAL_LITERAL)
                         pass
 
-                    elif la_ == 15:
+                    elif la_ == 16:
                         localctx = HogQLParser.ColumnExprNullPropertyAccessContext(self, HogQLParser.ColumnExprContext(self, _parentctx, _parentState))
                         self.pushNewRecursionContext(localctx, _startState, self.RULE_columnExpr)
                         self.state = 1047
@@ -7741,7 +7742,7 @@ class HogQLParser ( Parser ):
                         self.identifier()
                         pass
 
-                    elif la_ == 16:
+                    elif la_ == 17:
                         localctx = HogQLParser.ColumnExprIsNullContext(self, HogQLParser.ColumnExprContext(self, _parentctx, _parentState))
                         self.pushNewRecursionContext(localctx, _startState, self.RULE_columnExpr)
                         self.state = 1050
@@ -7762,7 +7763,7 @@ class HogQLParser ( Parser ):
                         self.match(HogQLParser.NULL_SQL)
                         pass
 
-                    elif la_ == 17:
+                    elif la_ == 18:
                         localctx = HogQLParser.ColumnExprAliasContext(self, HogQLParser.ColumnExprContext(self, _parentctx, _parentState))
                         self.pushNewRecursionContext(localctx, _startState, self.RULE_columnExpr)
                         self.state = 1056
@@ -10330,43 +10331,47 @@ class HogQLParser ( Parser ):
          
 
             if predIndex == 10:
-                return self.precpred(self._ctx, 30)
+                return self.precpred(self._ctx, 31)
          
 
             if predIndex == 11:
-                return self.precpred(self._ctx, 26)
+                return self.precpred(self._ctx, 30)
          
 
             if predIndex == 12:
-                return self.precpred(self._ctx, 25)
+                return self.precpred(self._ctx, 26)
          
 
             if predIndex == 13:
-                return self.precpred(self._ctx, 24)
+                return self.precpred(self._ctx, 25)
          
 
             if predIndex == 14:
-                return self.precpred(self._ctx, 23)
+                return self.precpred(self._ctx, 24)
          
 
             if predIndex == 15:
-                return self.precpred(self._ctx, 22)
+                return self.precpred(self._ctx, 23)
          
 
             if predIndex == 16:
-                return self.precpred(self._ctx, 21)
+                return self.precpred(self._ctx, 22)
          
 
             if predIndex == 17:
-                return self.precpred(self._ctx, 16)
+                return self.precpred(self._ctx, 21)
          
 
             if predIndex == 18:
+                return self.precpred(self._ctx, 16)
+         
+
+            if predIndex == 19:
                 return self.precpred(self._ctx, 9)
          
 
     def tableExpr_sempred(self, localctx:TableExprContext, predIndex:int):
-            if predIndex == 19:
+            if predIndex == 20:
                 return self.precpred(self._ctx, 3)
          
 
