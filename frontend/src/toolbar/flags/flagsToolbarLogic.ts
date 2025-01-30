@@ -11,7 +11,7 @@ import { CombinedFeatureFlagAndValueType } from '~/types'
 
 import type { flagsToolbarLogicType } from './flagsToolbarLogicType'
 
-type PayloadOverrides = Record<string, any>
+export type PayloadOverrides = Record<string, any>
 
 export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
     path(['toolbar', 'flags', 'flagsToolbarLogic']),
