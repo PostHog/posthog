@@ -169,7 +169,7 @@ class ClickhouseCluster:
         The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
         default limit of the executor.
 
-        Wait for all to return before returning upon `.values()
+        Wait for all to return before returning upon ``.values()``
         """
 
         return reduce(
