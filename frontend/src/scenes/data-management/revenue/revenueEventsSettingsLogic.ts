@@ -36,7 +36,7 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                         return state
                     }
                     const existingEvents = new Set(state.events.map((item: RevenueTrackingEventItem) => item.eventName))
-                    if (!existingEvents.has(eventName)) {
+                    if (existingEvents.has(eventName)) {
                         return state
                     }
 
