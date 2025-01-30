@@ -38,7 +38,7 @@ export function SettingsBar({
             className={clsx(
                 ['bottom', 'all'].includes(border) && 'border-b',
                 ['top', 'all'].includes(border) && 'border-t',
-                'flex flex-row w-full overflow-hidden font-light text-xs bg-bg-3000 items-center',
+                'flex flex-row w-full overflow-hidden font-light text-xs bg-primary items-center',
                 className
             )}
         >

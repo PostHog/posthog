@@ -93,7 +93,7 @@ export function PlayerInspectorList(): JSX.Element {
     }
 
     return (
-        <div className="flex flex-col bg-bg-3000 flex-1 overflow-hidden relative">
+        <div className="flex flex-col bg-primary flex-1 overflow-hidden relative">
             {!snapshotsLoaded ? (
                 <div className="p-16 text-center text-secondary">Data will be shown once playback starts</div>
             ) : items.length ? (

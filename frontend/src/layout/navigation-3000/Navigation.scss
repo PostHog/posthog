@@ -168,7 +168,7 @@
     --sidebar-slider-padding: 0.125rem;
     --sidebar-horizontal-padding: 0.5rem;
     --sidebar-row-height: 3rem;
-    --sidebar-background: var(--bg-3000);
+    --sidebar-background: var(--bg-primary);
 
     position: relative;
     box-sizing: content-box;
@@ -271,7 +271,7 @@
     padding: 0 var(--sidebar-horizontal-padding);
     font-weight: 500;
     user-select: none;
-    background: var(--bg-3000);
+    background: var(--bg-primary);
     border-top-width: 1px;
 }
 
@@ -351,7 +351,7 @@
     min-height: var(--accordion-row-height);
 
     [theme='dark'] & {
-        --accordion-header-background: var(--bg-3000);
+        --accordion-header-background: var(--bg-primary);
     }
 
     &[aria-expanded] {
@@ -419,7 +419,7 @@
     height: 100%;
 
     [theme='dark'] & {
-        --accordion-header-background: var(--bg-3000);
+        --accordion-header-background: var(--bg-primary);
     }
 
     &[role='region'] {

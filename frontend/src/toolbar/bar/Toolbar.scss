@@ -67,7 +67,7 @@
         overflow: hidden;
         overflow-y: auto;
         color: var(--text-3000);
-        background-color: var(--bg-3000);
+        background-color: var(--bg-primary);
         filter: drop-shadow(0 5px 10px var(--trace-3000));
         border-radius: var(--radius);
         transition: opacity 150ms ease, max-height 150ms ease;
@@ -116,7 +116,7 @@
     width: var(--toolbar-width-expanded);
     overflow: hidden;
     color: var(--text-3000);
-    background-color: var(--bg-3000);
+    background-color: var(--bg-primary);
     filter: drop-shadow(0 5px 10px var(--trace-3000));
     border: 1px solid var(--border-bold-3000);
     border-radius: var(--radius);
