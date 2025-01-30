@@ -60,6 +60,11 @@ class PipelineNonDLT:
 
     def run(self):
         try:
+            # Reset the rows_synced count - this may not be 0 if the job restarted due to a heartbeat timeout
+            if self._job.rows_synced is not None and self._job.rows_synced != 0:
+                self._job.rows_synced = 0
+                self._job.save()
+
             buffer: list[Any] = []
             py_table = None
             chunk_size = 5000
