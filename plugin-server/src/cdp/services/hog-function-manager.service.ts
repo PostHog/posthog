@@ -27,7 +27,7 @@ const HOG_FUNCTION_FIELDS = [
     'masking',
     'type',
     'template_id',
-    'execution_order',
+    'priority',
 ]
 
 export class HogFunctionManagerService {
@@ -110,13 +110,13 @@ export class HogFunctionManagerService {
 
     private sortHogFunctions(functions: HogFunctionType[]): HogFunctionType[] {
         return [...functions].sort((a, b) => {
-            if (a.execution_order === null || a.execution_order === undefined) {
+            if (a.priority === null || a.priority === undefined) {
                 return 1
             }
-            if (b.execution_order === null || b.execution_order === undefined) {
+            if (b.priority === null || b.priority === undefined) {
                 return -1
             }
-            return a.execution_order - b.execution_order
+            return a.priority - b.priority
         })
     }
 
@@ -140,7 +140,7 @@ export class HogFunctionManagerService {
             SELECT ${HOG_FUNCTION_FIELDS.join(', ')}
             FROM posthog_hogfunction
             WHERE deleted = FALSE AND enabled = TRUE AND type = ANY($1)
-            ORDER BY execution_order NULLS LAST
+            ORDER BY priority NULLS LAST
         `,
                 [this.hogTypes],
                 'fetchAllHogFunctions'

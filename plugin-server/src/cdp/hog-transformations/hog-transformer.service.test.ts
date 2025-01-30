@@ -75,7 +75,7 @@ describe('HogTransformer', () => {
                 team_id: teamId,
                 enabled: true,
                 bytecode: hogByteCode,
-                execution_order: 1,
+                priority: 1,
             })
             await insertHogFunction(hub.db.postgres, teamId, geoIpFunction)
 
@@ -161,7 +161,7 @@ describe('HogTransformer', () => {
                 team_id: teamId,
                 enabled: true,
                 bytecode: geoTransformationIpByteCode,
-                execution_order: 1,
+                priority: 1,
             })
 
             const defaultTransformationByteCode = await compileHog(defaultTemplate.hog)
@@ -171,7 +171,7 @@ describe('HogTransformer', () => {
                 team_id: teamId,
                 enabled: true,
                 bytecode: defaultTransformationByteCode,
-                execution_order: 2,
+                priority: 2,
             })
 
             const testTransformationByteCode = await compileHog(testTemplate.hog)
@@ -181,7 +181,7 @@ describe('HogTransformer', () => {
                 team_id: teamId,
                 enabled: true,
                 bytecode: testTransformationByteCode,
-                execution_order: 3,
+                priority: 3,
             })
 
             await insertHogFunction(hub.db.postgres, teamId, testTransformationFunction)
@@ -207,9 +207,9 @@ describe('HogTransformer', () => {
             await hogTransformer.transformEvent(event)
 
             expect(createHogFunctionInvocationSpy).toHaveBeenCalledTimes(3)
-            expect(createHogFunctionInvocationSpy.mock.calls[0][1]).toMatchObject({ execution_order: 1 })
-            expect(createHogFunctionInvocationSpy.mock.calls[1][1]).toMatchObject({ execution_order: 2 })
-            expect(createHogFunctionInvocationSpy.mock.calls[2][1]).toMatchObject({ execution_order: 3 })
+            expect(createHogFunctionInvocationSpy.mock.calls[0][1]).toMatchObject({ priority: 1 })
+            expect(createHogFunctionInvocationSpy.mock.calls[1][1]).toMatchObject({ priority: 2 })
+            expect(createHogFunctionInvocationSpy.mock.calls[2][1]).toMatchObject({ priority: 3 })
             expect(event.properties?.test_property).toEqual('test_value')
         })
 
@@ -251,7 +251,7 @@ describe('HogTransformer', () => {
                 team_id: teamId,
                 enabled: true,
                 bytecode: addingTransformationByteCode,
-                execution_order: 1,
+                priority: 1,
             })
 
             const deletingTransformationByteCode = await compileHog(deletingTemplate.hog)
@@ -261,7 +261,7 @@ describe('HogTransformer', () => {
                 team_id: teamId,
                 enabled: true,
                 bytecode: deletingTransformationByteCode,
-                execution_order: 2,
+                priority: 2,
             })
 
             await insertHogFunction(hub.db.postgres, teamId, deletingTransformationFunction)
@@ -293,7 +293,7 @@ describe('HogTransformer', () => {
             expect(createHogFunctionInvocationSpy).toHaveBeenCalledTimes(2)
             expect(result?.event?.properties?.test_property).toEqual(null)
         })
-        it('should execute tranformation without execution_order last', async () => {
+        it('should execute tranformation without priority last', async () => {
             const firstTemplate: HogFunctionTemplate = {
                 status: 'alpha',
                 type: 'transformation',
@@ -340,7 +340,7 @@ describe('HogTransformer', () => {
                 team_id: teamId,
                 enabled: true,
                 bytecode: firstTransformationByteCode,
-                execution_order: 1,
+                priority: 1,
             })
 
             const secondTransformationByteCode = await compileHog(secondTemplate.hog)
@@ -350,7 +350,7 @@ describe('HogTransformer', () => {
                 team_id: teamId,
                 enabled: true,
                 bytecode: secondTransformationByteCode,
-                execution_order: 2,
+                priority: 2,
             })
 
             const thirdTransformationByteCode = await compileHog(thirdTemplate.hog)
@@ -360,7 +360,7 @@ describe('HogTransformer', () => {
                 team_id: teamId,
                 enabled: true,
                 bytecode: thirdTransformationByteCode,
-                execution_order: undefined,
+                priority: undefined,
             })
 
             await insertHogFunction(hub.db.postgres, teamId, thirdTransformationFunction)
@@ -384,9 +384,9 @@ describe('HogTransformer', () => {
 
             await hogTransformer.transformEvent(event)
             expect(createHogFunctionInvocationSpy).toHaveBeenCalledTimes(3)
-            expect(createHogFunctionInvocationSpy.mock.calls[0][1]).toMatchObject({ execution_order: 1 })
-            expect(createHogFunctionInvocationSpy.mock.calls[1][1]).toMatchObject({ execution_order: 2 })
-            expect(createHogFunctionInvocationSpy.mock.calls[2][1]).toMatchObject({ execution_order: null })
+            expect(createHogFunctionInvocationSpy.mock.calls[0][1]).toMatchObject({ priority: 1 })
+            expect(createHogFunctionInvocationSpy.mock.calls[1][1]).toMatchObject({ priority: 2 })
+            expect(createHogFunctionInvocationSpy.mock.calls[2][1]).toMatchObject({ priority: null })
         })
     })
 

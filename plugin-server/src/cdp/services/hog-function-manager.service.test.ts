@@ -108,7 +108,7 @@ describe('HogFunctionManager', () => {
                 name: 'Test Hog Function team 1',
                 type: 'destination',
                 enabled: true,
-                execution_order: null,
+                priority: null,
                 bytecode: {},
                 filters: null,
                 inputs_schema: [
@@ -242,7 +242,7 @@ describe('Hogfunction Manager - Execution Order', () => {
         hogFunctions.push(
             await insertHogFunction(hub.postgres, teamId, {
                 name: 'fn1',
-                execution_order: 1,
+                priority: 1,
                 type: 'transformation',
             })
         )
@@ -250,7 +250,7 @@ describe('Hogfunction Manager - Execution Order', () => {
         hogFunctions.push(
             await insertHogFunction(hub.postgres, teamId, {
                 name: 'fn2',
-                execution_order: 2,
+                priority: 2,
                 type: 'transformation',
             })
         )
@@ -258,7 +258,7 @@ describe('Hogfunction Manager - Execution Order', () => {
         hogFunctions.push(
             await insertHogFunction(hub.postgres, teamId, {
                 name: 'fn3',
-                execution_order: 3,
+                priority: 3,
                 type: 'transformation',
             })
         )
@@ -275,7 +275,7 @@ describe('Hogfunction Manager - Execution Order', () => {
         // Initial order check
         let teamFunctions = manager.getTeamHogFunctions(teamId)
         expect(teamFunctions).toHaveLength(3)
-        expect(teamFunctions.map((f) => ({ name: f.name, order: f.execution_order }))).toEqual([
+        expect(teamFunctions.map((f) => ({ name: f.name, order: f.priority }))).toEqual([
             { name: 'fn1', order: 1 },
             { name: 'fn2', order: 2 },
             { name: 'fn3', order: 3 },
@@ -286,7 +286,7 @@ describe('Hogfunction Manager - Execution Order', () => {
         // Update fn2's to be last
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_hogfunction SET execution_order = 3 WHERE id = $1`,
+            `UPDATE posthog_hogfunction SET priority = 3 WHERE id = $1`,
             [hogFunctions[1].id],
             'testKey'
         )
@@ -294,7 +294,7 @@ describe('Hogfunction Manager - Execution Order', () => {
         // therefore fn3's execution order should be 2
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_hogfunction SET execution_order = 2 WHERE id = $1`,
+            `UPDATE posthog_hogfunction SET priority = 2 WHERE id = $1`,
             [hogFunctions[2].id],
             'testKey'
         )
@@ -302,7 +302,7 @@ describe('Hogfunction Manager - Execution Order', () => {
         await manager.reloadHogFunctions(teamId, [hogFunctions[1].id, hogFunctions[2].id])
         teamFunctions = manager.getTeamHogFunctions(teamId)
         expect(teamFunctions).toHaveLength(3)
-        expect(teamFunctions.map((f) => ({ name: f.name, order: f.execution_order }))).toEqual([
+        expect(teamFunctions.map((f) => ({ name: f.name, order: f.priority }))).toEqual([
             { name: 'fn1', order: 1 },
             { name: 'fn3', order: 2 },
             { name: 'fn2', order: 3 },
@@ -311,21 +311,21 @@ describe('Hogfunction Manager - Execution Order', () => {
         // change fn1 to be last
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_hogfunction SET execution_order = 3 WHERE id = $1`,
+            `UPDATE posthog_hogfunction SET priority = 3 WHERE id = $1`,
             [hogFunctions[0].id],
             'testKey'
         )
         // change fn3 to be first
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_hogfunction SET execution_order = 1 WHERE id = $1`,
+            `UPDATE posthog_hogfunction SET priority = 1 WHERE id = $1`,
             [hogFunctions[2].id],
             'testKey'
         )
         // change fn2 to be second
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_hogfunction SET execution_order = 2 WHERE id = $1`,
+            `UPDATE posthog_hogfunction SET priority = 2 WHERE id = $1`,
             [hogFunctions[1].id],
             'testKey'
         )
@@ -333,7 +333,7 @@ describe('Hogfunction Manager - Execution Order', () => {
         await manager.reloadHogFunctions(teamId, [hogFunctions[0].id, hogFunctions[1].id, hogFunctions[2].id])
         teamFunctions = manager.getTeamHogFunctions(teamId)
         expect(teamFunctions).toHaveLength(3)
-        expect(teamFunctions.map((f) => ({ name: f.name, order: f.execution_order }))).toEqual([
+        expect(teamFunctions.map((f) => ({ name: f.name, order: f.priority }))).toEqual([
             { name: 'fn3', order: 1 },
             { name: 'fn2', order: 2 },
             { name: 'fn1', order: 3 },

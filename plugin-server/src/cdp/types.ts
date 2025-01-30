@@ -306,7 +306,7 @@ export type HogFunctionType = {
     masking?: HogFunctionMasking | null
     depends_on_integration_ids?: Set<IntegrationType['id']>
     template_id?: string
-    execution_order?: number
+    priority?: number
 }
 
 export type HogFunctionInputType = {
