@@ -2,6 +2,7 @@
 
 from django.db import migrations, models
 import django.db.models.deletion
+from posthog.models.tagged_item import build_check, RELATED_OBJECTS
 
 
 class Migration(migrations.Migration):
@@ -25,25 +26,6 @@ class Migration(migrations.Migration):
             model_name="taggeditem",
             name="exactly_one_related_object",
         ),
-        migrations.AlterUniqueTogether(
-            name="taggeditem",
-            unique_together=set(),
-        ),
-        migrations.AlterUniqueTogether(
-            name="taggeditem",
-            unique_together={
-                (
-                    "tag",
-                    "dashboard",
-                    "insight",
-                    "event_definition",
-                    "property_definition",
-                    "action",
-                    "feature_flag",
-                    "experiment_saved_metric",
-                )
-            },
-        ),
         migrations.AddConstraint(
             model_name="taggeditem",
             constraint=models.UniqueConstraint(
@@ -55,72 +37,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="taggeditem",
             constraint=models.CheckConstraint(
-                check=models.Q(
-                    models.Q(
-                        ("dashboard__isnull", False),
-                        ("insight__isnull", True),
-                        ("event_definition__isnull", True),
-                        ("property_definition__isnull", True),
-                        ("action__isnull", True),
-                        ("feature_flag__isnull", True),
-                        ("experiment_saved_metric__isnull", True),
-                    ),
-                    models.Q(
-                        ("dashboard__isnull", True),
-                        ("insight__isnull", False),
-                        ("event_definition__isnull", True),
-                        ("property_definition__isnull", True),
-                        ("action__isnull", True),
-                        ("feature_flag__isnull", True),
-                        ("experiment_saved_metric__isnull", True),
-                    ),
-                    models.Q(
-                        ("dashboard__isnull", True),
-                        ("insight__isnull", True),
-                        ("event_definition__isnull", False),
-                        ("property_definition__isnull", True),
-                        ("action__isnull", True),
-                        ("feature_flag__isnull", True),
-                        ("experiment_saved_metric__isnull", True),
-                    ),
-                    models.Q(
-                        ("dashboard__isnull", True),
-                        ("insight__isnull", True),
-                        ("event_definition__isnull", True),
-                        ("property_definition__isnull", False),
-                        ("action__isnull", True),
-                        ("feature_flag__isnull", True),
-                        ("experiment_saved_metric__isnull", True),
-                    ),
-                    models.Q(
-                        ("dashboard__isnull", True),
-                        ("insight__isnull", True),
-                        ("event_definition__isnull", True),
-                        ("property_definition__isnull", True),
-                        ("action__isnull", False),
-                        ("feature_flag__isnull", True),
-                        ("experiment_saved_metric__isnull", True),
-                    ),
-                    models.Q(
-                        ("dashboard__isnull", True),
-                        ("insight__isnull", True),
-                        ("event_definition__isnull", True),
-                        ("property_definition__isnull", True),
-                        ("action__isnull", True),
-                        ("feature_flag__isnull", False),
-                        ("experiment_saved_metric__isnull", True),
-                    ),
-                    models.Q(
-                        ("dashboard__isnull", True),
-                        ("insight__isnull", True),
-                        ("event_definition__isnull", True),
-                        ("property_definition__isnull", True),
-                        ("action__isnull", True),
-                        ("feature_flag__isnull", True),
-                        ("experiment_saved_metric__isnull", False),
-                    ),
-                    _connector="OR",
-                ),
+                check=build_check(RELATED_OBJECTS),
                 name="exactly_one_related_object",
             ),
         ),
