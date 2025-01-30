@@ -10,10 +10,7 @@ beforeEach(() => {
 })
 
 test('onEvent sends $set attributes and events to Braze', async () => {
-    fetchMock.mockResponses([
-        JSON.stringify({ message: 'success', attributes_processed: 1 }),
-        { status: 200 }
-    ])
+    fetchMock.mockResponses([JSON.stringify({ message: 'success', attributes_processed: 1 }), { status: 200 }])
 
     // Create a meta object that we can pass into the onEvent
     const meta = {
@@ -58,9 +55,9 @@ test('onEvent sends $set attributes and events to Braze', async () => {
     expect(fetchMock.mock.calls[0][1]).toEqual({
         method: 'POST',
         headers: {
-            'Accept': 'application/json',
-            'Authorization': 'Bearer test-api-key',
-            'Content-Type': 'application/json'
+            Accept: 'application/json',
+            Authorization: 'Bearer test-api-key',
+            'Content-Type': 'application/json',
         },
         body: JSON.stringify({
             attributes: [
@@ -82,7 +79,7 @@ test('onEvent sends $set attributes and events to Braze', async () => {
                 },
             ],
         }),
-        timeout: 5000
+        timeout: 5000,
     })
 })
 
@@ -132,9 +129,9 @@ test('onEvent user properties not sent on empty userPropertiesToExport', async (
     expect(fetchMock.mock.calls[0][1]).toEqual({
         method: 'POST',
         headers: {
-            'Accept': 'application/json',
-            'Authorization': 'Bearer test-api-key',
-            'Content-Type': 'application/json'
+            Accept: 'application/json',
+            Authorization: 'Bearer test-api-key',
+            'Content-Type': 'application/json',
         },
         body: JSON.stringify({
             attributes: [],
@@ -149,7 +146,7 @@ test('onEvent user properties not sent on empty userPropertiesToExport', async (
                 },
             ],
         }),
-        timeout: 5000
+        timeout: 5000,
     })
 })
 
@@ -199,9 +196,9 @@ test('onEvent user properties not sent on empty eventsToExportUserPropertiesFrom
     expect(fetchMock.mock.calls[0][1]).toEqual({
         method: 'POST',
         headers: {
-            'Accept': 'application/json',
-            'Authorization': 'Bearer test-api-key',
-            'Content-Type': 'application/json'
+            Accept: 'application/json',
+            Authorization: 'Bearer test-api-key',
+            'Content-Type': 'application/json',
         },
         body: JSON.stringify({
             attributes: [],
@@ -216,7 +213,7 @@ test('onEvent user properties not sent on empty eventsToExportUserPropertiesFrom
                 },
             ],
         }),
-        timeout: 5000
+        timeout: 5000,
     })
 })
 
@@ -266,9 +263,9 @@ test('onEvent user properties are passed for $identify event even if $identify i
     expect(fetchMock.mock.calls[0][1]).toEqual({
         method: 'POST',
         headers: {
-            'Accept': 'application/json',
-            'Authorization': 'Bearer test-api-key',
-            'Content-Type': 'application/json'
+            Accept: 'application/json',
+            Authorization: 'Bearer test-api-key',
+            'Content-Type': 'application/json',
         },
         body: JSON.stringify({
             attributes: [
@@ -279,7 +276,7 @@ test('onEvent user properties are passed for $identify event even if $identify i
             ],
             events: [],
         }),
-        timeout: 5000
+        timeout: 5000,
     })
 })
 
