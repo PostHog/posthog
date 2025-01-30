@@ -99,6 +99,7 @@ class HogFunctionTemplates:
         ]
         sub_templates = derive_sub_templates(templates=templates)
 
+        cls._cached_at = datetime.now()
         cls._cached_templates = templates
         cls._cached_sub_templates = sub_templates
         cls._cached_templates_by_id = {template.id: template for template in templates}

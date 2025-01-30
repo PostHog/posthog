@@ -2,8 +2,10 @@ import json
 import os
 from unittest.mock import ANY, patch
 from inline_snapshot import snapshot
+import pytest
 from rest_framework import status
 
+from posthog.api.hog_function_template import HogFunctionTemplates
 from posthog.cdp.templates.hog_function_template import derive_sub_templates
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from posthog.cdp.templates.slack.template_slack import template
@@ -48,11 +50,13 @@ class TestHogFunctionTemplatesMixin(APIBaseTest):
 
 
 class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
-    @patch("posthog.api.hog_function_template.get_hog_function_templates")
-    def setUp(self, mock_get_templates):
+    def setUp(self):
         super().setUp()
-        mock_get_templates.return_value.status_code = 200
-        mock_get_templates.return_value.json.return_value = MOCK_NODE_TEMPLATES
+
+        with patch("posthog.api.hog_function_template.get_hog_function_templates") as mock_get_templates:
+            mock_get_templates.return_value.status_code = 200
+            mock_get_templates.return_value.json.return_value = MOCK_NODE_TEMPLATES
+            HogFunctionTemplates._load_templates()  # Cache templates to simplify tests
 
     def test_list_function_templates(self):
         response = self.client.get("/api/projects/@current/hog_function_templates/")
