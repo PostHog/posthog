@@ -10,14 +10,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RemoveConstraint(
-            model_name="taggeditem",
-            name="exactly_one_related_object",
-        ),
-        migrations.AlterUniqueTogether(
-            name="taggeditem",
-            unique_together=set(),
-        ),
         migrations.AddField(
             model_name="taggeditem",
             name="experiment_saved_metric",
@@ -29,99 +21,12 @@ class Migration(migrations.Migration):
                 to="posthog.experimentsavedmetric",
             ),
         ),
-        migrations.AlterUniqueTogether(
-            name="taggeditem",
-            unique_together={
-                (
-                    "tag",
-                    "dashboard",
-                    "insight",
-                    "event_definition",
-                    "property_definition",
-                    "action",
-                    "feature_flag",
-                    "experiment_saved_metric",
-                )
-            },
-        ),
         migrations.AddConstraint(
             model_name="taggeditem",
             constraint=models.UniqueConstraint(
                 condition=models.Q(("experiment_saved_metric__isnull", False)),
                 fields=("tag", "experiment_saved_metric"),
                 name="unique_experiment_saved_metric_tagged_item",
-            ),
-        ),
-        migrations.AddConstraint(
-            model_name="taggeditem",
-            constraint=models.CheckConstraint(
-                check=models.Q(
-                    models.Q(
-                        ("dashboard__isnull", False),
-                        ("insight__isnull", True),
-                        ("event_definition__isnull", True),
-                        ("property_definition__isnull", True),
-                        ("action__isnull", True),
-                        ("feature_flag__isnull", True),
-                        ("experiment_saved_metric__isnull", True),
-                    ),
-                    models.Q(
-                        ("dashboard__isnull", True),
-                        ("insight__isnull", False),
-                        ("event_definition__isnull", True),
-                        ("property_definition__isnull", True),
-                        ("action__isnull", True),
-                        ("feature_flag__isnull", True),
-                        ("experiment_saved_metric__isnull", True),
-                    ),
-                    models.Q(
-                        ("dashboard__isnull", True),
-                        ("insight__isnull", True),
-                        ("event_definition__isnull", False),
-                        ("property_definition__isnull", True),
-                        ("action__isnull", True),
-                        ("feature_flag__isnull", True),
-                        ("experiment_saved_metric__isnull", True),
-                    ),
-                    models.Q(
-                        ("dashboard__isnull", True),
-                        ("insight__isnull", True),
-                        ("event_definition__isnull", True),
-                        ("property_definition__isnull", False),
-                        ("action__isnull", True),
-                        ("feature_flag__isnull", True),
-                        ("experiment_saved_metric__isnull", True),
-                    ),
-                    models.Q(
-                        ("dashboard__isnull", True),
-                        ("insight__isnull", True),
-                        ("event_definition__isnull", True),
-                        ("property_definition__isnull", True),
-                        ("action__isnull", False),
-                        ("feature_flag__isnull", True),
-                        ("experiment_saved_metric__isnull", True),
-                    ),
-                    models.Q(
-                        ("dashboard__isnull", True),
-                        ("insight__isnull", True),
-                        ("event_definition__isnull", True),
-                        ("property_definition__isnull", True),
-                        ("action__isnull", True),
-                        ("feature_flag__isnull", False),
-                        ("experiment_saved_metric__isnull", True),
-                    ),
-                    models.Q(
-                        ("dashboard__isnull", True),
-                        ("insight__isnull", True),
-                        ("event_definition__isnull", True),
-                        ("property_definition__isnull", True),
-                        ("action__isnull", True),
-                        ("feature_flag__isnull", True),
-                        ("experiment_saved_metric__isnull", False),
-                    ),
-                    _connector="OR",
-                ),
-                name="exactly_one_related_object",
             ),
         ),
     ]
