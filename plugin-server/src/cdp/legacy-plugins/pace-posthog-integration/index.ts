@@ -3,13 +3,13 @@ import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { LegacyPlugin, LegacyPluginMeta } from '../types'
 import metadata from './plugin.json'
 
-type PaceMetaInput = LegacyPluginMeta & {
+export type PaceMetaInput = LegacyPluginMeta & {
     config: {
         api_key: string
     }
 }
 
-const onEvent = async (event: ProcessedPluginEvent, { config, fetch }: PaceMetaInput): Promise<void> => {
+export const onEvent = async (event: ProcessedPluginEvent, { config, fetch }: PaceMetaInput): Promise<void> => {
     await fetch('https://data.production.paceapp.com/events', {
         method: 'POST',
         headers: {
