@@ -4406,6 +4406,7 @@ export type RawBatchExportBackfill = {
     start_at?: string
     end_at?: string
     last_updated_at?: string
+    total_runs?: number
 }
 
 export type BatchExportBackfill = {
@@ -4425,6 +4426,7 @@ export type BatchExportBackfill = {
     start_at?: Dayjs
     end_at?: Dayjs
     last_updated_at?: Dayjs
+    total_runs?: number
 }
 
 export type SDK = {

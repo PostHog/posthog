@@ -19,7 +19,20 @@ pytestmark = [
 ]
 
 
-def test_can_get_backfills_for_your_organizations(client: HttpClient):
+@pytest.mark.parametrize(
+    "start_at, end_at, expected_total_runs",
+    [
+        (dt.datetime(2021, 1, 1, 0, 0, 0, tzinfo=dt.UTC), dt.datetime(2021, 1, 1, 1, 0, 0, tzinfo=dt.UTC), 1),
+        (dt.datetime(2021, 1, 1, 0, 0, 0, tzinfo=dt.UTC), dt.datetime(2021, 1, 2, 0, 0, 0, tzinfo=dt.UTC), 24),
+        (None, dt.datetime(2021, 1, 2, 0, 0, 0, tzinfo=dt.UTC), None),
+        (dt.datetime(2021, 1, 1, 0, 0, 0, tzinfo=dt.UTC), None, None),
+    ],
+)
+def test_can_get_backfills_for_your_organizations(client: HttpClient, start_at, end_at, expected_total_runs):
+    """Test that we can get backfills for your own organization.
+
+    We parametrize this test so we can test the behaviour of the total_runs field.
+    """
     organization = create_organization("Test Org")
     team = create_team(organization)
     user = create_user("test@user.com", "Test User", organization)
@@ -28,8 +41,8 @@ def test_can_get_backfills_for_your_organizations(client: HttpClient):
     backfill = create_backfill(
         team,
         batch_export,
-        dt.datetime(2021, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
-        dt.datetime(2021, 1, 1, 1, 0, 0, tzinfo=dt.UTC),
+        start_at,
+        end_at,
         "COMPLETED",
         dt.datetime(2025, 1, 1, 1, 0, 0, tzinfo=dt.UTC),
     )
@@ -48,10 +61,11 @@ def test_can_get_backfills_for_your_organizations(client: HttpClient):
         "id": str(backfill.id),
         "batch_export": str(batch_export.id),
         "team": team.pk,
-        "start_at": "2021-01-01T00:00:00Z",
-        "end_at": "2021-01-01T01:00:00Z",
+        "start_at": start_at.strftime("%Y-%m-%dT%H:%M:%SZ") if start_at else None,
+        "end_at": end_at.strftime("%Y-%m-%dT%H:%M:%SZ") if end_at else None,
         "status": "COMPLETED",
         "finished_at": "2025-01-01T01:00:00Z",
+        "total_runs": expected_total_runs,
     }
 
 

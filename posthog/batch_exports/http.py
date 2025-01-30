@@ -554,9 +554,15 @@ class BatchExportOrganizationViewSet(BatchExportViewSet):
 
 
 class BatchExportBackfillSerializer(serializers.ModelSerializer):
+    total_runs = serializers.SerializerMethodField(read_only=True)
+
     class Meta:
         model = BatchExportBackfill
         fields = "__all__"
+
+    def get_total_runs(self, obj: BatchExportBackfill) -> int | None:
+        """Return the total number of runs for this backfill."""
+        return obj.total_runs
 
 
 class BackfillsCursorPagination(CursorPagination):

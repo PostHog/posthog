@@ -4,10 +4,11 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconCancel, IconRefresh } from 'lib/lemon-ui/icons'
 
-import { BatchExportBackfillModal } from './BatchExportBackfillModal'
-import { pipelineAccessLogic } from './pipelineAccessLogic'
-import { batchExportBackfillsLogic, BatchExportBackfillsLogicProps } from './batchExportBackfillsLogic'
 import { BatchExportBackfill } from '~/types'
+
+import { BatchExportBackfillModal } from './BatchExportBackfillModal'
+import { batchExportBackfillsLogic, BatchExportBackfillsLogicProps } from './batchExportBackfillsLogic'
+import { pipelineAccessLogic } from './pipelineAccessLogic'
 
 export function BatchExportBackfills({ id }: BatchExportBackfillsLogicProps): JSX.Element {
     const logic = batchExportBackfillsLogic({ id })
@@ -49,7 +50,7 @@ function BatchExportBackfillsControls({ id }: BatchExportBackfillsLogicProps): J
 
 function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX.Element {
     const logic = batchExportBackfillsLogic({ id })
-    const { latestBackfills, loading, hasMoreBackfillsToLoad, batchExportConfig } = useValues(logic)
+    const { latestBackfills, loading, hasMoreBackfillsToLoad } = useValues(logic)
     const { cancelBackfill, loadOlderBackfills, openBackfillModal } = useActions(logic)
     // this permission acts as a proxy for the user's ability to cancel backfills
     const { canEnableNewDestinations } = useValues(pipelineAccessLogic)
@@ -114,6 +115,11 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                                 'Until present'
                             )
                         },
+                    },
+                    {
+                        title: 'Total runs',
+                        key: 'totalRuns',
+                        render: (_, backfill) => backfill.total_runs,
                     },
                     {
                         title: 'Backfill started',
