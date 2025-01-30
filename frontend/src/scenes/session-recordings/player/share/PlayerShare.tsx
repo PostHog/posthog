@@ -1,4 +1,4 @@
-import { IconCopy } from '@posthog/icons'
+import { IconCopy, IconExternal } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 import { captureException } from '@sentry/react'
 import clsx from 'clsx'
@@ -14,21 +14,20 @@ import { playerShareLogic, PlayerShareLogicProps } from './playerShareLogic'
 function TimestampForm(props: PlayerShareLogicProps): JSX.Element {
     const logic = playerShareLogic(props)
 
-    const { shareUrl } = useValues(logic)
-    const { setShareUrlValue, submitShareUrl } = useActions(logic)
+    const { privateLinkForm } = useValues(logic)
+    const { setPrivateLinkFormValue } = useActions(logic)
 
     return (
-        <Form logic={playerShareLogic} props={props} formKey="shareUrl">
+        <Form logic={playerShareLogic} props={props} formKey="privateLinkForm">
             <div className="flex gap-2 items-center">
                 <LemonField name="includeTime">
-                    <LemonCheckbox label="Start at" />
+                    <LemonCheckbox label="Start at" checked={privateLinkForm.includeTime} />
                 </LemonField>
                 <LemonField name="time" inline>
                     <LemonInput
-                        className={clsx('w-20', { 'opacity-50': !shareUrl.includeTime })}
+                        className={clsx('w-20', { 'opacity-50': !privateLinkForm.includeTime })}
                         placeholder="00:00"
-                        onFocus={() => setShareUrlValue('includeTime', true)}
-                        onBlur={() => submitShareUrl()}
+                        onFocus={() => setPrivateLinkFormValue('includeTime', true)}
                         fullWidth={false}
                         size="small"
                     />
@@ -41,19 +40,21 @@ function TimestampForm(props: PlayerShareLogicProps): JSX.Element {
 function PublicLink(props: PlayerShareLogicProps): JSX.Element {
     const logic = playerShareLogic(props)
 
-    const { queryParams } = useValues(logic)
+    const { privateLinkUrlQueryParams } = useValues(logic)
 
     return (
         <>
-            <h3>External Link</h3>
-
             <p>
-                You can also share or embed the recording outside of PostHog. Be aware that all the content of the
-                recording will be accessible to anyone with the link.
+                You can share or embed the recording outside of PostHog. Be aware that all the content of the recording
+                will be accessible to anyone with the link.
             </p>
 
-            <TimestampForm {...props} />
-            <SharingModalContent recordingId={props.id} previewIframe additionalParams={queryParams} />
+            <SharingModalContent
+                recordingId={props.id}
+                previewIframe
+                additionalParams={privateLinkUrlQueryParams}
+                recordingLinkTimeForm={<TimestampForm {...props} />}
+            />
         </>
     )
 }
@@ -61,11 +62,10 @@ function PublicLink(props: PlayerShareLogicProps): JSX.Element {
 function PrivateLink(props: PlayerShareLogicProps): JSX.Element {
     const logic = playerShareLogic(props)
 
-    const { url } = useValues(logic)
+    const { privateLinkUrl, privateLinkFormHasErrors } = useValues(logic)
 
     return (
         <>
-            <h3>Private Link</h3>
             <p>
                 <b>Click the button below</b> to copy a direct link to this recording. Make sure the person you share it
                 with has access to this PostHog project.
@@ -75,10 +75,11 @@ function PrivateLink(props: PlayerShareLogicProps): JSX.Element {
                 fullWidth
                 center
                 sideIcon={<IconCopy />}
-                onClick={() => void copyToClipboard(url, url).then(captureException)}
-                title={url}
+                onClick={() => void copyToClipboard(privateLinkUrl, privateLinkUrl).then(captureException)}
+                title={privateLinkUrl}
+                disabledReason={privateLinkFormHasErrors ? 'Fix all errors before continuing' : undefined}
             >
-                <span className="truncate">{url}</span>
+                <span className="truncate">{privateLinkUrl}</span>
             </LemonButton>
             <TimestampForm {...props} />
         </>
@@ -88,47 +89,50 @@ function PrivateLink(props: PlayerShareLogicProps): JSX.Element {
 function LinearLink(props: PlayerShareLogicProps): JSX.Element {
     const logic = playerShareLogic(props)
 
-    const { shareUrl } = useValues(logic)
-    const { setShareUrlValue, submitShareUrl } = useActions(logic)
+    const { linearLinkForm, linearUrl, linearLinkFormHasErrors } = useValues(logic)
+    const { setLinearLinkFormValue } = useActions(logic)
 
     return (
-        <Form logic={playerShareLogic} props={props} formKey="linearUrl">
-            <h3>Share to Linear</h3>
+        <Form logic={playerShareLogic} props={props} formKey="linearLinkForm">
             <p>
                 <b>Click the button below</b> to start creating a new issue in Linear with a link to this recording.
             </p>
 
             <LemonField name="issueTitle" label="Issue title">
-                <LemonInput placeholder="Issue title" fullWidth />
+                <LemonInput fullWidth />
             </LemonField>
-            <LemonField name="issueDescription" label="Issue description">
-                <LemonTextArea placeholder="Issue description" />
+            <LemonField
+                name="issueDescription"
+                label="Issue description"
+                help={<span>We'll include a link to the recording in the description.</span>}
+            >
+                <LemonTextArea />
             </LemonField>
             <div className="flex gap-2 items-center">
                 <LemonField name="includeTime">
-                    <LemonCheckbox label="Start at" />
+                    <LemonCheckbox label="Start at" checked={linearLinkForm.includeTime} />
                 </LemonField>
                 <LemonField name="time" inline>
                     <LemonInput
-                        className={clsx('w-20', { 'opacity-50': !shareUrl.includeTime })}
+                        className={clsx('w-20', { 'opacity-50': !linearLinkForm.includeTime })}
+                        onFocus={() => setLinearLinkFormValue('includeTime', true)}
                         placeholder="00:00"
-                        onFocus={() => setShareUrlValue('includeTime', true)}
-                        onBlur={() => submitShareUrl()}
                         fullWidth={false}
                         size="small"
                     />
                 </LemonField>
             </div>
-            <LemonButton
-                type="primary"
-                to={`https://linear.app/new?title=${encodeURIComponent(
-                    shareUrl.issueTitle
-                )}&description=${encodeURIComponent(shareUrl.issueDescription)}&url=${encodeURIComponent(
-                    shareUrl.url
-                )}`}
-            >
-                Create issue
-            </LemonButton>
+            <div className="flex justify-end">
+                <LemonButton
+                    type="primary"
+                    to={linearUrl}
+                    targetBlank={true}
+                    icon={<IconExternal />}
+                    disabledReason={linearLinkFormHasErrors ? 'Fix all errors before continuing' : undefined}
+                >
+                    Create issue
+                </LemonButton>
+            </div>
         </Form>
     )
 }
@@ -147,13 +151,15 @@ export function PlayerShareRecording(props: PlayerShareLogicProps): JSX.Element 
 
 export function openPlayerShareDialog(props: PlayerShareLogicProps): void {
     LemonDialog.open({
-        title: 'Share recording',
+        title:
+            props.shareType === 'private'
+                ? 'Share private link'
+                : props.shareType === 'public'
+                ? 'Share public link'
+                : 'Share to Linear',
         content: <PlayerShareRecording {...props} />,
         width: 600,
-        primaryButton: {
-            children: 'Close',
-            type: 'secondary',
-        },
         zIndex: '1062',
+        primaryButton: null,
     })
 }
