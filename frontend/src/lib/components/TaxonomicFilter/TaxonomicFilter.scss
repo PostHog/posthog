@@ -4,8 +4,6 @@
     width: 550px;
     max-width: calc(100vw - 40px);
 
-    // background: var(--surface-primary);
-
     &.force-minimum-width {
         min-width: 300px;
     }
