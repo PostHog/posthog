@@ -56,8 +56,7 @@ export enum ActivationTask {
 
     // Feature Flags
     CreateFeatureFlag = 'create_feature_flag',
-    UpdateFeatureFlagRolloutConditions = 'update_feature_flag_rollout_conditions',
-
+    UpdateFeatureFlagReleaseConditions = 'update_feature_flag_release_conditions',
     // Experiments
     LaunchExperiment = 'launch_experiment',
 
@@ -67,8 +66,7 @@ export enum ActivationTask {
 
     // Surveys
     LaunchSurvey = 'launch_survey',
-    AnswerSurvey = 'answer_survey',
-    AnalyzeSurveyResponses = 'analyze_survey_responses',
+    CollectSurveyResponses = 'collect_survey_responses',
 }
 
 export enum ActivationSection {
@@ -199,7 +197,7 @@ export const activationLogic = kea<activationLogicType>([
             dataWarehouseSettingsLogic,
             ['dataWarehouseSources'],
             surveysLogic,
-            ['surveys'],
+            ['surveys', 'surveysResponsesCount'],
             sidePanelStateLogic,
             ['modalMode'],
         ],
@@ -222,13 +220,20 @@ export const activationLogic = kea<activationLogicType>([
             ['openSettingsPanel'],
             sidePanelStateLogic,
             ['closeSidePanel'],
+            teamLogic,
+            ['addProductIntent'],
         ],
     })),
     actions({
         loadCustomEvents: true,
-        runTask: (id: string) => ({ id }),
-        skipTask: (id: string) => ({ id }),
-        addSkippedTask: (teamId: TeamBasicType['id'], taskId: string) => ({ teamId, taskId }),
+        runTask: (id: ActivationTask) => ({ id }),
+        skipTask: (id: ActivationTask) => ({ id }),
+        markTaskAsCompleted: (id: ActivationTask) => ({ id }),
+        addSkippedTask: (teamId: TeamBasicType['id'], taskId: ActivationTask) => ({ teamId, taskId }),
+        addCompletedTask: (teamId: TeamBasicType['id'], taskId: ActivationTask) => ({ teamId, taskId }),
+        toggleSectionOpen: (section: ActivationSection) => ({ section }),
+        toggleShowOtherSections: () => ({}),
+        addIntentForSection: (section: ActivationSection) => ({ section }),
     }),
     reducers(() => ({
         skippedTasks: [
@@ -245,7 +250,7 @@ export const activationLogic = kea<activationLogicType>([
             {} as Record<string, string[]>,
             { persist: true, prefix: CACHE_PREFIX },
             {
-                markTaskAsCompleted: (state, { teamId, taskId }) => {
+                addCompletedTask: (state, { teamId, taskId }) => {
                     return { ...state, [teamId]: [...(state[teamId] ?? []), taskId] }
                 },
             },
@@ -297,6 +302,19 @@ export const activationLogic = kea<activationLogicType>([
             {
                 loadSourcesSuccess: () => true,
                 loadSourcesFailure: () => false,
+            },
+        ],
+        openSections: [
+            [] as ActivationSection[],
+            {
+                toggleSectionOpen: (state, { section }) =>
+                    state.includes(section) ? state.filter((s) => s !== section) : [...state, section],
+            },
+        ],
+        showOtherSections: [
+            false,
+            {
+                toggleShowOtherSections: (state) => !state,
             },
         ],
     })),
@@ -384,7 +402,11 @@ export const activationLogic = kea<activationLogicType>([
             (experiments: Experiment[]) => (experiments ?? []).filter((e) => e.start_date).length > 0,
         ],
         hasInsights: [(s) => [s.insights], (insights) => (insights?.results ?? []).length > 0],
-        hasSurveys: [(s) => [s.surveys], (surveys) => (surveys ?? []).length > 0],
+        hasLaunchedSurvey: [(s) => [s.surveys], (surveys) => (surveys ?? []).filter((s) => s.start_date).length > 0],
+        hasSurveyWithResponses: [
+            (s) => [s.surveysResponsesCount],
+            (surveysResponsesCount) => Object.values(surveysResponsesCount).some((count) => count > 0),
+        ],
         hasInvitesOrMembers: [
             (s) => [s.memberCount, s.invites],
             (memberCount, invites) => memberCount > 1 || invites.length > 0,
@@ -397,42 +419,48 @@ export const activationLogic = kea<activationLogicType>([
                     (key) => currentTeam?.has_completed_onboarding_for?.[key] === true
                 ),
         ],
+        currentTeamTasksMarkedAsCompleted: [
+            (s) => [s.tasksMarkedAsCompleted, s.currentTeam],
+            (tasksMarkedAsCompleted, currentTeam) =>
+                currentTeam?.id ? tasksMarkedAsCompleted[currentTeam?.id] ?? [] : [],
+        ],
         tasks: [
             (s) => [
                 s.currentTeam,
-                s.currentTeamSkippedTasks,
                 s.hasReverseProxy,
                 s.hasSources,
                 s.hasCreatedIndependentFeatureFlag,
                 s.hasLaunchedExperiment,
                 s.hasCreatedDashboard,
                 s.hasInsights,
-                s.hasSurveys,
+                s.hasLaunchedSurvey,
+                s.hasSurveyWithResponses,
                 s.hasInvitesOrMembers,
                 s.hasCustomEvents,
-                s.tasksMarkedAsCompleted,
+                s.currentTeamTasksMarkedAsCompleted,
+                s.currentTeamSkippedTasks,
             ],
             (
                 currentTeam,
-                currentTeamSkippedTasks,
                 hasReverseProxy,
                 hasSources,
                 hasCreatedIndependentFeatureFlag,
                 hasLaunchedExperiment,
                 hasCreatedDashboard,
                 hasInsights,
-                hasSurveys,
+                hasLaunchedSurvey,
+                hasSurveyWithResponses,
                 hasInvitesOrMembers,
                 hasCustomEvents,
-                tasksMarkedAsCompleted
+                currentTeamTasksMarkedAsCompleted,
+                currentTeamSkippedTasks
             ) => {
-                const tasks = [
+                const tasks: ActivationTaskType[] = [
                     {
                         id: ActivationTask.IngestFirstEvent,
                         title: 'Ingest your first event',
                         content: <IngestFirstEventContent />,
                         canSkip: false,
-                        skipped: false,
                         section: ActivationSection.QuickStart,
                         completed: currentTeam?.ingested_event ?? false,
                     },
@@ -442,7 +470,6 @@ export const activationLogic = kea<activationLogicType>([
                         content: <InviteTeamMemberContent />,
                         completed: hasInvitesOrMembers,
                         canSkip: true,
-                        skipped: false,
                         section: ActivationSection.QuickStart,
                     },
                     {
@@ -451,7 +478,6 @@ export const activationLogic = kea<activationLogicType>([
                         content: <CreateFirstInsightContent />,
                         completed: hasInsights,
                         canSkip: true,
-                        skipped: false,
                         section: ActivationSection.ProductAnalytics,
                     },
                     {
@@ -459,8 +485,7 @@ export const activationLogic = kea<activationLogicType>([
                         title: 'Create your first dashboard',
                         content: <CreateFirstDashboardContent />,
                         completed: hasCreatedDashboard,
-                        canSkip: true,
-                        skipped: false,
+                        canSkip: false,
                         section: ActivationSection.ProductAnalytics,
                     },
 
@@ -470,7 +495,6 @@ export const activationLogic = kea<activationLogicType>([
                         completed: hasCustomEvents,
                         content: <TrackCustomEventsContent />,
                         canSkip: true,
-                        skipped: false,
                         section: ActivationSection.ProductAnalytics,
                         url: 'https://posthog.com/tutorials/event-tracking-guide#setting-up-custom-events',
                     },
@@ -480,7 +504,6 @@ export const activationLogic = kea<activationLogicType>([
                         content: <SetUpReverseProxyContent />,
                         completed: hasReverseProxy || false,
                         canSkip: true,
-                        skipped: false,
                         section: ActivationSection.QuickStart,
                         url: 'https://posthog.com/docs/advanced/proxy',
                     },
@@ -491,19 +514,13 @@ export const activationLogic = kea<activationLogicType>([
                         completed: currentTeam?.session_recording_opt_in ?? false,
                         content: <SetupSessionRecordingsContent />,
                         canSkip: false,
-                        skipped: false,
                         section: ActivationSection.SessionReplay,
                     },
                     {
                         id: ActivationTask.WatchSessionRecording,
                         title: 'Watch a session recording',
-                        completed: currentTeam?.id
-                            ? tasksMarkedAsCompleted[currentTeam?.id]?.includes(ActivationTask.WatchSessionRecording) ??
-                              false
-                            : false,
                         content: <SetupSessionRecordingsContent />,
                         canSkip: false,
-                        skipped: false,
                         section: ActivationSection.SessionReplay,
                         lockedReason: !currentTeam?.session_recording_opt_in
                             ? 'Set up session recordings first'
@@ -516,17 +533,14 @@ export const activationLogic = kea<activationLogicType>([
                         title: 'Create a feature flag',
                         completed: hasCreatedIndependentFeatureFlag,
                         content: <SetupSessionRecordingsContent />,
-                        canSkip: true,
-                        skipped: false,
+                        canSkip: false,
                     },
                     {
-                        id: ActivationTask.UpdateFeatureFlagRolloutConditions,
+                        id: ActivationTask.UpdateFeatureFlagReleaseConditions,
                         section: ActivationSection.FeatureFlags,
-                        title: 'Update feature flag rollout conditions',
-                        completed: hasCreatedIndependentFeatureFlag,
+                        title: 'Update release conditions',
                         content: <SetupSessionRecordingsContent />,
-                        canSkip: true,
-                        skipped: false,
+                        canSkip: false,
                         lockedReason: !hasCreatedIndependentFeatureFlag ? 'Create a feature flag first' : undefined,
                     },
                     // Experiments
@@ -536,8 +550,7 @@ export const activationLogic = kea<activationLogicType>([
                         title: 'Launch an experiment',
                         completed: hasLaunchedExperiment,
                         content: <SetupSessionRecordingsContent />,
-                        canSkip: true,
-                        skipped: false,
+                        canSkip: false,
                     },
                     // Data Pipelines
                     {
@@ -545,8 +558,7 @@ export const activationLogic = kea<activationLogicType>([
                         title: 'Connect external data source',
                         completed: hasSources,
                         content: <SetupSessionRecordingsContent />,
-                        canSkip: true,
-                        skipped: false,
+                        canSkip: false,
                         section: ActivationSection.DataWarehouse,
                     },
                     {
@@ -555,41 +567,32 @@ export const activationLogic = kea<activationLogicType>([
                         completed: hasSources,
                         content: <SetupSessionRecordingsContent />,
                         canSkip: true,
-                        skipped: false,
                         section: ActivationSection.DataWarehouse,
-                        lockedReason: currentTeam?.ingested_event ? 'Ingest your first event first' : undefined,
+                        lockedReason: !currentTeam?.ingested_event ? 'Ingest your first event first' : undefined,
                     },
                     // Surveys
                     {
                         id: ActivationTask.LaunchSurvey,
                         title: 'Launch a survey',
-                        completed: hasSurveys,
+                        completed: hasLaunchedSurvey,
                         content: <SetupSessionRecordingsContent />,
-                        canSkip: true,
-                        skipped: false,
+                        canSkip: false,
                         section: ActivationSection.Surveys,
                     },
                     {
-                        id: ActivationTask.AnswerSurvey,
-                        title: 'Answer a survey',
-                        completed: hasSurveys,
+                        id: ActivationTask.CollectSurveyResponses,
+                        title: 'Collect survey responses',
                         content: <SetupSessionRecordingsContent />,
-                        canSkip: true,
-                        skipped: false,
+                        completed: hasSurveyWithResponses,
+                        canSkip: false,
                         section: ActivationSection.Surveys,
-                        locked: !hasSurveys ? 'Launch a survey first' : undefined,
+                        locked: !hasLaunchedSurvey ? 'Launch a survey first' : undefined,
                     },
-                    {
-                        id: ActivationTask.AnalyzeSurveyResponses,
-                        title: 'Analyze survey responses',
-                        completed: hasSurveys,
-                        content: <SetupSessionRecordingsContent />,
-                        canSkip: true,
-                        skipped: false,
-                        section: ActivationSection.Surveys,
-                        locked: !hasSurveys ? 'Launch a survey first' : undefined,
-                    },
-                ]
+                ].map((task) => ({
+                    ...task,
+                    skipped: task.canSkip && currentTeamSkippedTasks.includes(task.id),
+                    completed: task.completed || currentTeamTasksMarkedAsCompleted.includes(task.id),
+                }))
 
                 return tasks
             },
@@ -615,15 +618,16 @@ export const activationLogic = kea<activationLogicType>([
             },
         ],
         sections: [
-            (s) => [s.productsWithIntent],
-            (productsWithIntent) => {
+            (s) => [s.productsWithIntent, s.openSections],
+            (productsWithIntent, openSections) => {
                 return Object.entries(ACTIVATION_SECTIONS).map(([sectionKey, section]) => {
                     return {
                         ...section,
                         key: sectionKey as ActivationSection,
-                        defaultOpen:
-                            productsWithIntent?.includes(sectionKey as ProductKey) ||
-                            ['quick_start', 'product_analytics'].includes(sectionKey),
+                        open: openSections.includes(sectionKey as ActivationSection),
+                        hasIntent:
+                            ['quick_start', 'product_analytics'].includes(sectionKey) ||
+                            productsWithIntent?.includes(sectionKey as ProductKey),
                     }
                 })
             },
@@ -661,6 +665,9 @@ export const activationLogic = kea<activationLogicType>([
                 case ActivationTask.CreateFeatureFlag:
                     router.actions.push(urls.featureFlag('new'))
                     break
+                case ActivationTask.UpdateFeatureFlagReleaseConditions:
+                    router.actions.push(urls.featureFlags())
+                    break
                 case ActivationTask.LaunchExperiment:
                     router.actions.push(urls.experiment('new'))
                     break
@@ -672,6 +679,9 @@ export const activationLogic = kea<activationLogicType>([
                     break
                 case ActivationTask.LaunchSurvey:
                     router.actions.push(urls.surveyTemplates())
+                    break
+                case ActivationTask.CollectSurveyResponses:
+                    router.actions.push(urls.surveys())
                     break
                 default:
                     // For tasks with just a URL or no direct route
@@ -699,7 +709,15 @@ export const activationLogic = kea<activationLogicType>([
             })
 
             if (values.currentTeam?.id) {
-                actions.markTaskAsCompleted(values.currentTeam.id, id)
+                actions.addCompletedTask(values.currentTeam.id, id)
+            }
+        },
+        toggleSectionOpen: (section: ActivationSection) => {
+            actions.setSections(values.sections.map((s) => ({ ...s, open: s.key === section ? !s.open : s.open })))
+        },
+        addIntentForSection: (section: ActivationSection) => {
+            if (section instanceof ProductKey) {
+                actions.addProductIntent(section)
             }
         },
     })),

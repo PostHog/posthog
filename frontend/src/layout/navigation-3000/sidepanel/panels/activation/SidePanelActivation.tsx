@@ -1,5 +1,5 @@
-import { IconCheckCircle, IconChevronRight, IconLock } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { IconCheckCircle, IconChevronRight, IconCollapse, IconExpand, IconLock } from '@posthog/icons'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ProfessorHog } from 'lib/components/hedgehogs'
@@ -7,7 +7,6 @@ import type { LemonIconProps } from 'lib/lemon-ui/icons'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonProgressCircle } from 'lib/lemon-ui/LemonProgressCircle'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { useState } from 'react'
 
 import {
     activationLogic,
@@ -17,8 +16,9 @@ import {
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 
-export const SidePanelActivation = (): JSX.Element => {
-    const { completionPercent, sections, isReady } = useValues(activationLogic)
+export const SidePanelActivation = (): JSX.Element | null => {
+    const { completionPercent, sections, isReady, showOtherSections } = useValues(activationLogic)
+    const { toggleShowOtherSections } = useActions(activationLogic)
 
     if (!isReady) {
         return null
@@ -47,11 +47,33 @@ export const SidePanelActivation = (): JSX.Element => {
                     </div>
                 </div>
                 <div className="divide-y divide-muted-alt">
-                    {sections.map((section) => (
-                        <div className="px-4" key={section.key}>
-                            <ActivationSectionComponent sectionKey={section.key} section={section} />
-                        </div>
-                    ))}
+                    {sections
+                        .filter((section) => section.hasIntent)
+                        .map((section) => (
+                            <div className="px-4" key={section.key}>
+                                <ActivationSectionComponent sectionKey={section.key} section={section} />
+                            </div>
+                        ))}
+                </div>
+                {/* other products collapsed into an accordian with a + button */}
+                <div className="w-full">
+                    <button
+                        className="px-4 py-2 flex items-center justify-between w-full"
+                        onClick={() => toggleShowOtherSections(!showOtherSections)}
+                    >
+                        <h4 className="font-semibold text-[16px]">All products</h4>
+                        {showOtherSections ? <IconCollapse className="h-5 w-5" /> : <IconExpand className="h-5 w-5" />}
+                    </button>
+                    <div className="divide-y divide-muted-alt">
+                        {showOtherSections &&
+                            sections
+                                .filter((section) => !section.hasIntent)
+                                .map((section) => (
+                                    <div className="px-4" key={section.key}>
+                                        <ActivationSectionComponent sectionKey={section.key} section={section} />
+                                    </div>
+                                ))}
+                    </div>
                 </div>
             </div>
         </>
@@ -81,7 +103,7 @@ const ActivationSectionComponent = ({
     section: any
 }): JSX.Element | null => {
     const { activeTasks, completedTasks } = useValues(activationLogic)
-    const [isOpen, setIsOpen] = useState(section.defaultOpen)
+    const { toggleSectionOpen } = useActions(activationLogic)
 
     const tasks = [...activeTasks, ...completedTasks].filter((task) => task.section === sectionKey)
 
@@ -94,9 +116,9 @@ const ActivationSectionComponent = ({
 
     return (
         <div className="py-3">
-            <div
-                className="flex items-center justify-between cursor-pointer select-none"
-                onClick={() => setIsOpen(!isOpen)}
+            <button
+                className="flex items-center justify-between cursor-pointer select-none w-full"
+                onClick={() => toggleSectionOpen(sectionKey)}
             >
                 <div className="flex items-center gap-2">
                     {section.icon}
@@ -106,10 +128,10 @@ const ActivationSectionComponent = ({
                     <span className="text-sm text-muted-alt font-medium">
                         {itemsCompleted} of {totalItems} complete
                     </span>
-                    <IconChevronRight className={clsx('h-4 w-4', isOpen && 'rotate-90')} />
+                    <IconChevronRight className={clsx('h-4 w-4', section.open && 'rotate-90')} />
                 </div>
-            </div>
-            {isOpen && (
+            </button>
+            {section.open && (
                 <ul className="space-y-2 mt-2">
                     {tasks.map((task: ActivationTaskType) => (
                         <ActivationTask key={task.id} {...task} />
@@ -120,8 +142,16 @@ const ActivationSectionComponent = ({
     )
 }
 
-const ActivationTask = ({ id, title, completed, skipped, lockedReason, url }: ActivationTaskType): JSX.Element => {
-    const { runTask } = useActions(activationLogic)
+const ActivationTask = ({
+    id,
+    title,
+    completed,
+    skipped,
+    canSkip,
+    lockedReason,
+    url,
+}: ActivationTaskType): JSX.Element => {
+    const { runTask, skipTask } = useActions(activationLogic)
     const { reportActivationSideBarTaskClicked } = useActions(eventUsageLogic)
 
     const handleClick = (): void => {
@@ -139,7 +169,7 @@ const ActivationTask = ({ id, title, completed, skipped, lockedReason, url }: Ac
         <li
             className={clsx(
                 'p-2 border bg-primary-alt-highlight flex items-center justify-between gap-2 select-none',
-                completed && 'line-through opacity-70',
+                completed || skipped ? 'line-through opacity-70' : '',
                 canInteract && 'cursor-pointer',
                 lockedReason && 'opacity-70'
             )}
@@ -157,19 +187,20 @@ const ActivationTask = ({ id, title, completed, skipped, lockedReason, url }: Ac
                 )}
                 <p className="m-0 font-semibold">{title}</p>
             </div>
-            {canInteract && <IconChevronRight className="h-6 font-semibold text-muted-alt" />}
 
-            {/* <div className="flex-1">
-                {!completed && !skipped && <p className="text-xs text-gray-500">{content}</p>}
-            </div>
-            {canSkip && !completed && !skipped && (
-                <LemonButton icon={<IconX />} tooltip="Skip task" onClick={() => skipTask(id)} />
-            )}
-            {!completed && !skipped && (
-                <LemonButton onClick={handleClick} to={url} targetBlank={!!url}  icon={<IconPlay />}>
-                    {url ? 'Go' : 'Start'}
+            {canInteract && canSkip && (
+                <LemonButton
+                    size="xsmall"
+                    type="secondary"
+                    className="h-6 font-semibold text-muted-alt"
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        skipTask(id)
+                    }}
+                >
+                    Skip
                 </LemonButton>
-            )} */}
+            )}
         </li>
     )
 }

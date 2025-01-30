@@ -22,6 +22,7 @@ import { NEW_SURVEY, NewSurvey } from 'scenes/surveys/constants'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { groupsModel } from '~/models/groupsModel'
@@ -265,6 +266,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['closeSidePanel'],
             teamLogic,
             ['addProductIntent'],
+            activationLogic,
+            ['markTaskAsCompleted'],
         ],
     })),
     actions({
@@ -588,6 +591,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         }
                         actions.addProductIntent({ product_type: ProductKey.FEATURE_FLAGS })
                     } else {
+                        const cachedFlag = featureFlagsLogic
+                            .findMounted()
+                            ?.values.featureFlags.results.find((flag) => flag.id === props.id)
+
+                        // If we've got a cached flag and the filters have changed, we've updated the release conditions
+                        if (
+                            cachedFlag &&
+                            JSON.stringify(cachedFlag?.filters) !== JSON.stringify(values.featureFlag.filters)
+                        ) {
+                            actions.markTaskAsCompleted(ActivationTask.UpdateFeatureFlagReleaseConditions)
+                        }
+
                         savedFlag = await api.update(
                             `api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}`,
                             preparedFlag
