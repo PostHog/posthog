@@ -58,7 +58,7 @@ export function VerifiedDefinitionCheckbox({
                         Mark as verified {isProperty ? 'property' : 'event'}
                         {compact && (
                             <Tooltip title={copy}>
-                                <IconInfo className="ml-2 text-muted text-xl shrink-0" />
+                                <IconInfo className="ml-2 text-secondary text-xl shrink-0" />
                             </Tooltip>
                         )}
                     </>
@@ -407,7 +407,7 @@ function DefinitionEdit(): JSX.Element {
                     <>
                         <label className="definition-popover-edit-form-label" htmlFor="description">
                             <span className="label-text">Description</span>
-                            <span className="text-muted-alt">(optional)</span>
+                            <span className="text-secondary">(optional)</span>
                         </label>
                         <LemonTextArea
                             id="description"
@@ -426,7 +426,7 @@ function DefinitionEdit(): JSX.Element {
                     <>
                         <label className="definition-popover-edit-form-label" htmlFor="description">
                             <span className="label-text">Tags</span>
-                            <span className="text-muted-alt">(optional)</span>
+                            <span className="text-secondary">(optional)</span>
                         </label>
                         <div className="definition-popover-tags">
                             <ObjectTags

@@ -227,7 +227,7 @@ export const SidePanelActivity = (): JSX.Element => {
                                             />
                                         ))
                                     ) : (
-                                        <div className="p-6 text-center border border-dashed rounded text-muted-alt">
+                                        <div className="p-6 text-center border border-dashed rounded text-secondary">
                                             You're all caught up!
                                         </div>
                                     )}
@@ -246,7 +246,7 @@ export const SidePanelActivity = (): JSX.Element => {
                                                 />
                                             ))}
 
-                                            <div className="flex items-center justify-center h-10 gap-2 m-4 text-muted-alt">
+                                            <div className="flex items-center justify-center h-10 gap-2 m-4 text-secondary">
                                                 {allActivityResponseLoading ? (
                                                     <>
                                                         <Spinner textColored /> Loading older activity

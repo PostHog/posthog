@@ -31,7 +31,7 @@ export function SidePanelActivityMetalytics(): JSX.Element {
                     placement="top"
                 >
                     <div className="flex-1 p-4 border rounded bg-surface-primary min-w-40">
-                        <div className="text-sm text-muted">Views</div>
+                        <div className="text-sm text-secondary">Views</div>
                         <div className="text-2xl font-semibold">
                             {viewCountLoading ? <Spinner /> : viewCount?.views ?? 0}
                         </div>
@@ -43,7 +43,7 @@ export function SidePanelActivityMetalytics(): JSX.Element {
                     placement="top"
                 >
                     <div className="flex-1 p-4 border rounded bg-surface-primary min-w-40">
-                        <div className="text-sm text-muted">Viewers</div>
+                        <div className="text-sm text-secondary">Viewers</div>
                         <div className="text-2xl font-semibold">
                             {viewCountLoading ? <Spinner /> : viewCount?.users ?? 0}
                         </div>
@@ -52,7 +52,7 @@ export function SidePanelActivityMetalytics(): JSX.Element {
 
                 <Tooltip title={`The most recent 30 users who have viewed ${humanizedScope}.`} placement="top">
                     <div className="flex-1 p-4 border rounded bg-surface-primary min-w-40">
-                        <div className="text-sm text-muted">Recent viewers (30 days)</div>
+                        <div className="text-sm text-secondary">Recent viewers (30 days)</div>
                         {recentUsersLoading ? (
                             <Spinner />
                         ) : recentUserMembers.length > 0 ? (

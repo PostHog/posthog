@@ -54,7 +54,7 @@ export function SharedMetric(): JSX.Element {
                             <IconCheckCircle fontSize={18} color="var(--accent-primary)" />
                         )}
                     </div>
-                    <div className="text-muted text-sm leading-relaxed">
+                    <div className="text-secondary text-sm leading-relaxed">
                         Track a single event, action or a property value.
                     </div>
                 </div>
@@ -76,7 +76,7 @@ export function SharedMetric(): JSX.Element {
                             <IconCheckCircle fontSize={18} color="var(--accent-primary)" />
                         )}
                     </div>
-                    <div className="text-muted text-sm leading-relaxed">
+                    <div className="text-secondary text-sm leading-relaxed">
                         Analyze conversion rates between sequential steps.
                     </div>
                 </div>
@@ -118,7 +118,7 @@ export function SharedMetric(): JSX.Element {
                     onClick={() => {
                         LemonDialog.open({
                             title: 'Delete this metric?',
-                            content: <div className="text-sm text-muted">This action cannot be undone.</div>,
+                            content: <div className="text-sm text-secondary">This action cannot be undone.</div>,
                             primaryButton: {
                                 children: 'Delete',
                                 type: 'primary',
