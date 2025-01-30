@@ -78,7 +78,7 @@ export function SharedMetricModal({
                 .flatMap((metric: SharedMetric) => metric.tags)
                 .filter(Boolean)
         )
-    ).sort()
+    ).sort() as string[]
 
     return (
         <LemonModal
