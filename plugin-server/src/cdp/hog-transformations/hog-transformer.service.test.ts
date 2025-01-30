@@ -388,6 +388,55 @@ describe('HogTransformer', () => {
             expect(createHogFunctionInvocationSpy.mock.calls[1][1]).toMatchObject({ execution_order: 2 })
             expect(createHogFunctionInvocationSpy.mock.calls[2][1]).toMatchObject({ execution_order: null })
         })
+        it('should fail when trying to create functions with duplicate execution orders', async () => {
+            const template: HogFunctionTemplate = {
+                status: 'alpha',
+                type: 'transformation',
+                id: 'template-test',
+                name: 'Test Template',
+                description: 'A simple test template',
+                category: ['Custom'],
+                hog: `return event`,
+                inputs_schema: [],
+            }
+
+            const bytecode = await compileHog(template.hog)
+
+            const function1 = createHogFunction({
+                type: 'transformation',
+                name: 'First Function',
+                team_id: teamId,
+                enabled: true,
+                bytecode,
+                execution_order: 1,
+            })
+
+            const function2 = createHogFunction({
+                type: 'transformation',
+                name: 'Second Function',
+                team_id: teamId,
+                enabled: true,
+                bytecode,
+                execution_order: 1, // Same execution order as function1
+            })
+
+            // First insertion should succeed
+            await insertHogFunction(hub.db.postgres, teamId, function1)
+
+            // Second insertion should fail due to unique constraint
+            await expect(insertHogFunction(hub.db.postgres, teamId, function2)).rejects.toThrow(
+                /violates unique constraint "unique_execution_order_per_team_and_type"/
+            )
+
+            // Verify only the first function was inserted
+            await hogTransformer.start()
+            const functions = hogTransformer['hogFunctionManager'].getTeamHogFunctions(teamId)
+            expect(functions).toHaveLength(1)
+            expect(functions[0]).toMatchObject({
+                name: 'First Function',
+                execution_order: 1,
+            })
+        })
     })
 
     describe('legacy plugins', () => {
