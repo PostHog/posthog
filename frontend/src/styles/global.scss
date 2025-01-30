@@ -23,7 +23,7 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
 // @import 'design-system';
 
 // TODO: Check if this is needed for the above directories
-// @source ''
+// @source './'
 // https://tailwindcss.com/docs/detecting-classes-in-source-files#explicitly-registering-sources
 // './frontend/src/**/*.{ts,tsx}',
 // './ee/frontend/**/*.{ts,tsx}',
@@ -195,15 +195,9 @@ $xxl: 1600px;
 
     // Content (text, icons)
     // //////////////////////////////////////////////////////////
-    --text-primary: light-dark(
-        var(--primitive-neutral-950),
-        var(--primitive-neutral-100)
-    ); /* Text on primary surface/background */
-
-    --text-primary-inverse: light-dark(
-        var(--primitive-neutral-100),
-        var(--primitive-neutral-950)
-    ); /* Text on primary surface/background */
+    --text-primary: light-dark(var(--primitive-neutral-950), var(--primitive-neutral-100));
+    --text-primary-inverse: light-dark(var(--primitive-neutral-100), var(--primitive-neutral-950));
+    --text-secondary: light-dark(var(--primitive-neutral-750), var(--primitive-neutral-350));
 
     // Fills
     // Small colourful areas: banners, pills, buttons, etc.
@@ -216,6 +210,7 @@ $xxl: 1600px;
         var(--primitive-neutral-cool-950)
     ); /* promonent bg for info blocks */
 
+    --bg-fill-input: light-dark(var(--color-white), var(--primitive-neutral-cool-950));
     --bg-fill-info-tertiary: light-dark(var(--color-blue-50), var(--color-blue-950)); /* subtle bg for info blocks */
     --bg-fill-warning-secondary: light-dark(
         var(--color-orange-100),
@@ -250,6 +245,7 @@ $xxl: 1600px;
     // Content on fills
     // Texts which are on colourful fills, ensures contrast
     // //////////////////////////////////////////////////////////
+    --text-on-bg-fill-input: var(--text-primary);
     --text-warning-on-bg-fill: var(--color-orange-800); /* On-fill text for warning */
     --text-error-on-bg-fill: var(--color-red-800); /* On-fill text for error */
     --text-success-on-bg-fill: var(--color-green-800); /* On-fill text for success */
@@ -754,6 +750,7 @@ $xxl: 1600px;
     --text-color-accent-secondary-highlight: var(--accent-secondary-highlight);
     --text-color-primary: var(--text-primary);
     --text-color-primary-inverse: var(--text-primary-inverse);
+    --text-color-secondary: var(--text-secondary);
     --text-color-warning-on-bg-fill: var(--text-warning-on-bg-fill);
     --text-color-error-on-bg-fill: var(--text-error-on-bg-fill);
     --text-color-success-on-bg-fill: var(--text-success-on-bg-fill);
@@ -1005,8 +1002,8 @@ $xxl: 1600px;
     --color-success-dark: var(--success-dark);
     --color-success-highlight: var(--success-highlight);
 
-    // --color-muted: var(--muted);
-    // --color-muted-alt: var(--muted-alt);
+    // --color-muted: var(--text-secondary);
+    // --color-muted-alt: var(--text-secondary);
     // --color-primary-alt: var(--primary-alt);
     --color-mark: var(--mark);
     --color-white: var(--white);
@@ -1219,7 +1216,7 @@ body {
         font-size: 0.6875rem;
         font-weight: 600;
         line-height: 1.5rem;
-        color: var(--muted-alt);
+        color: var(--text-secondary);
         text-transform: uppercase;
         letter-spacing: 0.075em;
     }
@@ -1293,7 +1290,7 @@ body {
 .card-secondary {
     font-size: 11px;
     font-weight: 600;
-    color: var(--muted);
+    color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }
@@ -1381,7 +1378,7 @@ input::-ms-clear {
     height: 1.5rem;
     margin-right: 0.75rem;
     font-size: 1.5rem;
-    color: var(--muted-alt);
+    color: var(--text-secondary);
 
     .Toastify__toast--success & {
         color: var(--toastify-color-success);
@@ -1541,7 +1538,8 @@ html {
 
 input::placeholder,
 textarea::placeholder {
-    color: var(--muted); // Overrides Tailwind's default
+    // Overrides Tailwind's default
+    color: var(--text-secondary);
 }
 
 a {

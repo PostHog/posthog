@@ -110,7 +110,7 @@ const Header = ({ band, label }: { band: WebVitalsMetricBand; label: string }): 
                 <Icon />
                 {label}
             </span>
-            <span className="text-sm text-muted">{thresholdText}</span>
+            <span className="text-sm text-secondary">{thresholdText}</span>
         </div>
     )
 }
@@ -155,7 +155,7 @@ const Content = ({
                                 <div
                                     className="absolute top-0 left-0 h-full"
                                     // eslint-disable-next-line react/forbid-dom-props
-                                    style={{ width, backgroundColor: 'var(--muted)', opacity: 0.5 }}
+                                    style={{ width, backgroundColor: 'var(--text-secondary)', opacity: 0.5 }}
                                 />
                                 <span title={path} className="relative z-10 truncate mr-2 flex-1">
                                     {path}
@@ -169,7 +169,7 @@ const Content = ({
                 ) : (
                     <div className="text-center">
                         <span>{band === 'good' ? '😿' : '🚀'}</span>
-                        <span className="text-muted">No scores in this band</span>
+                        <span className="text-secondary">No scores in this band</span>
                     </div>
                 )}
             </div>

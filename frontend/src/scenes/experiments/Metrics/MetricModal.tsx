@@ -64,7 +64,7 @@ export function MetricModal({
                         onClick={() => {
                             LemonDialog.open({
                                 title: 'Delete this metric?',
-                                content: <div className="text-sm text-muted">This action cannot be undone.</div>,
+                                content: <div className="text-sm text-secondary">This action cannot be undone.</div>,
                                 primaryButton: {
                                     children: 'Delete',
                                     type: 'primary',

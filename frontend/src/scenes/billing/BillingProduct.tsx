@@ -267,7 +267,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                                                 : 0))
                                                                 )}
                                                             </div>
-                                                            <span className="text-xs text-muted">
+                                                            <span className="text-xs text-secondary">
                                                                 {capitalizeFirstLetter(
                                                                     billing?.billing_period?.interval || ''
                                                                 )}
@@ -284,7 +284,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                             } and the remaining time left in this billing period. This number updates once daily.`}
                                                         >
                                                             <div className="flex flex-col items-center justify-end">
-                                                                <div className="font-bold text-muted text-lg leading-5">
+                                                                <div className="font-bold text-secondary text-lg leading-5">
                                                                     {humanFriendlyCurrency(
                                                                         parseFloat(
                                                                             product.projected_amount_usd || '0'
@@ -295,7 +295,9 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                                                     : 0))
                                                                     )}
                                                                 </div>
-                                                                <span className="text-xs text-muted">Projected</span>
+                                                                <span className="text-xs text-secondary">
+                                                                    Projected
+                                                                </span>
                                                             </div>
                                                         </Tooltip>
                                                     )}
@@ -311,7 +313,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                     <div className="font-bold text-3xl leading-7">
                                                         {humanFriendlyCurrency(product.current_amount_usd)}
                                                     </div>
-                                                    <span className="text-xs text-muted">
+                                                    <span className="text-xs text-secondary">
                                                         per {billing?.billing_period?.interval || 'period'}
                                                     </span>
                                                 </div>
@@ -504,7 +506,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
 export const FeatureFlagUsageNotice = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     return product.type === 'feature_flags' ? (
-        <p className="mt-4 ml-0 text-sm text-muted italic">
+        <p className="mt-4 ml-0 text-sm text-secondary italic">
             <IconInfo className="mr-1" />
             Questions? Here's{' '}
             <Link to="https://posthog.com/docs/feature-flags/common-questions#billing--usage" className="italic">

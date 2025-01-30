@@ -195,7 +195,7 @@ const renderUsageLimitMessage = (
                     <Tooltip title={featureInfo.description}>
                         <span>
                             <b>{featureInfo.name}</b>
-                            <IconInfo className="ml-0.5 text-muted" />
+                            <IconInfo className="ml-0.5 text-secondary" />
                         </span>
                     </Tooltip>
                     .
@@ -214,7 +214,7 @@ const renderUsageLimitMessage = (
                                 <b>{featureInfoOnNextPlan?.limit} projects</b>.
                             </p>
                         )}
-                        <p className="mb-4 text-xs italic text-muted">
+                        <p className="mb-4 text-xs italic text-secondary">
                             Need unlimited projects? Check out the{' '}
                             <Link to="/organization/billing?products=platform_and_support" onClick={handleCtaClick}>
                                 Teams addon
@@ -261,8 +261,8 @@ const renderGateVariantMessage = (
 const GrandfatheredMessage = (): JSX.Element => {
     return (
         <div className="flex mb-4 text-left rounded gap-x-2 bg-bg-3000">
-            <IconInfo className="text-2xl text-muted" />
-            <p className="mb-0 text-muted">
+            <IconInfo className="text-2xl text-secondary" />
+            <p className="mb-0 text-secondary">
                 Your plan does not include this feature, but previously set settings may remain. Please upgrade your
                 plan to regain access.
             </p>

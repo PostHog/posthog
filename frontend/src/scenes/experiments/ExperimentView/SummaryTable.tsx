@@ -100,7 +100,7 @@ export function SummaryTable({
                             </div>
                         }
                     >
-                        <IconInfo className="text-muted-alt text-base" />
+                        <IconInfo className="text-secondary text-base" />
                     </Tooltip>
                 </div>
             ),
@@ -131,7 +131,7 @@ export function SummaryTable({
                 <div className="inline-flex items-center space-x-1">
                     <div className="">Delta %</div>
                     <Tooltip title="Delta % indicates the percentage change in the mean between the control and the test variant.">
-                        <IconInfo className="text-muted-alt text-base" />
+                        <IconInfo className="text-secondary text-base" />
                     </Tooltip>
                 </div>
             ),
@@ -173,7 +173,7 @@ export function SummaryTable({
                 <div className="inline-flex items-center space-x-1">
                     <div className="">Credible interval (95%)</div>
                     <Tooltip title="A credible interval estimates the percentage change in the mean, indicating with 95% probability how much higher or lower the test variant's mean is compared to the control.">
-                        <IconInfo className="text-muted-alt text-base" />
+                        <IconInfo className="text-secondary text-base" />
                     </Tooltip>
                 </div>
             ),
@@ -217,7 +217,7 @@ export function SummaryTable({
                     <div className="inline-flex items-center space-x-1">
                         <div className="">Delta %</div>
                         <Tooltip title="Delta % indicates the percentage change in the conversion rate between the control and the test variant.">
-                            <IconInfo className="text-muted-alt text-base" />
+                            <IconInfo className="text-secondary text-base" />
                         </Tooltip>
                     </div>
                 ),
@@ -248,7 +248,7 @@ export function SummaryTable({
                     <div className="inline-flex items-center space-x-1">
                         <div className="">Credible interval (95%)</div>
                         <Tooltip title="A credible interval estimates the percentage change in the conversion rate, indicating with 95% probability how much higher or lower the test variant's conversion rate is compared to the control.">
-                            <IconInfo className="text-muted-alt text-base" />
+                            <IconInfo className="text-secondary text-base" />
                         </Tooltip>
                     </div>
                 ),

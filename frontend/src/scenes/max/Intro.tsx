@@ -80,7 +80,7 @@ export function Intro(): JSX.Element {
             </div>
             <div className="text-center mb-3">
                 <h2 className="text-2xl font-bold mb-2 text-balance">{headline}</h2>
-                <div className="text-muted text-balance">
+                <div className="text-secondary text-balance">
                     I'm Max, here to help you build a succesful product. Ask me about your product and your users.
                 </div>
             </div>

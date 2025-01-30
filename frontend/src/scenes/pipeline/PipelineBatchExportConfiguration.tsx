@@ -194,7 +194,7 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
                                             <div className="flex justify-between w-full gap-2">
                                                 <LemonLabel>Include events</LemonLabel>
                                             </div>
-                                            <p className="mb-0 text-xs text-muted-alt">
+                                            <p className="mb-0 text-xs text-secondary">
                                                 If set, the batch export will <b>only</b> export events matching any of
                                                 the below. If left unset, all events will be exported.
                                             </p>
@@ -224,7 +224,7 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
                                             <div className="flex justify-between w-full gap-2">
                                                 <LemonLabel>Exclude events</LemonLabel>
                                             </div>
-                                            <p className="mb-0 text-xs text-muted-alt">
+                                            <p className="mb-0 text-xs text-secondary">
                                                 If set, the batch export will <b>exclude</b> events matching any of the
                                                 below. If left unset, no events will be excluded from the export.
                                             </p>

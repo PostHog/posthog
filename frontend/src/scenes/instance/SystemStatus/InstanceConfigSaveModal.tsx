@@ -24,7 +24,7 @@ function ChangeRow({ metricKey, oldValue, value, isSecret }: ChangeRowInterface)
             <div>
                 <code>{metricKey}</code>
             </div>
-            <div className="text-muted">
+            <div className="text-secondary">
                 Value will be changed
                 {!isSecret && (
                     <>

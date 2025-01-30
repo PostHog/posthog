@@ -87,7 +87,7 @@ export const BillingProductPricingTable = ({
                                   title: '',
                                   dataIndex: 'icon',
                                   render: () => (
-                                      <IconArrowRightDown className="transform -rotate-90 scale-x-[-1] text-base text-muted" />
+                                      <IconArrowRightDown className="transform -rotate-90 scale-x-[-1] text-base text-secondary" />
                                   ),
                               },
                               { title: `Product name`, dataIndex: 'productName' },

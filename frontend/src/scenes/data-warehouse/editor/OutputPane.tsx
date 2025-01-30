@@ -365,7 +365,7 @@ const Content = ({
             <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} />
         ) : !response ? (
             <div className="flex flex-1 justify-center items-center">
-                <span className="text-muted mt-3">Query results will appear here</span>
+                <span className="text-secondary mt-3">Query results will appear here</span>
             </div>
         ) : (
             <div className="flex-1 absolute top-0 left-0 right-0 bottom-0">
@@ -392,7 +392,7 @@ const Content = ({
 
         return !response ? (
             <div className="flex flex-1 justify-center items-center">
-                <span className="text-muted mt-3">Query results will be visualized here</span>
+                <span className="text-secondary mt-3">Query results will be visualized here</span>
             </div>
         ) : (
             <div className="flex-1 absolute top-0 left-0 right-0 bottom-0 px-4 py-1 hide-scrollbar">

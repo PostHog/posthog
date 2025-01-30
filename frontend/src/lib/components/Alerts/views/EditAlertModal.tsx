@@ -344,7 +344,7 @@ export function EditAlertModal({
                             </div>
 
                             <div className="space-y-2">
-                                <h3 className="text-muted-alt">Advanced</h3>
+                                <h3 className="text-secondary">Advanced</h3>
                                 <Group name={['config']}>
                                     <div className="flex gap-1">
                                         <LemonField name="check_ongoing_interval">
