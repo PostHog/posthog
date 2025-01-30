@@ -1,4 +1,4 @@
-from ee.hogai.summarizer.format import _format_number, compress_and_format_trends_results
+from ee.hogai.summarizer.format import _extract_series_label, _format_number, compress_and_format_trends_results
 from posthog.schema import Compare
 from posthog.test.base import BaseTest
 
@@ -89,3 +89,37 @@ class TestFormat(BaseTest):
             compress_and_format_trends_results(results),
             "Previous period:\nDate|$pageview\n2025-01-20|242\n2025-01-21|46\n2025-01-22|0\n\nCurrent period:\nDate|$pageview\n2025-01-23|46\n2025-01-24|0\n2025-01-25|242",
         )
+
+    def test_empty_series(self):
+        results = [
+            {
+                "data": [242, 46, 0],
+                "labels": ["20-Jan-2025", "21-Jan-2025", "22-Jan-2025"],
+                "days": ["2025-01-20", "2025-01-21", "2025-01-22"],
+                "count": 288,
+                "label": "$pageview",
+                "compare": True,
+                "compare_label": Compare.CURRENT,
+            },
+        ]
+
+        self.assertEqual(
+            compress_and_format_trends_results(results),
+            "Date|$pageview\n2025-01-20|242\n2025-01-21|46\n2025-01-22|0",
+        )
+
+    def test_breakdown_and_custom_name_label(self):
+        series = {
+            "data": [242, 46, 0],
+            "labels": ["20-Jan-2025", "21-Jan-2025", "22-Jan-2025"],
+            "days": ["2025-01-20", "2025-01-21", "2025-01-22"],
+            "breakdown_value": 0,
+            "label": "$pageview",
+            "action": {
+                "custom_name": "Custom Name",
+            },
+        }
+
+        self.assertEqual(_extract_series_label(series), "Custom Name (breakdown)")
+        series.pop("action")
+        self.assertEqual(_extract_series_label(series), "$pageview (breakdown)")
