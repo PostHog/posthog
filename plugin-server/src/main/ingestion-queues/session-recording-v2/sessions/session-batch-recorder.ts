@@ -119,7 +119,7 @@ export class SessionBatchRecorder {
      */
     public async flush(): Promise<void> {
         status.info('🔁', 'session_batch_recorder_flushing', {
-            totalSessions: this.partitionSessions.size,
+            partitions: this.partitionSessions.size,
             totalSize: this._size,
         })
 
