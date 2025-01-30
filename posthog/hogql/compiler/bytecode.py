@@ -160,14 +160,6 @@ class BytecodeCompiler(Visitor):
         self.locals.append(Local(name=name, depth=self.scope_depth, is_captured=False))
         return len(self.locals) - 1
 
-    def visit_and(self, node: ast.And):
-        response = []
-        for expr in node.exprs:
-            response.extend(self.visit(expr))
-        response.append(Operation.AND)
-        response.append(len(node.exprs))
-        return response
-
     def visit(self, node: ast.AST | None):
         # In "hog" mode we compile AST nodes to bytecode.
         # In "ast" mode we pass through as they are.
@@ -175,6 +167,14 @@ class BytecodeCompiler(Visitor):
         if self.mode == "hog" or isinstance(node, ast.Placeholder):
             return super().visit(node)
         return self._visit_hog_ast(node)
+
+    def visit_and(self, node: ast.And):
+        response = []
+        for expr in node.exprs:
+            response.extend(self.visit(expr))
+        response.append(Operation.AND)
+        response.append(len(node.exprs))
+        return response
 
     def visit_or(self, node: ast.Or):
         response = []
