@@ -30,7 +30,8 @@
         "services:clean": "cd .. && docker compose -f docker-compose.dev.yml rm -v",
         "services": "pnpm services:stop && pnpm services:clean && pnpm services:start",
         "build:cyclotron": "cd ../rust/cyclotron-node && pnpm run package",
-        "pnpm:devPreinstall": "pnpm run build:cyclotron"
+        "pnpm:devPreinstall": "pnpm run build:cyclotron",
+        "update-ai-costs": "ts-node scripts/update-ai-costs.ts"
     },
     "graphile-worker": {
         "maxContiguousErrors": 300
@@ -131,6 +132,7 @@
         "babel-eslint": "^10.1.0",
         "c8": "^7.12.0",
         "deepmerge": "^4.2.2",
+        "dotenv": "^16.4.7",
         "eslint": "^8.53.0",
         "eslint-config-prettier": "^9.1.0",
         "eslint-plugin-eslint-comments": "^3.2.0",
