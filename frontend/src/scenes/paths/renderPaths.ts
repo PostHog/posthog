@@ -186,7 +186,7 @@ const addChartAxisLines = (svg: D3Selector, height: number, nodes: PathNodeData[
         const minWidthApart = nodes[1].x0 - nodes[0].x0
         arr.forEach((_, i) => {
             svg.append('line')
-                .style('stroke', 'var(--border)')
+                .style('stroke', 'var(--border-primary)')
                 .attr('stroke-width', 2)
                 .attr('x1', minWidthApart * (i + 1) - 20)
                 .attr('y1', 0)
