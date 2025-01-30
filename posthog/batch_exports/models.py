@@ -230,6 +230,7 @@ class BatchExport(UUIDModel):
         default=Model.EVENTS,
         help_text="Which model this BatchExport is exporting.",
     )
+    filters = models.JSONField(null=True, blank=True)
 
     @property
     def latest_runs(self):

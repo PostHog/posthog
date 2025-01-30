@@ -1,5 +1,6 @@
 import 'chartjs-adapter-dayjs-3'
 
+import * as Sentry from '@sentry/react'
 import { LegendOptions } from 'chart.js'
 import { DeepPartial } from 'chart.js/dist/types/utils'
 import annotationPlugin from 'chartjs-plugin-annotation'
@@ -312,6 +313,28 @@ export function LineGraph_({
         return () => {
             const tooltipEl = document.getElementById('InsightTooltipWrapper')
             tooltipEl?.remove()
+        }
+    }, [])
+
+    // Add event listeners to canvas
+    useEffect(() => {
+        const canvas = canvasRef.current
+
+        if (canvas) {
+            const handleEvent = (event: Event): void => {
+                console.error(event)
+                Sentry.captureException(event)
+            }
+
+            canvas.addEventListener('contextlost', handleEvent)
+            canvas.addEventListener('webglcontextcreationerror', handleEvent)
+            canvas.addEventListener('webglcontextlost', handleEvent)
+
+            return () => {
+                canvas.removeEventListener('contextlost', handleEvent)
+                canvas.removeEventListener('webglcontextcreationerror', handleEvent)
+                canvas.removeEventListener('webglcontextlost', handleEvent)
+            }
         }
     }, [])
 

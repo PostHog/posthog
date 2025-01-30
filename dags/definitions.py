@@ -40,7 +40,5 @@ defs = Definitions(
     assets=all_assets,
     jobs=[squash_person_overrides, deletes.deletes_job],
     schedules=[deletes_schedule],
-    resources={
-        "cluster": ClickhouseClusterResource.configure_at_launch(),
-    },
+    resources=resources,
 )

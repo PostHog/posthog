@@ -546,8 +546,7 @@ async def test_postgres_binary_columns(team, postgres_config, postgres_connectio
     columns = res.columns
 
     assert columns is not None
-    assert len(columns) == 2
-    assert any(x == "_ph_debug" for x in columns)
+    assert len(columns) == 1
     assert any(x == "id" for x in columns)
 
 
@@ -658,7 +657,7 @@ async def test_postgres_schema_evolution(team, postgres_config, postgres_connect
     columns = res.columns
 
     assert columns is not None
-    assert len(columns) == 2
+    assert len(columns) == 1
     assert any(x == "id" for x in columns)
 
     # Evole schema
@@ -677,7 +676,7 @@ async def test_postgres_schema_evolution(team, postgres_config, postgres_connect
     columns = res.columns
 
     assert columns is not None
-    assert len(columns) == 3
+    assert len(columns) == 2
     assert any(x == "id" for x in columns)
     assert any(x == "new_col" for x in columns)
 
@@ -720,7 +719,7 @@ async def test_sql_database_missing_incremental_values(team, postgres_config, po
     columns = res.columns
 
     assert columns is not None
-    assert len(columns) == 2
+    assert len(columns) == 1
     assert any(x == "id" for x in columns)
 
     # Exclude rows that don't have the incremental cursor key set
@@ -762,7 +761,7 @@ async def test_sql_database_incremental_initial_value(team, postgres_config, pos
     columns = res.columns
 
     assert columns is not None
-    assert len(columns) == 2
+    assert len(columns) == 1
     assert any(x == "id" for x in columns)
 
     # Include rows that have the same incremental value as the `initial_value`
@@ -1180,8 +1179,7 @@ async def test_postgres_nan_numerical_values(team, postgres_config, postgres_con
     results = res.results
 
     assert columns is not None
-    assert len(columns) == 3
-    assert any(x == "_ph_debug" for x in columns)
+    assert len(columns) == 2
     assert any(x == "id" for x in columns)
     assert any(x == "nan_column" for x in columns)
 

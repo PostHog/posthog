@@ -17,7 +17,12 @@ from posthog.hogql.context import HogQLContext
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
-from posthog.schema import DatabaseSchemaDataWarehouseTable, HogQLQueryModifiers, PersonsOnEventsMode
+from posthog.schema import (
+    DataWarehouseEventsModifier,
+    DatabaseSchemaDataWarehouseTable,
+    HogQLQueryModifiers,
+    PersonsOnEventsMode,
+)
 from posthog.test.base import BaseTest, QueryMatchingTest, FuzzyInt
 from posthog.warehouse.models import DataWarehouseTable, DataWarehouseCredential, DataWarehouseSavedQuery
 from posthog.hogql.query import execute_hogql_query
@@ -101,7 +106,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("table_1"))
         assert table is not None
-        assert len(table.fields.keys()) == 2
+        assert len(table.fields.keys()) == 1
         assert table.source is None
         assert table.schema_ is None
 
@@ -192,7 +197,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("table_1"))
         assert table is not None
-        assert len(table.fields.keys()) == 2
+        assert len(table.fields.keys()) == 1
 
         assert table.source is not None
         assert table.source.id == source.source_id
@@ -250,13 +255,13 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         for i in range(5):
             source = ExternalDataSource.objects.create(
                 team=self.team,
-                source_id=f"source_id_{i+2}",
-                connection_id=f"connection_id_{i+2}",
+                source_id=f"source_id_{i + 2}",
+                connection_id=f"connection_id_{i + 2}",
                 status=ExternalDataSource.Status.COMPLETED,
                 source_type=ExternalDataSource.Type.STRIPE,
             )
             warehouse_table = DataWarehouseTable.objects.create(
-                name=f"table_{i+2}",
+                name=f"table_{i + 2}",
                 format="Parquet",
                 team=self.team,
                 external_data_source=source,
@@ -269,7 +274,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             )
             ExternalDataSchema.objects.create(
                 team=self.team,
-                name=f"table_{i+2}",
+                name=f"table_{i + 2}",
                 source=source,
                 table=warehouse_table,
                 should_sync=True,
@@ -656,3 +661,49 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert "some_field" in person_on_event_table.join_table.fields.keys()  # type: ignore
 
         print_ast(parse_select("select person.some_field.key from events"), context, dialect="clickhouse")
+
+    def test_database_warehouse_person_id_field_with_events_join(self):
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        DataWarehouseTable.objects.create(
+            name="warehouse_table",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            url_pattern="s3://test/*",
+            columns={"id": "String", "user_id": "String", "timestamp": "DateTime64(3, 'UTC')"},
+        )
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="warehouse_table",
+            source_table_key="user_id",
+            joining_table_name="events",
+            joining_table_key="distinct_id",
+            field_name="events_data",
+        )
+        modifiers = HogQLQueryModifiers(
+            dataWarehouseEventsModifiers=[
+                DataWarehouseEventsModifier(
+                    table_name="warehouse_table",
+                    id_field="id",
+                    timestamp_field="timestamp",
+                    distinct_id_field="user_id",
+                )
+            ]
+        )
+        db = create_hogql_database(team_id=self.team.pk, modifiers=modifiers)
+
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=db,
+        )
+
+        actual_table = db.get_table("warehouse_table")
+        person_id_field = actual_table.fields.get("person_id")
+
+        assert isinstance(person_id_field, FieldTraverser)
+        assert person_id_field.chain == ["events_data", "person_id"]
+
+        print_ast(parse_select("SELECT person_id FROM warehouse_table"), context, dialect="clickhouse")

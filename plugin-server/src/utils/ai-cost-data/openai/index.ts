@@ -266,8 +266,8 @@ const costs: ModelRow[] = [
             value: 'gpt-4o',
         },
         cost: {
-            prompt_token: 0.000005,
-            completion_token: 0.000015,
+            prompt_token: 0.0000025,
+            completion_token: 0.00001,
         },
         showInPlayground: true,
     },
@@ -506,6 +506,16 @@ const costs: ModelRow[] = [
             completion_token: 0.000012,
         },
         showInPlayground: true,
+    },
+    {
+        model: {
+            operator: 'equals',
+            value: 'o1',
+        },
+        cost: {
+            prompt_token: 0.000015,
+            completion_token: 0.00006,
+        },
     },
 ]
 

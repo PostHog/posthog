@@ -1,3 +1,4 @@
+import { IconArchive } from '@posthog/icons'
 import { LemonBanner, LemonTabs, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
@@ -23,13 +24,12 @@ export const scene: SceneExport = {
 }
 
 const Filters = (): JSX.Element => {
-    const {
-        dateFilter: { dateTo, dateFrom },
-        shouldFilterTestAccounts,
-        generationsQuery,
-        propertyFilters,
-    } = useValues(llmObservabilityLogic)
+    const { dashboardDateFilter, dateFilter, shouldFilterTestAccounts, generationsQuery, propertyFilters, activeTab } =
+        useValues(llmObservabilityLogic)
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmObservabilityLogic)
+
+    const dateFrom = activeTab === 'dashboard' ? dashboardDateFilter.dateFrom : dateFilter.dateFrom
+    const dateTo = activeTab === 'dashboard' ? dashboardDateFilter.dateTo : dateFilter.dateTo
 
     return (
         <div className="flex gap-x-4 gap-y-2 items-center flex-wrap py-4 -mt-4 mb-4 border-b">
@@ -86,10 +86,6 @@ const IngestionStatusCheck = (): JSX.Element | null => {
                 </Link>{' '}
                 (otherwise it'll be a little empty!)
             </p>
-            <p>
-                To get cost information, you'll also{' '}
-                <Link to="/pipeline/new/transformation">need to enable the "AI Costs" transformation.</Link>
-            </p>
         </LemonBanner>
     )
 }
@@ -127,8 +123,25 @@ function LLMObservabilityGenerations(): JSX.Element {
     )
 }
 
+function LLMObservabilityNoEvents(): JSX.Element {
+    return (
+        <div className="w-full flex flex-col items-center justify-center">
+            <div className="flex flex-col items-center justify-center max-w-md w-full">
+                <IconArchive className="text-5xl mb-2 text-muted-alt" />
+                <h2 className="text-xl leading-tight">We haven't detected any LLM generations yet</h2>
+                <p className="text-sm text-center text-balance">
+                    To use the LLM Observability product, please{' '}
+                    <Link to="https://posthog.com/docs/ai-engineering/observability">
+                        instrument your LLM calls with the PostHog SDK
+                    </Link>{' '}
+                </p>
+            </div>
+        </div>
+    )
+}
+
 export function LLMObservabilityScene(): JSX.Element {
-    const { activeTab } = useValues(llmObservabilityLogic)
+    const { activeTab, hasSentAiGenerationEvent } = useValues(llmObservabilityLogic)
     const { searchParams } = useValues(router)
 
     return (
@@ -146,13 +159,17 @@ export function LLMObservabilityScene(): JSX.Element {
                     {
                         key: 'traces',
                         label: 'Traces',
-                        content: <LLMObservabilityTraces />,
+                        content: hasSentAiGenerationEvent ? <LLMObservabilityTraces /> : <LLMObservabilityNoEvents />,
                         link: combineUrl(urls.llmObservabilityTraces(), searchParams).url,
                     },
                     {
                         key: 'generations',
                         label: 'Generations',
-                        content: <LLMObservabilityGenerations />,
+                        content: hasSentAiGenerationEvent ? (
+                            <LLMObservabilityGenerations />
+                        ) : (
+                            <LLMObservabilityNoEvents />
+                        ),
                         link: combineUrl(urls.llmObservabilityGenerations(), searchParams).url,
                     },
                 ]}

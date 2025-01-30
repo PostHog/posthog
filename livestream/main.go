@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo-contrib/echoprometheus"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/viper"
 )
@@ -93,7 +94,8 @@ func main() {
 	e.Use(middleware.GzipWithConfig(middleware.GzipConfig{
 		Level: 9, // Set compression level to maximum
 	}))
-	e.Use(echoprometheus.NewMiddleware("livestream"))
+	e.Use(echoprometheus.NewMiddlewareWithConfig(
+		echoprometheus.MiddlewareConfig{DoNotUseRequestPathFor404: true, Subsystem: "livestream"}))
 
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowOrigins: []string{"*"},
@@ -103,7 +105,11 @@ func main() {
 	// Routes
 	e.GET("/", index)
 
-	e.GET("/metrics", echo.WrapHandler(promhttp.Handler()))
+	// For details why promhttp.Handler won't work: https://github.com/prometheus/client_golang/issues/622
+	e.GET("/metrics", echo.WrapHandler(promhttp.InstrumentMetricHandler(
+		prometheus.DefaultRegisterer,
+		promhttp.HandlerFor(prometheus.DefaultGatherer, promhttp.HandlerOpts{DisableCompression: true}),
+	)))
 
 	e.GET("/served", servedHandler(stats))
 
@@ -112,12 +118,7 @@ func main() {
 	e.GET("/events", streamEventsHandler(e.Logger, subChan, filter))
 
 	e.GET("/jwt", func(c echo.Context) error {
-		authHeader := c.Request().Header.Get("Authorization")
-		if authHeader == "" {
-			return errors.New("authorization header is required")
-		}
-
-		claims, err := decodeAuthToken(authHeader)
+		claims, err := getAuth(c.Request().Header)
 		if err != nil {
 			return err
 		}
