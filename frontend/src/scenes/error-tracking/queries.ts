@@ -103,6 +103,7 @@ export const errorTrackingIssueEventsQuery = ({
         showTimings: false,
         columns: columns,
         expandable: true,
+        embedded: true,
     }
 }
 

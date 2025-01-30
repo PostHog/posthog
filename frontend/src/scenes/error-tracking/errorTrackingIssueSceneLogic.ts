@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
@@ -14,6 +14,13 @@ import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from './querie
 
 export interface ErrorTrackingIssueSceneLogicProps {
     id: ErrorTrackingIssue['id']
+}
+
+export enum EventsMode {
+    Latest = 'latest',
+    Earliest = 'earliest',
+    Recommended = 'recommended',
+    All = 'all',
 }
 
 function generateIssueDateRange(first_seen: string, last_seen?: string): DateRange {
@@ -49,7 +56,17 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     actions({
         loadIssue: true,
         setIssue: (issue: ErrorTrackingIssue) => ({ issue }),
+        setEventsMode: (mode: EventsMode) => ({ mode }),
         updateIssue: (issue: Partial<Pick<ErrorTrackingIssue, 'assignee' | 'status'>>) => ({ issue }),
+    }),
+
+    reducers({
+        eventsMode: [
+            EventsMode.Latest as EventsMode,
+            {
+                setEventsMode: (_, { mode }) => mode,
+            },
+        ],
     }),
 
     loaders(({ props, values }) => ({

@@ -227,7 +227,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
         return results
 
     def extract_aggregations(self, result):
-        aggregations = dict((k, result[k]) for k in ("occurrences", "sessions", "users", "volumeDay", "volumeMonth"))
+        aggregations = {f: result[f] for f in ("occurrences", "sessions", "users", "volumeDay", "volumeMonth")}
         aggregations["customVolume"] = result.get("customVolume") if "customVolume" in result else None
         return aggregations
 
@@ -243,7 +243,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
             [
                 ast.OrderExpr(
                     expr=ast.Field(chain=[self.query.orderBy]),
-                    order="ASC" if self.query.orderBy == "first_seen" else "DESC",
+                    order="ASC" if self.query.orderBy == "firstSeen" else "DESC",
                 )
             ]
             if self.query.orderBy

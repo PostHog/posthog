@@ -1631,7 +1631,7 @@ export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
     issueId?: ErrorTrackingIssue['id']
-    orderBy?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
+    orderBy?: 'lastSeen' | 'firstSeen' | 'occurrences' | 'users' | 'sessions'
     dateRange: DateRange
     assignee?: ErrorTrackingIssueAssignee | null
     filterGroup?: PropertyGroupFilter

@@ -22,11 +22,11 @@ export const ErrorTrackingListOptions = (): JSX.Element => {
                         value={orderBy}
                         options={[
                             {
-                                value: 'last_seen',
+                                value: 'lastSeen',
                                 label: 'Last seen',
                             },
                             {
-                                value: 'first_seen',
+                                value: 'firstSeen',
                                 label: 'First seen',
                             },
                             {

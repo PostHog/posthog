@@ -1,13 +1,15 @@
 import { LemonCollapse, LemonDivider } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
-import PanelLayout from 'lib/components/PanelLayout/PanelLayout'
+import { useActions, useValues } from 'kea'
+import PanelLayout, { SettingsButton, SettingsMenu } from 'lib/components/PanelLayout/PanelLayout'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { useState } from 'react'
 
-import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
+import { errorTrackingIssueSceneLogic, EventsMode } from '../errorTrackingIssueSceneLogic'
 import { getExceptionAttributes, hasStacktrace } from '../utils'
 import { Overview } from './Overview'
 import RecordingPanel from './panels/RecordingPanel'
 import StackTracePanel from './panels/StackTracePanel'
+import { EventsTab } from './tabs/EventsTab'
 
 export type ErrorTrackingIssueEventsPanel = {
     key: 'stacktrace' | 'recording'
@@ -21,7 +23,8 @@ export type ErrorTrackingIssueEventsPanel = {
 const PANELS = [StackTracePanel, RecordingPanel] as ErrorTrackingIssueEventsPanel[]
 
 export const Events = (): JSX.Element => {
-    const { issueProperties } = useValues(errorTrackingIssueSceneLogic)
+    const { issueProperties, eventsMode } = useValues(errorTrackingIssueSceneLogic)
+    const { setEventsMode } = useActions(errorTrackingIssueSceneLogic)
     const [activeKeys, setActiveKeys] = useState<ErrorTrackingIssueEventsPanel['key'][]>(['stacktrace'])
 
     const { exceptionList } = getExceptionAttributes(issueProperties)
@@ -38,10 +41,45 @@ export const Events = (): JSX.Element => {
 
     return (
         <>
-            <PanelLayout.PanelSettings title="Events" border="bottom" />
-            <Overview />
-            <LemonDivider className="mt-2 mb-0" />
-            <LemonCollapse embedded multiple activeKeys={activeKeys} onChange={setActiveKeys} panels={panels} />
+            <PanelLayout.PanelSettings title="Events" border="bottom">
+                {eventsMode != EventsMode.All && (
+                    <SettingsMenu
+                        highlightWhenActive={false}
+                        items={[
+                            {
+                                label: 'Earliest',
+                                onClick: () => setEventsMode(EventsMode.Earliest),
+                                active: eventsMode === EventsMode.Earliest,
+                            },
+                            {
+                                label: 'Latest',
+                                onClick: () => setEventsMode(EventsMode.Latest),
+                                active: eventsMode === EventsMode.Latest,
+                            },
+                            {
+                                label: 'Recommended',
+                                onClick: () => setEventsMode(EventsMode.Recommended),
+                                active: eventsMode === EventsMode.Recommended,
+                            },
+                        ]}
+                        label={capitalizeFirstLetter(eventsMode)}
+                    />
+                )}
+                <SettingsButton
+                    label={eventsMode === EventsMode.All ? 'Close' : 'View all events'}
+                    active
+                    onClick={() => setEventsMode(eventsMode === EventsMode.All ? EventsMode.Latest : EventsMode.All)}
+                />
+            </PanelLayout.PanelSettings>
+            {eventsMode === EventsMode.All ? (
+                <EventsTab />
+            ) : (
+                <>
+                    <Overview />
+                    <LemonDivider className="mt-2 mb-0" />
+                    <LemonCollapse embedded multiple activeKeys={activeKeys} onChange={setActiveKeys} panels={panels} />
+                </>
+            )}
         </>
     )
 }

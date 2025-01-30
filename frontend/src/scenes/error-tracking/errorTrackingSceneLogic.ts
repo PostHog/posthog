@@ -36,7 +36,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
 
     reducers({
         orderBy: [
-            'last_seen' as ErrorTrackingQuery['orderBy'],
+            'lastSeen' as ErrorTrackingQuery['orderBy'],
             { persist: true },
             {
                 setOrderBy: (_, { orderBy }) => orderBy,
