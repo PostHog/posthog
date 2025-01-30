@@ -221,7 +221,9 @@ class MutationRunner:
         """Find the running mutation task, if one exists."""
 
         if self.is_lightweight_delete:
-            self.command = self.__convert_lightweight_delete_to_mutation_command(self.command)
+            command = self.__convert_lightweight_delete_to_mutation_command(self.command)
+        else:
+            command = self.command
 
         results = client.execute(
             f"""
@@ -233,7 +235,7 @@ class MutationRunner:
                 -- only one command per mutation is currently supported, so throw if the mutation contains more than we expect to find
                 -- throwIf always returns 0 if it does not throw, so negation turns this condition into effectively a noop if the test passes
                 AND NOT throwIf(
-                    length(splitByChar('\n', formatQuery($_sql_{id(self)}$ALTER TABLE {settings.CLICKHOUSE_DATABASE}{self.table} {self.command}$_sql_{id(self)}$)) as lines) != 2,
+                    length(splitByChar('\n', formatQuery($_sql_{id(self)}$ALTER TABLE {settings.CLICKHOUSE_DATABASE}{self.table} {command}$_sql_{id(self)}$)) as lines) != 2,
                     'unexpected number of lines, expected 2 (ALTER TABLE prefix, followed by single command)'
                 )
                 AND command = trim(lines[2])
