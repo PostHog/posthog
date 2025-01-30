@@ -10,13 +10,20 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        # This is a workaround to fix the unique_together constraint on TaggedItem
+        # Django thinks there's a unique_together constraint on TaggedItem, but there isn't
+        migrations.SeparateDatabaseAndState(
+            database_operations=[],
+            state_operations=[
+                migrations.AlterUniqueTogether(
+                    name="taggeditem",
+                    unique_together=set(),
+                ),
+            ],
+        ),
         migrations.RemoveConstraint(
             model_name="taggeditem",
             name="exactly_one_related_object",
-        ),
-        migrations.AlterUniqueTogether(
-            name="taggeditem",
-            unique_together=set(),
         ),
         migrations.AddField(
             model_name="taggeditem",
@@ -27,14 +34,6 @@ class Migration(migrations.Migration):
                 on_delete=django.db.models.deletion.CASCADE,
                 related_name="tagged_items",
                 to="posthog.experimentsavedmetric",
-            ),
-        ),
-        migrations.AddConstraint(
-            model_name="taggeditem",
-            constraint=models.UniqueConstraint(
-                condition=models.Q(("experiment_saved_metric__isnull", False)),
-                fields=("tag", "experiment_saved_metric"),
-                name="unique_experiment_saved_metric_tagged_item",
             ),
         ),
         migrations.AddConstraint(
@@ -107,6 +106,14 @@ class Migration(migrations.Migration):
                     _connector="OR",
                 ),
                 name="exactly_one_related_object",
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="taggeditem",
+            constraint=models.UniqueConstraint(
+                condition=models.Q(("experiment_saved_metric__isnull", False)),
+                fields=("tag", "experiment_saved_metric"),
+                name="unique_experiment_saved_metric_tagged_item",
             ),
         ),
     ]
