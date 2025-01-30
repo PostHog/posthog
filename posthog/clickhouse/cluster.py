@@ -256,17 +256,18 @@ class MutationRunner:
             return Mutation(self.table, mutation_id)
 
     def enqueue(self, client: Client) -> Mutation:
-        """Enqueue the mutation (or return the existing mutation if it is already running.)"""
+        """Enqueue the mutation (or return the existing mutation if it is already running or has run.)"""
         if task := self.find(client):
             return task
 
         if self.is_lightweight_delete:
-            client.execute(self.command)
+            client.execute(self.command, self.parameters)
 
-        client.execute(
-            f"ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} {self.command}",
-            self.parameters,
-        )
+        else:
+            client.execute(
+                f"ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} {self.command}",
+                self.parameters,
+            )
 
         task = self.find(client)
         assert task is not None
@@ -275,11 +276,11 @@ class MutationRunner:
 
     @property
     def is_lightweight_delete(self) -> bool:
-        return re.match(r"^(?i)DELETE\s+FROM\s+(?:\w+\.)*\w+\s+WHERE\s+.*", self.command) is not None
+        return re.match(r"(?i)^DELETE\s+FROM\s+(?:\w+\.)*\w+\s+WHERE\s+.*", self.command) is not None
 
     def __convert_lightweight_delete_to_mutation_command(self, command: str) -> str:
         # converts DELETE FROM table WHERE foo='bar' to UPDATE _row_exists = 0 WHERE foo='bar'
-        match = re.match(r"^(?i)DELETE\s+FROM\s+(?:\w+\.)*\w+\s+WHERE\s+(.*)", command)
+        match = re.match(r"(?i)^DELETE\s+FROM\s+(?:\w+\.)*\w+\s+WHERE\s+(.*)", command)
         if not match:
             raise ValueError(f"Invalid DELETE command format: {command}")
         where_clause = match.group(1)

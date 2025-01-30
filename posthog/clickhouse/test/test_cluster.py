@@ -77,17 +77,27 @@ def test_lightweight_delete(cluster: ClickhouseCluster) -> None:
     table = EVENTS_DATA_TABLE()
     count = 100
 
+    def truncate_table(client: Client) -> None:
+        client.execute(f"TRUNCATE TABLE {table}")
+
+    cluster.map_one_host_per_shard(truncate_table).result()
+
     # make sure there is some data to play with first
     def populate_random_data(client: Client) -> None:
         client.execute(f"INSERT INTO {table} SELECT * FROM generateRandom() LIMIT {count}")
 
     cluster.map_one_host_per_shard(populate_random_data).result()
 
+    def get_random_row(client: Client) -> tuple[uuid.UUID]:
+        return client.execute(f"SELECT uuid FROM {table} ORDER BY rand() LIMIT 1")
+
+    [[[eid]]] = cluster.map_all_hosts(get_random_row).result().values()
+
     # construct the runner with a DELETE command
     runner = MutationRunner(
         table,
-        f"DELETE FROM {table} WHERE 1 = 1",
-        {},
+        f"DELETE FROM {table} WHERE uuid = %(uuid)s",
+        {"uuid": eid},
     )
 
     # verify it's detected as a lightweight delete
@@ -98,8 +108,8 @@ def test_lightweight_delete(cluster: ClickhouseCluster) -> None:
     assert len(shard_mutations) > 0
 
     # check results
-    def get_row_exists_count(client: Client) -> list[tuple[int, int]]:
-        return client.execute(f"SELECT _row_exists, count() FROM {table} GROUP BY ALL ORDER BY ALL")
+    def get_row_exists_count(client: Client) -> list[tuple[int]]:
+        return client.execute(f"SELECT count(1) FROM {table}")
 
     for host_info, mutation in shard_mutations.items():
         assert host_info.shard_num is not None
@@ -112,4 +122,4 @@ def test_lightweight_delete(cluster: ClickhouseCluster) -> None:
 
         # check to ensure data is as expected to be after update (_row_exists = 0 for all rows)
         query_results = cluster.map_all_hosts_in_shard(host_info.shard_num, get_row_exists_count).result()
-        assert all(result == [(0, count)] for result in query_results.values())
+        assert all(result[0][0] < count for result in query_results.values())
