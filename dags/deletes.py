@@ -2,6 +2,7 @@ import pydantic
 from clickhouse_driver.client import Client
 from datetime import datetime
 from dataclasses import dataclass
+from functools import reduce
 from dagster import (
     op,
     job,
@@ -300,9 +301,10 @@ def wait_for_delete_mutations(
     if not shard_mutations:
         return pending_person_deletions
 
-    # Wait for all mutations across all shards
-    for mutation in shard_mutations.values():
-        cluster.map_all_hosts(mutation.wait).result()
+    reduce(
+        lambda x, y: x.merge(y),
+        [cluster.map_all_hosts_in_shard(shard, mutation.wait) for shard, mutation in shard_mutations.items()],
+    ).result()
 
     return pending_person_deletions
 
