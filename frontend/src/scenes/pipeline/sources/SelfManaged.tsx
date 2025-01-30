@@ -15,11 +15,17 @@ interface SelfManagedProps {
 
 export const SelfManaged = ({ id }: SelfManagedProps): JSX.Element => {
     const { table } = useValues(dataWarehouseTableLogic({ id: id }))
-    const { loadTable, updateTable } = useActions(dataWarehouseTableLogic({ id: id }))
+    const { loadTable, updateTable, resetTable } = useActions(dataWarehouseTableLogic({ id: id }))
 
     useEffect(() => {
         loadTable()
     }, [loadTable])
+
+    useEffect(() => {
+        return () => {
+            resetTable()
+        }
+    }, [resetTable])
 
     return (
         <BindLogic logic={dataWarehouseTableLogic} props={{ id }}>
@@ -41,7 +47,7 @@ export function SelfManagedTable({ table, updateTable }: Props): JSX.Element {
                     <LemonButton
                         type="secondary"
                         onClick={() => {
-                            router.actions.push(urls.dataWarehouse())
+                            router.actions.push(urls.pipeline())
                         }}
                     >
                         Cancel
