@@ -6,7 +6,7 @@ export const template: HogFunctionTemplate = {
     id: 'plugin-language-url-splitter-app',
     name: 'Language URL splitter',
     description: 'Splits the language from the URL',
-    icon_url: 'https://raw.githubusercontent.com/posthog/language-url-splitter-app/main/logo.png',
+    icon_url: '/static/hedgehog/builder-hog-01.png',
     category: ['Transformation'],
     hog: `return event`,
     inputs_schema: [

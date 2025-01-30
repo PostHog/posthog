@@ -9,13 +9,13 @@ describe('BlackholeSessionBatchWriter', () => {
         writer = new BlackholeSessionBatchWriter()
     })
 
-    it('should create a writable stream', async () => {
-        const { stream } = await writer.open()
+    it('should create a writable stream', () => {
+        const { stream } = writer.newBatch()
         expect(stream.writable).toBe(true)
     })
 
     it('should drain the stream', async () => {
-        const { stream } = await writer.open()
+        const { stream } = writer.newBatch()
         const largeData = Buffer.alloc(1024 * 1024, 'x') // 1MB of data
 
         // Write 100MB of data
@@ -32,7 +32,7 @@ describe('BlackholeSessionBatchWriter', () => {
     })
 
     it('should resolve finish immediately', async () => {
-        const { stream, finish } = await writer.open()
+        const { stream, finish } = writer.newBatch()
 
         // Write some data before finishing
         stream.write('test data')
@@ -47,7 +47,7 @@ describe('BlackholeSessionBatchWriter', () => {
     })
 
     it('should handle multiple writes and end correctly', async () => {
-        const { stream, finish } = await writer.open()
+        const { stream, finish } = writer.newBatch()
 
         const writes = ['data1', 'data2', 'data3'].map((data) => {
             return new Promise<void>((resolve, reject) => {
