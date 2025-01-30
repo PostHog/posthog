@@ -111,8 +111,6 @@ class TaggedItem(UUIDModel):
     )
 
     class Meta:
-        unique_together = ("tag", *RELATED_OBJECTS)
-        # Make sure to add new key to uniqueness constraint when extending tag functionality to new model
         constraints = [
             *[build_partial_uniqueness_constraint(field=field) for field in RELATED_OBJECTS],
             models.CheckConstraint(check=build_check(RELATED_OBJECTS), name="exactly_one_related_object"),
