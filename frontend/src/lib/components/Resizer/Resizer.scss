@@ -22,10 +22,7 @@
     --resizer-thickness: 8px;
 
     position: absolute;
-    z-index: var(
-        --z-notifications-popover
-    ); // A bit above navbar for a nicer slider experience when the sidebar is closed
-
+    z-index: var(--z-tooltip);
     user-select: none; // Fixes inadvertent selection of scene text when resizing
 
     &--left,
