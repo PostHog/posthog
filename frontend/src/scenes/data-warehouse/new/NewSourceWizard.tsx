@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import posthog from 'posthog-js'
 import { useCallback } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -130,6 +131,8 @@ function FirstStep(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
     const onClick = (sourceConfig: SourceConfig): void => {
+        posthog.capture('new source selected', { sourceType: sourceConfig.name })
+
         if (sourceConfig.name == 'Hubspot') {
             window.open(addToHubspotButtonUrl() as string)
         } else {

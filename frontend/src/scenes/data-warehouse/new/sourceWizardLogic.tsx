@@ -1117,6 +1117,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 return
             }
 
+            posthog.capture('new source onSubmit', {
+                currentStep: values.currentStep,
+                sourceType: values.selectedConnector?.name,
+            })
+
             if (values.currentStep === 2 && values.selectedConnector?.name) {
                 actions.submitSourceConnectionDetails()
             } else if (values.currentStep === 2 && values.isManualLinkFormVisible) {
