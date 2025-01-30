@@ -4,6 +4,7 @@ import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import QuerySet
 from loginas.utils import is_impersonated_session
+from django.db import transaction
 
 from rest_framework import serializers, viewsets, exceptions
 from rest_framework.serializers import BaseSerializer
@@ -450,3 +451,68 @@ class HogFunctionViewSet(
                 changes=changes, name=serializer.instance.name, type=serializer.instance.type or "destination"
             ),
         )
+
+    @action(methods=["PATCH"], detail=False)
+    def rearrange(self, request: Request, *args, **kwargs) -> Response:
+        """Update the execution order of multiple HogFunctions."""
+        team = self.team
+        orders: dict[str, int] = request.data.get("orders", {})
+
+        if not orders:
+            raise exceptions.ValidationError("No orders provided")
+
+        with transaction.atomic():
+            # First collect all functions to ensure they exist and are valid
+            functions = {}
+            for function_id_str, _ in orders.items():
+                try:
+                    function = HogFunction.objects.get(
+                        id=function_id_str, team=team, type="transformation", deleted=False
+                    )
+                    functions[function_id_str] = function
+                except HogFunction.DoesNotExist:
+                    raise exceptions.ValidationError(f"HogFunction with id {function_id_str} does not exist")
+
+            # Update orders and create activity logs
+            from django.utils import timezone
+
+            current_time = timezone.now()
+
+            for function_id_str, function in functions.items():
+                new_order = orders[function_id_str]
+                old_order = function.execution_order
+
+                try:
+                    function.execution_order = new_order
+                    function.updated_at = current_time
+                    function.save(update_fields=["execution_order", "updated_at"])
+
+                    if old_order != new_order:
+                        log_activity(
+                            organization_id=self.organization.id,
+                            team_id=self.team_id,
+                            user=request.user,
+                            item_id=str(function.id),
+                            was_impersonated=is_impersonated_session(request),
+                            scope="HogFunction",
+                            activity="reordered",
+                            detail=Detail(
+                                name=function.name,
+                                changes=[
+                                    {
+                                        "type": "transformation",
+                                        "old_order": old_order,
+                                        "new_order": new_order,
+                                    }
+                                ],
+                            ),
+                        )
+                except (ValueError, TypeError):
+                    raise exceptions.ValidationError(f"Invalid order value for function {function_id_str}")
+
+        transformations = HogFunction.objects.filter(team=team, type="transformation", deleted=False).order_by(
+            "execution_order"
+        )
+
+        serializer = self.get_serializer(transformations, many=True)
+        return Response(serializer.data)

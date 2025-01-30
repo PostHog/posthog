@@ -1,6 +1,6 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import FuseClass from 'fuse.js'
-import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -75,6 +75,12 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
 
         updatePluginConfig: (pluginConfig: PluginConfigTypeNew) => ({ pluginConfig }),
         updateBatchExportConfig: (batchExportConfig: BatchExportConfiguration) => ({ batchExportConfig }),
+        openReorderModal: true,
+        closeReorderModal: true,
+        setTemporaryOrder: (tempOrder: Record<number, number>) => ({
+            tempOrder,
+        }),
+        saveDestinationsOrder: (newOrders: Record<number, number>) => ({ newOrders }),
     }),
     loaders(({ values, actions, props }) => ({
         plugins: [
@@ -186,7 +192,12 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                         : props.types.filter((type) => type !== 'site_destination')
                     return (await api.hogFunctions.list(undefined, destinationTypes)).results
                 },
-
+                saveDestinationsOrder: async ({ newOrders }) => {
+                    const response = await api.update(`api/projects/@current/hog_functions/rearrange`, {
+                        orders: newOrders,
+                    })
+                    return response
+                },
                 deleteNodeHogFunction: async ({ destination }) => {
                     if (destination.backend !== PipelineBackend.HogFunction) {
                         return values.hogFunctions
@@ -219,6 +230,13 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                         ...hogFunctions.slice(hogFunctionIndex + 1),
                     ]
                 },
+            },
+        ],
+        temporaryOrder: [
+            {} as Record<number, number>,
+            {
+                setTemporaryOrder: async ({ tempOrder }) => tempOrder,
+                closeReorderModal: async () => ({}),
             },
         ],
     })),
@@ -316,6 +334,16 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             },
         ],
     }),
+    reducers({
+        reorderModalOpen: [
+            false as boolean,
+            {
+                openReorderModal: () => true,
+                closeReorderModal: () => false,
+                saveDestinationsOrder: () => false,
+            },
+        ],
+    }),
     listeners(({ values, actions }) => ({
         toggleNode: ({ destination, enabled }) => {
             if (enabled && !values.canEnableDestination(destination)) {
@@ -343,6 +371,13 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     actions.deleteNodeHogFunction(destination)
                     break
             }
+        },
+        saveDestinationsOrderSuccess: () => {
+            actions.closeReorderModal()
+            lemonToast.success('Transformation order updated successfully')
+        },
+        saveDestinationsOrderFailure: () => {
+            lemonToast.error('Failed to update transformation order')
         },
     })),
 
