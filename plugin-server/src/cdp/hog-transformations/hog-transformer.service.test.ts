@@ -4,8 +4,7 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { brotliDecompressSync } from 'zlib'
 
-import { template as filterOutPluginTemplate } from '~/src/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
-
+import { template as filterOutPluginTemplate } from '../../../src/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { template as defaultTemplate } from '../../../src/cdp/templates/_transformations/default/default.template'
 import { template as geoipTemplate } from '../../../src/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '../../../src/cdp/templates/compiler'
