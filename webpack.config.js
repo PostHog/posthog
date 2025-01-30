@@ -16,7 +16,7 @@ function createEntry(entry) {
         {
             loader: 'css-loader',
             options: {
-                importLoaders: 3, // Important: this tells css-loader how many loaders before it should apply
+                importLoaders: 2, // Important: this tells css-loader how many loaders before it should apply
             }
         },
         {
