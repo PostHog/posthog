@@ -1,13 +1,18 @@
 from rest_framework import status
 from unittest.mock import patch, ANY
+from typing import cast
 
-from posthog.models import Organization, OrganizationMembership, Team
+from posthog.models import Organization, OrganizationMembership, Team, FeatureFlag
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import APIBaseTest
 from posthog.api.organization import OrganizationSerializer
 from rest_framework.test import APIRequestFactory
 from posthog.user_permissions import UserPermissions
+from ee.models.rbac.role import Role, RoleMembership
+from ee.models.rbac.access_control import AccessControl
+from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
+from ee.models.explicit_team_membership import ExplicitTeamMembership
 
 
 class TestOrganizationAPI(APIBaseTest):
@@ -289,3 +294,261 @@ class TestOrganizationSerializer(APIBaseTest):
 
         self.assertEqual(len(teams2), 2)
         self.assertEqual([teams2[0]["name"], teams2[1]["name"]], ["Default project", team2.name])
+
+
+class TestOrganizationRbacMigrations(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # Create some roles
+        self.admin_role = Role.objects.create(
+            name="Admin Role",
+            organization=self.organization,
+            feature_flags_access_level=37,
+        )
+        self.basic_role = Role.objects.create(
+            name="Basic Role",
+            organization=self.organization,
+            feature_flags_access_level=21,
+        )
+
+        # Create test users with different permissions
+        self.admin_user = self._create_user("rbac_admin+1@posthog.com", level=OrganizationMembership.Level.ADMIN)
+        self.member_user = self._create_user("rbac_member+1@posthog.com")
+
+        # Bind admin role to admin user
+        RoleMembership.objects.create(
+            role=self.admin_role,
+            user=self.admin_user,
+            organization_member=self.admin_user.organization_memberships.first(),
+        )
+
+    def test_migrate_feature_flags_rbac_as_admin(self):
+        self.client.force_login(self.admin_user)
+
+        # Create a test feature flag
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.admin_user, key="test-flag", name="Test Flag"
+        )
+        FeatureFlagRoleAccess.objects.create(
+            feature_flag=feature_flag,
+            role=self.admin_role,
+        )
+
+        response = self.client.post(f"/api/organizations/{self.organization.id}/migrate_access_control/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["status"], True)
+
+        feature_flag_access = FeatureFlagRoleAccess.objects.first()
+        self.assertIsNone(feature_flag_access)
+
+        access_control = AccessControl.objects.get(resource="feature_flag")
+        self.assertEqual(access_control.access_level, "editor")
+        self.assertEqual(access_control.role, self.admin_role)
+        self.assertEqual(access_control.resource, "feature_flag")
+        self.assertEqual(access_control.resource_id, str(feature_flag.id))
+
+    def test_migrate_feature_flags_rbac_with_multiple_flags(self):
+        self.client.force_login(self.admin_user)
+
+        # Create multiple feature flags
+        for i in range(3):
+            feature_flag = FeatureFlag.objects.create(
+                team=self.team, created_by=self.admin_user, key=f"test-flag-{i}", name=f"Test Flag {i}"
+            )
+            FeatureFlagRoleAccess.objects.create(
+                feature_flag=feature_flag,
+                role=self.admin_role,
+            )
+
+        response = self.client.post(f"/api/organizations/{self.organization.id}/migrate_access_control/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["status"], True)
+
+        self.assertEqual(FeatureFlagRoleAccess.objects.count(), 0)
+        self.assertEqual(AccessControl.objects.filter(resource="feature_flag").count(), 3)
+
+        feature_flags = FeatureFlag.objects.all()
+        self.assertEqual(len(feature_flags), 3)
+        feature_flag_ids = [feature_flag.id for feature_flag in feature_flags]
+
+        access_controls = AccessControl.objects.filter(resource="feature_flag")
+        self.assertEqual(len(access_controls), 3)
+        for access_control in access_controls:
+            self.assertEqual(access_control.access_level, "editor")
+            self.assertEqual(access_control.resource, "feature_flag")
+            self.assertIn(int(access_control.resource_id), feature_flag_ids)
+
+    def test_migrate_team_rbac_as_admin(self):
+        # Create a new team with access control enabled
+        team_with_access_control = Team.objects.create(
+            organization=self.organization, name="Team with Access Control", access_control=True
+        )
+
+        self.admin_user = self._create_user("rbac_admin+2@posthog.com", level=OrganizationMembership.Level.ADMIN)
+        self.member_user_1 = self._create_user("rbac_member+2a@posthog.com")
+        self.member_user_2 = self._create_user("rbac_member+2b@posthog.com")
+
+        self.client.force_login(self.admin_user)
+
+        ExplicitTeamMembership.objects.create(
+            team=team_with_access_control,
+            parent_membership=cast(OrganizationMembership, self.admin_user.organization_memberships.first()),
+            level=ExplicitTeamMembership.Level.ADMIN,
+        )
+        ExplicitTeamMembership.objects.create(
+            team=team_with_access_control,
+            parent_membership=cast(OrganizationMembership, self.member_user_1.organization_memberships.first()),
+            level=ExplicitTeamMembership.Level.ADMIN,  # Org member as team admin
+        )
+        ExplicitTeamMembership.objects.create(
+            team=team_with_access_control,
+            parent_membership=cast(OrganizationMembership, self.member_user_2.organization_memberships.first()),
+            level=ExplicitTeamMembership.Level.MEMBER,
+        )
+
+        response = self.client.post(f"/api/organizations/{self.organization.id}/migrate_access_control/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["status"], True)
+
+        # Verify base team access control was created
+        base_access = AccessControl.objects.get(team=team_with_access_control, organization_member__isnull=True)
+        self.assertEqual(base_access.access_level, "none")
+        self.assertEqual(base_access.resource, "project")
+        self.assertEqual(base_access.resource_id, str(team_with_access_control.id))
+
+        # Verify admin access control was created
+        admin_access = AccessControl.objects.get(
+            team=team_with_access_control,
+            organization_member=cast(OrganizationMembership, self.admin_user.organization_memberships.first()),
+            access_level="admin",
+            resource="project",
+            resource_id=str(team_with_access_control.id),
+        )
+        self.assertIsNotNone(admin_access)
+
+        # Verify member access control was created
+        member_access = AccessControl.objects.get(
+            team=team_with_access_control,
+            organization_member=cast(OrganizationMembership, self.member_user_1.organization_memberships.first()),
+            access_level="admin",
+            resource="project",
+            resource_id=str(team_with_access_control.id),
+        )
+        self.assertIsNotNone(member_access)
+
+        # Verify member access control was created
+        member_access = AccessControl.objects.get(
+            team=team_with_access_control,
+            organization_member=cast(OrganizationMembership, self.member_user_2.organization_memberships.first()),
+            access_level="member",
+            resource="project",
+            resource_id=str(team_with_access_control.id),
+        )
+        self.assertIsNotNone(member_access)
+
+        # Check that the team access control has been disabled
+        team_with_access_control.refresh_from_db()
+        self.assertFalse(team_with_access_control.access_control)
+
+    def test_migrate_team_rbac_as_member_without_permissions(self):
+        self.member_user = self._create_user("rbac_member+3@posthog.com")
+        self.client.force_login(self.member_user)
+
+        response = self.client.post(f"/api/organizations/{self.organization.id}/migrate_access_control/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_migrate_team_rbac_wrong_organization(self):
+        self.admin_user = self._create_user("rbac_admin+4@posthog.com", level=OrganizationMembership.Level.ADMIN)
+        self.client.force_login(self.admin_user)
+
+        other_org = Organization.objects.create(name="Other Org")
+
+        response = self.client.post(f"/api/organizations/{other_org.id}/migrate_access_control/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_migrate_both_feature_flags_and_team_rbac(self):
+        """Test that both feature flag and team RBAC migrations can be performed in a single call."""
+        # Create a new team with access control enabled
+        team_with_access_control = Team.objects.create(
+            organization=self.organization, name="Team with Access Control", access_control=True
+        )
+
+        # Set up users
+        self.admin_user = self._create_user("rbac_admin+5@posthog.com", level=OrganizationMembership.Level.ADMIN)
+        self.member_user = self._create_user("rbac_member+5@posthog.com")
+
+        self.client.force_login(self.admin_user)
+
+        # Create explicit team memberships
+        ExplicitTeamMembership.objects.create(
+            team=team_with_access_control,
+            parent_membership=cast(OrganizationMembership, self.admin_user.organization_memberships.first()),
+            level=ExplicitTeamMembership.Level.ADMIN,
+        )
+        ExplicitTeamMembership.objects.create(
+            team=team_with_access_control,
+            parent_membership=cast(OrganizationMembership, self.member_user.organization_memberships.first()),
+            level=ExplicitTeamMembership.Level.MEMBER,
+        )
+
+        # Create feature flags with role access
+        feature_flags = []
+        for i in range(2):
+            feature_flag = FeatureFlag.objects.create(
+                team=team_with_access_control,
+                created_by=self.admin_user,
+                key=f"test-flag-{i}",
+                name=f"Test Flag {i}",
+            )
+            feature_flags.append(feature_flag)
+            FeatureFlagRoleAccess.objects.create(
+                feature_flag=feature_flag,
+                role=self.admin_role,
+            )
+
+        # Perform migration
+        response = self.client.post(f"/api/organizations/{self.organization.id}/migrate_access_control/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["status"], True)
+
+        # Verify feature flag access controls
+        self.assertEqual(FeatureFlagRoleAccess.objects.count(), 0)
+        self.assertEqual(AccessControl.objects.filter(resource="feature_flag").count(), 2)
+
+        for feature_flag in feature_flags:
+            access_control = AccessControl.objects.get(resource="feature_flag", resource_id=str(feature_flag.id))
+            self.assertEqual(access_control.access_level, "editor")
+            self.assertEqual(access_control.role, self.admin_role)
+
+        # Verify team access controls
+        self.assertEqual(ExplicitTeamMembership.objects.count(), 0)
+        base_access = AccessControl.objects.get(
+            team=team_with_access_control,
+            organization_member__isnull=True,
+            access_level="none",
+            resource="project",
+            resource_id=str(team_with_access_control.id),
+        )
+        self.assertIsNotNone(base_access)
+
+        admin_access = AccessControl.objects.get(
+            team=team_with_access_control,
+            organization_member=cast(OrganizationMembership, self.admin_user.organization_memberships.first()),
+            access_level="admin",
+            resource="project",
+            resource_id=str(team_with_access_control.id),
+        )
+        self.assertIsNotNone(admin_access)
+
+        member_access = AccessControl.objects.get(
+            team=team_with_access_control,
+            organization_member=cast(OrganizationMembership, self.member_user.organization_memberships.first()),
+            access_level="member",
+            resource="project",
+            resource_id=str(team_with_access_control.id),
+        )
+        self.assertIsNotNone(member_access)
+
+        # Verify total number of access controls
+        # 2 feature flags + 3 team access controls (base + admin + member)
+        self.assertEqual(AccessControl.objects.count(), 5)

@@ -130,15 +130,26 @@ class ClickhouseCluster:
             host = self.__hosts[0]
             return executor.submit(self.__get_task_function(host, fn))
 
-    def map_all_hosts(self, fn: Callable[[Client], T]) -> FuturesMap[HostInfo, T]:
+    def map_all_hosts(self, fn: Callable[[Client], T], concurrency: int | None = None) -> FuturesMap[HostInfo, T]:
         """
         Execute the callable once for each host in the cluster.
+
+        The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
+        default limit of the executor.
         """
-        with ThreadPoolExecutor() as executor:
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
             return FuturesMap({host: executor.submit(self.__get_task_function(host, fn)) for host in self.__hosts})
 
-    def map_all_hosts_in_shard(self, shard_num: int, fn: Callable[[Client], T]) -> FuturesMap[HostInfo, T]:
-        with ThreadPoolExecutor() as executor:
+    def map_all_hosts_in_shard(
+        self, shard_num: int, fn: Callable[[Client], T], concurrency: int | None = None
+    ) -> FuturesMap[HostInfo, T]:
+        """
+        Execute the callable once for each host in the specified shard.
+
+        The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
+        default limit of the executor.
+        """
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
             return FuturesMap(
                 {
                     host: executor.submit(self.__get_task_function(host, fn))
@@ -147,16 +158,21 @@ class ClickhouseCluster:
                 }
             )
 
-    def map_one_host_per_shard(self, fn: Callable[[Client], T]) -> FuturesMap[HostInfo, T]:
+    def map_one_host_per_shard(
+        self, fn: Callable[[Client], T], concurrency: int | None = None
+    ) -> FuturesMap[HostInfo, T]:
         """
         Execute the callable once for each shard in the cluster.
+
+        The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
+        default limit of the executor.
         """
         shard_hosts: dict[int, HostInfo] = {}
         for host in self.__hosts:
             if host.shard_num is not None and host.shard_num not in shard_hosts:
                 shard_hosts[host.shard_num] = host
 
-        with ThreadPoolExecutor() as executor:
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
             return FuturesMap(
                 {host: executor.submit(self.__get_task_function(host, fn)) for host in shard_hosts.values()}
             )

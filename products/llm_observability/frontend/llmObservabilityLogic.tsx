@@ -28,8 +28,9 @@ import type { llmObservabilityLogicType } from './llmObservabilityLogicType'
 
 export const LLM_OBSERVABILITY_DATA_COLLECTION_NODE_ID = 'llm-observability-data'
 
-const INITIAL_DATE_FROM = '-7d'
-const INITIAL_DATE_TO = null
+const INITIAL_DASHBOARD_DATE_FROM = '-7d' as string | null
+const INITIAL_EVENTS_DATE_FROM = '-1d' as string | null
+const INITIAL_DATE_TO = null as string | null
 
 export interface QueryTile {
     title: string
@@ -43,31 +44,44 @@ export interface QueryTile {
 
 export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
     path(['products', 'llm_observability', 'frontend', 'llmObservabilityLogic']),
+
     connect({ values: [sceneLogic, ['sceneKey']] }),
+
     actions({
-        setDates: (dateFrom: string | null, dateTo: string | null) => ({
-            dateFrom: dateFrom || INITIAL_DATE_FROM,
-            dateTo,
-        }),
+        setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setDashboardDateFilter: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
         setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => ({ propertyFilters }),
     }),
+
     reducers({
         dateFilter: [
             {
-                dateFrom: INITIAL_DATE_FROM as string,
-                dateTo: INITIAL_DATE_TO as string | null,
+                dateFrom: INITIAL_EVENTS_DATE_FROM,
+                dateTo: INITIAL_DATE_TO,
             },
             {
                 setDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
             },
         ],
+
+        dashboardDateFilter: [
+            {
+                dateFrom: INITIAL_DASHBOARD_DATE_FROM,
+                dateTo: INITIAL_DATE_TO,
+            },
+            {
+                setDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
+            },
+        ],
+
         shouldFilterTestAccounts: [
             false,
             {
                 setShouldFilterTestAccounts: (_, { shouldFilterTestAccounts }) => shouldFilterTestAccounts,
             },
         ],
+
         propertyFilters: [
             [] as AnyPropertyFilter[],
             {
@@ -95,7 +109,8 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
             },
         },
     }),
-    selectors(() => ({
+
+    selectors({
         activeTab: [
             (s) => [s.sceneKey],
             (sceneKey) => {
@@ -107,9 +122,10 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 return 'dashboard'
             },
         ],
+
         tiles: [
-            (s) => [s.dateFilter, s.shouldFilterTestAccounts, s.propertyFilters],
-            (dateFilter, shouldFilterTestAccounts, propertyFilters): QueryTile[] => [
+            (s) => [s.dashboardDateFilter, s.shouldFilterTestAccounts, s.propertyFilters],
+            (dashboardDateFilter, shouldFilterTestAccounts, propertyFilters): QueryTile[] => [
                 {
                     title: 'Traces',
                     query: {
@@ -123,7 +139,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                                 math_hogql: 'COUNT(DISTINCT properties.$ai_trace_id)',
                             },
                         ],
-                        dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        dateRange: { date_from: dashboardDateFilter.dateFrom, date_to: dashboardDateFilter.dateTo },
                         properties: propertyFilters,
                         filterTestAccounts: shouldFilterTestAccounts,
                     },
@@ -158,7 +174,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                                 math: BaseMathType.UniqueUsers,
                             },
                         ],
-                        dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        dateRange: { date_from: dashboardDateFilter.dateFrom, date_to: dashboardDateFilter.dateTo },
                         properties: propertyFilters.concat({
                             type: PropertyFilterType.HogQL,
                             key: 'distinct_id != properties.$ai_trace_id',
@@ -184,7 +200,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                             decimalPlaces: 4,
                             display: ChartDisplayType.BoldNumber,
                         },
-                        dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        dateRange: { date_from: dashboardDateFilter.dateFrom, date_to: dashboardDateFilter.dateTo },
                         properties: propertyFilters,
                         filterTestAccounts: shouldFilterTestAccounts,
                     },
@@ -220,7 +236,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                             aggregationAxisPrefix: '$',
                             decimalPlaces: 2,
                         },
-                        dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        dateRange: { date_from: dashboardDateFilter.dateFrom, date_to: dashboardDateFilter.dateTo },
                         properties: propertyFilters.concat({
                             type: PropertyFilterType.HogQL,
                             key: 'distinct_id != properties.$ai_trace_id',
@@ -251,7 +267,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                             display: ChartDisplayType.ActionsBarValue,
                             showValuesOnSeries: true,
                         },
-                        dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        dateRange: { date_from: dashboardDateFilter.dateFrom, date_to: dashboardDateFilter.dateTo },
                         properties: propertyFilters,
                         filterTestAccounts: shouldFilterTestAccounts,
                     },
@@ -284,7 +300,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                                 kind: NodeKind.EventsNode,
                             },
                         ],
-                        dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        dateRange: { date_from: dashboardDateFilter.dateFrom, date_to: dashboardDateFilter.dateTo },
                         properties: propertyFilters,
                         filterTestAccounts: shouldFilterTestAccounts,
                     },
@@ -325,7 +341,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                             aggregationAxisPostfix: ' s',
                             decimalPlaces: 2,
                         },
-                        dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        dateRange: { date_from: dashboardDateFilter.dateFrom, date_to: dashboardDateFilter.dateTo },
                         properties: propertyFilters,
                         filterTestAccounts: shouldFilterTestAccounts,
                     },
@@ -372,7 +388,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                         trendsFilter: {
                             display: ChartDisplayType.ActionsBarValue,
                         },
-                        dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                        dateRange: { date_from: dashboardDateFilter.dateFrom, date_to: dashboardDateFilter.dateTo },
                         properties: propertyFilters,
                         filterTestAccounts: shouldFilterTestAccounts,
                     },
@@ -396,6 +412,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 },
             ],
         ],
+
         tracesQuery: [
             (s) => [
                 s.dateFilter,
@@ -430,6 +447,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 ],
             }),
         ],
+
         generationsQuery: [
             (s) => [
                 s.dateFilter,
@@ -479,7 +497,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 showActions: false,
             }),
         ],
-    })),
+    }),
 
     urlToAction(({ actions, values }) => {
         function applySearchParams({ filters, date_from, date_to, filter_test_accounts }: Record<string, any>): void {
@@ -489,7 +507,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                 actions.setPropertyFilters(parsedFilters)
             }
             if (
-                (date_from || INITIAL_DATE_FROM) !== values.dateFilter.dateFrom ||
+                (date_from || INITIAL_EVENTS_DATE_FROM) !== values.dateFilter.dateFrom ||
                 (date_to || INITIAL_DATE_TO) !== values.dateFilter.dateTo
             ) {
                 actions.setDates(date_from, date_to)
@@ -527,7 +545,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
             router.values.location.pathname,
             {
                 ...router.values.searchParams,
-                date_from: dateFrom === INITIAL_DATE_FROM ? undefined : dateFrom || undefined,
+                date_from: dateFrom === INITIAL_EVENTS_DATE_FROM ? undefined : dateFrom || undefined,
                 date_to: dateTo || undefined,
             },
         ],

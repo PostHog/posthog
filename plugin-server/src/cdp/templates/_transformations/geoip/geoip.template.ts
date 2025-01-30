@@ -6,7 +6,7 @@ export const template: HogFunctionTemplate = {
     id: 'template-geoip',
     name: 'GeoIP',
     description: 'Adds geoip data to the event',
-    icon_url: '/static/hedgehog/builder-hog-01.png',
+    icon_url: '/static/transformations/geoip.png',
     category: ['Custom'],
     hog: `
 // Define the properties to be added to the event
