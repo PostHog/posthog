@@ -423,7 +423,7 @@ const MinimalTransformationView = ({
     transformation,
     order,
 }: {
-    transformation: Transformation
+    transformation: FunctionDestination
     order: number
 }): JSX.Element => {
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
