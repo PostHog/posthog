@@ -41,6 +41,7 @@ from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.visitor import clone_expr
 from posthog.models import (
     BatchExport,
+    BatchExportBackfill,
     BatchExportDestination,
     BatchExportRun,
     Team,
@@ -550,3 +551,30 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
 
 class BatchExportOrganizationViewSet(BatchExportViewSet):
     filter_rewrite_rules = {"organization_id": "team__organization_id"}
+
+
+class BatchExportBackfillSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BatchExportBackfill
+        fields = "__all__"
+        # TODO
+        # read_only_fields = ["batch_export"]
+
+
+class BackfillsCursorPagination(CursorPagination):
+    page_size = 100
+
+
+class BatchExportBackfillViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
+    scope_object = "batch_export"
+    queryset = BatchExportBackfill.objects.all()
+    serializer_class = BatchExportBackfillSerializer
+    pagination_class = BackfillsCursorPagination
+    filter_rewrite_rules = {"team_id": "batch_export__team_id"}
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ["created_at", "start_at"]
+    ordering = "-created_at"
+
+    def safely_get_queryset(self, queryset):
+        # TODO: add filters?
+        return queryset.filter(batch_export_id=self.kwargs["parent_lookup_batch_export_id"])
