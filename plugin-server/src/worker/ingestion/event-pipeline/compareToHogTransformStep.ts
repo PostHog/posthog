@@ -87,7 +87,7 @@ export async function compareToHogTransformStep(
 
         const diff = compareEvents(postPluginsEvent, hogEvent)
         if (diff) {
-            status.warn('⚠️', 'Hog transformation produced an event but the plugin did not', {
+            status.warn('⚠️', 'Hog transformation was different from plugin', {
                 team_id: prePluginsEvent.team_id,
                 diff,
             })
