@@ -109,8 +109,8 @@ export const processEvent = (event: PluginEvent, { geoip }: LegacyTransformation
                 event.properties.$set_once![`$initial_geoip_${key}`] = value
             }
         }
-        return event
     }
+    return event
 }
 
 export const posthogPluginGeoip: LegacyTransformationPlugin = {

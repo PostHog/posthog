@@ -23,6 +23,18 @@ export type DeepPartialHogFunctionInvocationGlobals = {
     source?: Partial<HogFunctionInvocationGlobals['source']>
 }
 
+export function loadTestMMDB() {
+    try {
+        const mmdbBrotliContents = readFileSync(join(__dirname, '../../../../tests/assets/GeoLite2-City-Test.mmdb.br'))
+        const mmdbBuffer = brotliDecompressSync(mmdbBrotliContents)
+        const mmdb = Reader.openBuffer(mmdbBuffer)
+
+        return mmdb
+    } catch (error) {
+        throw new Error(`Failed to load MMDB file: ${error}`)
+    }
+}
+
 export class TemplateTester {
     public template: HogFunctionTemplateCompiled
     private executor: HogExecutorService
@@ -55,24 +67,16 @@ export class TemplateTester {
         this.mockHub = { mmdb: undefined } as any
 
         if (!skipMMDB) {
-            try {
-                const mmdbBrotliContents = readFileSync(
-                    join(__dirname, '../../../../tests/assets/GeoLite2-City-Test.mmdb.br')
-                )
-                const mmdbBuffer = brotliDecompressSync(mmdbBrotliContents)
-                const mmdb = Reader.openBuffer(mmdbBuffer)
+            const mmdb = loadTestMMDB()
 
-                this.mockHub.mmdb = transformResult
-                    ? ({
-                          city: (ipAddress: string) => {
-                              const res = mmdb.city(ipAddress)
-                              return transformResult(res)
-                          },
-                      } as unknown as ReaderModel)
-                    : mmdb
-            } catch (error) {
-                throw new Error(`Failed to load MMDB file: ${error}`)
-            }
+            this.mockHub.mmdb = transformResult
+                ? ({
+                      city: (ipAddress: string) => {
+                          const res = mmdb.city(ipAddress)
+                          return transformResult(res)
+                      },
+                  } as unknown as ReaderModel)
+                : mmdb
         }
 
         const mockHogFunctionManager = {} as any

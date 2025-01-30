@@ -9,6 +9,10 @@ const defaultMeta = {
         discardIp: 'true',
         discardLibs: 'posthog-node',
     },
+    logger: {
+        log: jest.fn(),
+        warn: jest.fn(),
+    },
 }
 
 const createGeoIPPageview = (): PluginEvent => {
@@ -96,59 +100,66 @@ const helperVerifyGeoIPIsEmpty = (event: PluginEvent): void => {
     expect(event!.properties!.$set_once!.$initial_geoip_country_code).toEqual(undefined)
 }
 
-describe('discard IP', () => {
-    test('IP is discarded', () => {
-        const meta = resetMeta(defaultMeta) as LegacyTransformationPluginMeta
-        const event = processEvent(createGeoIPPageview(), meta)
-        expect(event?.ip).toEqual(null)
-        expect(event?.properties?.$ip).toEqual(undefined)
-    })
-    test('IP is not discarded if not enabled', () => {
-        const meta = resetMeta({
-            config: { ...defaultMeta.config, discardIp: 'false' },
-        }) as LegacyTransformationPluginMeta
-        const event = processEvent(createGeoIPPageview(), meta)
-        expect(event?.ip).toEqual('13.106.122.3')
-        expect(event?.properties?.$ip).toEqual('13.106.122.3')
-    })
-    test('IP is not discarded if GeoIP not processed', () => {
-        const meta = resetMeta() as LegacyTransformationPluginMeta
-        const preprocessedEvent = createGeoIPPageview()
-        preprocessedEvent.properties = { ...preprocessedEvent.properties, $plugins_succeeded: ['Unduplicates (8303)'] }
-        const event = processEvent(preprocessedEvent, meta)
-        expect(event?.ip).toEqual('13.106.122.3')
-        expect(event?.properties?.$ip).toEqual('13.106.122.3')
-    })
-})
-
-describe('$lib ignore', () => {
-    test('ignores GeoIP from $lib', () => {
-        const meta = resetMeta(defaultMeta) as LegacyTransformationPluginMeta
-        const event = processEvent(createGeoIPPageview(), meta)
-        helperVerifyGeoIPIsEmpty(event!)
-        expect(Object.keys(event!.$set!).length).toEqual(0) // Ensure this is not sending properties even as undefined (that overwrites the user properties)
-        expect(Object.keys(event!.$set_once!).length).toEqual(0) // Ensure this is not sending properties even as undefined (that overwrites the user properties)
+describe('plugin-advanced-geoip', () => {
+    describe('discard IP', () => {
+        test('IP is discarded', () => {
+            const meta = resetMeta(defaultMeta) as LegacyTransformationPluginMeta
+            const event = processEvent(createGeoIPPageview(), meta)
+            expect(event?.ip).toEqual(null)
+            expect(event?.properties?.$ip).toEqual(undefined)
+        })
+        test('IP is not discarded if not enabled', () => {
+            const meta = resetMeta({
+                ...defaultMeta,
+                config: { ...defaultMeta.config, discardIp: 'false' },
+            }) as LegacyTransformationPluginMeta
+            const event = processEvent(createGeoIPPageview(), meta)
+            expect(event?.ip).toEqual('13.106.122.3')
+            expect(event?.properties?.$ip).toEqual('13.106.122.3')
+        })
+        test('IP is not discarded if GeoIP not processed', () => {
+            const meta = resetMeta(defaultMeta) as LegacyTransformationPluginMeta
+            const preprocessedEvent = createGeoIPPageview()
+            preprocessedEvent.properties = {
+                ...preprocessedEvent.properties,
+                $plugins_succeeded: ['Unduplicates (8303)'],
+            }
+            const event = processEvent(preprocessedEvent, meta)
+            expect(event?.ip).toEqual('13.106.122.3')
+            expect(event?.properties?.$ip).toEqual('13.106.122.3')
+        })
     })
 
-    test('ignores GeoIP from $lib CSV', () => {
-        const meta = resetMeta({
-            config: { ...defaultMeta.config, discardLibs: 'posthog-ios,posthog-android,posthog-node' },
-        }) as LegacyTransformationPluginMeta
-        const event = processEvent(createGeoIPPageview(), meta)
-        helperVerifyGeoIPIsEmpty(event!)
-    })
+    describe('$lib ignore', () => {
+        test('ignores GeoIP from $lib', () => {
+            const meta = resetMeta(defaultMeta) as LegacyTransformationPluginMeta
+            const event = processEvent(createGeoIPPageview(), meta)
+            helperVerifyGeoIPIsEmpty(event!)
+            expect(Object.keys(event!.$set!).length).toEqual(0) // Ensure this is not sending properties even as undefined (that overwrites the user properties)
+            expect(Object.keys(event!.$set_once!).length).toEqual(0) // Ensure this is not sending properties even as undefined (that overwrites the user properties)
+        })
 
-    test('keeps GeoIP if $lib is not on ignore list', () => {
-        const meta = resetMeta() as LegacyTransformationPluginMeta
-        const preprocessedEvent = createGeoIPPageview()
-        preprocessedEvent.properties!.$lib = 'posthog-swift'
-        const event = processEvent(preprocessedEvent, meta)
-        expect(event!.$set!.$geoip_city_name).toEqual('Ashburn')
-        expect(event!.$set!.$geoip_country_name).toEqual('United States')
-        expect(event!.$set!.$geoip_country_code).toEqual('US')
+        test('ignores GeoIP from $lib CSV', () => {
+            const meta = resetMeta({
+                ...defaultMeta,
+                config: { ...defaultMeta.config, discardLibs: 'posthog-ios,posthog-android,posthog-node' },
+            }) as LegacyTransformationPluginMeta
+            const event = processEvent(createGeoIPPageview(), meta)
+            helperVerifyGeoIPIsEmpty(event!)
+        })
 
-        expect(event!.$set_once!.$initial_geoip_city_name).toEqual('Ashburn')
-        expect(event!.$set_once!.$initial_geoip_country_name).toEqual('United States')
-        expect(event!.$set_once!.$initial_geoip_country_code).toEqual('US')
+        test('keeps GeoIP if $lib is not on ignore list', () => {
+            const meta = resetMeta(defaultMeta) as LegacyTransformationPluginMeta
+            const preprocessedEvent = createGeoIPPageview()
+            preprocessedEvent.properties!.$lib = 'posthog-swift'
+            const event = processEvent(preprocessedEvent, meta)
+            expect(event!.$set!.$geoip_city_name).toEqual('Ashburn')
+            expect(event!.$set!.$geoip_country_name).toEqual('United States')
+            expect(event!.$set!.$geoip_country_code).toEqual('US')
+
+            expect(event!.$set_once!.$initial_geoip_city_name).toEqual('Ashburn')
+            expect(event!.$set_once!.$initial_geoip_country_name).toEqual('United States')
+            expect(event!.$set_once!.$initial_geoip_country_code).toEqual('US')
+        })
     })
 })
