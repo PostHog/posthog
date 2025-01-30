@@ -9,7 +9,7 @@ import { template as defaultTemplate } from '../../../src/cdp/templates/_transfo
 import { template as geoipTemplate } from '../../../src/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '../../../src/cdp/templates/compiler'
 import { createHogFunction, insertHogFunction } from '../../../tests/cdp/fixtures'
-import { createTeam, getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
+import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { HogFunctionTemplate } from '../templates/types'
