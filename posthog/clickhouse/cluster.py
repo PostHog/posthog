@@ -118,14 +118,14 @@ class ClickhouseCluster:
 
         def task():
             with pool.get_client() as client:
-                self.__logger.debug("Executing %r on %r...", fn, host)
+                self.__logger.info("Executing %r on %r...", fn, host)
                 try:
                     result = fn(client)
                 except Exception:
-                    self.__logger.debug("Failed to execute %r on %r!", fn, host, exc_info=True)
+                    self.__logger.warn("Failed to execute %r on %r!", fn, host, exc_info=True)
                     raise
                 else:
-                    self.__logger.debug("Successfully executed %r on %r.", fn, host)
+                    self.__logger.info("Successfully executed %r on %r.", fn, host)
                 return result
 
         return task

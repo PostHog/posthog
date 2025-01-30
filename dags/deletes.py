@@ -298,20 +298,7 @@ def wait_for_delete_mutations(
 ) -> PendingPersonEventDeletesTable:
     pending_person_deletions, shard_mutations = delete_person_events
 
-    results = cluster.map_all_hosts_in_shards(
-        {shard: mutation.wait for shard, mutation in shard_mutations.items()}
-    ).as_completed()
-    try:
-        for shard, result in results:
-            result.result()
-            context.log.info(
-                f"Shard {shard.shard_num if shard.shard_num else 'unknown'} replica {shard.replica_num if shard.replica_num else 'unknown'} completed "
-            )
-    except Exception as e:
-        context.log.exception(
-            f"Shard {shard.shard_num if shard.shard_num else 'unknown'} replica {shard.replica_num if shard.replica_num else 'unknown'} failed: {e}"
-        )
-        raise
+    cluster.map_all_hosts_in_shards({shard: mutation.wait for shard, mutation in shard_mutations.items()}).result()
 
     return pending_person_deletions
 
