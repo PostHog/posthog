@@ -77,7 +77,7 @@ jest.mock('./metrics', () => ({
 }))
 
 jest.mock('./blackhole-session-batch-writer')
-jest.mock('./recorder', () => ({
+jest.mock('./session-recorder', () => ({
     SessionRecorder: jest.fn().mockImplementation(() => new SessionRecorderMock()),
 }))
 
