@@ -269,10 +269,14 @@ class MutationRunner:
                 self.parameters,
             )
 
-        task = self.find(client)
-        assert task is not None
+        # mutations are not always immediately visible, so give it a bit of time to show up
+        start = time.time()
+        for _ in range(5):
+            if task := self.find(client):
+                return task
+            time.sleep(1.0)
 
-        return task
+        raise Exception(f"unable to find mutation after {time.time()-start:0.2f}s!")
 
     @property
     def is_lightweight_delete(self) -> bool:
