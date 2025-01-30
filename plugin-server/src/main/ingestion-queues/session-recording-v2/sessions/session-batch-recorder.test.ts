@@ -6,7 +6,7 @@ import { MessageWithTeam } from '../teams/types'
 import { SessionBatchMetrics } from './metrics'
 import { SessionBatchFileWriter } from './session-batch-file-writer'
 import { SessionBatchRecorder } from './session-batch-recorder'
-import { EndResult, SessionRecorder } from './session-recorder'
+import { EndResult, SnappySessionRecorder } from './snappy-session-recorder'
 
 // RRWeb event type constants
 const enum EventType {
@@ -32,7 +32,7 @@ interface MessageMetadata {
     rawSize?: number
 }
 
-export class SessionRecorderMock {
+export class SnappySessionRecorderMock {
     private chunks: Buffer[] = []
     private size: number = 0
 
@@ -72,8 +72,8 @@ jest.mock('./metrics', () => ({
 }))
 
 jest.mock('./blackhole-session-batch-writer')
-jest.mock('./session-recorder', () => ({
-    SessionRecorder: jest.fn().mockImplementation(() => new SessionRecorderMock()),
+jest.mock('./snappy-session-recorder', () => ({
+    SnappySessionRecorder: jest.fn().mockImplementation(() => new SnappySessionRecorderMock()),
 }))
 
 describe('SessionBatchRecorder', () => {
@@ -94,7 +94,9 @@ describe('SessionBatchRecorder', () => {
     beforeEach(() => {
         jest.clearAllMocks()
 
-        jest.mocked(SessionRecorder).mockImplementation(() => new SessionRecorderMock() as unknown as SessionRecorder)
+        jest.mocked(SnappySessionRecorder).mockImplementation(
+            () => new SnappySessionRecorderMock() as unknown as SnappySessionRecorder
+        )
 
         const openMock = createOpenMock()
         mockNewBatch = openMock.openMock
@@ -722,12 +724,12 @@ describe('SessionBatchRecorder', () => {
                 },
             ]
 
-            jest.mocked(SessionRecorder).mockImplementation(
+            jest.mocked(SnappySessionRecorder).mockImplementation(
                 () =>
                     ({
                         recordMessage: jest.fn().mockReturnValue(1),
                         end: () => Promise.reject(new Error('Stream read error')),
-                    } as unknown as SessionRecorder)
+                    } as unknown as SnappySessionRecorder)
             )
 
             recorder.record(createMessage('session', events))
