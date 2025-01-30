@@ -44,9 +44,9 @@ test('onEvent sends $set attributes and events to Braze', async () => {
             },
             distinct_id: 'test',
             ip: '',
-            site_url: '',
             team_id: 0,
-            now: new Date().toISOString(),
+            uuid: 'test-uuid',
+            elements: [],
         },
         meta
     )
@@ -118,9 +118,9 @@ test('onEvent user properties not sent on empty userPropertiesToExport', async (
             },
             distinct_id: 'test',
             ip: '',
-            site_url: '',
             team_id: 0,
-            now: new Date().toISOString(),
+            uuid: 'test-uuid',
+            elements: [],
         },
         meta
     )
@@ -185,9 +185,9 @@ test('onEvent user properties not sent on empty eventsToExportUserPropertiesFrom
             },
             distinct_id: 'test',
             ip: '',
-            site_url: '',
             team_id: 0,
-            now: new Date().toISOString(),
+            uuid: 'test-uuid',
+            elements: [],
         },
         meta
     )
@@ -252,9 +252,9 @@ test('onEvent user properties are passed for $identify event even if $identify i
             },
             distinct_id: 'test',
             ip: '',
-            site_url: '',
             team_id: 0,
-            now: new Date().toISOString(),
+            uuid: 'test-uuid',
+            elements: [],
         },
         meta
     )
@@ -315,9 +315,9 @@ test('onEvent user properties are not passed for non-whitelisted events', async 
             },
             distinct_id: 'test',
             ip: '',
-            site_url: '',
             team_id: 0,
-            now: new Date().toISOString(),
+            uuid: 'test-uuid',
+            elements: [],
         },
         meta
     )
@@ -372,10 +372,9 @@ test('Braze API error (e.g. 400) are not retried', async () => {
             },
             distinct_id: 'test',
             ip: '',
-            site_url: '',
             team_id: 0,
-            now: new Date().toISOString(),
-            uuid: 'event_123',
+            uuid: 'test-uuid',
+            elements: [],
         },
         meta
     )
@@ -425,10 +424,9 @@ test('Braze offline error (500 response)', async () => {
                 },
                 distinct_id: 'test',
                 ip: '',
-                site_url: '',
                 team_id: 0,
-                now: new Date().toISOString(),
-                uuid: 'id_123',
+                uuid: 'test-uuid',
+                elements: [],
             },
             meta
         )
@@ -475,10 +473,9 @@ test('Braze offline error (network error)', async () => {
                 },
                 distinct_id: 'test',
                 ip: '',
-                site_url: '',
                 team_id: 0,
-                now: new Date().toISOString(),
-                uuid: 'id_123',
+                uuid: 'test-uuid',
+                elements: [],
             },
             meta
         )

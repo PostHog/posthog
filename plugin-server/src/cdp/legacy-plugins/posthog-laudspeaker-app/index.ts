@@ -82,7 +82,7 @@ const eventToMapping = {
     default: { type: 'track', mapping: track },
 }
 
-function set(target, path, value) {
+function set(target: any, path: any, value: any) {
     const keys = path.split('.')
     const len = keys.length
 
@@ -102,16 +102,16 @@ function set(target, path, value) {
     }
 }
 
-function result(target, path, value) {
+function result(target: any, path: any, value: any) {
     target[path] = value
 }
 
-function isObject(val) {
+function isObject(val: any) {
     return val !== null && (typeof val === 'object' || typeof val === 'function')
 }
 
 // Ref: https://github.com/jonschlinkert/get-value
-function get(target, path, options) {
+function get(target: any, path: any, options: any = {}) {
     if (!isObject(options)) {
         options = { default: options }
     }
@@ -188,32 +188,32 @@ function get(target, path, options) {
     return options.default
 }
 
-function join(segs, joinChar, options) {
+function join(segs: any, joinChar: any, options: any) {
     if (typeof options.join === 'function') {
         return options.join(segs)
     }
     return segs[0] + joinChar + segs[1]
 }
 
-function split(path, splitChar, options) {
+function split(path: any, splitChar: any, options: any) {
     if (typeof options.split === 'function') {
         return options.split(path)
     }
     return path.split(splitChar)
 }
 
-function isValid(key, target, options) {
+function isValid(key: any, target: any, options: any) {
     if (typeof options.isValid === 'function') {
         return options.isValid(key, target)
     }
     return true
 }
 
-function isValidObject(val) {
+function isValidObject(val: any) {
     return isObject(val) || Array.isArray(val) || typeof val === 'function'
 }
 
-export async function setupPlugin({ config, global }) {
+export async function setupPlugin({ config, global }: { config: any; global: any }) {
     global.laudAuthHeader = {
         headers: {
             Authorization: `Api-Key ${config.writeKey}`,
@@ -224,15 +224,26 @@ export async function setupPlugin({ config, global }) {
     return Promise.resolve()
 }
 
-function getElementByOrderZero(json) {
+function getElementByOrderZero(json: any) {
     if (!json.elements || !Array.isArray(json.elements)) {
         return null // or whatever default value you'd like to return
     }
-    return json.elements.find((x) => x.order === 0) || null
+    return json.elements.find((x: any) => x.order === 0) || null
+}
+
+interface LaudspeakerPayload {
+    [key: string]: any
+    messageId?: string
+    event?: string
+    context?: {
+        elements?: any[]
+        [key: string]: any
+    }
+    type?: string
 }
 
 const onEvent = async (event: ProcessedPluginEvent, { config, global, fetch }: LegacyPluginMeta): Promise<void> => {
-    const laudspeakerPayload = {}
+    const laudspeakerPayload: LaudspeakerPayload = {}
     // add const value props
     constructPayload(laudspeakerPayload, event, constants, true)
 
@@ -241,7 +252,7 @@ const onEvent = async (event: ProcessedPluginEvent, { config, global, fetch }: L
 
     // get specific event props
     const eventName = get(event, 'event')
-    const { type, mapping } = eventToMapping[eventName] ? eventToMapping[eventName] : eventToMapping['default']
+    const { type, mapping } = eventToMapping[eventName as keyof typeof eventToMapping] || eventToMapping['default']
 
     //set laud payload type
     set(laudspeakerPayload, 'type', type)
@@ -260,27 +271,24 @@ const onEvent = async (event: ProcessedPluginEvent, { config, global, fetch }: L
     //add if not
     if (!('messageId' in laudspeakerPayload)) {
         if ('$insert_id' in event.properties) {
-            laudspeakerPayload['messageId'] = event.properties['$insert_id']
+            laudspeakerPayload.messageId = event.properties['$insert_id']
         }
-        //else {
-
-        //}
     }
 
     //check for event name
     //add if not
     if (!('event' in laudspeakerPayload)) {
         if ('event' in event) {
-            laudspeakerPayload['event'] = event['event']
+            laudspeakerPayload.event = event['event']
         }
-        //else {
-
-        //}
     }
 
     // add top level element if there is a click, change, or submit
-    if (['click', 'change', 'submit'].includes(laudspeakerPayload['event'])) {
-        laudspeakerPayload['context']['elements'] = [getElementByOrderZero(event)]
+    if (['click', 'change', 'submit'].includes(laudspeakerPayload.event || '')) {
+        if (!laudspeakerPayload.context) {
+            laudspeakerPayload.context = {}
+        }
+        laudspeakerPayload.context.elements = [getElementByOrderZero(event)]
     }
 
     const userSet = get(event, 'properties.$set')
@@ -317,7 +325,7 @@ const onEvent = async (event: ProcessedPluginEvent, { config, global, fetch }: L
     })
 }
 
-function constructPayload(outPayload, inPayload, mapping, direct = false) {
+function constructPayload(outPayload: any, inPayload: any, mapping: any, direct = false) {
     Object.keys(mapping).forEach((laudKeyPath) => {
         const pHKeyPath = mapping[laudKeyPath]
         let pHKeyVal = undefined

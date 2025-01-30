@@ -14,7 +14,8 @@ const mockEvent: ProcessedPluginEvent = {
     team_id: 1,
     distinct_id: '1234',
     event: 'my-event',
-    timestamp: new Date(),
+    timestamp: new Date().toISOString(),
+    ip: '127.0.0.1',
     properties: {
         $ip: '127.0.0.1',
         $elements_chain: 'div:nth-child="1"nth-of-type="2"text="text"',
@@ -54,6 +55,7 @@ test('all expected endpoint', async () => {
                 distinct_id: '1234',
                 event: 'my-event',
                 timestamp: mockEvent.timestamp,
+                ip: '127.0.0.1',
                 properties: {
                     foo: 'bar',
                 },

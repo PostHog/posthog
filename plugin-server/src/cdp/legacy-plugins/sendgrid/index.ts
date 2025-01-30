@@ -23,7 +23,7 @@ const setupPlugin = async ({ config, global, logger, fetch }: LegacyPluginMeta):
     // In the config of this plugin, users configure the map between PostHog prop names and Sendgrid custom fields names.
     // Here we resolve the relation and calculate a map between PostHog prop names and Sendgrid custom field IDs.
 
-    let posthogPropsToSendgridCustomFieldNamesMap = {}
+    let posthogPropsToSendgridCustomFieldNamesMap: any = {}
     try {
         posthogPropsToSendgridCustomFieldNamesMap = parseCustomFieldsMap(config.customFields)
     } catch (e) {
@@ -31,9 +31,9 @@ const setupPlugin = async ({ config, global, logger, fetch }: LegacyPluginMeta):
         throw new Error('Invalid format for custom fields')
     }
 
-    const posthogPropsToSendgridCustomFieldIDsMap = {}
+    const posthogPropsToSendgridCustomFieldIDsMap: any = {}
     for (const [posthogProp, sendgridCustomFieldName] of Object.entries(posthogPropsToSendgridCustomFieldNamesMap)) {
-        const cfIndex = Object.keys(fieldsDef.custom_fields || {}).filter(
+        const cfIndex: any = Object.keys(fieldsDef.custom_fields || {}).filter(
             (key) => fieldsDef.custom_fields[key].name === sendgridCustomFieldName
         )
         if (cfIndex.length !== 1) {
@@ -57,12 +57,12 @@ const onEvent = async (
 
     const email = getEmailFromIdentifyEvent(event)
     if (email) {
-        const sendgridFilteredProps = {}
-        const customFields = {}
+        const sendgridFilteredProps: any = {}
+        const customFields: any = {}
         for (const [key, val] of Object.entries(event['$set'] ?? {})) {
-            if (sendgridPropsMap[key]) {
-                sendgridFilteredProps[sendgridPropsMap[key]] = val
-            } else if (customFieldsMap[key]) {
+            if (key in sendgridPropsMap) {
+                sendgridFilteredProps[sendgridPropsMap[key as keyof typeof sendgridPropsMap]] = val
+            } else if (key in customFieldsMap) {
                 customFields[customFieldsMap[key]] = val
             }
         }
@@ -97,13 +97,13 @@ const onEvent = async (
     }
 }
 
-function isEmail(email) {
+function isEmail(email: any): boolean {
     const re =
         /^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/
     return re.test(String(email).toLowerCase())
 }
 
-function getEmailFromIdentifyEvent(event) {
+function getEmailFromIdentifyEvent(event: any): string {
     return isEmail(event.distinct_id)
         ? event.distinct_id
         : !!event['$set'] && Object.keys(event['$set']).includes('email')
@@ -111,7 +111,7 @@ function getEmailFromIdentifyEvent(event) {
         : ''
 }
 
-function statusOk(res) {
+function statusOk(res: any): boolean {
     return String(res.status)[0] === '2'
 }
 
@@ -131,10 +131,10 @@ const sendgridPropsMap = {
 }
 
 // parseCustomFieldsMap parses custom properties in a format like "myProp1=my_prop1,my_prop2".
-function parseCustomFieldsMap(customProps) {
-    const result = {}
+function parseCustomFieldsMap(customProps: any): any {
+    const result: any = {}
     if (customProps) {
-        customProps.split(',').forEach((prop) => {
+        customProps.split(',').forEach((prop: string) => {
             const parts = prop.split('=')
             if (parts.length == 1) {
                 result[parts[0]] = parts[0]

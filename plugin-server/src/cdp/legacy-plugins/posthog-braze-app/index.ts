@@ -131,7 +131,13 @@ const _generateBrazeRequestBody = (pluginEvent: ProcessedPluginEvent, meta: Braz
     }
 }
 
-const fetchBraze = async (meta, endpoint, options = {}, method = 'GET', requestId = '') => {
+const fetchBraze = async (
+    meta: BrazePluginMeta,
+    endpoint: string,
+    options: any = {},
+    method = 'GET',
+    requestId = ''
+) => {
     const headers = {
         Accept: 'application/json',
         'Content-Type': 'application/json',
@@ -168,7 +174,7 @@ const fetchBraze = async (meta, endpoint, options = {}, method = 'GET', requestI
     let responseJson: Record<string, unknown> | null = null
 
     try {
-        responseJson = await response.json()
+        responseJson = await response?.json()
     } catch (e) {
         meta.logger.error('Error parsing Braze response as JSON: ', e, endpoint, options.body, requestId)
     }

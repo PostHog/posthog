@@ -1,5 +1,7 @@
 import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 
+import { Response } from '~/src/utils/fetch'
+
 import { LegacyPlugin, LegacyPluginMeta } from '../types'
 import metadata from './plugin.json'
 
@@ -73,16 +75,16 @@ export async function onEvent(event: ProcessedPluginEvent, meta: LegacyPluginMet
 
 async function createHubspotContact(
     meta: LegacyPluginMeta,
-    email,
-    properties,
-    accessToken,
-    additionalPropertyMappings,
-    eventSendTime
+    email: string,
+    properties: Record<string, any>,
+    accessToken: string,
+    additionalPropertyMappings: string,
+    eventSendTime: string
 ) {
-    const hubspotFilteredProps = {}
+    const hubspotFilteredProps: Record<string, any> = {}
     for (const [key, val] of Object.entries(properties)) {
-        if (hubspotPropsMap[key]) {
-            hubspotFilteredProps[hubspotPropsMap[key]] = val
+        if (key in hubspotPropsMap) {
+            hubspotFilteredProps[hubspotPropsMap[key as keyof typeof hubspotPropsMap]] = val
         }
     }
 
@@ -151,17 +153,17 @@ async function createHubspotContact(
     }
 }
 
-function statusOk(res) {
+function statusOk(res: Response): boolean {
     return String(res.status)[0] === '2'
 }
 
-function isEmail(email) {
+function isEmail(email: string): boolean {
     const re =
         /^(([^<>()[\]\\.,;:\s@"]+(\.[^<>()[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/
     return re.test(String(email).toLowerCase())
 }
 
-function getEmailFromEvent(event) {
+function getEmailFromEvent(event: ProcessedPluginEvent): string | null {
     if (isEmail(event.distinct_id)) {
         return event.distinct_id
     } else if (event['$set'] && Object.keys(event['$set']).includes('email')) {

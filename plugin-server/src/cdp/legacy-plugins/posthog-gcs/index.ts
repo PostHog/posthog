@@ -37,14 +37,13 @@ interface TableRow {
     distinct_id: string
     team_id: number
     ip: string
-    site_url: string
     timestamp: string
 }
 
 function transformEventToRow(fullEvent: ProcessedPluginEvent): TableRow {
-    const { event, properties, $set, $set_once, distinct_id, team_id, site_url, now, sent_at, uuid } = fullEvent
+    const { event, properties, $set, $set_once, distinct_id, team_id, uuid } = fullEvent
     const ip = properties?.['$ip'] || fullEvent.ip
-    const timestamp = fullEvent.timestamp || properties?.timestamp || now || sent_at
+    const timestamp = fullEvent.timestamp || properties?.timestamp
     let ingestedProperties = properties
     let elements = []
 
@@ -60,7 +59,6 @@ function transformEventToRow(fullEvent: ProcessedPluginEvent): TableRow {
         distinct_id,
         team_id,
         ip,
-        site_url,
         timestamp,
         uuid: uuid!,
         properties: JSON.stringify(ingestedProperties || {}),
@@ -105,22 +103,11 @@ const onEvent = async (event: ProcessedPluginEvent, { global, logger }: gcsMeta)
         'uuid,event,properties,elements,people_set,people_set_once,distinct_id,team_id,ip,site_url,timestamp\n'
 
     for (let i = 0; i < rows.length; ++i) {
-        const {
-            uuid,
-            event,
-            properties,
-            elements,
-            people_set,
-            people_set_once,
-            distinct_id,
-            team_id,
-            ip,
-            site_url,
-            timestamp,
-        } = rows[i]
+        const { uuid, event, properties, elements, people_set, people_set_once, distinct_id, team_id, ip, timestamp } =
+            rows[i]
 
         // order is important
-        csvString += `${uuid},${event},${properties},${elements},${people_set},${people_set_once},${distinct_id},${team_id},${ip},${site_url},${timestamp}`
+        csvString += `${uuid},${event},${properties},${elements},${people_set},${people_set_once},${distinct_id},${team_id},${ip},${timestamp}`
 
         if (i !== rows.length - 1) {
             csvString += '\n'

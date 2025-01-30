@@ -3,7 +3,11 @@ import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { LegacyPlugin, LegacyPluginMeta } from '../types'
 import metadata from './plugin.json'
 
-const onEvent = async (_event: ProcessedPluginEvent, { config, fetch }: LegacyPluginMeta): Promise<void> => {
+type EngagePluginEvent = ProcessedPluginEvent & {
+    config?: any
+}
+
+const onEvent = async (_event: EngagePluginEvent, { config, fetch }: LegacyPluginMeta): Promise<void> => {
     const event = _event.event
     if (event.startsWith('$')) {
         // only process a specific set of custom events

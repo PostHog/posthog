@@ -58,9 +58,9 @@ export async function onEvent(fullEvent: ProcessedPluginEvent, { global, config 
         throw new Error('No PubSub client initialized!')
     }
     try {
-        const { event, properties, $set, $set_once, distinct_id, team_id, site_url, now, sent_at, uuid } = fullEvent
+        const { event, properties, $set, $set_once, distinct_id, team_id, uuid } = fullEvent
         const ip = properties?.['$ip'] || fullEvent.ip
-        const timestamp = fullEvent.timestamp || properties?.timestamp || now || sent_at
+        const timestamp = fullEvent.timestamp || properties?.timestamp
         let ingestedProperties = properties
         let elements = []
 
@@ -76,7 +76,6 @@ export async function onEvent(fullEvent: ProcessedPluginEvent, { global, config 
             distinct_id,
             team_id,
             ip,
-            site_url,
             timestamp,
             uuid: uuid!,
             properties: ingestedProperties || {},
