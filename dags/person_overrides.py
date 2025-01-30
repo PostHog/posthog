@@ -84,6 +84,9 @@ class PersonOverridesSnapshotTable:
             {limit_clause}
             """,
             {"timestamp": timestamp},
+            settings={
+                "optimize_aggregation_in_order": 1,  # slows down the query, but reduces memory consumption dramatically
+            },
         )
 
     def sync(self, client: Client) -> None:
@@ -110,7 +113,7 @@ class PersonOverridesSnapshotDictionary:
     def qualified_name(self):
         return f"{settings.CLICKHOUSE_DATABASE}.{self.name}"
 
-    def create(self, client: Client, shards: int, max_execution_time: int) -> None:
+    def create(self, client: Client, shards: int, max_execution_time: int, max_memory_usage: int) -> None:
         client.execute(
             f"""
             CREATE DICTIONARY IF NOT EXISTS {self.qualified_name} (
@@ -123,7 +126,7 @@ class PersonOverridesSnapshotDictionary:
             SOURCE(CLICKHOUSE(DB %(database)s TABLE %(table)s PASSWORD %(password)s))
             LAYOUT(COMPLEX_KEY_HASHED(SHARDS {shards}))
             LIFETIME(0)
-            SETTINGS(max_execution_time={max_execution_time})
+            SETTINGS(max_execution_time={max_execution_time}, max_memory_usage={max_memory_usage})
             """,
             {
                 "database": settings.CLICKHOUSE_DATABASE,
@@ -269,6 +272,10 @@ class SnapshotDictionaryConfig(dagster.Config):
         description="The maximum amount of time to wait for the dictionary to be loaded before considering the operation "
         "a failure, or 0 to wait an unlimited amount of time.",
     )
+    max_memory_usage: int = pydantic.Field(
+        default=0,
+        description="The maximum amount of memory to use for the dictionary, or 0 to use an unlimited amount.",
+    )
 
 
 @dagster.op
@@ -284,6 +291,7 @@ def create_snapshot_dictionary(
             dictionary.create,
             shards=config.shards,
             max_execution_time=config.max_execution_time,
+            max_memory_usage=config.max_memory_usage,
         )
     ).result()
     return dictionary
