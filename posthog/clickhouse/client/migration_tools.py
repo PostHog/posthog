@@ -23,6 +23,6 @@ def run_sql_with_exceptions(sql: str, settings=None, node_role: NodeRole = NodeR
             return cluster.map_all_hosts(lambda client: client.execute(sql)).result()
         else:
             logger.info(f"       Running migration on {node_role.value.lower()}s")
-            return cluster.map_all_hosts(lambda client: client.execute(sql), node_role=node_role).result()
+            return cluster.map_hosts_by_role(lambda client: client.execute(sql), node_role=node_role).result()
 
     return migrations.RunPython(lambda _: run_migration())

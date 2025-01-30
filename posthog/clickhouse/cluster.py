@@ -150,11 +150,23 @@ class ClickhouseCluster:
             host = self.__hosts[0]
             return executor.submit(self.__get_task_function(host, fn))
 
-    def map_all_hosts(
-        self, fn: Callable[[Client], T], concurrency: int | None = None, node_role: NodeRole = NodeRole.ALL
-    ) -> FuturesMap[HostInfo, T]:
+    def map_all_hosts(self, fn: Callable[[Client], T], concurrency: int | None = None) -> FuturesMap[HostInfo, T]:
         """
         Execute the callable once for each host in the cluster.
+
+        The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
+        default limit of the executor.
+        """
+        return self.map_hosts_by_role(fn, NodeRole.ALL, concurrency)
+
+    def map_hosts_by_role(
+        self,
+        fn: Callable[[Client], T],
+        node_role: NodeRole,
+        concurrency: int | None = None,
+    ) -> FuturesMap[HostInfo, T]:
+        """
+        Execute the callable once for each host in the cluster with the given node role.
 
         The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
         default limit of the executor.

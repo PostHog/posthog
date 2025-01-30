@@ -76,7 +76,7 @@ def test_mutations(cluster: ClickhouseCluster) -> None:
     assert cluster.map_all_hosts(get_mutations_count).result() == mutations_count_before
 
 
-def test_map_all_hosts_filter_by_node_role() -> None:
+def test_map_hosts_by_role() -> None:
     bootstrap_client_mock = Mock()
     bootstrap_client_mock.execute = Mock()
     bootstrap_client_mock.execute.return_value = [
@@ -98,16 +98,16 @@ def test_map_all_hosts_filter_by_node_role() -> None:
         return lambda: fn(Mock())
 
     with patch.object(ClickhouseCluster, "_ClickhouseCluster__get_task_function", mock_get_task_function):
-        cluster.map_all_hosts(lambda _: (), node_role=NodeRole.WORKER).result()
+        cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.WORKER).result()
         assert times_called[NodeRole.WORKER] == 3
         assert times_called[NodeRole.COORDINATOR] == 0
         times_called.clear()
 
-        cluster.map_all_hosts(lambda _: (), node_role=NodeRole.COORDINATOR).result()
+        cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.COORDINATOR).result()
         assert times_called[NodeRole.WORKER] == 0
         assert times_called[NodeRole.COORDINATOR] == 1
         times_called.clear()
 
-        cluster.map_all_hosts(lambda _: (), node_role=NodeRole.ALL).result()
+        cluster.map_hosts_by_role(lambda _: (), node_role=NodeRole.ALL).result()
         assert times_called[NodeRole.WORKER] == 3
         assert times_called[NodeRole.COORDINATOR] == 1
