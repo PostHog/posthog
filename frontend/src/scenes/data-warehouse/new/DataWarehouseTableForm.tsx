@@ -81,7 +81,7 @@ export function DatawarehouseTableForm({ onUpdate }: Props): JSX.Element {
                 <LemonField name="url_pattern" label="Files URL pattern">
                     {({ value = '', onChange }) => (
                         <LemonInput
-                            data-attr="table-name"
+                            data-attr="table-url-pattern"
                             className="ph-ignore-input"
                             placeholder={ProviderMappings[provider].fileUrlPatternPlaceholder}
                             autoComplete="off"

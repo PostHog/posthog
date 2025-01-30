@@ -14,8 +14,8 @@ interface SelfManagedProps {
 }
 
 export const SelfManaged = ({ id }: SelfManagedProps): JSX.Element => {
-    const { table } = useValues(dataWarehouseTableLogic({ id: id }))
-    const { loadTable, updateTable, resetTable } = useActions(dataWarehouseTableLogic({ id: id }))
+    const { table } = useValues(dataWarehouseTableLogic({ id }))
+    const { loadTable, updateTable, resetTable } = useActions(dataWarehouseTableLogic({ id }))
 
     useEffect(() => {
         loadTable()
