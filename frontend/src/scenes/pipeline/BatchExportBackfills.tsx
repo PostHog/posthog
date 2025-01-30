@@ -1,13 +1,19 @@
-import { LemonButton } from '@posthog/lemon-ui'
-import { useActions } from 'kea'
+import { LemonButton, LemonDialog, LemonTable } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
+import { TZLabel } from 'lib/components/TZLabel'
+import { IconCancel } from 'lib/lemon-ui/icons'
 
 import { BatchExportBackfillModal } from './BatchExportBackfillModal'
+import { pipelineAccessLogic } from './pipelineAccessLogic'
 import { batchExportBackfillsLogic, BatchExportBackfillsLogicProps } from './batchExportBackfillsLogic'
+import { BatchExportConfiguration, BatchExportBackfill, BatchExportRun } from '~/types'
 
 export function BatchExportBackfills({ id }: BatchExportBackfillsLogicProps): JSX.Element {
     const logic = batchExportBackfillsLogic({ id })
     const { openBackfillModal } = useActions(logic)
+
+    // TODO: handle 404
 
     return (
         <>
@@ -19,9 +25,199 @@ export function BatchExportBackfills({ id }: BatchExportBackfillsLogicProps): JS
                 }
             />
             <div className="space-y-2">
-                <div>TODO</div>
+                <BatchExportLatestBackfills id={id} />
             </div>
             <BatchExportBackfillModal id={id} />
         </>
     )
+}
+
+function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX.Element {
+    const logic = batchExportBackfillsLogic({ id })
+    const { latestBackfills, loading, hasMoreBackfillsToLoad, batchExportConfig } = useValues(logic)
+    const { cancelBackfill, loadOlderBackfills, openBackfillModal } = useActions(logic)
+    // this permission acts as a proxy for the user's ability to cancel backfills
+    const { canEnableNewDestinations } = useValues(pipelineAccessLogic)
+    // TODO: handle 404
+    return (
+        <>
+            <LemonTable
+                dataSource={latestBackfills}
+                loading={loading}
+                loadingSkeletonRows={5}
+                footer={
+                    hasMoreBackfillsToLoad && (
+                        <div className="flex items-center m-2">
+                            <LemonButton center fullWidth onClick={loadOlderBackfills} loading={loading}>
+                                Load more rows
+                            </LemonButton>
+                        </div>
+                    )
+                }
+                columns={[
+                    {
+                        title: 'Status',
+                        key: 'status',
+                        width: 0,
+                        render: (_, backfill) => {
+                            const status = combineFailedStatuses(backfill.status)
+                            const color = colorForStatus(status)
+                            return (
+                                <span
+                                    className={`h-6 p-2 border-2 flex items-center justify-center rounded-full font-semibold text-xs border-${color} text-${color}-dark select-none`}
+                                >
+                                    <span className="text-center">{status}</span>
+                                </span>
+                            )
+                        },
+                    },
+                    {
+                        title: 'Progress',
+                        key: 'progress',
+                        render: (_, backfill) => <div>TODO</div>,
+                    },
+                    {
+                        title: 'ID',
+                        key: 'runId',
+                        render: (_, backfill) => backfill.id,
+                    },
+                    {
+                        title: 'Backfill interval start',
+                        key: 'backfillIntervalStart',
+                        tooltip: 'Start of the time range to backfill',
+                        render: (_, backfill) => {
+                            return backfill.start_at ? (
+                                <TZLabel time={backfill.start_at} formatDate="MMMM DD, YYYY" formatTime="HH:mm:ss" />
+                            ) : (
+                                'Beginning of time'
+                            )
+                        },
+                    },
+                    {
+                        title: 'Backfill interval end',
+                        key: 'backfillIntervalEnd',
+                        tooltip: 'End of the time range to backfill',
+                        render: (_, backfill) => {
+                            return backfill.end_at ? (
+                                <TZLabel time={backfill.end_at} formatDate="MMMM DD, YYYY" formatTime="HH:mm:ss" />
+                            ) : (
+                                'Until present'
+                            )
+                        },
+                    },
+                    {
+                        title: 'Backfill started',
+                        key: 'backfillStarted',
+                        tooltip: 'Date and time when this BatchExport backfill started',
+                        render: (_, backfill) => <TZLabel time={backfill.created_at} />,
+                    },
+                    {
+                        title: 'Backfill finished',
+                        key: 'backfillFinished',
+                        tooltip: 'Date and time when this BatchExport backfill finished',
+                        render: (_, backfill) => (backfill.finished_at ? <TZLabel time={backfill.finished_at} /> : ''),
+                    },
+                    {
+                        key: 'actions',
+                        width: 0,
+                        render: function RenderActions(_, backfill) {
+                            if (canEnableNewDestinations && backfillIsCancelable(backfill.status)) {
+                                return (
+                                    <div className="flex gap-1">
+                                        <BackfillCancelButton backfill={backfill} cancelBackfill={cancelBackfill} />
+                                    </div>
+                                )
+                            }
+                        },
+                    },
+                ]}
+                emptyState={
+                    <div className="space-y-2">
+                        <div>No backfills in this time range.</div>
+                        {canEnableNewDestinations && (
+                            <LemonButton type="primary" onClick={() => openBackfillModal()}>
+                                Backfill batch export
+                            </LemonButton>
+                        )}
+                    </div>
+                }
+            />
+        </>
+    )
+}
+
+function BackfillCancelButton({
+    backfill,
+    cancelBackfill,
+}: {
+    backfill: BatchExportBackfill
+    cancelBackfill: any
+}): JSX.Element {
+    return (
+        <span className="flex items-center gap-1">
+            <LemonButton
+                size="small"
+                type="secondary"
+                icon={<IconCancel />}
+                disabledReason={
+                    backfill.status === 'Running' || backfill.status === 'Starting'
+                        ? null
+                        : `Cannot cancel as backfill is '${backfill.status}'`
+                }
+                onClick={() =>
+                    LemonDialog.open({
+                        title: 'Cancel run?',
+                        description: (
+                            <>
+                                <p>This will cancel the selected backfill.</p>
+                            </>
+                        ),
+                        width: '20rem',
+                        primaryButton: {
+                            children: 'Cancel backfill',
+                            onClick: () => cancelBackfill(backfill),
+                        },
+                        secondaryButton: {
+                            children: 'Go back',
+                        },
+                    })
+                }
+            />
+        </span>
+    )
+}
+
+const combineFailedStatuses = (status: BatchExportBackfill['status']): BatchExportBackfill['status'] => {
+    // Eventually we should expose the difference between "Failed" and "FailedRetryable" to the user,
+    // because "Failed" tends to mean their configuration or destination is broken.
+    if (status === 'FailedRetryable') {
+        return 'Failed'
+    }
+    return status
+}
+
+const colorForStatus = (
+    status: BatchExportBackfill['status']
+): 'success' | 'primary' | 'warning' | 'danger' | 'default' => {
+    switch (status) {
+        case 'Completed':
+            return 'success'
+        case 'ContinuedAsNew':
+        case 'Running':
+        case 'Starting':
+            return 'primary'
+        case 'Cancelled':
+        case 'Terminated':
+        case 'TimedOut':
+            return 'warning'
+        case 'Failed':
+        case 'FailedRetryable':
+            return 'danger'
+        default:
+            return 'default'
+    }
+}
+
+const backfillIsCancelable = (status: BatchExportBackfill['status']): boolean => {
+    return status === 'Running' || status === 'Starting'
 }

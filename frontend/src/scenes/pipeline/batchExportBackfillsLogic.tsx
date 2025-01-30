@@ -1,9 +1,10 @@
-import { connect, kea, key, path, props } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { PaginatedResponse } from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { RawBatchExportBackfill } from '~/types'
+import { BatchExportBackfill, RawBatchExportBackfill } from '~/types'
 
 import { batchExportBackfillModalLogic } from './batchExportBackfillModalLogic'
 import type { batchExportBackfillsLogicType } from './batchExportBackfillsLogicType'
@@ -29,6 +30,10 @@ export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
         ],
         actions: [batchExportBackfillModalLogic(props), ['submitBackfillFormSuccess', 'openBackfillModal']],
     })),
+    actions({
+        loadBackfills: true,
+        cancelBackfill: (backfill: BatchExportBackfill) => ({ backfill }),
+    }),
     loaders(({ props, values }) => ({
         backfillsPaginatedResponse: [
             null as PaginatedResponse<RawBatchExportBackfill> | null,
@@ -52,4 +57,41 @@ export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
             },
         ],
     })),
+    selectors({
+        hasMoreBackfillsToLoad: [
+            (s) => [s.backfillsPaginatedResponse],
+            (backfillsPaginatedResponse) => !!backfillsPaginatedResponse?.next,
+        ],
+        loading: [
+            (s) => [s.backfillsPaginatedResponseLoading],
+            (backfillsPaginatedResponseLoading) => backfillsPaginatedResponseLoading,
+        ],
+        latestBackfills: [
+            (s) => [s.backfillsPaginatedResponse],
+            (backfillsPaginatedResponse): BatchExportBackfill[] => {
+                const backfills = backfillsPaginatedResponse?.results ?? []
+                return backfills.map((backfill) => {
+                    return {
+                        ...backfill,
+                        created_at: dayjs(backfill.created_at),
+                        finished_at: backfill.finished_at ? dayjs(backfill.finished_at) : undefined,
+                        start_at: backfill.start_at ? dayjs(backfill.start_at) : undefined,
+                        end_at: backfill.end_at ? dayjs(backfill.end_at) : undefined,
+                        last_updated_at: backfill.last_updated_at ? dayjs(backfill.last_updated_at) : undefined,
+                    }
+                })
+            },
+        ],
+    }),
+    listeners(({ actions, props }) => ({
+        cancelBackfill: async ({ backfill }) => {
+            // TODO
+            // await api.batchExports.cancelBackfill(props.id, backfill.id)
+            // lemonToast.success('Backfill has been cancelled.')
+            console.log('cancelBackfill not yet implemented ;(')
+        },
+    })),
+    afterMount(({ actions }) => {
+        actions.loadBackfills()
+    }),
 ])
