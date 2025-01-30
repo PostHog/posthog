@@ -1,4 +1,4 @@
-import type { ModelRow } from '../types'
+import type { ModelRow } from './types'
 
 export const costs: ModelRow[] = [
     {
@@ -32,8 +32,8 @@ export const costs: ModelRow[] = [
     {
         model: 'deepseek-r1',
         cost: {
-            prompt_token: 0.0000069,
-            completion_token: 0.0000069,
+            prompt_token: 0.0000065,
+            completion_token: 0.000008,
         },
     },
     {

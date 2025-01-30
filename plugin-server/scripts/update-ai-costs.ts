@@ -72,17 +72,16 @@ const main = async () => {
 
     // Generate files for each provider
     for (const [provider, models] of providerModels.entries()) {
-        const providerDir = path.join(baseDir, provider)
-        if (!fs.existsSync(providerDir)) {
-            fs.mkdirSync(providerDir)
+        if (!fs.existsSync(baseDir)) {
+            fs.mkdirSync(baseDir)
         }
 
-        const fileContent = `import type { ModelRow } from '../types';\n\nexport const costs: ModelRow[] = ${JSON.stringify(
+        const fileContent = `import type { ModelRow } from './types';\n\nexport const costs: ModelRow[] = ${JSON.stringify(
             models,
             null,
             2
         )};\n`
-        fs.writeFileSync(path.join(providerDir, 'index.ts'), fileContent)
+        fs.writeFileSync(path.join(baseDir, `${provider}.ts`), fileContent)
     }
 
     // Create types.ts in the base directory

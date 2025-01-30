@@ -1,6 +1,13 @@
-import type { ModelRow } from '../types'
+import type { ModelRow } from './types'
 
 export const costs: ModelRow[] = [
+    {
+        model: 'mistral-small-24b-instruct-2501',
+        cost: {
+            prompt_token: 1e-7,
+            completion_token: 3e-7,
+        },
+    },
     {
         model: 'codestral-2501',
         cost: {
@@ -130,8 +137,8 @@ export const costs: ModelRow[] = [
     {
         model: 'mixtral-8x7b',
         cost: {
-            prompt_token: 5.4e-7,
-            completion_token: 5.4e-7,
+            prompt_token: 6e-7,
+            completion_token: 6e-7,
         },
     },
     {
@@ -151,8 +158,8 @@ export const costs: ModelRow[] = [
     {
         model: 'mistral-7b-instruct-v0.1',
         cost: {
-            prompt_token: 1.8e-7,
-            completion_token: 1.8e-7,
+            prompt_token: 2e-7,
+            completion_token: 2e-7,
         },
     },
 ]

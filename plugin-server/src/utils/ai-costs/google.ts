@@ -1,4 +1,4 @@
-import type { ModelRow } from '../types'
+import type { ModelRow } from './types'
 
 export const costs: ModelRow[] = [
     {
