@@ -67,6 +67,7 @@ class HogFunctionMinimalSerializer(serializers.ModelSerializer):
             "icon_url",
             "template",
             "status",
+            "execution_order",
         ]
         read_only_fields = fields
 
@@ -115,6 +116,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "template",
             "template_id",
             "status",
+            "execution_order",
         ]
         read_only_fields = [
             "id",
@@ -320,6 +322,8 @@ class HogFunctionViewSet(
             else:
                 types = ["destination"]
             queryset = queryset.filter(type__in=types)
+            # Add ordering by execution_order and created_at
+            queryset = queryset.order_by("execution_order", "created_at")
 
         if self.request.GET.get("filters"):
             try:
