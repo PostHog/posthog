@@ -25,7 +25,15 @@ const main = async () => {
             Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
         },
     })
-    const data = await res.json()
+    if (!res.ok) {
+        throw new Error(`Failed to fetch models: ${res.status} ${res.statusText}`)
+    }
+    let data
+    try {
+        data = await res.json()
+    } catch (e) {
+        throw new Error('Failed to parse API response as JSON')
+    }
     console.log(data.data)
     const models = data.data
 
