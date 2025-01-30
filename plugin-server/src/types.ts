@@ -91,6 +91,8 @@ export enum PluginServerMode {
     cdp_processed_events = 'cdp-processed-events',
     cdp_internal_events = 'cdp-internal-events',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
+    cdp_cyclotron_worker_plugins = 'cdp-cyclotron-worker-plugins',
+    cdp_api = 'cdp-api',
     functional_tests = 'functional-tests',
 }
 
@@ -119,7 +121,6 @@ export type CdpConfig = {
     CDP_WATCHER_REFILL_RATE: number // The number of tokens to be refilled per second
     CDP_WATCHER_DISABLED_TEMPORARY_TTL: number // How long a function should be temporarily disabled for
     CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: number // How many times a function can be disabled before it is disabled permanently
-    CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: string
     CDP_HOG_FILTERS_TELEMETRY_TEAMS: string
     CDP_CYCLOTRON_BATCH_SIZE: number
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
@@ -334,6 +335,10 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     COOKIELESS_SALT_TTL_SECONDS: number
     COOKIELESS_SESSION_INACTIVITY_MS: number
     COOKIELESS_IDENTIFIES_TTL_SECONDS: number
+
+    SESSION_RECORDING_V2_S3_BUCKET?: string
+    SESSION_RECORDING_V2_S3_PREFIX?: string
+    SESSION_RECORDING_V2_S3_REGION?: string
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -403,6 +408,8 @@ export interface PluginServerCapabilities {
     cdpProcessedEvents?: boolean
     cdpInternalEvents?: boolean
     cdpCyclotronWorker?: boolean
+    cdpCyclotronWorkerPlugins?: boolean
+    cdpApi?: boolean
     appManagementSingleton?: boolean
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
     http?: boolean

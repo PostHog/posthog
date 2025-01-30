@@ -3,7 +3,8 @@ import { useActions, useValues } from 'kea'
 
 import { Experiment } from '~/types'
 
-import { experimentLogic, getDefaultFunnelsMetric } from '../experimentLogic'
+import { experimentLogic } from '../experimentLogic'
+import { getDefaultFunnelsMetric } from '../utils'
 
 export function MetricSourceModal({
     experimentId,
