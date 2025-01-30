@@ -135,7 +135,9 @@ class SummarizerNode(AssistantNode):
         if isinstance(viz_message.answer, AssistantTrendsQuery):
             return compress_and_format_trends_results(results)
         elif isinstance(viz_message.answer, AssistantFunnelsQuery):
-            query_date_range = QueryDateRange(viz_message.answer.dateRange, self._team, viz_message.answer.interval)
+            query_date_range = QueryDateRange(
+                viz_message.answer.dateRange, self._team, viz_message.answer.interval, datetime.datetime.now()
+            )
             funnel_step_reference = (
                 viz_message.answer.funnelsFilter.funnelStepReference if viz_message.answer.funnelsFilter else None
             )
