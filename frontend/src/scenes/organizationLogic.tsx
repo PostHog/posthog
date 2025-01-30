@@ -71,7 +71,7 @@ export const organizationLogic = kea<organizationLogicType>([
                 },
                 completeOnboarding: async () => await api.create('api/organizations/@current/onboarding/', {}),
                 migrateAccessControlVersion: async () => {
-                    await api.create('api/organizations/@current/migrate_access_control_version/', {})
+                    await api.create(`api/organizations/${values.currentOrganization?.id}/migrate_access_control/`, {})
                     window.location.reload()
                     return values.currentOrganization // Return current organization state since the page will reload anyway
                 },
