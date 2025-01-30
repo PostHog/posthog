@@ -718,7 +718,7 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.updateExperiment({ archived: true })
             values.experiment && actions.reportExperimentArchived(values.experiment)
         },
-        refreshExperimentResults: async (forceRefresh) => {
+        refreshExperimentResults: async ({ forceRefresh }) => {
             actions.loadMetricResultsSuccess([])
             actions.loadSecondaryMetricResultsSuccess([])
             actions.loadMetricResults(forceRefresh)
