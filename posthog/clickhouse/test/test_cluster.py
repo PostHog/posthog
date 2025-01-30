@@ -1,6 +1,5 @@
 import uuid
 from collections.abc import Iterator
-from typing import Any
 
 import pytest
 from clickhouse_driver import Client
@@ -99,7 +98,7 @@ def test_lightweight_delete(cluster: ClickhouseCluster) -> None:
     assert len(shard_mutations) > 0
 
     # check results
-    def get_row_exists_count(client: Client) -> Any:
+    def get_row_exists_count(client: Client) -> list[tuple[int, int]]:
         return client.execute(f"SELECT _row_exists, count() FROM {table} GROUP BY ALL ORDER BY ALL")
 
     for host_info, mutation in shard_mutations.items():
