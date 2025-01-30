@@ -12,10 +12,7 @@ export type FetchBraze = (
     requestId?: string
 ) => Promise<Record<string, unknown> | null>
 
-type BrazePluginMeta = LegacyPluginMeta & {
-    global: {
-        fetchBraze: FetchBraze
-    }
+export type BrazePluginMeta = LegacyPluginMeta & {
     config: {
         brazeEndpoint: 'US-01' | 'US-02' | 'US-03' | 'US-04' | 'US-05' | 'US-06' | 'US-08' | 'EU-01' | 'EU-02'
         apiKey: string
@@ -24,9 +21,6 @@ type BrazePluginMeta = LegacyPluginMeta & {
         eventsToExportUserPropertiesFrom: string
     }
 }
-
-// NOTE: type is exported for tests
-export type BrazeMeta = BrazePluginMeta
 
 const ENDPOINTS_MAP = {
     'US-01': 'https://rest.iad-01.braze.com',
@@ -38,59 +32,6 @@ const ENDPOINTS_MAP = {
     'US-08': 'https://rest.iad-08.braze.com',
     'EU-01': 'https://rest.fra-01.braze.eu',
     'EU-02': 'https://rest.fra-02.braze.eu',
-}
-
-export async function setupPlugin({ config, global, fetch, logger }: BrazePluginMeta): Promise<void> {
-    const brazeUrl = ENDPOINTS_MAP[config.brazeEndpoint]
-    // we define a global fetch function that handles authentication and API errors
-    global.fetchBraze = async (endpoint, options = {}, method = 'GET', requestId = '') => {
-        const headers = {
-            Accept: 'application/json',
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${config.apiKey}`,
-        }
-
-        let response: Response | undefined
-
-        const startTime = Date.now()
-
-        try {
-            response = await fetch(`${brazeUrl}${endpoint}`, {
-                method,
-                headers,
-                ...options,
-                timeout: 5000,
-            })
-        } catch (e) {
-            logger.error(e, endpoint, options.body, requestId)
-            throw new RetryError('Fetch failed, retrying.')
-        } finally {
-            const elapsedTime = (Date.now() - startTime) / 1000
-            if (elapsedTime >= 5) {
-                logger.warn(
-                    `🐢 Slow request warning. Fetch took ${elapsedTime} seconds. Request ID: ${requestId}`,
-                    endpoint
-                )
-            }
-        }
-
-        if (String(response.status)[0] === '5') {
-            throw new RetryError(`Service is down, retry later. Request ID: ${requestId}`)
-        }
-
-        let responseJson: Record<string, unknown> | null = null
-
-        try {
-            responseJson = await response.json()
-        } catch (e) {
-            logger.error('Error parsing Braze response as JSON: ', e, endpoint, options.body, requestId)
-        }
-
-        if (responseJson?.['errors']) {
-            logger.error('Braze API error (not retried): ', responseJson, endpoint, options.body, requestId)
-        }
-        return responseJson
-    }
 }
 
 export function ISODateString(d: Date): string {
@@ -147,7 +88,7 @@ type BrazeUsersTrackBody = {
     events: Array<BrazeEvent> // NOTE: max length 75
 }
 
-const _generateBrazeRequestBody = (pluginEvent: ProcessedPluginEvent, meta: BrazeMeta): BrazeUsersTrackBody => {
+const _generateBrazeRequestBody = (pluginEvent: ProcessedPluginEvent, meta: BrazePluginMeta): BrazeUsersTrackBody => {
     const { event, $set, properties, timestamp } = pluginEvent
 
     // If we have $set or properties.$set then attributes should be an array
@@ -189,18 +130,66 @@ const _generateBrazeRequestBody = (pluginEvent: ProcessedPluginEvent, meta: Braz
     }
 }
 
+const fetchBraze = async (meta, endpoint, options = {}, method = 'GET', requestId = '') => {
+    const headers = {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${meta.config.apiKey}`,
+    }
+
+    let response: Response | undefined
+
+    const startTime = Date.now()
+
+    try {
+        response = await meta.fetch(`${ENDPOINTS_MAP[meta.config.brazeEndpoint]}${endpoint}`, {
+            method,
+            headers,
+            ...options,
+            timeout: 5000,
+        })
+    } catch (e) {
+        meta.logger.error(e, endpoint, options.body, requestId)
+        throw new RetryError('Fetch failed, retrying.')
+    } finally {
+        const elapsedTime = (Date.now() - startTime) / 1000
+        if (elapsedTime >= 5) {
+            meta.logger.warn(
+                `🐢 Slow request warning. Fetch took ${elapsedTime} seconds. Request ID: ${requestId}`,
+                endpoint
+            )
+        }
+    }
+    if (String(response.status)[0] === '5') {
+        throw new RetryError(`Service is down, retry later. Request ID: ${requestId}`)
+    }
+
+    let responseJson: Record<string, unknown> | null = null
+
+    try {
+        responseJson = await response.json()
+    } catch (e) {
+        meta.logger.error('Error parsing Braze response as JSON: ', e, endpoint, options.body, requestId)
+    }
+
+    if (responseJson?.['errors']) {
+        meta.logger.error('Braze API error (not retried): ', responseJson, endpoint, options.body, requestId)
+    }
+    return responseJson
+}
+
 export const onEvent = async (pluginEvent: ProcessedPluginEvent, meta: BrazePluginMeta): Promise<void> => {
     // NOTE: We compute a unique ID for this request so we can identify the same request in the logs
     const requestId = crypto.createHash('sha256').update(JSON.stringify(pluginEvent)).digest('hex')
     const startTime = Date.now()
-    const oldestEventTimestamp = Date.now()
 
     const brazeRequestBody = _generateBrazeRequestBody(pluginEvent, meta)
     if (brazeRequestBody.attributes.length === 0 && brazeRequestBody.events.length === 0) {
         return
     }
 
-    await meta.global.fetchBraze(
+    await fetchBraze(
+        meta,
         '/users/track',
         {
             body: JSON.stringify(brazeRequestBody),
@@ -216,6 +205,6 @@ export const onEvent = async (pluginEvent: ProcessedPluginEvent, meta: BrazePlug
 export const brazePlugin: LegacyPlugin = {
     id: 'braze',
     metadata: metadata as any,
-    setupPlugin: setupPlugin as any,
+    setupPlugin: () => Promise.resolve(),
     onEvent,
 }
