@@ -7,7 +7,7 @@ import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
 import { getExceptionAttributes, hasStacktrace } from '../utils'
 import { Overview } from './Overview'
 import RecordingPanel from './panels/RecordingPanel'
-import StacktracePanel from './panels/StacktracePanel'
+import StackTracePanel from './panels/StackTracePanel'
 
 export type ErrorTrackingIssueEventsPanel = {
     key: 'stacktrace' | 'recording'
@@ -18,7 +18,7 @@ export type ErrorTrackingIssueEventsPanel = {
     className?: string
 }
 
-const PANELS = [StacktracePanel, RecordingPanel] as ErrorTrackingIssueEventsPanel[]
+const PANELS = [StackTracePanel, RecordingPanel] as ErrorTrackingIssueEventsPanel[]
 
 export const Events = (): JSX.Element => {
     const { issueProperties } = useValues(errorTrackingIssueSceneLogic)

@@ -16,11 +16,10 @@ const errorTrackingDateOptions = dateMapping.filter((dm) => dm.key != 'Yesterday
 export const ErrorTrackingFilters = (): JSX.Element => {
     return (
         <div className="flex flex-col space-y-2">
-            <div className="flex flex-1 items-center gap-2 mx-2">
+            <div className="flex flex-1 items-center gap-2">
                 <DateRange />
                 <UniversalSearch />
-            </div>
-            <div className="flex flex-1 items-center gap-2 mx-2">
+                <FilterGroup />
                 <InternalAccounts />
             </div>
         </div>
@@ -63,7 +62,7 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
                         <RecordingsUniversalFilterGroup />
-                        <UniversalFilters.AddFilterButton size="xsmall" className="py-[1px] rounded-r-none border-r" />
+                        <UniversalFilters.AddFilterButton size="small" type="secondary" />
                     </UniversalFilters.Group>
                 ) : (
                     <UniversalFilters.Value
@@ -107,9 +106,8 @@ const UniversalSearch = (): JSX.Element => {
             placeholder="Search..."
             value={searchQuery}
             onChange={setSearchQuery}
-            className="flex-grow max-w-none pl-0"
+            className="flex-grow max-w-none"
             size="small"
-            prefix={<FilterGroup />}
         />
     )
 }

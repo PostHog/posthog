@@ -18,7 +18,7 @@ const Content = (): JSX.Element => {
 }
 
 const EmptyState = (): JSX.Element => {
-    return <div>No stacktrace</div>
+    return <div>No stack trace</div>
 }
 
 const Header = ({ active }: { active: boolean }): JSX.Element => {
@@ -31,7 +31,7 @@ const Header = ({ active }: { active: boolean }): JSX.Element => {
 
     return (
         <div className="flex justify-between items-center w-full">
-            <span>Stacktrace</span>
+            <span>Stack trace</span>
             {active && hasAnyInApp ? (
                 <LemonSegmentedButton
                     onChange={(value, e) => {

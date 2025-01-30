@@ -15,6 +15,7 @@ import { ErrorTrackingFilters } from './ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { Events } from './issue/Events'
 import { Metadata } from './issue/Metadata'
+import { SparklinePanel } from './issue/Sparkline'
 
 export const scene: SceneExport = {
     component: ErrorTrackingIssueScene,
@@ -83,20 +84,19 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                     }
                 />
                 {issue ? (
-                    <PanelLayout className="ErrorTrackingPanelLayout">
-                        <PanelLayout.Container column primary={false} className="h-full">
-                            <PanelLayout.Panel primary={false}>
-                                <Metadata />
-                            </PanelLayout.Panel>
-                        </PanelLayout.Container>
-                        <PanelLayout.Container primary column>
-                            <ErrorTrackingFilters />
-                            <LemonDivider className="my-0" />
-                            <PanelLayout.Panel primary={false}>
-                                <Events />
-                            </PanelLayout.Panel>
-                        </PanelLayout.Container>
-                    </PanelLayout>
+                    <div className="ErrorTrackingIssue">
+                        <Metadata />
+                        <LemonDivider className="my-4" />
+                        <PanelLayout>
+                            <PanelLayout.Container column primary>
+                                <ErrorTrackingFilters />
+                                <SparklinePanel />
+                                <PanelLayout.Panel primary>
+                                    <Events />
+                                </PanelLayout.Panel>
+                            </PanelLayout.Container>
+                        </PanelLayout>
+                    </div>
                 ) : (
                     <Spinner />
                 )}
