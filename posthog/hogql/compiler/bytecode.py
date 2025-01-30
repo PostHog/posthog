@@ -169,6 +169,9 @@ class BytecodeCompiler(Visitor):
         return response
 
     def visit(self, node: ast.AST | None):
+        # In "hog" mode we compile AST nodes to bytecode.
+        # In "ast" mode we pass through as they are.
+        # You may enter "ast" mode with `sql()` or `(select ...)`
         if self.mode == "hog" or isinstance(node, ast.Placeholder):
             return super().visit(node)
         return self._visit_hog_ast(node)
@@ -856,6 +859,7 @@ class BytecodeCompiler(Visitor):
         if node is None:
             return [Operation.NULL]
         response = []
+        # We consider any object with the element "__hqx" to be a HogQLX AST node
         response.extend([Operation.STRING, "__hqx"])
         response.extend([Operation.STRING, node.__class__.__name__])
         fields = 1
@@ -888,7 +892,8 @@ class BytecodeCompiler(Visitor):
             return [*elems, Operation.DICT, len(value.items())]
         if isinstance(value, ast.AST):
             if isinstance(value, ast.Placeholder):
-                # TODO: this is a nested placeholder?
+                if self.mode == "hog":
+                    raise QueryError("Placeholders are not allowed in this context")
                 self.mode = "hog"
                 response = self.visit(value.expr)
                 self.mode = "ast"
@@ -917,14 +922,20 @@ class BytecodeCompiler(Visitor):
         raise QueryError("Placeholders are not allowed in this context")
 
     def visit_select_query(self, node: ast.SelectQuery):
-        # Select queries trigger AST-mode always
+        # Select queries always takes us into "ast" mode
         last_mode = self.mode
         self.mode = "ast"
         response = self._visit_hog_ast(node)
         self.mode = last_mode
         return response
 
-    # TODO: select unions, etc
+    def visit_select_set_query(self, node: ast.SelectSetQuery):
+        # Select queries always takes us into "ast" mode
+        last_mode = self.mode
+        self.mode = "ast"
+        response = self._visit_hog_ast(node)
+        self.mode = last_mode
+        return response
 
 
 def execute_hog(
