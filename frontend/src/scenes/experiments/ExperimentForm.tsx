@@ -1,5 +1,5 @@
 import { IconMagicWand, IconPlusSmall, IconSparkles, IconTrash } from '@posthog/icons'
-import { LemonDivider, LemonInput, LemonModal, LemonTextArea, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDivider, LemonInput, LemonModal, LemonTextArea, Link, Tooltip } from '@posthog/lemon-ui'
 import { LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
