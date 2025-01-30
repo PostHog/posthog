@@ -335,6 +335,10 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     COOKIELESS_SALT_TTL_SECONDS: number
     COOKIELESS_SESSION_INACTIVITY_MS: number
     COOKIELESS_IDENTIFIES_TTL_SECONDS: number
+
+    SESSION_RECORDING_V2_S3_BUCKET?: string
+    SESSION_RECORDING_V2_S3_PREFIX?: string
+    SESSION_RECORDING_V2_S3_REGION?: string
 }
 
 export interface Hub extends PluginsServerConfig {
