@@ -21,7 +21,7 @@ def rbac_feature_flag_role_access_migration(organization_id: str):
         # And only other roles / specific opt in via FeatureFlagRoleAccess give edit access
         organization_resource_access = OrganizationResourceAccess.objects.filter(
             organization_id=organization_id,
-            resource="feature_flag",
+            resource="feature_flags",  # note this is plural
             access_level=21,
         )
         if organization_resource_access.exists():
@@ -34,6 +34,8 @@ def rbac_feature_flag_role_access_migration(organization_id: str):
                     resource="feature_flag",
                     resource_id=feature_flag.id,
                 )
+            # Remove the organization resource access (so we know it's been migrated)
+            organization_resource_access.delete()
 
             # Then we want to look at all roles where the feature flag role is edit level to apply those to all flags, we need
             # to do this if the organization resource access is view only
