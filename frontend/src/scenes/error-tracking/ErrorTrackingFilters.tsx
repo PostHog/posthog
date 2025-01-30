@@ -83,13 +83,13 @@ const DateRange = (): JSX.Element => {
 
     return (
         <DateFilter
+            size="small"
             dateFrom={dateRange.date_from}
             dateTo={dateRange.date_to}
             dateOptions={errorTrackingDateOptions}
-            onChange={(changedDateFrom, changedDateTo) => {
+            onChange={(changedDateFrom, changedDateTo) =>
                 setDateRange({ date_from: changedDateFrom, date_to: changedDateTo })
-            }}
-            size="small"
+            }
         />
     )
 }
@@ -119,9 +119,7 @@ const InternalAccounts = (): JSX.Element => {
             <TestAccountFilter
                 size="small"
                 filters={{ filter_test_accounts: filterTestAccounts }}
-                onChange={({ filter_test_accounts }) => {
-                    setFilterTestAccounts(filter_test_accounts || false)
-                }}
+                onChange={({ filter_test_accounts }) => setFilterTestAccounts(filter_test_accounts || false)}
             />
         </div>
     )

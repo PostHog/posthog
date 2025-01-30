@@ -5,15 +5,6 @@ import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
 import { errorTrackingLogic } from '../errorTrackingLogic'
 import { sparklineLabels } from '../utils'
 
-export type ErrorTrackingIssueEventsPanel = {
-    key: 'stacktrace' | 'recording'
-    Content: () => JSX.Element
-    EmptyState: () => JSX.Element
-    Header: string | (({ active }: { active: boolean }) => JSX.Element)
-    hasContent: ({ hasStack, hasRecording }: { hasStack: boolean; hasRecording: boolean }) => boolean
-    className?: string
-}
-
 export const SparklinePanel = (): JSX.Element | null => {
     const { customSparklineConfig } = useValues(errorTrackingLogic)
     const { issue } = useValues(errorTrackingIssueSceneLogic)
