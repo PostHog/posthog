@@ -44,6 +44,32 @@ exports[`CdpCyclotronWorkerPlugins onEvent should handle and collect errors 3`] 
 ]
 `;
 
+exports[`CdpCyclotronWorkerPlugins smoke tests should run the plugin: { name: 'avo', plugin: [Object] } 1`] = `
+[
+  {
+    "level": "debug",
+    "message": "Executing plugin avo",
+  },
+  {
+    "level": "debug",
+    "message": "Execution successful",
+  },
+]
+`;
+
+exports[`CdpCyclotronWorkerPlugins smoke tests should run the plugin: { name: 'braze', plugin: [Object] } 1`] = `
+[
+  {
+    "level": "debug",
+    "message": "Executing plugin braze",
+  },
+  {
+    "level": "debug",
+    "message": "Execution successful",
+  },
+]
+`;
+
 exports[`CdpCyclotronWorkerPlugins smoke tests should run the plugin: { name: 'customer-io', plugin: [Object] } 1`] = `
 [
   {
@@ -73,6 +99,49 @@ exports[`CdpCyclotronWorkerPlugins smoke tests should run the plugin: { name: 'c
 ]
 `;
 
+exports[`CdpCyclotronWorkerPlugins smoke tests should run the plugin: { name: 'engage', plugin: [Object] } 1`] = `
+[
+  {
+    "level": "debug",
+    "message": "Executing plugin engage",
+  },
+  {
+    "level": "debug",
+    "message": "Execution successful",
+  },
+]
+`;
+
+exports[`CdpCyclotronWorkerPlugins smoke tests should run the plugin: { name: 'gcs', plugin: [Object] } 1`] = `
+[
+  {
+    "level": "debug",
+    "message": "Executing plugin gcs",
+  },
+  {
+    "level": "error",
+    "message": "Plugin gcs setup failed: Cannot read properties of undefined (reading 'googleCloudKeyJson')",
+  },
+]
+`;
+
+exports[`CdpCyclotronWorkerPlugins smoke tests should run the plugin: { name: 'hubspot', plugin: [Object] } 1`] = `
+[
+  {
+    "level": "debug",
+    "message": "Executing plugin hubspot",
+  },
+  {
+    "level": "info",
+    "message": "Created Hubspot Contact for test@posthog.com",
+  },
+  {
+    "level": "debug",
+    "message": "Execution successful",
+  },
+]
+`;
+
 exports[`CdpCyclotronWorkerPlugins smoke tests should run the plugin: { name: 'intercom', plugin: [Object] } 1`] = `
 [
   {
@@ -82,6 +151,84 @@ exports[`CdpCyclotronWorkerPlugins smoke tests should run the plugin: { name: 'i
   {
     "level": "info",
     "message": "Contact test@posthog.com in Intercom not found",
+  },
+  {
+    "level": "debug",
+    "message": "Execution successful",
+  },
+]
+`;
+
+exports[`CdpCyclotronWorkerPlugins smoke tests should run the plugin: { name: 'laudspeaker', plugin: [Object] } 1`] = `
+[
+  {
+    "level": "debug",
+    "message": "Executing plugin laudspeaker",
+  },
+  {
+    "level": "error",
+    "message": "Plugin errored: Cannot read properties of undefined (reading 'headers')",
+  },
+]
+`;
+
+exports[`CdpCyclotronWorkerPlugins smoke tests should run the plugin: { name: 'patterns', plugin: [Object] } 1`] = `
+[
+  {
+    "level": "debug",
+    "message": "Executing plugin patterns",
+  },
+  {
+    "level": "debug",
+    "message": "Execution successful",
+  },
+]
+`;
+
+exports[`CdpCyclotronWorkerPlugins smoke tests should run the plugin: { name: 'pubsub', plugin: [Object] } 1`] = `
+[
+  {
+    "level": "debug",
+    "message": "Executing plugin pubsub",
+  },
+  {
+    "level": "error",
+    "message": "Plugin pubsub setup failed: Cannot read properties of undefined (reading 'googleCloudKeyJson')",
+  },
+]
+`;
+
+exports[`CdpCyclotronWorkerPlugins smoke tests should run the plugin: { name: 'rudderstack', plugin: [Object] } 1`] = `
+[
+  {
+    "level": "debug",
+    "message": "Executing plugin rudderstack",
+  },
+  {
+    "level": "debug",
+    "message": "Execution successful",
+  },
+]
+`;
+
+exports[`CdpCyclotronWorkerPlugins smoke tests should run the plugin: { name: 'salesforce', plugin: [Object] } 1`] = `
+[
+  {
+    "level": "debug",
+    "message": "Executing plugin salesforce",
+  },
+  {
+    "level": "error",
+    "message": "Plugin salesforce setup failed: If you are not providing an eventEndpointMapping then you must provide events to include.",
+  },
+]
+`;
+
+exports[`CdpCyclotronWorkerPlugins smoke tests should run the plugin: { name: 'sendgrid', plugin: [Object] } 1`] = `
+[
+  {
+    "level": "debug",
+    "message": "Executing plugin sendgrid",
   },
   {
     "level": "debug",
