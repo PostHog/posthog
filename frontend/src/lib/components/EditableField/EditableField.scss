@@ -39,7 +39,7 @@
         width: auto;
         max-width: calc(100% + 0.5rem);
         border-radius: var(--radius);
-        outline: 1px solid var(--border);
+        outline: 1px solid var(--border-primary);
     }
 
     &.EditableField--underlined {

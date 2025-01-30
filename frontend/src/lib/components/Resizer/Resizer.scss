@@ -58,7 +58,7 @@
         }
 
         &::before {
-            background: var(--border);
+            background: var(--border-primary);
             transition: 100ms ease transform;
         }
 

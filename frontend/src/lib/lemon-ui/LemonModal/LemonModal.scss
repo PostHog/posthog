@@ -103,7 +103,7 @@
     padding-bottom: 1rem;
     margin: 1rem;
     margin-bottom: 0;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--border-primary);
 
     h3 {
         margin-right: 2.5rem;
@@ -128,7 +128,7 @@
     margin: 1rem;
     margin-top: 0;
     white-space: nowrap;
-    border-top: 1px solid var(--border);
+    border-top: 1px solid var(--border-primary);
 }
 
 .LemonModal__header + .LemonModal__footer {

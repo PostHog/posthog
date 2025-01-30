@@ -69,7 +69,9 @@ export function PathNodeCard({ insightProps, node }: PathNodeCardProps): JSX.Ele
                             : // use middle for end nodes
                               node.y0 + (node.y1 - node.y0) / 2,
                         border: `1px solid ${
-                            isSelectedPathStartOrEnd(pathsFilter, funnelPathsFilter, node) ? 'purple' : 'var(--border)'
+                            isSelectedPathStartOrEnd(pathsFilter, funnelPathsFilter, node)
+                                ? 'purple'
+                                : 'var(--border-primary)'
                         }`,
                     }}
                     data-attr="path-node-card-button"

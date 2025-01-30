@@ -242,7 +242,7 @@
     background: var(--sidebar-background);
 
     // Extend the border into viewport overscroll
-    border-right: min(1px, var(--sidebar-width)) solid var(--border);
+    border-right: min(1px, var(--sidebar-width)) solid var(--border-primary);
 
     .Sidebar3000--resizing & {
         will-change: width;
@@ -302,7 +302,7 @@
     }
 
     &::before {
-        background: var(--border);
+        background: var(--border-primary);
         transition: 100ms ease transform;
     }
 
@@ -390,7 +390,7 @@
     border-bottom-width: 1px;
 
     &:hover {
-        background: var(--border-3000);
+        background: var(--border-primary);
     }
 
     > .LemonIcon {
@@ -448,7 +448,7 @@
     border-bottom-width: 1px;
 
     &:hover {
-        background: var(--border-3000);
+        background: var(--border-primary);
     }
 
     > .LemonIcon {
@@ -480,7 +480,7 @@
     &:hover:not([aria-disabled='true']),
     &[aria-current='page'],
     &.SidebarListItem--is-renaming {
-        --sidebar-list-item-background: var(--border-3000);
+        --sidebar-list-item-background: var(--border-primary);
 
         opacity: 1;
     }
@@ -586,7 +586,7 @@
         inset: 0 0 -1px;
         pointer-events: none;
         content: '';
-        border: 1px solid var(--border-3000);
+        border: 1px solid var(--border-primary);
     }
 }
 
@@ -612,7 +612,7 @@
     cursor: pointer;
 
     &:hover {
-        background: var(--border-3000);
+        background: var(--border-primary);
     }
 
     .SidebarListItem__icon {
@@ -642,7 +642,7 @@
         inset: 0 0 -1px;
         pointer-events: none;
         content: '';
-        border: 1px solid var(--border);
+        border: 1px solid var(--border-primary);
 
         .SidebarListItem[aria-invalid='true'] & {
             border-color: var(--danger);

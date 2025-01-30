@@ -334,7 +334,7 @@
     &.LemonButton--tertiary {
         &:not([aria-disabled='true']):hover,
         &.LemonButton--active {
-            background-color: var(--glass-border-3000);
+            background-color: var(--border-primary);
         }
 
         &.LemonButton--status-danger {
