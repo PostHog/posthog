@@ -1,7 +1,6 @@
 use crate::v0_request::ProcessedEvent;
 use async_trait::async_trait;
 use aws_sdk_s3::config::Builder;
-use aws_sdk_s3::error::ProvideErrorMetadata;
 use aws_sdk_s3::Client as S3Client;
 use bytes::BytesMut;
 use chrono::{DateTime, Datelike, Timelike, Utc};
@@ -27,6 +26,7 @@ use crate::api::CaptureError;
 use crate::sinks::Event;
 
 const FLUSH_INTERVAL: Duration = Duration::from_secs(1);
+const HEALTH_INTERVAL: Duration = Duration::from_secs(10);
 const MAX_BUFFER_SIZE: usize = 4 * 1024 * 1024; // 4MB
 
 pub struct S3Sink {
@@ -79,17 +79,6 @@ impl S3Sink {
         }
 
         let client = S3Client::from_conf(config.build());
-        // Verify bucket exists and is accessible
-        match client.head_bucket().bucket(&bucket).send().await {
-            Ok(_) => {
-                info!("Successfully connected to S3 bucket");
-            }
-            Err(err) => {
-                error!("Failed to connect to S3 bucket: {:?}", err.code());
-                return Err(anyhow::anyhow!("Failed to connect to S3: {:?}", err));
-            }
-        }
-
         let buffer = Arc::new(Mutex::new(EventBuffer::new()));
 
         let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
@@ -100,9 +89,11 @@ impl S3Sink {
             liveness: liveness.clone(),
             shutdown: None,
         };
+        s3sink.healthcheck().await;
 
         // Spawn background task with shutdown handling
         task::spawn(async move {
+            let mut last_healthcheck = Instant::now();
             loop {
                 tokio::select! {
                     _ = sleep(Duration::from_millis(10)) => {
@@ -118,7 +109,14 @@ impl S3Sink {
                             };
 
                             let result = s3sink.flush_buffer(&mut old_buffer).await;
+                            if result.is_ok() {
+                                last_healthcheck = Instant::now();
+                            }
                             drop(old_buffer.tx.send(result));
+                        }
+
+                        if last_healthcheck.elapsed() >= HEALTH_INTERVAL {
+                            s3sink.healthcheck().await;
                         }
                     }
                     _ = &mut shutdown_rx => {
@@ -142,6 +140,17 @@ impl S3Sink {
             liveness,
             shutdown: Some(shutdown_tx),
         })
+    }
+
+    async fn healthcheck(&self) {
+        // Verify bucket exists and is accessible
+        match self.client.head_bucket().bucket(&self.bucket).send().await {
+            Ok(_) => {
+                self.liveness.report_healthy().await;
+            }
+            Err(_) => {
+            }
+        };
     }
 
     async fn flush_buffer(&self, buffer: &mut EventBuffer) -> Result<(), CaptureError> {
