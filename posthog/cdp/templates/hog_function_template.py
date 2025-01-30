@@ -82,6 +82,11 @@ class HogFunctionTemplateMigrator:
 
 
 def derive_sub_templates(templates: list[HogFunctionTemplate]) -> list[HogFunctionTemplate]:
+    """
+    Given a list of templates, derive the sub templates from them.
+    Sub templates just override certain params of the parent template.
+    This allows the API to filter for templates based on a SubTemplateId such as ones designed for surveys.
+    """
     sub_templates = []
     for template in templates:
         for sub_template in template.sub_templates or []:
