@@ -1,4 +1,5 @@
-from typing import Any
+from math import floor
+from typing import Any, Optional, Union
 
 from posthog.hogql_queries.insights.trends.breakdown import (
     BREAKDOWN_NULL_DISPLAY,
@@ -6,7 +7,7 @@ from posthog.hogql_queries.insights.trends.breakdown import (
     BREAKDOWN_OTHER_DISPLAY,
     BREAKDOWN_OTHER_STRING_LABEL,
 )
-from posthog.schema import Compare
+from posthog.schema import AssistantFunnelsQuery, Compare, FunnelStepReference
 
 
 def _format_matrix(matrix: list[list[str]]) -> str:
@@ -25,6 +26,76 @@ def _format_number(value: Any) -> str:
         return f"{num:.5f}".rstrip("0")
     except ValueError:
         return str(value)
+
+
+def _format_percentage(value: float | int) -> str:
+    num = float(value) * 100
+    formatted = f"{num:.2f}".rstrip("0").rstrip(".")
+    return f"{formatted}%"
+
+
+def _format_duration(
+    d: Union[str, int, float, None],
+    max_units: Optional[int] = None,
+    seconds_precision: Optional[int] = None,
+    seconds_fixed: Optional[int] = None,
+) -> str:
+    """Convert seconds to a human-readable duration string.
+    Example: `1d 10hrs 9mins 8s`
+
+    Args:
+        d: Duration in seconds
+        max_units: Maximum number of units to display
+        seconds_precision: Precision for seconds (significant figures)
+        seconds_fixed: Fixed decimal places for seconds
+
+    Returns:
+        Human readable duration string
+    """
+    if not d or max_units == 0:
+        return ""
+
+    try:
+        d = float(d)
+    except (ValueError, TypeError):
+        return ""
+
+    if d < 0:
+        return f"-{_format_duration(-d, max_units, seconds_precision, seconds_fixed)}"
+
+    if d == 0:
+        return "0s"
+
+    if d < 1:
+        return f"{round(d * 1000)}ms"
+
+    if d < 60:
+        if seconds_precision is not None:
+            # Round to significant figures and strip trailing .0
+            return f"{float(f'%.{seconds_precision}g' % d):.0f}s".replace(".0s", "s")
+        # Round to fixed decimal places and strip trailing .0
+        fixed = seconds_fixed if seconds_fixed is not None else 0
+        return f"{float(f'%.{fixed}f' % d):.0f}s".replace(".0s", "s")
+
+    days = floor(d / 86400)
+    h = floor((d % 86400) / 3600)
+    m = floor((d % 3600) / 60)
+    s = round((d % 3600) % 60)
+
+    day_display = f"{days}d" if days > 0 else ""
+    h_display = f"{h}h" if h > 0 else ""
+    m_display = f"{m}m" if m > 0 else ""
+    s_display = f"{s}s" if s > 0 else ("0s" if not (h_display or m_display) else "")
+
+    if days > 0:
+        units = [u for u in [day_display, h_display] if u]
+    else:
+        units = [u for u in [h_display, m_display, s_display] if u]
+
+    if max_units is not None:
+        units = units[:max_units]
+
+    return " ".join(units)
 
 
 def _extract_series_label(series: dict) -> str:
@@ -100,9 +171,103 @@ def compress_and_format_trends_results(results: list[dict]) -> str:
     return _format_trends_results(results)
 
 
-def compress_and_format_funnels_results(results: list[dict]) -> str:
-    pass
+def _format_funnels_results(results: list[dict], conversion_type: FunnelStepReference) -> str:
+    matrix = [
+        ["Metric"],
+        ["Total person count"],
+        ["Conversion rate"],
+        ["Dropoff rate"],
+        ["Average conversion time"],
+        ["Median conversion time"],
+    ]
+
+    for idx, series in enumerate(results):
+        label = series.get("name")
+        if series.get("custom_name") is not None:
+            label = f"{label} {series['custom_name']}"
+        if series.get("breakdown_value") is not None:
+            breakdown_value = series["breakdown_value"]
+            if isinstance(breakdown_value, list):
+                breakdown_value = ", ".join(breakdown_value)
+            label = f"{label} {series['breakdown_value']} (breakdown)"
+
+        matrix[0].append(label)
+        matrix[1].append(series["count"])
+
+        this_step_count = series["count"]
+        first_step_count = matrix[1][1]
+        if idx == 0:
+            conversion_rate = "100%"
+            dropoff_rate = "0%"
+        elif conversion_type == FunnelStepReference.PREVIOUS:
+            conversion_rate = _format_percentage(this_step_count / matrix[1][idx])
+            dropoff_rate = _format_percentage((matrix[1][idx] - this_step_count) / matrix[1][idx])
+        else:
+            conversion_rate = _format_percentage(this_step_count / first_step_count)
+            dropoff_rate = _format_percentage((first_step_count - this_step_count) / first_step_count)
+
+        matrix[2].append(conversion_rate)
+        matrix[3].append(dropoff_rate)
+
+        matrix[4].append(
+            _format_duration(series["average_conversion_time"])
+            if series["average_conversion_time"] is not None
+            else "-"
+        )
+        matrix[5].append(
+            _format_duration(series["median_conversion_time"]) if series["median_conversion_time"] is not None else "-"
+        )
+
+    matrix[1] = [_format_number(cell) for cell in matrix[1]]
+
+    return _format_matrix(matrix)
 
 
-def compress_and_format_retention_results(results: list[dict]) -> str:
+def compress_and_format_funnels_results(query: AssistantFunnelsQuery, results: list[dict] | list[list[dict]]) -> str:
+    """
+    Compresses and formats funnels results into a LLM-friendly string.
+
+    Example answer:
+    ```
+    Date range
+    Metric|Label 1|Label 2
+    Total person count|value1|value2
+    Conversion rate|value1|value2
+    Drop-off rate|value1|value2
+    Average conversion time|value1|value2
+    Median conversion time|value1|value2
+
+    Conversion rates are relative to the previous steps.
+    ```
+    """
+    if len(results) == 0:
+        return "No data recorded for this time period."
+
+    conversion_type_hint = 'Conversion and drop-off rates are calculated in overall. For example, "Conversion rate: 9%" means that 9% of users from the first step completed the funnel.'
+    if query.funnelsFilter is not None and query.funnelsFilter.funnelStepReference == FunnelStepReference.PREVIOUS:
+        conversion_type_hint = "Conversion and drop-off rates are relative to the previous steps. For example, 'Conversion rate: 90%' means that 90% of users from the previous step completed the funnel."
+
+    return f"""
+    Date range: 2025-01-01 to 2025-01-21
+
+    ---AU
+    Metric|$pageview|$ai_span
+    Total person count|288|46
+    Conversion rate|100%|16.0%
+    Dropoff rate|0%|83.3%
+    Average conversion time|300s|6903s
+    Median conversion time|300s|7100s
+    ---US
+    Metric|$pageview|$ai_span
+    Total person count|288|46
+    Conversion rate|100%|16.0%
+    Dropoff rate|0%|83.3%
+    Average conversion time|300s|6903s
+    Median conversion time|300s|7100s
+
+    {conversion_type_hint}
+    """
+
+
+def compress_and_format_retention_results(query: AssistantFunnelsQuery, results: list[dict]) -> str:
     pass

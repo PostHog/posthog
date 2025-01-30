@@ -42,3 +42,17 @@ Date|$pageview|sign up
 2025-01-21|120|13
 ```
 """.strip()
+
+
+FUNNELS_EXAMPLE = """
+You'll be given a table with the results of a funnel query. Values are separated by the pipe character "|" and rows are separated by newlines. The first column is the metric name, and the rest are the values for each metric. The first row is the header row with series names received from the query. Rows can be separated by a line with "---" to indicate series with a breakdown. For example, "---control" indicates that the series is for the value "control".
+
+Example:
+```
+Metric|$pageview|sign up
+Total person count|100|50
+Conversion rate|100%|50%
+Dropoff rate|0%|50%
+Average conversion time|-|1d
+Median conversion time|-|1d
+""".strip()

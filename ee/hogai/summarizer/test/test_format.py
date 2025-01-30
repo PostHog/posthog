@@ -1,5 +1,11 @@
-from ee.hogai.summarizer.format import _extract_series_label, _format_number, compress_and_format_trends_results
-from posthog.schema import Compare
+from ee.hogai.summarizer.format import (
+    _extract_series_label,
+    _format_duration,
+    _format_funnels_results,
+    _format_number,
+    compress_and_format_trends_results,
+)
+from posthog.schema import Compare, FunnelStepReference
 from posthog.test.base import BaseTest
 
 
@@ -11,6 +17,12 @@ class TestFormat(BaseTest):
         self.assertEqual(_format_number(1.123456789), "1.12346")
         self.assertEqual(_format_number(1.123456789), "1.12346")
         self.assertEqual(_format_number(1.10000), "1.1")
+
+    def test_format_duration(self):
+        self.assertEqual(_format_duration(3661), "1h 1m 1s")
+        self.assertEqual(_format_duration(0.5), "500ms")
+        self.assertEqual(_format_duration(45, seconds_precision=2), "45s")
+        self.assertEqual(_format_duration(90000, max_units=2), "1d 1h")
 
     def test_trends_single_series(self):
         results = [
@@ -90,7 +102,7 @@ class TestFormat(BaseTest):
             "Previous period:\nDate|$pageview\n2025-01-20|242\n2025-01-21|46\n2025-01-22|0\n\nCurrent period:\nDate|$pageview\n2025-01-23|46\n2025-01-24|0\n2025-01-25|242",
         )
 
-    def test_empty_series(self):
+    def test_trends_empty_series(self):
         results = [
             {
                 "data": [242, 46, 0],
@@ -108,7 +120,7 @@ class TestFormat(BaseTest):
             "Date|$pageview\n2025-01-20|242\n2025-01-21|46\n2025-01-22|0",
         )
 
-    def test_breakdown_and_custom_name_label(self):
+    def test_trends_breakdown_and_custom_name_label(self):
         series = {
             "data": [242, 46, 0],
             "labels": ["20-Jan-2025", "21-Jan-2025", "22-Jan-2025"],
@@ -123,3 +135,45 @@ class TestFormat(BaseTest):
         self.assertEqual(_extract_series_label(series), "Custom Name (breakdown)")
         series.pop("action")
         self.assertEqual(_extract_series_label(series), "$pageview (breakdown)")
+
+    def test_funnels_single_series(self):
+        results = [
+            {
+                "action_id": "$pageview",
+                "name": "$pageview",
+                "custom_name": "custom",
+                "order": 0,
+                "people": [],
+                "count": 5,
+                "type": "events",
+                "average_conversion_time": None,
+                "median_conversion_time": None,
+            },
+            {
+                "action_id": "$pageview",
+                "name": "$pageview",
+                "custom_name": None,
+                "order": 1,
+                "people": [],
+                "count": 2,
+                "type": "events",
+                "average_conversion_time": 10,
+                "median_conversion_time": 11,
+            },
+            {
+                "action_id": "$pageview",
+                "name": "$pageview",
+                "custom_name": None,
+                "order": 2,
+                "people": [],
+                "count": 1,
+                "type": "events",
+                "average_conversion_time": 20,
+                "median_conversion_time": 22,
+            },
+        ]
+
+        self.assertEqual(
+            _format_funnels_results(results, FunnelStepReference.TOTAL),
+            "Metric|$pageview custom|$pageview|$pageview\nTotal person count|5|2|1\nConversion rate|100%|40%|20%\nDropoff rate|0%|60%|80%\nAverage conversion time|-|10s|20s\nMedian conversion time|-|11s|22s",
+        )

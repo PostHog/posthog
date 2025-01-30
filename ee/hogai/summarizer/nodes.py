@@ -15,7 +15,12 @@ from ee.hogai.summarizer.format import (
     compress_and_format_retention_results,
     compress_and_format_trends_results,
 )
-from ee.hogai.summarizer.prompts import SUMMARIZER_INSTRUCTION_PROMPT, SUMMARIZER_SYSTEM_PROMPT, TRENDS_EXAMPLE
+from ee.hogai.summarizer.prompts import (
+    FUNNELS_EXAMPLE,
+    SUMMARIZER_INSTRUCTION_PROMPT,
+    SUMMARIZER_SYSTEM_PROMPT,
+    TRENDS_EXAMPLE,
+)
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
 from posthog.api.services.query import process_query_dict
@@ -129,7 +134,7 @@ class SummarizerNode(AssistantNode):
         if isinstance(viz_message.answer, AssistantTrendsQuery):
             return compress_and_format_trends_results(results)
         elif isinstance(viz_message.answer, AssistantFunnelsQuery):
-            return compress_and_format_funnels_results(results)
+            return compress_and_format_funnels_results(viz_message.answer, results)
         elif isinstance(viz_message.answer, AssistantRetentionQuery):
             return compress_and_format_retention_results(results)
         raise NotImplementedError(f"Unsupported query type: {type(viz_message.answer)}")
@@ -137,4 +142,6 @@ class SummarizerNode(AssistantNode):
     def _get_example_prompt(self, viz_message: VisualizationMessage) -> str:
         if isinstance(viz_message.answer, AssistantTrendsQuery):
             return TRENDS_EXAMPLE
+        if isinstance(viz_message.answer, AssistantFunnelsQuery):
+            return FUNNELS_EXAMPLE
         raise NotImplementedError(f"Unsupported query type: {type(viz_message.answer)}")
