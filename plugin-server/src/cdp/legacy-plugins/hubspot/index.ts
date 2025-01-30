@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 
 import { LegacyPlugin, LegacyPluginMeta } from '../types'
