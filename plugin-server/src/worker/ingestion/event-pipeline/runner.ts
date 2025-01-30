@@ -12,6 +12,7 @@ import { normalizeProcessPerson } from '../../../utils/event'
 import { status } from '../../../utils/status'
 import { EventsProcessor } from '../process-event'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
+import { compareToHogTransformStep } from './compareToHogTransformStep'
 import { cookielessServerHashStep } from './cookielessServerHashStep'
 import { createEventStep } from './createEventStep'
 import { emitEventStep } from './emitEventStep'
@@ -232,6 +233,13 @@ export class EventPipelineRunner {
         }
 
         const processedEvent = await this.runStep(pluginsProcessEventStep, [this, postCookielessEvent], event.team_id)
+
+        await this.runStep(
+            compareToHogTransformStep,
+            [this.hogTransformer, postCookielessEvent, processedEvent],
+            event.team_id
+        )
+
         if (processedEvent == null) {
             // A plugin dropped the event.
             return this.registerLastStep('pluginsProcessEventStep', [postCookielessEvent], kafkaAcks)
