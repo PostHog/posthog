@@ -165,7 +165,7 @@ export function DeltaChart({
         return 0
     }
 
-    const BAR_HEIGHT = 8 + getScaleAddition(variants.length)
+    const BAR_HEIGHT = 10 + getScaleAddition(variants.length)
     const BAR_PADDING = 10 + getScaleAddition(variants.length)
     const TICK_PANEL_HEIGHT = 20
     const VIEW_BOX_WIDTH = 800
