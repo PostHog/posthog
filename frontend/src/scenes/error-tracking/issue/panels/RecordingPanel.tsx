@@ -23,15 +23,10 @@ const Content = (): JSX.Element => {
     )
 }
 
-const EmptyState = (): JSX.Element => {
-    return <div>Empty State</div>
-}
-
 export default {
     key: 'recording',
     Content,
     Header: 'Recording',
-    EmptyState,
     hasContent: ({ hasRecording }) => hasRecording,
     className: 'p-0',
 } as ErrorTrackingIssueEventsPanel

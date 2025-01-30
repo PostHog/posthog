@@ -17,10 +17,6 @@ const Content = (): JSX.Element => {
     return <ChainedStackTraces showAllFrames={hasAnyInApp ? showAllFrames : true} exceptionList={exceptionList} />
 }
 
-const EmptyState = (): JSX.Element => {
-    return <div>No stack trace</div>
-}
-
 const Header = ({ active }: { active: boolean }): JSX.Element => {
     const { issueProperties } = useValues(errorTrackingIssueSceneLogic)
     const { showAllFrames } = useValues(stackFrameLogic)
@@ -34,10 +30,7 @@ const Header = ({ active }: { active: boolean }): JSX.Element => {
             <span>Stack trace</span>
             {active && hasAnyInApp ? (
                 <LemonSegmentedButton
-                    onChange={(value, e) => {
-                        e.stopPropagation()
-                        setShowAllFrames(value === 'full')
-                    }}
+                    onChange={(value) => setShowAllFrames(value === 'full')}
                     value={showAllFrames ? 'full' : 'in-app'}
                     options={[
                         {
@@ -60,6 +53,5 @@ export default {
     key: 'stacktrace',
     Content,
     Header,
-    EmptyState,
     hasContent: ({ hasStack }) => hasStack,
 } as ErrorTrackingIssueEventsPanel
