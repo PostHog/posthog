@@ -7,6 +7,7 @@ from django.test.client import Client as HttpClient
 from rest_framework import status
 
 from posthog.api.test.batch_exports.conftest import start_test_worker
+from posthog.api.test.batch_exports.fixtures import create_organization
 from posthog.api.test.batch_exports.operations import (
     backfill_batch_export_ok,
     cancel_batch_export_run_ok,
@@ -15,19 +16,15 @@ from posthog.api.test.batch_exports.operations import (
     get_batch_export_runs,
     get_batch_export_runs_ok,
 )
-from posthog.api.test.batch_exports.fixtures import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.temporal.common.client import sync_connect
 
 pytestmark = [
     pytest.mark.django_db,
 ]
 
 
-def test_can_get_export_runs_for_your_organizations(client: HttpClient):
-    temporal = sync_connect()
-
+def test_can_get_export_runs_for_your_organizations(client: HttpClient, temporal):
     destination_data = {
         "type": "S3",
         "config": {
@@ -61,9 +58,7 @@ def test_can_get_export_runs_for_your_organizations(client: HttpClient):
         assert response.status_code == status.HTTP_200_OK, response.json()
 
 
-def test_cannot_get_exports_for_other_organizations(client: HttpClient):
-    temporal = sync_connect()
-
+def test_cannot_get_exports_for_other_organizations(client: HttpClient, temporal):
     destination_data = {
         "type": "S3",
         "config": {
@@ -101,13 +96,11 @@ def test_cannot_get_exports_for_other_organizations(client: HttpClient):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
 
-def test_batch_exports_are_partitioned_by_team(client: HttpClient):
+def test_batch_exports_are_partitioned_by_team(client: HttpClient, temporal):
     """
     You shouldn't be able to fetch a BatchExport by id, via a team that it
     doesn't belong to.
     """
-    temporal = sync_connect()
-
     destination_data = {
         "type": "S3",
         "config": {
@@ -175,10 +168,8 @@ async def wait_for_workflow_executions(
 
 @pytest.mark.skip("Flaky test failing")
 @pytest.mark.django_db(transaction=True)
-def test_cancelling_a_batch_export_run(client: HttpClient):
+def test_cancelling_a_batch_export_run(client: HttpClient, temporal):
     """Test cancelling a BatchExportRun."""
-    temporal = sync_connect()
-
     destination_data = {
         "type": "S3",
         "config": {
