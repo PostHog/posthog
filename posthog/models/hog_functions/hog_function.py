@@ -92,6 +92,7 @@ class HogFunction(UUIDModel):
     mappings = models.JSONField(null=True, blank=True)
     masking = models.JSONField(null=True, blank=True)
     template_id = models.CharField(max_length=400, null=True, blank=True)
+    execution_order = models.PositiveSmallIntegerField(null=True, blank=True)
 
     @property
     def template(self) -> Optional[HogFunctionTemplate]:

@@ -675,7 +675,10 @@ class Resolver(CloningVisitor):
                 new_node: ast.Expr = ast.Alias(alias=node.type.name, expr=new_expr, hidden=True)
 
                 if node.type.isolate_scope:
-                    self.scopes.append(ast.SelectQueryType(tables={node.type.name: node.type.table_type}))
+                    table_type = node.type.table_type
+                    while isinstance(table_type, ast.VirtualTableType):
+                        table_type = table_type.table_type
+                    self.scopes.append(ast.SelectQueryType(tables={node.type.name: table_type}))
 
                 new_node = self.visit(new_node)
 

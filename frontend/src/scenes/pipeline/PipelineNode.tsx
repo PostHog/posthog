@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -6,8 +6,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { useEffect } from 'react'
-import { dataWarehouseSourceSettingsLogic } from 'scenes/data-warehouse/settings/source/dataWarehouseSourceSettingsLogic'
 import { Schemas } from 'scenes/data-warehouse/settings/source/Schemas'
 import { SourceConfiguration } from 'scenes/data-warehouse/settings/source/SourceConfiguration'
 import { Syncs } from 'scenes/data-warehouse/settings/source/Syncs'
@@ -57,17 +55,7 @@ export const scene: SceneExport = {
 export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.Element {
     const { stage, id } = paramsToProps({ params })
     const { currentTab, node } = useValues(pipelineNodeLogic)
-    const { setBreadcrumbTitle } = useActions(pipelineNodeLogic)
-
-    const dataWarehouseLogic = dataWarehouseSourceSettingsLogic({ id: String(node.id) })
-    const { source } = useValues(dataWarehouseLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-
-    useEffect(() => {
-        if (source) {
-            setBreadcrumbTitle(`${source.source_type}${source.prefix.length > 0 ? ': ' : ''}${source.prefix}`)
-        }
-    }, [setBreadcrumbTitle, source])
 
     if (!stage) {
         return <NotFound object="pipeline stage" />
