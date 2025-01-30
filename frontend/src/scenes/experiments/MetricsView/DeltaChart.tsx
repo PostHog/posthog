@@ -481,7 +481,7 @@ export function DeltaChart({
                                                 <>
                                                     <defs>
                                                         <linearGradient
-                                                            id={`gradient-${variant.key}`}
+                                                            id={`gradient-${metricIndex}-${variant.key}`}
                                                             x1="0"
                                                             x2="1"
                                                             y1="0"
@@ -489,16 +489,17 @@ export function DeltaChart({
                                                         >
                                                             {lower < 0 && upper > 0 ? (
                                                                 <>
+                                                                    <stop offset="0%" stopColor={COLORS.BAR_NEGATIVE} />
                                                                     <stop
-                                                                        offset={`${
-                                                                            ((valueToX(0) - x1) / (x2 - x1)) * 100
-                                                                        }%`}
+                                                                        offset={`${(-lower / (upper - lower)) * 100}%`}
                                                                         stopColor={COLORS.BAR_NEGATIVE}
                                                                     />
                                                                     <stop
-                                                                        offset={`${
-                                                                            ((valueToX(0) - x1) / (x2 - x1)) * 100
-                                                                        }%`}
+                                                                        offset={`${(-lower / (upper - lower)) * 100}%`}
+                                                                        stopColor={COLORS.BAR_POSITIVE}
+                                                                    />
+                                                                    <stop
+                                                                        offset="100%"
                                                                         stopColor={COLORS.BAR_POSITIVE}
                                                                     />
                                                                 </>
@@ -516,7 +517,7 @@ export function DeltaChart({
                                                     </defs>
                                                     <path
                                                         d={generateViolinPath(x1, x2, y, BAR_HEIGHT, [])}
-                                                        fill={`url(#gradient-${variant.key})`}
+                                                        fill={`url(#gradient-${metricIndex}-${variant.key})`}
                                                     />
                                                 </>
                                             )}
