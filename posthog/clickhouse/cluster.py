@@ -107,6 +107,10 @@ class ClickhouseCluster:
         self.__logger = logger
         self.__client_settings = client_settings
 
+    @property
+    def shards(self) -> list[int]:
+        return list({host.shard_num for host in self.__hosts if host.shard_num is not None})
+
     def __get_task_function(self, host: HostInfo, fn: Callable[[Client], T]) -> Callable[[], T]:
         pool = self.__pools.get(host)
         if pool is None:
@@ -173,6 +177,8 @@ class ClickhouseCluster:
 
         shard_host_fn = {}
         for shard, fn in shard_fns.items():
+            if shard not in self.shards:
+                raise ValueError(f"Shard {shard} not found in cluster")
             for host in self.__hosts:
                 if host.shard_num == shard:
                     shard_host_fn[host] = fn
