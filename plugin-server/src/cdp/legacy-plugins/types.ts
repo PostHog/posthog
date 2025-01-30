@@ -9,10 +9,16 @@ export type LegacyPluginLogger = {
     error: (...args: any[]) => void
 }
 
-export type LegacyTransformationPluginMeta = {
+export type LegacyPluginMeta = {
     config: Record<string, any>
     global: Record<string, any>
     logger: LegacyPluginLogger
+}
+
+export type LegacyTransformationPluginMeta = LegacyPluginMeta & {
+    geoip: {
+        locate: (ipAddress: string) => Record<string, any>
+    }
 }
 
 export type LegacyDestinationPluginMeta = LegacyTransformationPluginMeta & {
