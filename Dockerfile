@@ -28,7 +28,7 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 # Install all build dpes
 COPY package.json pnpm-lock.yaml nx.json pnpm-workspace.yaml .npmrc project.json ./
 COPY common/ common/
-COPY patches/ patches/
+COPY frontend/patches/ frontend/patches/
 ENV PNPM_HOME /tmp/pnpm-store 
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
     corepack enable && pnpm --version && \
@@ -40,7 +40,7 @@ COPY products/ products/
 COPY ee/frontend/ ee/frontend/
 COPY bin/ bin/
 COPY babel.config.js tsconfig.json webpack.config.js tailwind.config.js ./
-RUN bin/nx build frontend --verbose
+RUN bin/turbo run build --filter=@posthog/frontend
 
 #
 # ---------------------------------------------------------
@@ -56,7 +56,7 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 # Compile and install Node.js dependencies.
 COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./plugin-server/project.json ./plugin-server/
 COPY ./plugin-server/patches/ ./plugin-server/patches/
-COPY ./patches/ ./patches/
+COPY ./frontend/patches/ ./frontend/patches/
 ENV PNPM_HOME /tmp/pnpm-store 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -84,7 +84,7 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
 # the cache hit ratio of the layers above.
 COPY ./plugin-server/src/ ./plugin-server/src/
 COPY ./plugin-server/tests/ ./plugin-server/tests/
-RUN bin/nx build plugin-server --verbose
+RUN bin/turbo run build --filter=@posthog/plugin-server
 
 # As the plugin-server is now built, let’s keep
 # only prod dependencies in the node_module folder

@@ -127,14 +127,14 @@ jobs:
               run: |
                   pnpm install --frozen-lockfile --filter @posthog/frontend --prod # Only doing it for nx to work
                   pnpm install --frozen-lockfile --filter @posthog/hogvm
-                  bin/nx test hogvm-ts --verbose
+                  bin/turbo run test --filter=@posthog/hogvm
 
             - name: Run Hog tests
               run: |
                   cd common/hogvm/typescript
                   pnpm run generate:stl
                   cd ../../..
-                  bin/nx build hogvm-ts --verbose
+                  bin/turbo run build --filter=@posthog/hogvm
                   cd common/hogvm
                   ./test.sh && git diff --exit-code
 

@@ -40,7 +40,7 @@ jobs:
             - name: Install dependencies and Chromatic
               run: |
                   pnpm install --frozen-lockfile --filter @posthog/frontend...
-                  bin/nx deps:build frontend --verbose
+                  bin/turbo run deps --filter=@posthog/frontend
                   pnpm i -D -w chromatic
 
             - name: Publish to Chromatic
@@ -120,7 +120,7 @@ jobs:
             - name: Build and install frontend build dependencies
               run: |
                   pnpm install --frozen-lockfile --filter @posthog/frontend...
-                  bin/nx deps:build frontend --verbose
+                  bin/turbo run deps --filter=@posthog/frontend
 
             - name: Install CI utilities with pnpm
               run: pnpm install http-server wait-on -g
