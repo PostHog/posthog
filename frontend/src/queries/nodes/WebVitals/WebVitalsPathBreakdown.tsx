@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { useMemo, useState } from 'react'
@@ -12,6 +12,7 @@ import {
     WebVitalsPathBreakdownQueryResponse,
 } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
+import { PropertyFilterType } from '~/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { computePositionInBand, getValueWithUnit, ICON_PER_BAND } from './definitions'
@@ -132,6 +133,7 @@ const Content = ({
     responseLoading: boolean
 }): JSX.Element => {
     const { webVitalsTab, isPathCleaningEnabled } = useValues(webAnalyticsLogic)
+    const { togglePropertyFilter } = useActions(webAnalyticsLogic)
 
     const values = response?.results[0][band]
     const threshold = WEB_VITALS_THRESHOLDS[webVitalsTab]
@@ -158,7 +160,13 @@ const Content = ({
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{ width, backgroundColor: 'var(--muted)', opacity: 0.5 }}
                                 />
-                                <span title={path} className="relative z-10 truncate mr-2 flex-1">
+                                <span
+                                    title={path}
+                                    className="relative z-10 truncate mr-2 flex-1 cursor-pointer hover:underline"
+                                    onClick={() => {
+                                        togglePropertyFilter(PropertyFilterType.Event, '$pathname', path)
+                                    }}
+                                >
                                     {isPathCleaningEnabled ? parseAliasToReadable(path) : path}
                                 </span>
                                 <span className="relative z-10 flex-shrink-0">
