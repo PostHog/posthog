@@ -1,10 +1,8 @@
 import datetime
-import json
 from time import sleep
 from uuid import uuid4
 
 from django.conf import settings
-from django.core.serializers.json import DjangoJSONEncoder
 from django.utils import timezone
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
@@ -12,6 +10,11 @@ from langchain_openai import ChatOpenAI
 from rest_framework.exceptions import APIException
 from sentry_sdk import capture_exception
 
+from ee.hogai.summarizer.format import (
+    compress_and_format_funnels_results,
+    compress_and_format_retention_results,
+    compress_and_format_trends_results,
+)
 from ee.hogai.summarizer.prompts import SUMMARIZER_INSTRUCTION_PROMPT, SUMMARIZER_SYSTEM_PROMPT
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
@@ -20,7 +23,15 @@ from posthog.clickhouse.client.execute_async import get_query_status
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.schema import AssistantMessage, FailureMessage, HumanMessage, VisualizationMessage
+from posthog.schema import (
+    AssistantFunnelsQuery,
+    AssistantMessage,
+    AssistantRetentionQuery,
+    AssistantTrendsQuery,
+    FailureMessage,
+    HumanMessage,
+    VisualizationMessage,
+)
 
 
 class SummarizerNode(AssistantNode):
@@ -74,7 +85,7 @@ class SummarizerNode(AssistantNode):
                 messages=[FailureMessage(content="There was an unknown error running this query.", id=str(uuid4()))]
             )
 
-        summarization_prompt = ChatPromptTemplate(self._construct_messages(state), template_format="mustache")
+        summarization_prompt = ChatPromptTemplate(self._construct_messages(state))
 
         chain = summarization_prompt | self._model
 
@@ -85,7 +96,7 @@ class SummarizerNode(AssistantNode):
             {
                 "query_kind": viz_message.answer.kind,
                 "core_memory": self.core_memory_text,
-                "results": json.dumps(results_response["results"], cls=DjangoJSONEncoder),
+                "results": self._compress_results(viz_message, results_response["results"]),
                 "utc_datetime_display": utc_now.strftime("%Y-%m-%d %H:%M:%S"),
                 "project_datetime_display": project_now.strftime("%Y-%m-%d %H:%M:%S"),
                 "project_timezone": self._team.timezone_info.tzname(utc_now),
@@ -112,3 +123,12 @@ class SummarizerNode(AssistantNode):
 
         conversation.append(("human", SUMMARIZER_INSTRUCTION_PROMPT))
         return conversation
+
+    def _compress_results(self, viz_message: VisualizationMessage, results: list[dict]) -> str:
+        if isinstance(viz_message.answer, AssistantTrendsQuery):
+            return compress_and_format_trends_results(results)
+        elif isinstance(viz_message.answer, AssistantFunnelsQuery):
+            return compress_and_format_funnels_results(results)
+        elif isinstance(viz_message.answer, AssistantRetentionQuery):
+            return compress_and_format_retention_results(results)
+        raise NotImplementedError(f"Unsupported query type: {type(viz_message.answer)}")
