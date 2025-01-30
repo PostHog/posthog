@@ -121,7 +121,8 @@ export class IngestionConsumer {
         await this.batchConsumer?.stop()
         status.info('🔁', `${this.name} - stopping kafka producer`)
         await this.kafkaProducer?.disconnect()
-
+        status.info('🔁', `${this.name} - stopping hog transformer`)
+        await this.hogTransformer.stop()
         status.info('👍', `${this.name} - stopped!`)
     }
 
@@ -187,6 +188,7 @@ export class IngestionConsumer {
                         event,
                     })
 
+                    // This contains the Kafka producer ACKs & message promises, to avoid blocking after every message.
                     result.ackPromises?.forEach((promise) => {
                         void this.scheduleWork(
                             promise.catch(async (error) => {

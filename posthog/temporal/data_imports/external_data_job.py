@@ -59,9 +59,21 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
         "failed: timeout expired",
         "SSL connection has been closed unexpectedly",
         "Address not in tenant allow_list",
+        "FATAL: no such database",
     ],
     ExternalDataSource.Type.ZENDESK: ["404 Client Error: Not Found for url", "403 Client Error: Forbidden for url"],
-    ExternalDataSource.Type.MYSQL: ["Can't connect to MySQL server on", "No primary key defined for table"],
+    ExternalDataSource.Type.MYSQL: [
+        "Can't connect to MySQL server on",
+        "No primary key defined for table",
+        "Access denied for user",
+    ],
+    ExternalDataSource.Type.SNOWFLAKE: [
+        "This account has been marked for decommission",
+        "404 Not Found",
+        "Your free trial has ended",
+    ],
+    ExternalDataSource.Type.CHARGEBEE: ["403 Client Error: Forbidden for url"],
+    ExternalDataSource.Type.HUBSPOT: ["missing or invalid refresh token"],
 }
 
 
