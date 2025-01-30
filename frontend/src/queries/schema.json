@@ -7755,7 +7755,7 @@
                     "$ref": "#/definitions/HogQLFilters"
                 },
                 "kind": {
-                    "const": "HogQLQuery",
+                    "const": "HogQLASTQuery",
                     "type": "string"
                 },
                 "modifiers": {
@@ -8026,14 +8026,7 @@
                     "description": "Modifiers used when performing the query"
                 },
                 "query": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "type": "object"
-                        }
-                    ]
+                    "type": "string"
                 },
                 "response": {
                     "$ref": "#/definitions/HogQLQueryResponse"

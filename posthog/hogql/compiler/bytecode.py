@@ -352,9 +352,12 @@ class BytecodeCompiler(Visitor):
             response.extend(if_null)
             return response
         if node.name == "sql" and len(node.args) == 1:
+            prev_mode = self.mode
             self.mode = "ast"
-            response = self.visit(node.args[0])
-            self.mode = "hog"
+            try:
+                response = self.visit(node.args[0])
+            finally:
+                self.mode = prev_mode
             return response
 
         # HogQL functions can have two sets of parameters: asd(args) or asd(params)(args)
@@ -894,9 +897,12 @@ class BytecodeCompiler(Visitor):
             if isinstance(value, ast.Placeholder):
                 if self.mode == "hog":
                     raise QueryError("Placeholders are not allowed in this context")
+                prev_mode = self.mode
                 self.mode = "hog"
-                response = self.visit(value.expr)
-                self.mode = "ast"
+                try:
+                    response = self.visit(value.expr)
+                finally:
+                    self.mode = prev_mode
                 return response
             return self._visit_hog_ast(value)
         if isinstance(value, StrEnum):
@@ -916,25 +922,31 @@ class BytecodeCompiler(Visitor):
     def visit_placeholder(self, node: ast.Placeholder):
         if self.mode == "ast":
             self.mode = "hog"
-            result = self.visit(node.expr)
-            self.mode = "ast"
+            try:
+                result = self.visit(node.expr)
+            finally:
+                self.mode = "ast"
             return result
         raise QueryError("Placeholders are not allowed in this context")
 
     def visit_select_query(self, node: ast.SelectQuery):
         # Select queries always takes us into "ast" mode
-        last_mode = self.mode
+        prev_mode = self.mode
         self.mode = "ast"
-        response = self._visit_hog_ast(node)
-        self.mode = last_mode
+        try:
+            response = self._visit_hog_ast(node)
+        finally:
+            self.mode = prev_mode
         return response
 
     def visit_select_set_query(self, node: ast.SelectSetQuery):
         # Select queries always takes us into "ast" mode
-        last_mode = self.mode
+        prev_mode = self.mode
         self.mode = "ast"
-        response = self._visit_hog_ast(node)
-        self.mode = last_mode
+        try:
+            response = self._visit_hog_ast(node)
+        finally:
+            self.mode = prev_mode
         return response
 
 

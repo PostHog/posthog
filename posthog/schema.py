@@ -6197,7 +6197,7 @@ class HogQLASTQuery(BaseModel):
     )
     explain: Optional[bool] = None
     filters: Optional[HogQLFilters] = None
-    kind: Literal["HogQLQuery"] = "HogQLQuery"
+    kind: Literal["HogQLASTQuery"] = "HogQLASTQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
@@ -6221,7 +6221,7 @@ class HogQLQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    query: Union[str, dict[str, Any]]
+    query: str
     response: Optional[HogQLQueryResponse] = None
     values: Optional[dict[str, Any]] = Field(
         default=None, description="Constant values that can be referenced with the {placeholder} syntax in the query"

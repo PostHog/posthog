@@ -153,9 +153,6 @@ export class HogQLPrinter {
                 return this.escapeValue(node)
             }
         }
-        if (!node) {
-            return ''
-        }
 
         this.stack.push(node)
         this.indentLevel += 1
@@ -328,7 +325,7 @@ export class HogQLPrinter {
             const windowExprs = node.get('window_exprs') as Map<string, ASTNode> | undefined
             if (windowExprs) {
                 const windowExpressions = Array.from(windowExprs.entries())
-                    .map(([name, expr]) => `${this.escapeIdentifier(name)} AS (${this.visit(expr)})`)
+                    .map(([name, expr]) => `${escapeIdentifier(name)} AS (${this.visit(expr)})`)
                     .join(comma)
                 if (windowExpressions) {
                     clauses.push(`WINDOW${space}${windowExpressions}`)
@@ -409,7 +406,7 @@ export class HogQLPrinter {
 
         // Add alias if present
         if (node.has('alias') && node.get('alias') !== initialTable) {
-            joinParts.push(`${initialTable} AS ${this.escapeIdentifier(node.get('alias'))}`)
+            joinParts.push(`${initialTable} AS ${escapeIdentifier(node.get('alias'))}`)
         } else {
             joinParts.push(initialTable)
         }
@@ -425,7 +422,7 @@ export class HogQLPrinter {
             // Add alias if present
             let tableWithAlias = table
             if (currentJoin.has('alias') && currentJoin.get('alias') !== table) {
-                tableWithAlias = `${table} AS ${this.escapeIdentifier(currentJoin.get('alias'))}`
+                tableWithAlias = `${table} AS ${escapeIdentifier(currentJoin.get('alias'))}`
             }
 
             joinParts.push(`${joinType} ${tableWithAlias} ${constraintClause}`.trim())
@@ -483,7 +480,7 @@ export class HogQLPrinter {
             expr = expr.get('expr')
         }
         const inside = this.visit(expr)
-        const alias = this.escapeIdentifier(node.get('alias') as string)
+        const alias = escapeIdentifier(node.get('alias') as string)
         return `${inside} AS ${alias}`
     }
 
@@ -595,7 +592,7 @@ export class HogQLPrinter {
         if (!args || args.length === 0) {
             throw new Error('Lambdas require at least one argument')
         }
-        const escapedArgs = args.map((arg) => this.escapeIdentifier(arg))
+        const escapedArgs = args.map((arg) => escapeIdentifier(arg))
         const argList = escapedArgs.length === 1 ? escapedArgs[0] : `(${escapedArgs.join(', ')})`
         return `${argList} -> ${this.visit(node.get('expr'))}`
     }
@@ -686,7 +683,7 @@ export class HogQLPrinter {
         if (node.has('over_expr')) {
             over = `(${this.visit(node.get('over_expr'))})`
         } else if (node.has('over_identifier')) {
-            over = this.escapeIdentifier(node.get('over_identifier') as string)
+            over = escapeIdentifier(node.get('over_identifier') as string)
         } else {
             over = '()'
         }
@@ -721,16 +718,11 @@ export class HogQLPrinter {
         return this.visit(node.get('left'))
     }
 
-    private escapeIdentifier(name: string): string {
-        // Implement identifier escaping as needed
-        return name
-    }
-
     private escapeIdentifierOrIndex(name: string | number): string {
         if (typeof name === 'number' && /^\d+$/.test(name.toString())) {
             return name.toString()
         }
-        return this.escapeIdentifier(name.toString())
+        return escapeIdentifier(name.toString())
     }
 
     private escapeValue(value: any): string {

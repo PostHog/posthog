@@ -611,18 +611,17 @@ class JavaScriptCompiler(Visitor):
             return result
         raise QueryError("Placeholders are not allowed in this context")
 
-    def visit_select_query(self, node: ast.SelectQuery):
+    def _visit_select_query(self, node: ast.SelectQuery | ast.SelectSetQuery) -> str:
         # Select queries always trigger "ast" mode
         last_mode = self.mode
         self.mode = "ast"
-        response = self._visit_hog_ast(node)
-        self.mode = last_mode
-        return response
+        try:
+            return self._visit_hog_ast(node)
+        finally:
+            self.mode = last_mode
+
+    def visit_select_query(self, node: ast.SelectQuery):
+        return self._visit_select_query(node)
 
     def visit_select_set_query(self, node: ast.SelectSetQuery):
-        # Select queries always trigger "ast" mode
-        last_mode = self.mode
-        self.mode = "ast"
-        response = self._visit_hog_ast(node)
-        self.mode = last_mode
-        return response
+        return self._visit_select_query(node)

@@ -216,7 +216,7 @@ class TestBytecode(BaseTest):
         self.assertEqual(
             to_bytecode("sql(1 + 1)"),
             [
-                "_H",
+                _H,
                 1,
                 op.STRING,
                 "__hx_ast",
