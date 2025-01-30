@@ -2,7 +2,6 @@ import json
 import os
 from unittest.mock import ANY, patch
 from inline_snapshot import snapshot
-import pytest
 from rest_framework import status
 
 from posthog.api.hog_function_template import HogFunctionTemplates
