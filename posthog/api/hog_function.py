@@ -275,8 +275,21 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
     def create(self, validated_data: dict, *args, **kwargs) -> HogFunction:
         request = self.context["request"]
         validated_data["created_by"] = request.user
-        hog_function = super().create(validated_data=validated_data)
 
+        # Set execution_order for transformation type
+        if validated_data.get("type") == "transformation":
+            # Get the highest execution_order for existing transformations
+            highest_order = (
+                HogFunction.objects.filter(team_id=validated_data["team"].id, type="transformation", deleted=False)
+                .order_by("-execution_order")
+                .values_list("execution_order", flat=True)
+                .first()
+            )
+
+            # Set to 1 if no existing transformations, otherwise increment by 1
+            validated_data["execution_order"] = (highest_order or 0) + 1
+
+        hog_function = super().create(validated_data=validated_data)
         return hog_function
 
     def update(self, instance: HogFunction, validated_data: dict, *args, **kwargs) -> HogFunction:
