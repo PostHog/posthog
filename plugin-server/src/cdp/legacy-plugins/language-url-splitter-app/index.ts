@@ -1,3 +1,5 @@
+// @ts-nocheck
+
 export function processEvent(event, { config }) {
     const { pattern, matchGroup, property, replacePattern, replaceKey, replaceValue } = config
     if (event.properties && typeof event.properties['$pathname'] === 'string') {

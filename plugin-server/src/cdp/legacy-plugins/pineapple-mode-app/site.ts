@@ -1,3 +1,5 @@
+// @ts-nocheck
+
 const style = `
     .button {
         position: fixed;

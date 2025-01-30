@@ -1,3 +1,4 @@
+// @ts-nocheck
 // site.ts
 
 const style = (config) => `

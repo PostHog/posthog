@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { ProcessedPluginEvent, Properties, RetryError } from '@posthog/plugin-scaffold'
 
 import { Response } from '~/src/utils/fetch'

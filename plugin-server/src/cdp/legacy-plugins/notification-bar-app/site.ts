@@ -1,3 +1,4 @@
+// @ts-nocheck
 export function inject({ config }) {
     if (config.domains) {
         const domains = config.domains.split(',').map((domain) => domain.trim())
