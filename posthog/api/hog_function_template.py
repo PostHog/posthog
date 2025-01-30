@@ -47,7 +47,7 @@ class HogFunctionTemplateSerializer(DataclassSerializer):
 
 
 class HogFunctionTemplates:
-    _cached_at: datetime | None = None
+    _cache_until: datetime | None = None
     _cached_templates: list[HogFunctionTemplate] = []
     _cached_templates_by_id: dict[str, HogFunctionTemplate] = {}
     _cached_sub_templates: list[HogFunctionTemplate] = []
@@ -70,28 +70,38 @@ class HogFunctionTemplates:
 
     @classmethod
     def _load_templates(cls):
-        if cls._cached_at and datetime.now() - cls._cached_at < timedelta(minutes=1):
+        if cls._cache_until and datetime.now() < cls._cache_until:
             return
 
         # First we load and convert all nodejs templates to python templates
-        response = get_hog_function_templates()
-        if response.status_code != 200:
-            raise Exception("Failed to fetch hog function templates")
-
-        nodejs_templates_json = response.json()
         nodejs_templates: list[HogFunctionTemplate] = []
-        for template_data in nodejs_templates_json:
-            try:
-                serializer = HogFunctionTemplateSerializer(data=template_data)
-                serializer.is_valid(raise_exception=True)
-                template = serializer.save()
-                nodejs_templates.append(template)
-            except Exception as e:
-                logger.error(
-                    "Failed to convert template", template_id=template_data.get("id"), error=str(e), exc_info=True
-                )
-                capture_exception(e)
-                raise
+
+        try:
+            response = get_hog_function_templates()
+
+            if response.status_code != 200:
+                raise Exception("Failed to fetch hog function templates from the node service")
+
+            nodejs_templates_json = response.json()
+            nodejs_templates: list[HogFunctionTemplate] = []
+            for template_data in nodejs_templates_json:
+                try:
+                    serializer = HogFunctionTemplateSerializer(data=template_data)
+                    serializer.is_valid(raise_exception=True)
+                    template = serializer.save()
+                    nodejs_templates.append(template)
+                except Exception as e:
+                    logger.error(
+                        "Failed to convert template",
+                        template_id=template_data.get("id"),
+                        error=str(e),
+                        exc_info=True,
+                    )
+                    capture_exception(e)
+                    raise
+        except Exception as e:
+            capture_exception(e)
+            # Continue on so as not to block the user
 
         templates = [
             *HOG_FUNCTION_TEMPLATES,
@@ -99,7 +109,9 @@ class HogFunctionTemplates:
         ]
         sub_templates = derive_sub_templates(templates=templates)
 
-        cls._cached_at = datetime.now()
+        # If we failed to get the templates, we cache for 30 seconds to avoid hammering the node service
+        # If we got the templates, we cache for 5 minutes as these change infrequently
+        cls._cache_until = datetime.now() + timedelta(seconds=30 if not nodejs_templates else 300)
         cls._cached_templates = templates
         cls._cached_sub_templates = sub_templates
         cls._cached_templates_by_id = {template.id: template for template in templates}
