@@ -188,10 +188,12 @@ class Migration(migrations.Migration):
                     """
                     ALTER TABLE "posthog_taggeditem" DROP CONSTRAINT IF EXISTS "posthog_taggeditem_tag_id_dashboard_id_insi_a13e3a20_uniq";
                     """,
+                    # Intentially swapped with below because these three statements go together.
                     reverse_sql="""
-                        ALTER TABLE "posthog_taggeditem" DROP CONSTRAINT IF EXISTS "posthog_taggeditem_tag_id_dashboard_id_insi_734394e1_uniq";
+                        ALTER TABLE "posthog_taggeditem" ADD CONSTRAINT "posthog_taggeditem_tag_id_dashboard_id_insi_a13e3a20_uniq" UNIQUE USING INDEX "posthog_taggeditem_tag_id_dashboard_id_insi_a13e3a20_uniq"; -- existing-table-constraint-ignore
                     """,
                 ),
+                # This statement doesn't need to be reversed because it's always the middle of the three statements.
                 migrations.RunSQL(
                     """
                     CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "posthog_taggeditem_tag_id_dashboard_id_insi_734394e1_uniq" ON "posthog_taggeditem" ("tag_id", "dashboard_id", "insight_id", "event_definition_id", "property_definition_id", "action_id", "feature_flag_id", "experiment_saved_metric_id");
@@ -204,8 +206,9 @@ class Migration(migrations.Migration):
                     """
                     ALTER TABLE "posthog_taggeditem" ADD CONSTRAINT "posthog_taggeditem_tag_id_dashboard_id_insi_734394e1_uniq" UNIQUE USING INDEX "posthog_taggeditem_tag_id_dashboard_id_insi_734394e1_uniq"; -- existing-table-constraint-ignore
                     """,
+                    # Intentially swapped with above because these three statements go together.
                     reverse_sql="""
-                        ALTER TABLE "posthog_taggeditem" ADD CONSTRAINT "posthog_taggeditem_tag_id_dashboard_id_insi_a13e3a20_uniq" UNIQUE USING INDEX "posthog_taggeditem_tag_id_dashboard_id_insi_a13e3a20_uniq"; -- existing-table-constraint-ignore
+                        ALTER TABLE "posthog_taggeditem" DROP CONSTRAINT IF EXISTS "posthog_taggeditem_tag_id_dashboard_id_insi_734394e1_uniq";
                     """,
                 ),
             ],
