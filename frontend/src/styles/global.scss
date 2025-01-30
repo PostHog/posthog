@@ -379,28 +379,7 @@ $xxl: 1600px;
     --shadow-elevation-3000: 0 3px 0 light-dark(var(--border-3000-light), var(--border-3000-dark));
 
     // The derived colors
-    // `--default` is a pre-3000 alias for "default text color" (`--text-3000` now)
-    --default: var(--default);
-
-    // --text-3000: var(--text-3000);
-    // --text-secondary-3000: var(--text-secondary-3000);
-    // --muted-3000: var(--muted-3000);
-    // --primary-3000: var(--accent-primary);
-    // --secondary-3000: var(--secondary-3000);
-    // --secondary-3000-hover: var(--secondary-3000-hover);
-    // --accent-3000: light-dark(var(--accent-3000-light), var(--accent-3000-dark));
-    // --bg-3000: var(--bg-primary);
     --primary-highlight: light-dark(var(--primary-highlight-light), var(--primary-highlight-dark));
-
-    // --primary-alt-highlight: var(--primary-alt-highlight);
-    // --primary-alt: var(--primary-alt);
-
-    // --primary: var(--primary-3000); // Changed to accent-primary
-    // --muted: var(--muted-3000);
-    // --default: var(--text-3000);
-
-    // `--muted-alt` can be removed now, as it's the same as `--muted` after the 3000 redesign
-    // --muted-alt: var(--muted-3000);
     --primary-alt: var(--text-3000);
     --border: var(--border-primary);
     --border-bold: var(--border-bold-3000);
@@ -1123,6 +1102,10 @@ $xxl: 1600px;
     ::backdrop,
     ::file-selector-button {
         border-color: var(--border-primary, currentColor);
+    }
+
+    .rendering-pixelated {
+        image-rendering: pixelated;
     }
 
     input[type='text'] {

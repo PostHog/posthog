@@ -29,7 +29,6 @@ const colorGroups = {
 }
 
 const preThousand = [
-    'bg-primary-highlight',
     'bg-primary',
     'bg-danger-highlight',
     'bg-danger-lighter',
@@ -60,11 +59,9 @@ const preThousand = [
     'bg-brand-red',
     'bg-brand-yellow',
     'bg-brand-key',
-    'bg-test-test',
 ]
 
 const threeThousand = [
-    ['bg-primary', 'bg-accent-primary'],
     ['bg-danger-highlight', 'bg-red-500'],
     ['bg-danger-lighter', 'bg-red-500'],
     ['bg-danger-light', 'bg-red-500'],
@@ -82,7 +79,6 @@ const threeThousand = [
     ['bg-muted-alt', 'bg-red-500'],
     ['bg-mark', 'bg-red-500'],
     ['bg-white', 'bg-red-500'],
-    ['bg-surface-primary', 'bg-red-500'],
     ['bg-side', 'bg-red-500'],
     ['bg-mid', 'bg-red-500'],
     ['bg-border', 'bg-red-500'],
@@ -108,7 +104,6 @@ const threeThousand = [
 
     ['bg-secondary-3000-light', 'bg-red-500'],
     ['bg-secondary-3000-hover-light', 'bg-red-500'],
-    ['bg-surface-primary-light', 'bg-red-500'],
     ['bg-primary-light', 'bg-red-500'],
     ['bg-border-3000-light', 'bg-red-500'],
     ['bg-border-bold-3000-light', 'bg-red-500'],
@@ -130,33 +125,18 @@ const threeThousand = [
     ['bg-danger-3000-button-border-light', 'bg-red-500'],
     ['bg-danger-3000-button-border-hover-light', 'bg-red-500'],
 
-    // ['bg-shadow-elevation-3000-light', 'bg-red-500'],
-    // ['bg-shadow-elevation-3000-dark', 'bg-red-500'],
     ['bg-text-3000-dark', 'bg-red-500'],
     ['bg-text-secondary-3000-dark', 'bg-red-500'],
     ['bg-muted-3000-dark', 'bg-red-500'],
     ['bg-trace-3000-dark', 'bg-red-500'],
-    ['bg-primary-3000-dark', 'bg-red-500'],
-    ['bg-primary-highlight-dark', 'bg-red-500'],
-    ['bg-primary-3000-hover-dark', 'bg-red-500'],
-    ['bg-primary-3000-active-dark', 'bg-red-500'],
-    ['bg-primary-alt-highlight-light', 'bg-red-500'],
 
     ['bg-secondary-3000-dark', 'bg-red-500'],
     ['bg-secondary-3000-hover-dark', 'bg-red-500'],
-    ['bg-surface-primary-dark', 'bg-red-500'],
-    ['bg-primary-dark', 'bg-red-500'],
     ['bg-border-3000-dark', 'bg-red-500'],
     ['bg-border-bold-3000-dark', 'bg-red-500'],
     ['bg-glass-bg-3000-dark', 'bg-red-500'],
     ['bg-glass-border-3000-dark', 'bg-red-500'],
     ['bg-link-3000-dark', 'bg-red-500'],
-
-    ['bg-primary-3000-frame-bg-dark', 'bg-red-500'],
-    ['bg-primary-3000-button-bg-dark', 'bg-red-500'],
-    ['bg-primary-3000-button-border-dark', 'bg-red-500'],
-    ['bg-primary-3000-button-border-hover-dark', 'bg-red-500'],
-    ['bg-primary-alt-highlight-dark', 'bg-red-500'],
 
     ['bg-secondary-3000-frame-bg-dark', 'bg-red-500'],
     ['bg-secondary-3000-button-bg-dark', 'bg-red-500'],
@@ -176,11 +156,6 @@ const threeThousand = [
     ['bg-primary-3000', 'bg-red-500'],
     ['bg-secondary-3000', 'bg-red-500'],
     ['bg-secondary-3000-hover', 'bg-red-500'],
-    ['bg-surface-primary', 'bg-red-500'],
-    ['bg-primary', 'bg-red-500'],
-    ['bg-primary-highlight', 'bg-red-500'],
-    ['bg-primary-alt-highlight', 'bg-red-500'],
-    ['bg-primary-alt', 'bg-red-500'],
 ]
 
 const dataColors = [
@@ -251,7 +226,7 @@ export function AllPreThousandColorOptions(): JSX.Element {
                         return (
                             <div className="relative h-8 w-8">
                                 <div className={`${color as string} absolute inset-0 border rounded z-20`} />
-                                <div className="absolute inset-0 flex items-center justify-center z-10">❌</div>
+                                <div className="absolute inset-0 flex items-center justify-center z-10">🦔</div>
                             </div>
                         )
                     },
