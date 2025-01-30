@@ -1,0 +1,95 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'customerio-plugin', plugin: [Object] } 1`] = `
+[
+  "Executing plugin customerio-plugin",
+  "Successfully authenticated with Customer.io. Completing setupPlugin.",
+  "Detected email:, test@posthog.com",
+  "{"status":{},"email":"test@posthog.com"}",
+  "Should customer be tracked:, true",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'posthog-intercom-plugin', plugin: [Object] } 1`] = `
+[
+  "Executing plugin posthog-intercom-plugin",
+  "Contact test@posthog.com in Intercom not found",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: {
+  name: 'posthog-app-url-parameters-to-event-properties',
+  plugin: [Object]
+} 1`] = `
+[
+  "Executing plugin posthog-app-url-parameters-to-event-properties",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'downsampling-plugin', plugin: [Object] } 1`] = `
+[
+  "Executing plugin downsampling-plugin",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'language-url-splitter-app', plugin: [Object] } 1`] = `
+[
+  "Executing plugin language-url-splitter-app",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'posthog-filter-out-plugin', plugin: [Object] } 1`] = `
+[
+  "Executing plugin posthog-filter-out-plugin",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'posthog-url-normalizer-plugin', plugin: [Object] } 1`] = `
+[
+  "Executing plugin posthog-url-normalizer-plugin",
+  "event.$current_url: "https://posthog.com" normalized to "https://posthog.com/"",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'property-filter-plugin', plugin: [Object] } 1`] = `
+[
+  "Executing plugin property-filter-plugin",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'semver-flattener-plugin', plugin: [Object] } 1`] = `
+[
+  "Executing plugin semver-flattener-plugin",
+  "found candidate property: , test,  matches , ",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'taxonomy-plugin', plugin: [Object] } 1`] = `
+[
+  "Executing plugin taxonomy-plugin",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'timestamp-parser-plugin', plugin: [Object] } 1`] = `
+[
+  "Executing plugin timestamp-parser-plugin",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'user-agent-plugin', plugin: [Object] } 1`] = `
+[
+  "Executing plugin user-agent-plugin",
+  "Execution successful",
+]
+`;

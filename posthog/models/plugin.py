@@ -274,6 +274,18 @@ class PluginAttachment(models.Model):
     file_size = models.IntegerField()
     contents = models.BinaryField()
 
+    def parse_contents(self) -> str | None:
+        contents: bytes | None = self.contents
+        if not contents:
+            return None
+
+        try:
+            if self.content_type == "application/json" or self.content_type == "text/plain":
+                return contents.decode("utf-8")
+            return None
+        except Exception:
+            return None
+
 
 class PluginStorage(models.Model):
     plugin_config = models.ForeignKey("PluginConfig", on_delete=models.CASCADE)
@@ -310,7 +322,7 @@ class TranspilerError(Exception):
 def transpile(input_string: str, type: Literal["site", "frontend"] = "site") -> Optional[str]:
     from posthog.settings.base_variables import BASE_DIR
 
-    transpiler_path = os.path.join(BASE_DIR, "plugin-transpiler/dist/index.js")
+    transpiler_path = os.path.join(BASE_DIR, "common/plugin_transpiler/dist/index.js")
     if type not in ["site", "frontend"]:
         raise Exception('Invalid type. Must be "site" or "frontend".')
 
@@ -510,7 +522,7 @@ def fetch_plugin_log_entries(
         clickhouse_kwargs["types"] = type_filter
     clickhouse_query = f"""
         SELECT id, team_id, plugin_id, plugin_config_id, timestamp, source, type, message, instance_id FROM plugin_log_entries
-        WHERE {' AND '.join(clickhouse_where_parts)} ORDER BY timestamp DESC {f'LIMIT {limit}' if limit else ''}
+        WHERE {" AND ".join(clickhouse_where_parts)} ORDER BY timestamp DESC {f"LIMIT {limit}" if limit else ""}
     """
     return [PluginLogEntry(*result) for result in cast(list, sync_execute(clickhouse_query, clickhouse_kwargs))]
 

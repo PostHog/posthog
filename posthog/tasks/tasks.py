@@ -850,9 +850,9 @@ def send_org_usage_reports() -> None:
 @shared_task(ignore_result=True)
 def update_quota_limiting() -> None:
     try:
-        from ee.billing.quota_limiting import update_all_org_billing_quotas
+        from ee.billing.quota_limiting import update_all_orgs_billing_quotas
 
-        update_all_org_billing_quotas()
+        update_all_orgs_billing_quotas()
     except ImportError:
         pass
 

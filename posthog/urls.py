@@ -40,7 +40,7 @@ from posthog.api import (
 )
 from .api.web_experiment import web_experiments
 from .api.utils import hostname_in_allowed_url_list
-from posthog.api.early_access_feature import early_access_features
+from products.early_access_features.backend.api import early_access_features
 from posthog.api.survey import surveys
 from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.demo.legacy import demo_route
@@ -58,6 +58,7 @@ from .views import (
     stats,
 )
 from .year_in_posthog import year_in_posthog
+from posthog.api.query import query_awaited
 
 logger = structlog.get_logger(__name__)
 
@@ -171,6 +172,7 @@ urlpatterns = [
     # ee
     *ee_urlpatterns,
     # api
+    path("api/environments/<int:team_id>/query_awaited/", query_awaited),
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/", include(router.urls)),
     path("", include(tf_urls)),

@@ -13,9 +13,11 @@ import {
     sharedListeners,
 } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
-import { DashboardPrivilegeLevel, OrganizationMembershipLevel } from 'lib/constants'
+import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
+import { DashboardPrivilegeLevel, FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
 import { currentSessionId, TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -38,6 +40,7 @@ import { Variable } from '~/queries/nodes/DataVisualization/types'
 import { getQueryBasedDashboard, getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { pollForResults } from '~/queries/query'
 import {
+    BreakdownFilter,
     DashboardFilter,
     DataVisualizationNode,
     HogQLVariable,
@@ -45,6 +48,7 @@ import {
     RefreshType,
 } from '~/queries/schema/schema-general'
 import {
+    AccessControlResourceType,
     ActivityScope,
     AnyPropertyFilter,
     Breadcrumb,
@@ -214,6 +218,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             date_to,
         }),
         setProperties: (properties: AnyPropertyFilter[] | null) => ({ properties }),
+        setBreakdownFilter: (breakdown_filter: BreakdownFilter | null) => ({ breakdown_filter }),
         setFiltersAndLayoutsAndVariables: (filters: DashboardFilter, variables: Record<string, HogQLVariable>) => ({
             filters,
             variables,
@@ -257,6 +262,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         }),
         resetVariables: () => ({ variables: values.insightVariables }),
         setAccessDeniedToDashboard: true,
+        setURLVariables: (variables: Record<string, Partial<HogQLVariable>>) => ({ variables }),
     })),
 
     loaders(({ actions, props, values }) => ({
@@ -491,6 +497,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         : state,
             },
         ],
+        urlVariables: [
+            {} as Record<string, Partial<HogQLVariable>>,
+            {
+                setURLVariables: (state, { variables }) => ({
+                    ...state,
+                    ...variables,
+                }),
+            },
+        ],
         insightVariables: [
             {} as Record<string, HogQLVariable>,
             {
@@ -513,6 +528,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 date_from: null,
                 date_to: null,
                 properties: null,
+                breakdown_filter: null,
             } as DashboardFilter,
             {
                 setDates: (state, { date_from, date_to }) => ({
@@ -524,6 +540,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     ...state,
                     properties: properties || null,
                 }),
+                setBreakdownFilter: (state, { breakdown_filter }) => ({
+                    ...state,
+                    breakdown_filter: breakdown_filter || null,
+                }),
                 loadDashboardSuccess: (state, { dashboard }) =>
                     dashboard
                         ? {
@@ -531,6 +551,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                               date_from: dashboard?.filters.date_from || null,
                               date_to: dashboard?.filters.date_to || null,
                               properties: dashboard?.filters.properties || [],
+                              breakdown_filter: dashboard?.filters.breakdown_filter || null,
                           }
                         : state,
             },
@@ -540,6 +561,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 date_from: null,
                 date_to: null,
                 properties: null,
+                breakdown_filter: null,
             } as DashboardFilter,
             {
                 setFiltersAndLayoutsAndVariables: (state, { filters }) => ({
@@ -557,6 +579,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                         date_from: dashboard?.filters.date_from || null,
                                         date_to: dashboard?.filters.date_to || null,
                                         properties: dashboard?.filters.properties || [],
+                                        breakdown_filter: dashboard?.filters.breakdown_filter || null,
                                     }),
                           }
                         : state,
@@ -935,8 +958,19 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         canEditDashboard: [
-            (s) => [s.dashboard],
-            (dashboard) => !!dashboard && dashboard.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit,
+            (s) => [s.dashboard, s.featureFlags],
+            (dashboard, featureFlags) => {
+                if (featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS_CONTROL]) {
+                    return dashboard?.user_access_level
+                        ? accessLevelSatisfied(
+                              AccessControlResourceType.Dashboard,
+                              dashboard.user_access_level,
+                              'editor'
+                          )
+                        : true
+                }
+                return !!dashboard && dashboard.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
+            },
         ],
         canRestrictDashboard: [
             // Sync conditions with backend can_user_restrict
@@ -981,8 +1015,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         breadcrumbs: [
-            (s) => [s.dashboard, s._dashboardLoading, s.dashboardFailedToLoad],
-            (dashboard, dashboardLoading, dashboardFailedToLoad): Breadcrumb[] => [
+            (s) => [s.dashboard, s._dashboardLoading, s.dashboardFailedToLoad, s.canEditDashboard],
+            (dashboard, dashboardLoading, dashboardFailedToLoad, canEditDashboard): Breadcrumb[] => [
                 {
                     key: Scene.Dashboards,
                     name: 'Dashboards',
@@ -997,15 +1031,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         : !dashboardLoading
                         ? 'Not found'
                         : null,
-                    onRename: async (name) => {
-                        if (dashboard) {
-                            await dashboardsModel.asyncActions.updateDashboard({
-                                id: dashboard.id,
-                                name,
-                                allowUndo: true,
-                            })
-                        }
-                    },
+                    onRename: canEditDashboard
+                        ? async (name) => {
+                              if (dashboard) {
+                                  await dashboardsModel.asyncActions.updateDashboard({
+                                      id: dashboard.id,
+                                      name,
+                                      allowUndo: true,
+                                  })
+                              }
+                          }
+                        : undefined,
                 },
             ],
         ],
@@ -1341,6 +1377,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     // reset filters to that before previewing
                     actions.setDates(values.filters.date_from ?? null, values.filters.date_to ?? null)
                     actions.setProperties(values.filters.properties ?? null)
+                    actions.setBreakdownFilter(values.filters.breakdown_filter ?? null)
                     actions.resetVariables()
 
                     // also reset layout to that we stored in dashboardLayouts
@@ -1444,9 +1481,50 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setDates: () => {
             actions.loadDashboard({ action: 'preview' })
         },
+        setBreakdownFilter: () => {
+            actions.loadDashboard({ action: 'preview' })
+        },
         overrideVariableValue: () => {
             actions.setDashboardMode(DashboardMode.Edit, null)
             actions.loadDashboard({ action: 'preview' })
+        },
+    })),
+
+    subscriptions(({ values, actions }) => ({
+        variables: (variables) => {
+            // try to convert url variables to variables
+            const urlVariables = values.urlVariables
+
+            for (const [key, value] of Object.entries(urlVariables)) {
+                const variable = variables.find((variable: HogQLVariable) => variable.code_name === key)
+                if (variable) {
+                    actions.overrideVariableValue(variable.id, value)
+                }
+            }
+        },
+    })),
+
+    actionToUrl(({ values }) => ({
+        overrideVariableValue: ({ variableId, value, allVariables }) => {
+            const { currentLocation } = router.values
+
+            const currentVariable = allVariables.find((variable: Variable) => variable.id === variableId)
+
+            if (!currentVariable) {
+                return [currentLocation.pathname, currentLocation.searchParams, currentLocation.hashParams]
+            }
+
+            const newUrlVariables = {
+                ...values.urlVariables,
+                [currentVariable.code_name]: value,
+            }
+
+            const newSearchParams = {
+                ...currentLocation.searchParams,
+                ...encodeURLVariables(newUrlVariables),
+            }
+
+            return [currentLocation.pathname, newSearchParams, currentLocation.hashParams]
         },
     })),
 
@@ -1462,7 +1540,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.setDashboardMode(null, null)
         },
 
-        '/dashboard/:id': () => {
+        '/dashboard/:id': (_, searchParams) => {
+            if (values.featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES]) {
+                const variables = parseURLVariables(searchParams)
+                actions.setURLVariables(variables)
+            }
             actions.setSubscriptionMode(false, undefined)
             actions.setTextTileId(null)
             if (values.dashboardMode === DashboardMode.Sharing) {
@@ -1481,3 +1563,31 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
 ])
+
+// URL can have a "query_variables" param that contains a JSON object of variables
+// we need to parse this and set the variables
+
+const parseURLVariables = (searchParams: Record<string, any>): Record<string, Partial<HogQLVariable>> => {
+    const variables: Record<string, Partial<HogQLVariable>> = {}
+
+    if (searchParams.query_variables) {
+        try {
+            const parsedVariables = JSON.parse(searchParams.query_variables)
+            Object.assign(variables, parsedVariables)
+        } catch (e) {
+            console.error('Failed to parse query_variables from URL:', e)
+        }
+    }
+
+    return variables
+}
+
+const encodeURLVariables = (variables: Record<string, string>): Record<string, string> => {
+    const encodedVariables: Record<string, string> = {}
+
+    if (Object.keys(variables).length > 0) {
+        encodedVariables.query_variables = JSON.stringify(variables)
+    }
+
+    return encodedVariables
+}

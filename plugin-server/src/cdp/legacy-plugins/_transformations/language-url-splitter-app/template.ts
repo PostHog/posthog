@@ -1,0 +1,62 @@
+import { HogFunctionTemplate } from '~/src/cdp/templates/types'
+
+export const template: HogFunctionTemplate = {
+    status: 'alpha',
+    type: 'transformation',
+    id: 'plugin-language-url-splitter-app',
+    name: 'Language URL splitter',
+    description: 'Splits the language from the URL',
+    icon_url: 'https://raw.githubusercontent.com/posthog/language-url-splitter-app/main/logo.png',
+    category: ['Transformation'],
+    hog: `return event`,
+    inputs_schema: [
+        {
+            key: 'pattern',
+            label: 'Pattern',
+            type: 'string',
+            default: '^/([a-z]{2})(?=/|#|\\?|$)',
+            description: 'Ininitalized with `const regexp = new RegExp($pattern)`',
+            required: true,
+        },
+        {
+            key: 'matchGroup',
+            label: 'Match group',
+            type: 'string',
+            default: '1',
+            description: 'Used in: `const value = regexp.match($pathname)[$matchGroup]`',
+            required: true,
+        },
+        {
+            key: 'property',
+            label: 'Property',
+            type: 'string',
+            default: 'locale',
+            description: 'Name of the event property we will store the matched value in',
+            required: true,
+        },
+        {
+            key: 'replacePattern',
+            label: 'Replacement pattern',
+            type: 'string',
+            default: '^(/[a-z]{2})(/|(?=/|#|\\?|$))',
+            description: 'Initialized with `new RegExp($pattern)`, leave empty to disable path cleanup.',
+            required: true,
+        },
+        {
+            key: 'replaceKey',
+            label: 'Replacement key',
+            type: 'string',
+            default: '$pathname',
+            description: 'Where to store the updated path. Keep as `$pathname` to override.',
+            required: true,
+        },
+        {
+            key: 'replaceValue',
+            label: 'Replacement value',
+            type: 'string',
+            default: '/',
+            description: '`properties[key] = $pathname.replace(pattern, value)`',
+            required: true,
+        },
+    ],
+}

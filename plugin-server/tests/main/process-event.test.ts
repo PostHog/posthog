@@ -103,7 +103,7 @@ async function processEvent(
         ...data,
     } as any as PluginEvent
 
-    const runner = new EventPipelineRunner(hub, pluginEvent, new EventsProcessor(hub))
+    const runner = new EventPipelineRunner(hub, pluginEvent)
     await runner.runEventPipeline(pluginEvent)
 
     await delayUntilEventIngested(() => hub.db.fetchEvents(), ++processEventCounter)
@@ -163,7 +163,7 @@ const capture = async (hub: Hub, eventName: string, properties: any = {}) => {
         team_id: team.id,
         uuid: new UUIDT().toString(),
     }
-    const runner = new EventPipelineRunner(hub, event, new EventsProcessor(hub))
+    const runner = new EventPipelineRunner(hub, event)
     await runner.runEventPipeline(event)
     await delayUntilEventIngested(() => hub.db.fetchEvents(), ++mockClientEventCounter)
 }
@@ -199,10 +199,7 @@ test('merge people', async () => {
         created_at: DateTime.fromISO('2019-07-01T00:00:00Z'),
     })
 
-    await hub.db.kafkaProducer.queueMessages({
-        kafkaMessages: [...kafkaMessages0, ...kafkaMessages1],
-        waitForAck: true,
-    })
+    await hub.db.kafkaProducer.queueMessages([...kafkaMessages0, ...kafkaMessages1])
 
     await processEvent(
         'person_1',
@@ -1654,7 +1651,7 @@ describe('validates eventUuid', () => {
             properties: { price: 299.99, name: 'AirPods Pro' },
         }
 
-        const runner = new EventPipelineRunner(hub, pluginEvent, new EventsProcessor(hub))
+        const runner = new EventPipelineRunner(hub, pluginEvent)
         const result = await runner.runEventPipeline(pluginEvent)
 
         expect(result.error).toBeDefined()
@@ -1673,7 +1670,7 @@ describe('validates eventUuid', () => {
             properties: { price: 299.99, name: 'AirPods Pro' },
         }
 
-        const runner = new EventPipelineRunner(hub, pluginEvent, new EventsProcessor(hub))
+        const runner = new EventPipelineRunner(hub, pluginEvent)
         const result = await runner.runEventPipeline(pluginEvent)
 
         expect(result.error).toBeDefined()

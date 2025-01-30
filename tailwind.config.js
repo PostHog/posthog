@@ -1,6 +1,28 @@
 /** @type {import('tailwindcss').Config} */
+
+const commonColors = {
+    'inherit': 'inherit',
+    'current': 'currentColor',
+    'transparent': 'transparent',
+    'accent-primary': 'var(--accent-primary)',
+    'accent-primary-hover': 'var(--accent-primary-hover)',
+    'accent-primary-active': 'var(--accent-primary-active)',
+    'accent-primary-highlight': 'var(--accent-primary-highlight)',
+    'accent-secondary': 'var(--accent-secondary)',
+    'accent-secondary-hover': 'var(--accent-secondary-hover)',
+    'accent-secondary-active': 'var(--accent-secondary-active)',
+    'accent-secondary-highlight': 'var(--accent-secondary-highlight)',
+}
+
 const config = {
-    content: ['./frontend/src/**/*.{ts,tsx}', './ee/frontend/**/*.{ts,tsx}', './frontend/src/index.html'],
+    content: [
+        './frontend/src/**/*.{ts,tsx}',
+        './ee/frontend/**/*.{ts,tsx}',
+        './frontend/src/index.html',
+        './products/**/frontend/**/*.{ts,tsx}',
+        './common/**/src/**/*.{ts,tsx}',
+        './common/**/frontend/**/*.{ts,tsx}',
+    ],
     important: true, // Basically this: https://sebastiandedeyne.com/why-we-use-important-with-tailwind
     darkMode: ['selector', '[theme="dark"]'],
     theme: {
@@ -10,6 +32,41 @@ const config = {
             // CSS vars in lots of stylesheets
 
             purple: '#B62AD9',
+        },
+        backgroundColor: {
+            ...commonColors,
+            
+            'fill-primary': 'var(--bg-fill-primary)',
+            'fill-secondary': 'var(--bg-fill-secondary)',
+            'fill-tertiary': 'var(--bg-fill-tertiary)',
+            'fill-info-secondary': 'var(--bg-fill-info-secondary)',
+            'fill-info-tertiary': 'var(--bg-fill-info-tertiary)',
+            'fill-warning-secondary': 'var(--bg-fill-warning-secondary)',
+            'fill-warning-tertiary': 'var(--bg-fill-warning-tertiary)',
+            'fill-error-secondary': 'var(--bg-fill-error-secondary)',
+            'fill-error-tertiary': 'var(--bg-fill-error-tertiary)',
+            'fill-success-secondary': 'var(--bg-fill-success-secondary)',
+            'fill-success-tertiary': 'var(--bg-fill-success-tertiary)',
+        },
+        textColor: {
+            ...commonColors,
+            
+            'primary': 'var(--text-primary)',
+            'on-warning-on-fill': 'var(--text-warning-on-bg-fill)',
+            'on-error-on-fill': 'var(--text-error-on-bg-fill)',
+            'on-success-on-fill': 'var(--text-success-on-bg-fill)',
+        },
+        borderColor: {
+            ...commonColors,
+
+            'primary': 'var(--border-primary)',
+            'info': 'var(--border-info)',
+            'warning': 'var(--border-warning)',
+            'error': 'var(--border-error)',
+            'success': 'var(--border-success)',
+        },
+        ringColor: {
+            ...commonColors,
         },
         fontFamily: {
             sans: [

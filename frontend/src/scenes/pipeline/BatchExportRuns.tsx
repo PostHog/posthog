@@ -1,4 +1,3 @@
-import { TZLabel } from '@posthog/apps-common'
 import { IconCalendar } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonSwitch, LemonTable, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
@@ -6,6 +5,7 @@ import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
+import { TZLabel } from 'lib/components/TZLabel'
 import { IconCancel, IconRefresh } from 'lib/lemon-ui/icons'
 
 import { BatchExportConfiguration, BatchExportRun, GroupedBatchExportRuns } from '~/types'

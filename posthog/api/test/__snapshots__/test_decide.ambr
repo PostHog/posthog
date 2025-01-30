@@ -1,4 +1,7 @@
 # serializer version: 1
+# name: TestDatabaseCheckForDecide.test_decide_doesnt_error_out_when_database_is_down_and_database_check_isnt_cached
+  'SELECT 1'
+# ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down
   '''
   SELECT "posthog_user"."id",
@@ -269,6 +272,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -321,6 +325,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -396,6 +401,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -484,6 +490,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -559,6 +566,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -574,6 +582,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -588,7 +597,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -652,6 +662,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -704,6 +715,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -790,6 +802,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -819,12 +832,28 @@
 # ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.29
   '''
-  SELECT "posthog_productintent"."product_type",
-         "posthog_productintent"."created_at",
-         "posthog_productintent"."onboarding_completed_at",
-         "posthog_productintent"."updated_at"
-  FROM "posthog_productintent"
-  WHERE "posthog_productintent"."team_id" = 99999
+  SELECT "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist"
+  FROM "posthog_organization"
+  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  LIMIT 21
   '''
 # ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.3
@@ -881,6 +910,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -902,6 +932,25 @@
   '''
 # ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.30
+  '''
+  SELECT "posthog_datacolortheme"."id"
+  FROM "posthog_datacolortheme"
+  WHERE "posthog_datacolortheme"."team_id" IS NULL
+  ORDER BY "posthog_datacolortheme"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.31
+  '''
+  SELECT "posthog_productintent"."product_type",
+         "posthog_productintent"."created_at",
+         "posthog_productintent"."onboarding_completed_at",
+         "posthog_productintent"."updated_at"
+  FROM "posthog_productintent"
+  WHERE "posthog_productintent"."team_id" = 99999
+  '''
+# ---
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.32
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -934,7 +983,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.31
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.33
   '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
@@ -950,30 +999,15 @@
          "posthog_featureflag"."performed_rollback",
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics"
+         "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
          AND "posthog_featureflag"."team_id" = 99999)
   '''
 # ---
-# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.32
-  '''
-  SELECT "posthog_pluginconfig"."id",
-         "posthog_pluginconfig"."web_token",
-         "posthog_pluginsourcefile"."updated_at",
-         "posthog_plugin"."updated_at",
-         "posthog_pluginconfig"."updated_at"
-  FROM "posthog_pluginconfig"
-  INNER JOIN "posthog_plugin" ON ("posthog_pluginconfig"."plugin_id" = "posthog_plugin"."id")
-  INNER JOIN "posthog_pluginsourcefile" ON ("posthog_plugin"."id" = "posthog_pluginsourcefile"."plugin_id")
-  WHERE ("posthog_pluginconfig"."enabled"
-         AND "posthog_pluginsourcefile"."filename" = 'site.ts'
-         AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
-         AND "posthog_pluginconfig"."team_id" = 99999)
-  '''
-# ---
-# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.33
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.34
   '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginconfig"."web_token",
@@ -1202,6 +1236,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -1254,6 +1289,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -1329,6 +1365,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -1358,7 +1395,8 @@
          "posthog_featureflag"."performed_rollback",
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics"
+         "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
@@ -1419,6 +1457,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -1498,6 +1537,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -1573,6 +1613,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -1588,6 +1629,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -1602,7 +1644,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -1650,6 +1693,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -1702,6 +1746,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -1820,47 +1865,6 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecide.test_flag_with_behavioural_cohorts.22
-  '''
-  SELECT "posthog_cohort"."id",
-         "posthog_cohort"."name",
-         "posthog_cohort"."description",
-         "posthog_cohort"."team_id",
-         "posthog_cohort"."deleted",
-         "posthog_cohort"."filters",
-         "posthog_cohort"."query",
-         "posthog_cohort"."version",
-         "posthog_cohort"."pending_version",
-         "posthog_cohort"."count",
-         "posthog_cohort"."created_by_id",
-         "posthog_cohort"."created_at",
-         "posthog_cohort"."is_calculating",
-         "posthog_cohort"."last_calculation",
-         "posthog_cohort"."errors_calculating",
-         "posthog_cohort"."last_error_at",
-         "posthog_cohort"."is_static",
-         "posthog_cohort"."groups"
-  FROM "posthog_cohort"
-  WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."team_id" = 99999)
-  '''
-# ---
-# name: TestDecide.test_flag_with_behavioural_cohorts.23
-  '''
-  SELECT "posthog_group"."id",
-         "posthog_group"."team_id",
-         "posthog_group"."group_key",
-         "posthog_group"."group_type_index",
-         "posthog_group"."group_properties",
-         "posthog_group"."created_at",
-         "posthog_group"."properties_last_updated_at",
-         "posthog_group"."properties_last_operation",
-         "posthog_group"."version"
-  FROM "posthog_group"
-  WHERE "posthog_group"."team_id" = 99999
-  LIMIT 21
-  '''
-# ---
 # name: TestDecide.test_flag_with_behavioural_cohorts.3
   '''
   SELECT "posthog_team"."id",
@@ -1915,6 +1919,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -1990,6 +1995,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -2005,6 +2011,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -2019,7 +2026,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -2067,6 +2075,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -2119,6 +2128,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -2230,6 +2240,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -2273,6 +2284,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -2325,6 +2337,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -2400,6 +2413,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -2429,7 +2443,8 @@
          "posthog_featureflag"."performed_rollback",
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics"
+         "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
@@ -2490,6 +2505,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -2569,6 +2585,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -2644,6 +2661,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -2659,6 +2677,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -2673,7 +2692,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -2721,6 +2741,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -2773,6 +2794,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -2883,43 +2905,6 @@
          AND "posthog_person"."team_id" = 99999)
   '''
 # ---
-# name: TestDecide.test_flag_with_regular_cohorts.22
-  '''
-  SELECT "posthog_cohort"."id",
-         "posthog_cohort"."name",
-         "posthog_cohort"."description",
-         "posthog_cohort"."team_id",
-         "posthog_cohort"."deleted",
-         "posthog_cohort"."filters",
-         "posthog_cohort"."query",
-         "posthog_cohort"."version",
-         "posthog_cohort"."pending_version",
-         "posthog_cohort"."count",
-         "posthog_cohort"."created_by_id",
-         "posthog_cohort"."created_at",
-         "posthog_cohort"."is_calculating",
-         "posthog_cohort"."last_calculation",
-         "posthog_cohort"."errors_calculating",
-         "posthog_cohort"."last_error_at",
-         "posthog_cohort"."is_static",
-         "posthog_cohort"."groups"
-  FROM "posthog_cohort"
-  WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."team_id" = 99999)
-  '''
-# ---
-# name: TestDecide.test_flag_with_regular_cohorts.23
-  '''
-  SELECT (("posthog_person"."properties" -> '$some_prop_1') = '"something_1"'::jsonb
-          AND "posthog_person"."properties" ? '$some_prop_1'
-          AND NOT (("posthog_person"."properties" -> '$some_prop_1') = 'null'::jsonb)) AS "flag_X_condition_0"
-  FROM "posthog_person"
-  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
-  WHERE ("posthog_persondistinctid"."distinct_id" = 'another_id'
-         AND "posthog_persondistinctid"."team_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
-  '''
-# ---
 # name: TestDecide.test_flag_with_regular_cohorts.3
   '''
   SELECT "posthog_team"."id",
@@ -2974,6 +2959,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -3049,6 +3035,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -3064,6 +3051,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -3078,7 +3066,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -3126,6 +3115,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -3178,6 +3168,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -3289,6 +3280,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -3363,6 +3355,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -3392,7 +3385,8 @@
          "posthog_featureflag"."performed_rollback",
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics"
+         "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
@@ -3438,6 +3432,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -3490,6 +3485,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -3568,6 +3564,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -3647,6 +3644,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -3722,6 +3720,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -3737,6 +3736,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -3751,7 +3751,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -3815,6 +3816,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -3867,6 +3869,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -3939,38 +3942,6 @@
          AND "posthog_pluginconfig"."team_id" = 99999)
   '''
 # ---
-# name: TestDecide.test_web_app_queries.22
-  '''
-  SELECT "posthog_pluginconfig"."id",
-         "posthog_pluginconfig"."web_token",
-         "posthog_pluginsourcefile"."updated_at",
-         "posthog_plugin"."updated_at",
-         "posthog_pluginconfig"."updated_at"
-  FROM "posthog_pluginconfig"
-  INNER JOIN "posthog_plugin" ON ("posthog_pluginconfig"."plugin_id" = "posthog_plugin"."id")
-  INNER JOIN "posthog_pluginsourcefile" ON ("posthog_plugin"."id" = "posthog_pluginsourcefile"."plugin_id")
-  WHERE ("posthog_pluginconfig"."enabled"
-         AND "posthog_pluginsourcefile"."filename" = 'site.ts'
-         AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
-         AND "posthog_pluginconfig"."team_id" = 99999)
-  '''
-# ---
-# name: TestDecide.test_web_app_queries.23
-  '''
-  SELECT "posthog_pluginconfig"."id",
-         "posthog_pluginconfig"."web_token",
-         "posthog_pluginsourcefile"."updated_at",
-         "posthog_plugin"."updated_at",
-         "posthog_pluginconfig"."updated_at"
-  FROM "posthog_pluginconfig"
-  INNER JOIN "posthog_plugin" ON ("posthog_pluginconfig"."plugin_id" = "posthog_plugin"."id")
-  INNER JOIN "posthog_pluginsourcefile" ON ("posthog_plugin"."id" = "posthog_pluginsourcefile"."plugin_id")
-  WHERE ("posthog_pluginconfig"."enabled"
-         AND "posthog_pluginsourcefile"."filename" = 'site.ts'
-         AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
-         AND "posthog_pluginconfig"."team_id" = 99999)
-  '''
-# ---
 # name: TestDecide.test_web_app_queries.3
   '''
   SELECT "posthog_hogfunction"."id",
@@ -3994,6 +3965,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -4046,6 +4018,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -4121,6 +4094,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -4200,6 +4174,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -4275,6 +4250,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -4290,6 +4266,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -4304,7 +4281,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -4599,6 +4577,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -4651,6 +4630,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -4726,6 +4706,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -4814,6 +4795,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -4889,6 +4871,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -4904,6 +4887,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -4918,7 +4902,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -4982,6 +4967,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -5034,6 +5020,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -5120,6 +5107,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -5149,12 +5137,28 @@
 # ---
 # name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.29
   '''
-  SELECT "posthog_productintent"."product_type",
-         "posthog_productintent"."created_at",
-         "posthog_productintent"."onboarding_completed_at",
-         "posthog_productintent"."updated_at"
-  FROM "posthog_productintent"
-  WHERE "posthog_productintent"."team_id" = 99999
+  SELECT "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist"
+  FROM "posthog_organization"
+  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  LIMIT 21
   '''
 # ---
 # name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.3
@@ -5211,6 +5215,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -5232,6 +5237,25 @@
   '''
 # ---
 # name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.30
+  '''
+  SELECT "posthog_datacolortheme"."id"
+  FROM "posthog_datacolortheme"
+  WHERE "posthog_datacolortheme"."team_id" IS NULL
+  ORDER BY "posthog_datacolortheme"."id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.31
+  '''
+  SELECT "posthog_productintent"."product_type",
+         "posthog_productintent"."created_at",
+         "posthog_productintent"."onboarding_completed_at",
+         "posthog_productintent"."updated_at"
+  FROM "posthog_productintent"
+  WHERE "posthog_productintent"."team_id" = 99999
+  '''
+# ---
+# name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.32
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -5264,7 +5288,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.31
+# name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.33
   '''
   SELECT "posthog_remoteconfig"."id",
          "posthog_remoteconfig"."team_id",
@@ -5276,7 +5300,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.32
+# name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.34
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -5330,6 +5354,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -5350,7 +5375,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.33
+# name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.35
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_featureflag"
@@ -5359,7 +5384,7 @@
          AND "posthog_featureflag"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.34
+# name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.36
   '''
   SELECT "posthog_survey"."id",
          "posthog_survey"."team_id",
@@ -5405,6 +5430,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -5420,6 +5446,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -5434,7 +5461,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -5443,7 +5471,7 @@
          AND NOT ("posthog_survey"."archived"))
   '''
 # ---
-# name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.35
+# name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.37
   '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginconfig"."web_token",
@@ -5459,7 +5487,7 @@
          AND "posthog_pluginconfig"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.36
+# name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.38
   '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginsourcefile"."transpiled",
@@ -5475,7 +5503,7 @@
          AND "posthog_pluginconfig"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.37
+# name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.39
   '''
   SELECT "posthog_hogfunction"."id",
          "posthog_hogfunction"."team_id",
@@ -5498,6 +5526,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -5550,6 +5579,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -5572,41 +5602,6 @@
          AND "posthog_hogfunction"."team_id" = 99999
          AND "posthog_hogfunction"."type" IN ('site_destination',
                                               'site_app'))
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.38
-  '''
-  SELECT "posthog_featureflag"."id",
-         "posthog_featureflag"."key",
-         "posthog_featureflag"."name",
-         "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
-         "posthog_featureflag"."team_id",
-         "posthog_featureflag"."created_by_id",
-         "posthog_featureflag"."created_at",
-         "posthog_featureflag"."deleted",
-         "posthog_featureflag"."active",
-         "posthog_featureflag"."rollback_conditions",
-         "posthog_featureflag"."performed_rollback",
-         "posthog_featureflag"."ensure_experience_continuity",
-         "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics"
-  FROM "posthog_featureflag"
-  WHERE ("posthog_featureflag"."active"
-         AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_featureflag"."team_id" = 99999)
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.39
-  '''
-  SELECT "posthog_remoteconfig"."id",
-         "posthog_remoteconfig"."team_id",
-         "posthog_remoteconfig"."config",
-         "posthog_remoteconfig"."updated_at",
-         "posthog_remoteconfig"."synced_at"
-  FROM "posthog_remoteconfig"
-  WHERE "posthog_remoteconfig"."team_id" = 99999
-  LIMIT 21
   '''
 # ---
 # name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.4
@@ -5645,6 +5640,42 @@
 # ---
 # name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.40
   '''
+  SELECT "posthog_featureflag"."id",
+         "posthog_featureflag"."key",
+         "posthog_featureflag"."name",
+         "posthog_featureflag"."filters",
+         "posthog_featureflag"."rollout_percentage",
+         "posthog_featureflag"."team_id",
+         "posthog_featureflag"."created_by_id",
+         "posthog_featureflag"."created_at",
+         "posthog_featureflag"."deleted",
+         "posthog_featureflag"."active",
+         "posthog_featureflag"."rollback_conditions",
+         "posthog_featureflag"."performed_rollback",
+         "posthog_featureflag"."ensure_experience_continuity",
+         "posthog_featureflag"."usage_dashboard_id",
+         "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration"
+  FROM "posthog_featureflag"
+  WHERE ("posthog_featureflag"."active"
+         AND NOT "posthog_featureflag"."deleted"
+         AND "posthog_featureflag"."team_id" = 99999)
+  '''
+# ---
+# name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.41
+  '''
+  SELECT "posthog_remoteconfig"."id",
+         "posthog_remoteconfig"."team_id",
+         "posthog_remoteconfig"."config",
+         "posthog_remoteconfig"."updated_at",
+         "posthog_remoteconfig"."synced_at"
+  FROM "posthog_remoteconfig"
+  WHERE "posthog_remoteconfig"."team_id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.42
+  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -5697,6 +5728,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -5717,7 +5749,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.41
+# name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.43
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_featureflag"
@@ -5726,7 +5758,7 @@
          AND "posthog_featureflag"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.42
+# name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.44
   '''
   SELECT "posthog_survey"."id",
          "posthog_survey"."team_id",
@@ -5772,6 +5804,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -5787,6 +5820,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -5801,7 +5835,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -5810,7 +5845,7 @@
          AND NOT ("posthog_survey"."archived"))
   '''
 # ---
-# name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.43
+# name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.45
   '''
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginconfig"."web_token",
@@ -5824,121 +5859,6 @@
          AND "posthog_pluginsourcefile"."filename" = 'site.ts'
          AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
          AND "posthog_pluginconfig"."team_id" = 99999)
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.44
-  '''
-  SELECT "posthog_pluginconfig"."id",
-         "posthog_pluginsourcefile"."transpiled",
-         "posthog_pluginconfig"."web_token",
-         "posthog_plugin"."config_schema",
-         "posthog_pluginconfig"."config"
-  FROM "posthog_pluginconfig"
-  INNER JOIN "posthog_plugin" ON ("posthog_pluginconfig"."plugin_id" = "posthog_plugin"."id")
-  INNER JOIN "posthog_pluginsourcefile" ON ("posthog_plugin"."id" = "posthog_pluginsourcefile"."plugin_id")
-  WHERE ("posthog_pluginconfig"."enabled"
-         AND "posthog_pluginsourcefile"."filename" = 'site.ts'
-         AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
-         AND "posthog_pluginconfig"."team_id" = 99999)
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.45
-  '''
-  SELECT "posthog_hogfunction"."id",
-         "posthog_hogfunction"."team_id",
-         "posthog_hogfunction"."name",
-         "posthog_hogfunction"."description",
-         "posthog_hogfunction"."created_at",
-         "posthog_hogfunction"."created_by_id",
-         "posthog_hogfunction"."deleted",
-         "posthog_hogfunction"."updated_at",
-         "posthog_hogfunction"."enabled",
-         "posthog_hogfunction"."type",
-         "posthog_hogfunction"."icon_url",
-         "posthog_hogfunction"."hog",
-         "posthog_hogfunction"."bytecode",
-         "posthog_hogfunction"."transpiled",
-         "posthog_hogfunction"."inputs_schema",
-         "posthog_hogfunction"."inputs",
-         "posthog_hogfunction"."encrypted_inputs",
-         "posthog_hogfunction"."filters",
-         "posthog_hogfunction"."mappings",
-         "posthog_hogfunction"."masking",
-         "posthog_hogfunction"."template_id",
-         "posthog_team"."id",
-         "posthog_team"."uuid",
-         "posthog_team"."organization_id",
-         "posthog_team"."project_id",
-         "posthog_team"."api_token",
-         "posthog_team"."app_urls",
-         "posthog_team"."name",
-         "posthog_team"."slack_incoming_webhook",
-         "posthog_team"."created_at",
-         "posthog_team"."updated_at",
-         "posthog_team"."anonymize_ips",
-         "posthog_team"."completed_snippet_onboarding",
-         "posthog_team"."has_completed_onboarding_for",
-         "posthog_team"."ingested_event",
-         "posthog_team"."autocapture_opt_out",
-         "posthog_team"."autocapture_web_vitals_opt_in",
-         "posthog_team"."autocapture_web_vitals_allowed_metrics",
-         "posthog_team"."autocapture_exceptions_opt_in",
-         "posthog_team"."autocapture_exceptions_errors_to_ignore",
-         "posthog_team"."person_processing_opt_out",
-         "posthog_team"."session_recording_opt_in",
-         "posthog_team"."session_recording_sample_rate",
-         "posthog_team"."session_recording_minimum_duration_milliseconds",
-         "posthog_team"."session_recording_linked_flag",
-         "posthog_team"."session_recording_network_payload_capture_config",
-         "posthog_team"."session_recording_url_trigger_config",
-         "posthog_team"."session_recording_url_blocklist_config",
-         "posthog_team"."session_recording_event_trigger_config",
-         "posthog_team"."session_replay_config",
-         "posthog_team"."survey_config",
-         "posthog_team"."capture_console_log_opt_in",
-         "posthog_team"."capture_performance_opt_in",
-         "posthog_team"."capture_dead_clicks",
-         "posthog_team"."surveys_opt_in",
-         "posthog_team"."heatmaps_opt_in",
-         "posthog_team"."flags_persistence_default",
-         "posthog_team"."session_recording_version",
-         "posthog_team"."signup_token",
-         "posthog_team"."is_demo",
-         "posthog_team"."access_control",
-         "posthog_team"."week_start_day",
-         "posthog_team"."inject_web_apps",
-         "posthog_team"."test_account_filters",
-         "posthog_team"."test_account_filters_default_checked",
-         "posthog_team"."path_cleaning_filters",
-         "posthog_team"."timezone",
-         "posthog_team"."data_attributes",
-         "posthog_team"."person_display_name_properties",
-         "posthog_team"."live_events_columns",
-         "posthog_team"."recording_domains",
-         "posthog_team"."human_friendly_comparison_periods",
-         "posthog_team"."cookieless_server_hash_mode",
-         "posthog_team"."primary_dashboard_id",
-         "posthog_team"."default_data_theme",
-         "posthog_team"."extra_settings",
-         "posthog_team"."modifiers",
-         "posthog_team"."correlation_config",
-         "posthog_team"."session_recording_retention_period_days",
-         "posthog_team"."plugins_opt_in",
-         "posthog_team"."opt_out_capture",
-         "posthog_team"."event_names",
-         "posthog_team"."event_names_with_usage",
-         "posthog_team"."event_properties",
-         "posthog_team"."event_properties_with_usage",
-         "posthog_team"."event_properties_numerical",
-         "posthog_team"."external_data_workspace_id",
-         "posthog_team"."external_data_workspace_last_synced_at"
-  FROM "posthog_hogfunction"
-  INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
-  WHERE (NOT "posthog_hogfunction"."deleted"
-         AND "posthog_hogfunction"."enabled"
-         AND "posthog_hogfunction"."team_id" = 99999
-         AND "posthog_hogfunction"."type" IN ('site_destination',
-                                              'site_app'))
   '''
 # ---
 # name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.46
@@ -5979,40 +5899,80 @@
          "posthog_hogfunction"."filters",
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
-         "posthog_hogfunction"."template_id"
+         "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
+         "posthog_team"."id",
+         "posthog_team"."uuid",
+         "posthog_team"."organization_id",
+         "posthog_team"."project_id",
+         "posthog_team"."api_token",
+         "posthog_team"."app_urls",
+         "posthog_team"."name",
+         "posthog_team"."slack_incoming_webhook",
+         "posthog_team"."created_at",
+         "posthog_team"."updated_at",
+         "posthog_team"."anonymize_ips",
+         "posthog_team"."completed_snippet_onboarding",
+         "posthog_team"."has_completed_onboarding_for",
+         "posthog_team"."ingested_event",
+         "posthog_team"."autocapture_opt_out",
+         "posthog_team"."autocapture_web_vitals_opt_in",
+         "posthog_team"."autocapture_web_vitals_allowed_metrics",
+         "posthog_team"."autocapture_exceptions_opt_in",
+         "posthog_team"."autocapture_exceptions_errors_to_ignore",
+         "posthog_team"."person_processing_opt_out",
+         "posthog_team"."session_recording_opt_in",
+         "posthog_team"."session_recording_sample_rate",
+         "posthog_team"."session_recording_minimum_duration_milliseconds",
+         "posthog_team"."session_recording_linked_flag",
+         "posthog_team"."session_recording_network_payload_capture_config",
+         "posthog_team"."session_recording_url_trigger_config",
+         "posthog_team"."session_recording_url_blocklist_config",
+         "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_replay_config",
+         "posthog_team"."survey_config",
+         "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."capture_dead_clicks",
+         "posthog_team"."surveys_opt_in",
+         "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."flags_persistence_default",
+         "posthog_team"."session_recording_version",
+         "posthog_team"."signup_token",
+         "posthog_team"."is_demo",
+         "posthog_team"."access_control",
+         "posthog_team"."week_start_day",
+         "posthog_team"."inject_web_apps",
+         "posthog_team"."test_account_filters",
+         "posthog_team"."test_account_filters_default_checked",
+         "posthog_team"."path_cleaning_filters",
+         "posthog_team"."timezone",
+         "posthog_team"."data_attributes",
+         "posthog_team"."person_display_name_properties",
+         "posthog_team"."live_events_columns",
+         "posthog_team"."recording_domains",
+         "posthog_team"."human_friendly_comparison_periods",
+         "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
+         "posthog_team"."primary_dashboard_id",
+         "posthog_team"."default_data_theme",
+         "posthog_team"."extra_settings",
+         "posthog_team"."modifiers",
+         "posthog_team"."correlation_config",
+         "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."plugins_opt_in",
+         "posthog_team"."opt_out_capture",
+         "posthog_team"."event_names",
+         "posthog_team"."event_names_with_usage",
+         "posthog_team"."event_properties",
+         "posthog_team"."event_properties_with_usage",
+         "posthog_team"."event_properties_numerical",
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_hogfunction"
-  WHERE ("posthog_hogfunction"."enabled"
-         AND "posthog_hogfunction"."team_id" = 99999
-         AND "posthog_hogfunction"."type" IN ('site_destination',
-                                              'site_app'))
-  LIMIT 21
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.48
-  '''
-  SELECT "posthog_hogfunction"."id",
-         "posthog_hogfunction"."team_id",
-         "posthog_hogfunction"."name",
-         "posthog_hogfunction"."description",
-         "posthog_hogfunction"."created_at",
-         "posthog_hogfunction"."created_by_id",
-         "posthog_hogfunction"."deleted",
-         "posthog_hogfunction"."updated_at",
-         "posthog_hogfunction"."enabled",
-         "posthog_hogfunction"."type",
-         "posthog_hogfunction"."icon_url",
-         "posthog_hogfunction"."hog",
-         "posthog_hogfunction"."bytecode",
-         "posthog_hogfunction"."transpiled",
-         "posthog_hogfunction"."inputs_schema",
-         "posthog_hogfunction"."inputs",
-         "posthog_hogfunction"."encrypted_inputs",
-         "posthog_hogfunction"."filters",
-         "posthog_hogfunction"."mappings",
-         "posthog_hogfunction"."masking",
-         "posthog_hogfunction"."template_id"
-  FROM "posthog_hogfunction"
-  WHERE ("posthog_hogfunction"."enabled"
+  INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
+  WHERE (NOT "posthog_hogfunction"."deleted"
+         AND "posthog_hogfunction"."enabled"
          AND "posthog_hogfunction"."team_id" = 99999
          AND "posthog_hogfunction"."type" IN ('site_destination',
                                               'site_app'))
@@ -6197,6 +6157,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -6249,6 +6210,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -6324,6 +6286,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -6353,7 +6316,8 @@
          "posthog_featureflag"."performed_rollback",
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics"
+         "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
@@ -6414,6 +6378,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -6493,6 +6458,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -6568,6 +6534,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -6583,6 +6550,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -6597,7 +6565,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -6645,6 +6614,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -6697,6 +6667,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -6787,6 +6758,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -6874,6 +6846,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -6889,6 +6862,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -6903,7 +6877,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -6951,6 +6926,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -7003,6 +6979,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -7134,6 +7111,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -7209,6 +7187,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -7224,6 +7203,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -7238,7 +7218,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -7301,6 +7282,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -7360,6 +7342,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -7412,6 +7395,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -7462,108 +7446,6 @@
   '''
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.33
-  '''
-  SELECT "posthog_group"."id",
-         "posthog_group"."team_id",
-         "posthog_group"."group_key",
-         "posthog_group"."group_type_index",
-         "posthog_group"."group_properties",
-         "posthog_group"."created_at",
-         "posthog_group"."properties_last_updated_at",
-         "posthog_group"."properties_last_operation",
-         "posthog_group"."version"
-  FROM "posthog_group"
-  WHERE "posthog_group"."team_id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.34
-  '''
-  SELECT "posthog_hogfunction"."id",
-         "posthog_hogfunction"."team_id",
-         "posthog_hogfunction"."name",
-         "posthog_hogfunction"."description",
-         "posthog_hogfunction"."created_at",
-         "posthog_hogfunction"."created_by_id",
-         "posthog_hogfunction"."deleted",
-         "posthog_hogfunction"."updated_at",
-         "posthog_hogfunction"."enabled",
-         "posthog_hogfunction"."type",
-         "posthog_hogfunction"."icon_url",
-         "posthog_hogfunction"."hog",
-         "posthog_hogfunction"."bytecode",
-         "posthog_hogfunction"."transpiled",
-         "posthog_hogfunction"."inputs_schema",
-         "posthog_hogfunction"."inputs",
-         "posthog_hogfunction"."encrypted_inputs",
-         "posthog_hogfunction"."filters",
-         "posthog_hogfunction"."mappings",
-         "posthog_hogfunction"."masking",
-         "posthog_hogfunction"."template_id"
-  FROM "posthog_hogfunction"
-  WHERE ("posthog_hogfunction"."enabled"
-         AND "posthog_hogfunction"."team_id" = 99999
-         AND "posthog_hogfunction"."type" IN ('site_destination',
-                                              'site_app'))
-  LIMIT 21
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.35
-  '''
-  SELECT "posthog_hogfunction"."id",
-         "posthog_hogfunction"."team_id",
-         "posthog_hogfunction"."name",
-         "posthog_hogfunction"."description",
-         "posthog_hogfunction"."created_at",
-         "posthog_hogfunction"."created_by_id",
-         "posthog_hogfunction"."deleted",
-         "posthog_hogfunction"."updated_at",
-         "posthog_hogfunction"."enabled",
-         "posthog_hogfunction"."type",
-         "posthog_hogfunction"."icon_url",
-         "posthog_hogfunction"."hog",
-         "posthog_hogfunction"."bytecode",
-         "posthog_hogfunction"."transpiled",
-         "posthog_hogfunction"."inputs_schema",
-         "posthog_hogfunction"."inputs",
-         "posthog_hogfunction"."encrypted_inputs",
-         "posthog_hogfunction"."filters",
-         "posthog_hogfunction"."mappings",
-         "posthog_hogfunction"."masking",
-         "posthog_hogfunction"."template_id"
-  FROM "posthog_hogfunction"
-  WHERE ("posthog_hogfunction"."enabled"
-         AND "posthog_hogfunction"."team_id" = 99999
-         AND "posthog_hogfunction"."type" IN ('site_destination',
-                                              'site_app'))
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.36
-  '''
-  SELECT "posthog_cohort"."id",
-         "posthog_cohort"."name",
-         "posthog_cohort"."description",
-         "posthog_cohort"."team_id",
-         "posthog_cohort"."deleted",
-         "posthog_cohort"."filters",
-         "posthog_cohort"."query",
-         "posthog_cohort"."version",
-         "posthog_cohort"."pending_version",
-         "posthog_cohort"."count",
-         "posthog_cohort"."created_by_id",
-         "posthog_cohort"."created_at",
-         "posthog_cohort"."is_calculating",
-         "posthog_cohort"."last_calculation",
-         "posthog_cohort"."errors_calculating",
-         "posthog_cohort"."last_error_at",
-         "posthog_cohort"."is_static",
-         "posthog_cohort"."groups"
-  FROM "posthog_cohort"
-  WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."team_id" = 99999)
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.37
   '''
   SELECT "posthog_group"."id",
          "posthog_group"."team_id",
@@ -7634,6 +7516,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -7649,6 +7532,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -7663,7 +7547,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -7711,6 +7596,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -7763,6 +7649,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -7874,6 +7761,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -7917,6 +7805,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -7969,6 +7858,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -8044,6 +7934,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -8073,7 +7964,8 @@
          "posthog_featureflag"."performed_rollback",
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics"
+         "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
@@ -8134,6 +8026,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -8213,6 +8106,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -8288,6 +8182,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -8303,6 +8198,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -8317,7 +8213,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -8365,6 +8262,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -8417,6 +8315,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -8507,6 +8406,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -8594,6 +8494,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -8609,6 +8510,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -8623,7 +8525,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -8671,6 +8574,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -8723,6 +8627,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -8850,6 +8755,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -8925,6 +8831,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -8940,6 +8847,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -8954,7 +8862,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -9017,6 +8926,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -9076,6 +8986,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -9128,6 +9039,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -9178,104 +9090,6 @@
   '''
 # ---
 # name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.33
-  '''
-  SELECT (("posthog_person"."properties" -> '$some_prop_1') = '"something_1"'::jsonb
-          AND "posthog_person"."properties" ? '$some_prop_1'
-          AND NOT (("posthog_person"."properties" -> '$some_prop_1') = 'null'::jsonb)) AS "flag_X_condition_0"
-  FROM "posthog_person"
-  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
-  WHERE ("posthog_persondistinctid"."distinct_id" = 'another_id'
-         AND "posthog_persondistinctid"."team_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.34
-  '''
-  SELECT "posthog_hogfunction"."id",
-         "posthog_hogfunction"."team_id",
-         "posthog_hogfunction"."name",
-         "posthog_hogfunction"."description",
-         "posthog_hogfunction"."created_at",
-         "posthog_hogfunction"."created_by_id",
-         "posthog_hogfunction"."deleted",
-         "posthog_hogfunction"."updated_at",
-         "posthog_hogfunction"."enabled",
-         "posthog_hogfunction"."type",
-         "posthog_hogfunction"."icon_url",
-         "posthog_hogfunction"."hog",
-         "posthog_hogfunction"."bytecode",
-         "posthog_hogfunction"."transpiled",
-         "posthog_hogfunction"."inputs_schema",
-         "posthog_hogfunction"."inputs",
-         "posthog_hogfunction"."encrypted_inputs",
-         "posthog_hogfunction"."filters",
-         "posthog_hogfunction"."mappings",
-         "posthog_hogfunction"."masking",
-         "posthog_hogfunction"."template_id"
-  FROM "posthog_hogfunction"
-  WHERE ("posthog_hogfunction"."enabled"
-         AND "posthog_hogfunction"."team_id" = 99999
-         AND "posthog_hogfunction"."type" IN ('site_destination',
-                                              'site_app'))
-  LIMIT 21
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.35
-  '''
-  SELECT "posthog_hogfunction"."id",
-         "posthog_hogfunction"."team_id",
-         "posthog_hogfunction"."name",
-         "posthog_hogfunction"."description",
-         "posthog_hogfunction"."created_at",
-         "posthog_hogfunction"."created_by_id",
-         "posthog_hogfunction"."deleted",
-         "posthog_hogfunction"."updated_at",
-         "posthog_hogfunction"."enabled",
-         "posthog_hogfunction"."type",
-         "posthog_hogfunction"."icon_url",
-         "posthog_hogfunction"."hog",
-         "posthog_hogfunction"."bytecode",
-         "posthog_hogfunction"."transpiled",
-         "posthog_hogfunction"."inputs_schema",
-         "posthog_hogfunction"."inputs",
-         "posthog_hogfunction"."encrypted_inputs",
-         "posthog_hogfunction"."filters",
-         "posthog_hogfunction"."mappings",
-         "posthog_hogfunction"."masking",
-         "posthog_hogfunction"."template_id"
-  FROM "posthog_hogfunction"
-  WHERE ("posthog_hogfunction"."enabled"
-         AND "posthog_hogfunction"."team_id" = 99999
-         AND "posthog_hogfunction"."type" IN ('site_destination',
-                                              'site_app'))
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.36
-  '''
-  SELECT "posthog_cohort"."id",
-         "posthog_cohort"."name",
-         "posthog_cohort"."description",
-         "posthog_cohort"."team_id",
-         "posthog_cohort"."deleted",
-         "posthog_cohort"."filters",
-         "posthog_cohort"."query",
-         "posthog_cohort"."version",
-         "posthog_cohort"."pending_version",
-         "posthog_cohort"."count",
-         "posthog_cohort"."created_by_id",
-         "posthog_cohort"."created_at",
-         "posthog_cohort"."is_calculating",
-         "posthog_cohort"."last_calculation",
-         "posthog_cohort"."errors_calculating",
-         "posthog_cohort"."last_error_at",
-         "posthog_cohort"."is_static",
-         "posthog_cohort"."groups"
-  FROM "posthog_cohort"
-  WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."team_id" = 99999)
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.37
   '''
   SELECT (("posthog_person"."properties" -> '$some_prop_1') = '"something_1"'::jsonb
           AND "posthog_person"."properties" ? '$some_prop_1'
@@ -9342,6 +9156,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -9357,6 +9172,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -9371,7 +9187,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -9419,6 +9236,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -9471,6 +9289,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -9582,6 +9401,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",

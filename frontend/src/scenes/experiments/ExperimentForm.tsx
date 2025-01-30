@@ -1,5 +1,5 @@
 import { IconMagicWand, IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonDivider, LemonInput, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDivider, LemonInput, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { ExperimentVariantNumber } from 'lib/components/SeriesGlyph'
@@ -15,15 +15,19 @@ import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { experimentLogic } from './experimentLogic'
 
 const ExperimentFormFields = (): JSX.Element => {
-    const { experiment, groupTypes, aggregationLabel } = useValues(experimentLogic)
-    const { addExperimentGroup, removeExperimentGroup, setExperiment, createExperiment, setExperimentType } =
+    const { experiment, groupTypes, aggregationLabel, hasPrimaryMetricSet } = useValues(experimentLogic)
+    const { addVariant, removeExperimentGroup, setExperiment, createExperiment, setExperimentType } =
         useActions(experimentLogic)
-    const { webExperimentsAvailable } = useValues(experimentsLogic)
+    const { webExperimentsAvailable, unavailableFeatureFlagKeys } = useValues(experimentsLogic)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
-    const { takenKeys } = useValues(experimentsLogic)
 
     return (
         <div>
+            {hasPrimaryMetricSet && (
+                <LemonBanner type="info" className="my-4">
+                    Fill out the details below to create your experiment based off of the insight.
+                </LemonBanner>
+            )}
             <div className="space-y-8">
                 <div className="space-y-6 max-w-120">
                     <LemonField name="name" label="Name">
@@ -40,14 +44,14 @@ const ExperimentFormFields = (): JSX.Element => {
                                 <LemonButton
                                     type="secondary"
                                     size="xsmall"
-                                    tooltip={
-                                        experiment.name
-                                            ? 'Generate a key from the experiment name'
-                                            : 'Fill out the experiment name first.'
-                                    }
+                                    disabledReason={experiment.name ? undefined : 'Fill out the experiment name first.'}
+                                    tooltip={experiment.name ? 'Generate a key from the experiment name' : undefined}
                                     onClick={() => {
                                         setExperiment({
-                                            feature_flag_key: generateFeatureFlagKey(experiment.name, takenKeys),
+                                            feature_flag_key: generateFeatureFlagKey(
+                                                experiment.name,
+                                                unavailableFeatureFlagKeys
+                                            ),
                                         })
                                     }}
                                 >
@@ -219,7 +223,7 @@ const ExperimentFormFields = (): JSX.Element => {
                                 <LemonButton
                                     className="ml-9 mt-2"
                                     type="secondary"
-                                    onClick={() => addExperimentGroup()}
+                                    onClick={() => addVariant()}
                                     icon={<IconPlusSmall />}
                                     data-attr="add-test-variant"
                                 >
@@ -294,7 +298,7 @@ export function ExperimentForm(): JSX.Element {
     )
 }
 
-const generateFeatureFlagKey = (name: string, takenKeys: string[]): string => {
+const generateFeatureFlagKey = (name: string, unavailableFeatureFlagKeys: Set<string>): string => {
     const baseKey = name
         .toLowerCase()
         .replace(/[^A-Za-z0-9-_]+/g, '-')
@@ -303,7 +307,8 @@ const generateFeatureFlagKey = (name: string, takenKeys: string[]): string => {
 
     let key = baseKey
     let counter = 1
-    while (takenKeys.includes(key)) {
+
+    while (unavailableFeatureFlagKeys.has(key)) {
         key = `${baseKey}-${counter}`
         counter++
     }

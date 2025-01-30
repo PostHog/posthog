@@ -107,7 +107,9 @@ export function ActionsLineGraph({
                               return shortenLifecycleLabels(datum.label)
                           },
                       }
-                    : undefined
+                    : {
+                          groupTypeLabel: context?.groupTypeLabel,
+                      }
             }
             isInProgress={!isStickiness && incompletenessOffsetFromEnd < 0}
             isArea={display === ChartDisplayType.ActionsAreaGraph}
@@ -115,9 +117,9 @@ export function ActionsLineGraph({
             legend={legend}
             goalLines={[...alertThresholdLines, ...(goalLines || [])]}
             onClick={
-                !showPersonsModal || isMultiSeriesFormula(formula) || isDataWarehouseSeries
-                    ? undefined
-                    : (payload) => {
+                context?.onDataPointClick ||
+                (showPersonsModal && !isMultiSeriesFormula(formula) && !isDataWarehouseSeries)
+                    ? (payload) => {
                           const { index, points } = payload
 
                           const dataset = points.referencePoint.dataset
@@ -127,6 +129,18 @@ export function ActionsLineGraph({
 
                           const day = dataset.action?.days?.[index] ?? dataset?.days?.[index] ?? ''
                           const label = dataset?.label ?? dataset?.labels?.[index] ?? ''
+
+                          if (context?.onDataPointClick) {
+                              context.onDataPointClick(
+                                  {
+                                      breakdown: dataset.breakdownValues?.[index],
+                                      compare: dataset.compareLabels?.[index],
+                                      day,
+                                  },
+                                  indexedResults[0]
+                              )
+                              return
+                          }
 
                           const title = isStickiness ? (
                               <>
@@ -154,6 +168,7 @@ export function ActionsLineGraph({
                               orderBy: isLifecycle || isStickiness ? undefined : ['event_count DESC, actor_id DESC'],
                           })
                       }
+                    : undefined
             }
         />
     )

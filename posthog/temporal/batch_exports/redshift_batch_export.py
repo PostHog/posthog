@@ -52,7 +52,6 @@ from posthog.temporal.batch_exports.temporary_file import (
     WriterFormat,
 )
 from posthog.temporal.batch_exports.utils import JsonType, set_status_to_running_task
-from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import configure_temporal_worker_logger
 
@@ -357,11 +356,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
     async with (
         Heartbeater() as heartbeater,
         set_status_to_running_task(run_id=inputs.run_id, logger=logger),
-        get_client(team_id=inputs.team_id) as client,
     ):
-        if not await client.is_alive():
-            raise ConnectionError("Cannot establish connection to ClickHouse")
-
         _, details = await should_resume_from_activity_heartbeat(activity, RedshiftHeartbeatDetails)
         if details is None:
             details = RedshiftHeartbeatDetails()
@@ -377,15 +372,18 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
                 model_name = model.name
                 extra_query_parameters = model.schema["values"] if model.schema is not None else None
                 fields = model.schema["fields"] if model.schema is not None else None
+                filters = model.filters
             else:
                 model_name = "events"
                 extra_query_parameters = None
                 fields = None
+                filters = None
         else:
             model = inputs.batch_export_schema
             model_name = "custom"
             extra_query_parameters = model["values"] if model is not None else {}
             fields = model["fields"] if model is not None else None
+            filters = None
 
         data_interval_start = (
             dt.datetime.fromisoformat(inputs.data_interval_start) if inputs.data_interval_start else None
@@ -394,8 +392,8 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
         full_range = (data_interval_start, data_interval_end)
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_REDSHIFT_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
-        producer = Producer(clickhouse_client=client)
-        producer_task = producer.start(
+        producer = Producer()
+        producer_task = await producer.start(
             queue=queue,
             model_name=model_name,
             is_backfill=inputs.is_backfill,
@@ -403,6 +401,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
             full_range=full_range,
             done_ranges=done_ranges,
             fields=fields,
+            filters=filters,
             destination_default_fields=redshift_default_fields(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,

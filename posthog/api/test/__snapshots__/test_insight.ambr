@@ -82,7 +82,7 @@
                                                                              WHERE equals(person.team_id, 99999)
                                                                              GROUP BY person.id
                                                                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2012-01-08 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2012-01-15 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('user did things', 'user signed up')), and(ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 1)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))))
+                    WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.999999', 6, 'UTC'))), in(e.event, tuple('user did things', 'user signed up')), and(ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 1)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))))
            WHERE ifNull(equals(step_0, 1), 0)))
      GROUP BY aggregation_target,
               steps,
@@ -247,7 +247,7 @@
                                                                           WHERE equals(person.team_id, 99999)
                                                                           GROUP BY person.id
                                                                           HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-                 WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2012-01-08 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2012-01-15 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('user did things', 'user signed up')), and(and(ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 1), ifNull(like(e__person.properties___fish, '%fish%'), 0))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                 WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.999999', 6, 'UTC'))), in(e.event, tuple('user did things', 'user signed up')), and(and(ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 1), ifNull(like(e__person.properties___fish, '%fish%'), 0))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
            WHERE ifNull(equals(step_0, 1), 0)))
      GROUP BY aggregation_target,
               steps
@@ -322,7 +322,7 @@
                                                                           WHERE equals(person.team_id, 99999)
                                                                           GROUP BY person.id
                                                                           HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-                 WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2012-01-08 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2012-01-15 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('user did things', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                 WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.999999', 6, 'UTC'))), in(e.event, tuple('user did things', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
            WHERE ifNull(equals(step_0, 1), 0)))
      GROUP BY aggregation_target,
               steps
@@ -827,6 +827,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -894,6 +895,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -968,6 +970,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -1042,6 +1045,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -1186,6 +1190,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -1445,6 +1450,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -1733,6 +1739,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -1884,6 +1891,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -2012,6 +2020,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -2076,6 +2085,72 @@
                                               3,
                                               4,
                                               5 /* ... */)
+  '''
+# ---
+# name: TestInsight.test_listing_insights_does_not_nplus1.34
+  '''
+  SELECT "ee_accesscontrol"."id",
+         "ee_accesscontrol"."team_id",
+         "ee_accesscontrol"."access_level",
+         "ee_accesscontrol"."resource",
+         "ee_accesscontrol"."resource_id",
+         "ee_accesscontrol"."organization_member_id",
+         "ee_accesscontrol"."role_id",
+         "ee_accesscontrol"."created_by_id",
+         "ee_accesscontrol"."created_at",
+         "ee_accesscontrol"."updated_at"
+  FROM "ee_accesscontrol"
+  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
+          AND "ee_accesscontrol"."resource" = 'insight'
+          AND "ee_accesscontrol"."resource_id" = '99999'
+          AND "ee_accesscontrol"."role_id" IS NULL
+          AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("posthog_organizationmembership"."user_id" = 99999
+             AND "ee_accesscontrol"."resource" = 'insight'
+             AND "ee_accesscontrol"."resource_id" = '99999'
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("ee_accesscontrol"."organization_member_id" IS NULL
+             AND "ee_accesscontrol"."resource" = 'insight'
+             AND "ee_accesscontrol"."resource_id" = '99999'
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("posthog_organizationmembership"."user_id" = 99999
+             AND "ee_accesscontrol"."resource" = 'insight'
+             AND "ee_accesscontrol"."resource_id" = '99999'
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("ee_accesscontrol"."organization_member_id" IS NULL
+             AND "ee_accesscontrol"."resource" = 'insight'
+             AND "ee_accesscontrol"."resource_id" = '99999'
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("posthog_organizationmembership"."user_id" = 99999
+             AND "ee_accesscontrol"."resource" = 'insight'
+             AND "ee_accesscontrol"."resource_id" = '99999'
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("ee_accesscontrol"."organization_member_id" IS NULL
+             AND "ee_accesscontrol"."resource" = 'insight'
+             AND "ee_accesscontrol"."resource_id" = '99999'
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("posthog_organizationmembership"."user_id" = 99999
+             AND "ee_accesscontrol"."resource" = 'insight'
+             AND "ee_accesscontrol"."resource_id" = '99999'
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("ee_accesscontrol"."organization_member_id" IS NULL
+             AND "ee_accesscontrol"."resource" = 'insight'
+             AND "ee_accesscontrol"."resource_id" = '99999'
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("posthog_organizationmembership"."user_id" = 99999
+             AND "ee_accesscontrol"."resource" = 'insight'
+             AND "ee_accesscontrol"."resource_id" = '99999'
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999))
   '''
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.4
@@ -2189,6 +2264,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
@@ -2291,6 +2367,7 @@
          "posthog_team"."recording_domains",
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
+         "posthog_team"."revenue_tracking_config",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",

@@ -1,5 +1,6 @@
 import 'chartjs-adapter-dayjs-3'
 
+import * as Sentry from '@sentry/react'
 import { LegendOptions } from 'chart.js'
 import { DeepPartial } from 'chart.js/dist/types/utils'
 import annotationPlugin from 'chartjs-plugin-annotation'
@@ -156,13 +157,10 @@ export function onChartHover(
     }
 
     const target = nativeEvent?.target as HTMLDivElement
-    const point = chart.getElementsAtEventForMode(nativeEvent, 'index', { intersect: true }, true)
+    const point = chart.getElementsAtEventForMode(nativeEvent, 'index', {}, true)
 
-    if (onClick && point.length) {
-        // FIXME: Whole graph should have cursor: pointer from the get-go if it's persons modal-enabled
-        // This code gives it that style, but only once the user hovers over a data point
-        target.style.cursor = 'pointer'
-    }
+    // Give the chart `cursor: pointer` only when hovering over a clickable area
+    target.style.cursor = onClick && point.length ? 'pointer' : 'default'
 }
 
 export const filterNestedDataset = (
@@ -280,7 +278,7 @@ export function LineGraph_({
     hideYAxis,
     yAxisScaleType,
     legend = { display: false },
-    goalLines = [],
+    goalLines: _goalLines,
 }: LineGraphProps): JSX.Element {
     let datasets = _datasets
 
@@ -315,6 +313,28 @@ export function LineGraph_({
         return () => {
             const tooltipEl = document.getElementById('InsightTooltipWrapper')
             tooltipEl?.remove()
+        }
+    }, [])
+
+    // Add event listeners to canvas
+    useEffect(() => {
+        const canvas = canvasRef.current
+
+        if (canvas) {
+            const handleEvent = (event: Event): void => {
+                console.error(event)
+                Sentry.captureException(event)
+            }
+
+            canvas.addEventListener('contextlost', handleEvent)
+            canvas.addEventListener('webglcontextcreationerror', handleEvent)
+            canvas.addEventListener('webglcontextlost', handleEvent)
+
+            return () => {
+                canvas.removeEventListener('contextlost', handleEvent)
+                canvas.removeEventListener('webglcontextcreationerror', handleEvent)
+                canvas.removeEventListener('webglcontextlost', handleEvent)
+            }
         }
     }, [])
 
@@ -405,6 +425,7 @@ export function LineGraph_({
         const seriesNonZeroMax = Math.max(...datasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO))
         const seriesNonZeroMin = Math.min(...datasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO))
         const precision = seriesNonZeroMax < 5 ? 1 : seriesNonZeroMax < 2 ? 2 : 0
+        const goalLines = _goalLines || []
         const goalLinesY = goalLines.map((a) => a.value)
         const goalLinesWithColor = goalLines.filter((goalLine) => Boolean(goalLine.borderColor))
 
@@ -854,7 +875,7 @@ export function LineGraph_({
         formula,
         showValuesOnSeries,
         showPercentStackView,
-        goalLines,
+        _goalLines,
         theme,
     ])
 

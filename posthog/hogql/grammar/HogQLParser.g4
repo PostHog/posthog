@@ -149,6 +149,7 @@ columnExpr
     | CAST LPAREN columnExpr AS columnTypeExpr RPAREN                                     # ColumnExprCast
     | DATE STRING_LITERAL                                                                 # ColumnExprDate
 //    | EXTRACT LPAREN interval FROM columnExpr RPAREN                                      # ColumnExprExtract   // Interferes with a function call
+    | INTERVAL STRING_LITERAL                                                             # ColumnExprIntervalString
     | INTERVAL columnExpr interval                                                        # ColumnExprInterval
     | SUBSTRING LPAREN columnExpr FROM columnExpr (FOR columnExpr)? RPAREN                # ColumnExprSubstring
     | TIMESTAMP STRING_LITERAL                                                            # ColumnExprTimestamp
@@ -221,9 +222,10 @@ columnLambdaExpr:
     ;
 
 
+hogqlxChildElement: hogqlxTagElement | (LBRACE columnExpr RBRACE);
 hogqlxTagElement
-    : LT identifier hogqlxTagAttribute* SLASH GT                                        # HogqlxTagElementClosed
-    | LT identifier hogqlxTagAttribute* GT (hogqlxTagElement | (LBRACE columnExpr RBRACE))? LT SLASH identifier GT     # HogqlxTagElementNested
+    : LT identifier hogqlxTagAttribute* SLASH GT                                          # HogqlxTagElementClosed
+    | LT identifier hogqlxTagAttribute* GT hogqlxChildElement* LT SLASH identifier GT     # HogqlxTagElementNested
     ;
 hogqlxTagAttribute
     :   identifier '=' string
