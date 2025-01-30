@@ -47,6 +47,10 @@ const main = async () => {
     const providerModels = new Map<string, ModelRow[]>()
 
     for (const model of models) {
+        if (!model?.id || !model?.pricing?.prompt || !model?.pricing?.completion) {
+            console.warn('Skipping invalid model:', model)
+            continue
+        }
         const [provider, ...modelParts] = model.id.split('/')
         if (!supportedProviderList.includes(provider)) {
             continue
