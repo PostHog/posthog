@@ -120,6 +120,6 @@ def test_lightweight_delete(cluster: ClickhouseCluster) -> None:
         # check to make sure all mutations are marked as done
         assert all(cluster.map_all_hosts_in_shard(host_info.shard_num, mutation.is_done).result().values())
 
-        # check to ensure data is as expected to be after update (_row_exists = 0 for all rows)
+        # check to ensure data is as expected to be after update (fewer rows visible than initially created)
         query_results = cluster.map_all_hosts_in_shard(host_info.shard_num, get_row_exists_count).result()
         assert all(result[0][0] < count for result in query_results.values())
