@@ -385,7 +385,7 @@ $xxl: 1600px;
     // --secondary-3000: var(--secondary-3000);
     // --secondary-3000-hover: var(--secondary-3000-hover);
     // --accent-3000: light-dark(var(--accent-3000-light), var(--accent-3000-dark));
-    // --bg-3000: var(--bg-3000);
+    // --bg-3000: var(--bg-primary);
     --primary-highlight: light-dark(var(--primary-highlight-light), var(--primary-highlight-dark));
 
     // --primary-alt-highlight: var(--primary-alt-highlight);
@@ -837,7 +837,7 @@ $xxl: 1600px;
     // --color-secondary-3000: var(--secondary-3000);
     // --color-secondary-3000-hover: var(--secondary-3000-hover);
     // --color-accent-3000: var(--surface-primary);
-    // --color-bg-3000: var(--bg-3000);
+    // --color-bg-3000: var(--bg-primary);
     // --color-primary-highlight: var(--primary-highlight);
     // --color-primary-alt-highlight: var(--primary-alt-highlight);
     // --color-primary-alt: var(--primary-alt);
@@ -1033,7 +1033,7 @@ $xxl: 1600px;
     --color-secondary-3000: var(--secondary-3000);
     --color-secondary-3000-hover: var(--secondary-3000-hover);
     --color-accent-3000: var(--surface-primary);
-    --color-bg-3000: var(--bg-3000);
+    --color-bg-3000: var(--bg-primary);
     --color-border-3000: var(--border-3000);
     --color-border-light-opaque: var(--border-light-opaque);
     --color-border-bold-3000: var(--border-bold-3000);
@@ -1137,7 +1137,7 @@ body {
     color: var(--text-3000);
     color-scheme: light dark;
     touch-action: manipulation; // Disable double-tap-to-zoom on mobile, making taps slightly snappier
-    background: var(--bg-3000);
+    background: var(--bg-primary);
 
     &[theme='light'] {
         color-scheme: light;
@@ -1228,7 +1228,7 @@ body {
     }
 
     dialog {
-        background-color: var(--bg-3000);
+        background-color: var(--bg-primary);
     }
 
     .LemonButton,
