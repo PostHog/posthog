@@ -1,11 +1,10 @@
-import { Readable } from 'stream'
 import { createGzip } from 'zlib'
 
 import { ParsedMessageData } from '../kafka/types'
 
 export interface EndResult {
-    /** A readable stream containing the gzipped session block */
-    stream: Readable
+    /** The complete compressed session block */
+    buffer: Buffer
     /** Number of events in the session block */
     eventCount: number
 }
@@ -35,11 +34,18 @@ export interface EndResult {
  */
 export class SessionRecorder {
     private readonly gzip: ReturnType<typeof createGzip>
+    private readonly chunks: Buffer[] = []
     private eventCount: number = 0
     private rawBytesWritten: number = 0
+    private ended = false
 
     constructor() {
         this.gzip = createGzip()
+
+        // Collect compressed chunks as they're produced
+        this.gzip.on('data', (chunk: Buffer) => {
+            this.chunks.push(chunk)
+        })
     }
 
     /**
@@ -48,15 +54,18 @@ export class SessionRecorder {
      *
      * @param message - Message containing events for one or more windows
      * @returns Number of raw bytes written (before compression)
+     * @throws If called after end()
      */
     public recordMessage(message: ParsedMessageData): number {
+        if (this.ended) {
+            throw new Error('Cannot record message after end() has been called')
+        }
+
         let rawBytesWritten = 0
 
         Object.entries(message.eventsByWindowId).forEach(([windowId, events]) => {
             events.forEach((event) => {
                 const serializedLine = JSON.stringify([windowId, event]) + '\n'
-                // No need to handle backpressure here as gzip buffers until end() is called
-                // There is a test that covers writing large amounts of data
                 this.gzip.write(serializedLine)
                 rawBytesWritten += Buffer.byteLength(serializedLine)
                 this.eventCount++
@@ -68,18 +77,28 @@ export class SessionRecorder {
     }
 
     /**
-     * Finalizes the session block and returns a stream for reading it
+     * Finalizes and returns the compressed session block
      *
-     * The returned stream contains the gzipped session block data.
-     * After calling this method, no more events can be recorded.
+     * @returns The complete compressed session block and event count
+     * @throws If called more than once
      */
-    public end(): EndResult {
-        // We end the gzip stream, so that it can be read by the consumer
-        // Error handling is deferred to the consumer
-        this.gzip.end()
-        return {
-            stream: this.gzip,
-            eventCount: this.eventCount,
+    public async end(): Promise<EndResult> {
+        if (this.ended) {
+            throw new Error('end() has already been called')
         }
+        this.ended = true
+
+        return new Promise((resolve, reject) => {
+            this.gzip.on('end', () => {
+                resolve({
+                    // Buffer.concat typings are missing the signature with Buffer[]
+                    buffer: Buffer.concat(this.chunks as any[]),
+                    eventCount: this.eventCount,
+                })
+            })
+            this.gzip.on('error', reject)
+
+            this.gzip.end()
+        })
     }
 }

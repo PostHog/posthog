@@ -1,4 +1,3 @@
-import { PassThrough } from 'stream'
 import { createGunzip } from 'zlib'
 
 import { ParsedMessageData } from '../kafka/types'
@@ -40,31 +39,18 @@ describe('SessionRecorder', () => {
         },
     })
 
-    const readGzippedStream = async (stream: PassThrough): Promise<string[]> => {
+    const readGzippedBuffer = async (buffer: Buffer): Promise<any[]> => {
         return new Promise((resolve, reject) => {
             const gunzip = createGunzip()
             const chunks: Buffer[] = []
 
-            // Handle errors from both streams
-            stream.on('error', (error) => {
-                gunzip.destroy()
-                reject(new Error(`Error in source stream: ${error.message}`))
-            })
-
-            gunzip.on('error', (error) => {
-                stream.destroy()
-                reject(new Error(`Error decompressing data: ${error.message}`))
-            })
-
-            // Handle data
             gunzip.on('data', (chunk) => {
                 chunks.push(chunk)
             })
 
-            // Handle completion
             gunzip.on('end', () => {
                 try {
-                    const result = Buffer.concat(chunks as any)
+                    const result = Buffer.concat(chunks)
                         .toString()
                         .trim()
                         .split('\n')
@@ -73,15 +59,16 @@ describe('SessionRecorder', () => {
                         .map((line) => JSON.parse(line))
                     resolve(result)
                 } catch (error) {
-                    reject(new Error(`Failed to process stream data: ${error.message}`))
-                } finally {
-                    stream.destroy()
-                    gunzip.destroy()
+                    reject(new Error(`Failed to process decompressed data: ${error.message}`))
                 }
             })
 
-            // Pipe the streams
-            stream.pipe(gunzip)
+            gunzip.on('error', (error) => {
+                reject(new Error(`Error decompressing data: ${error.message}`))
+            })
+
+            // Write the entire buffer and end
+            gunzip.end(buffer)
         })
     }
 
@@ -107,10 +94,8 @@ describe('SessionRecorder', () => {
             const rawBytesWritten = recorder.recordMessage(message)
             expect(rawBytesWritten).toBeGreaterThan(0)
 
-            const stream = new PassThrough()
-            const { stream: gzipStream, eventCount } = recorder.end()
-            gzipStream.pipe(stream)
-            const lines = await readGzippedStream(stream)
+            const { buffer, eventCount } = await recorder.end()
+            const lines = await readGzippedBuffer(buffer)
 
             expect(lines).toEqual([
                 ['window1', events[0]],
@@ -155,11 +140,8 @@ describe('SessionRecorder', () => {
             }
 
             recorder.recordMessage(message)
-
-            const stream = new PassThrough()
-            const { stream: gzipStream, eventCount } = recorder.end()
-            gzipStream.pipe(stream)
-            const lines = await readGzippedStream(stream)
+            const { buffer, eventCount } = await recorder.end()
+            const lines = await readGzippedBuffer(buffer)
 
             expect(lines).toEqual([
                 ['window1', events.window1[0]],
@@ -174,14 +156,13 @@ describe('SessionRecorder', () => {
             const message = createMessage('window1', [])
             recorder.recordMessage(message)
 
-            const stream = new PassThrough()
-            const { stream: gzipStream, eventCount } = recorder.end()
-            gzipStream.pipe(stream)
-            const lines = await readGzippedStream(stream)
+            const { buffer, eventCount } = await recorder.end()
+            const lines = await readGzippedBuffer(buffer)
 
             expect(lines).toEqual([])
             expect(eventCount).toBe(0)
         })
+
         it('should handle large amounts of data', async () => {
             const events = Array.from({ length: 10000 }, (_, i) => ({
                 type: EventType.Custom,
@@ -196,10 +177,8 @@ describe('SessionRecorder', () => {
                 recorder.recordMessage(message)
             }
 
-            const stream = new PassThrough()
-            const { stream: gzipStream, eventCount } = recorder.end()
-            gzipStream.pipe(stream)
-            const lines = await readGzippedStream(stream)
+            const { buffer, eventCount } = await recorder.end()
+            const lines = await readGzippedBuffer(buffer)
 
             expect(lines.length).toBe(10000)
             expect(eventCount).toBe(10000)

@@ -33,7 +33,7 @@ interface MessageMetadata {
 }
 
 export class SessionRecorderMock {
-    private chunks: string[] = []
+    private chunks: Buffer[] = []
     private size: number = 0
 
     public recordMessage(message: ParsedMessageData): number {
@@ -42,7 +42,7 @@ export class SessionRecorderMock {
         Object.entries(message.eventsByWindowId).forEach(([windowId, events]) => {
             events.forEach((event) => {
                 const serializedLine = JSON.stringify([windowId, event]) + '\n'
-                this.chunks.push(serializedLine)
+                this.chunks.push(Buffer.from(serializedLine))
                 bytesWritten += Buffer.byteLength(serializedLine)
             })
         })
@@ -52,14 +52,9 @@ export class SessionRecorderMock {
     }
 
     public end(): EndResult {
-        const stream = new PassThrough()
-        // Write all chunks to the stream and end it
-        for (const chunk of this.chunks) {
-            stream.write(chunk)
-        }
-        stream.end()
+        const buffer = Buffer.concat(this.chunks as any[])
         return {
-            stream,
+            buffer,
             eventCount: this.chunks.length,
         }
     }
@@ -715,12 +710,6 @@ describe('SessionBatchRecorder', () => {
 
     describe('error handling', () => {
         it('should handle errors from session streams', async () => {
-            class ErrorStream extends PassThrough {
-                _read() {
-                    this.emit('error', new Error('Stream read error'))
-                }
-            }
-
             const events = [
                 {
                     type: EventType.FullSnapshot,
@@ -729,17 +718,11 @@ describe('SessionBatchRecorder', () => {
                 },
             ]
 
-            // Mock one of the recorders to return a stream that errors
-            const errorStream = new ErrorStream()
-
             jest.mocked(SessionRecorder).mockImplementation(
                 () =>
                     ({
                         recordMessage: jest.fn().mockReturnValue(1),
-                        end: () => ({
-                            stream: errorStream,
-                            eventCount: 1,
-                        }),
+                        end: () => Promise.reject(new Error('Stream read error')),
                     } as unknown as SessionRecorder)
             )
 
