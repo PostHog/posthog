@@ -24,7 +24,7 @@ ToolbarMenu.Body = function ToolbarMenuBody({ children, className, noPadding }: 
 
 ToolbarMenu.Footer = function ToolbarMenufooter({ children, className, noPadding }: ToolbarMenuProps): JSX.Element {
     return (
-        <div className={clsx(!noPadding && 'p-1', 'flex flex-row items-center border-t gap-2', className)}>
+        <div className={clsx(!noPadding && 'py-1 px-2', 'flex flex-row items-center border-t gap-2', className)}>
             {children}
         </div>
     )

@@ -5,6 +5,7 @@
     top: 0;
     left: 0;
     z-index: 2147483020;
+    color-scheme: light dark;
     user-select: none; // Make the app feel less page-like and more app-like - apps scarcely allow text selection
     opacity: 1;
     transition: opacity ease 0.5s;
@@ -33,9 +34,15 @@
         z-index: 2147483020;
     }
 
+    &[theme='light'] {
+        color-scheme: light;
+    }
+
     &[theme='dark'] {
         // override the mark value so that feature flag overrides are visible _and legible_ in dark mode
         --mark: var(--secondary-3000-hover-dark);
+
+        color-scheme: dark;
 
         // @include dark-mode-3000-variables;
     }
