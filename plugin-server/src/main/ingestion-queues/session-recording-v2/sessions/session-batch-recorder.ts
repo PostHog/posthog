@@ -123,7 +123,7 @@ export class SessionBatchRecorder {
             totalSize: this._size,
         })
 
-        const { stream: outputStream, finish } = await this.writer.newBatch()
+        const { stream: outputStream, finish } = this.writer.newBatch()
 
         let totalEvents = 0
         let totalSessions = 0

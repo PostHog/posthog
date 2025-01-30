@@ -87,7 +87,7 @@ describe('SessionBatchRecorder', () => {
     const createOpenMock = () => {
         const stream = new PassThrough()
         const finishMock = jest.fn().mockResolvedValue(undefined)
-        const openMock = jest.fn().mockResolvedValue({ stream, finish: finishMock })
+        const openMock = jest.fn().mockReturnValue({ stream, finish: finishMock })
         return { openMock, finishMock, stream }
     }
 
@@ -655,9 +655,9 @@ describe('SessionBatchRecorder', () => {
             const finish3 = jest.fn().mockResolvedValue(undefined)
 
             mockWriter.newBatch
-                .mockResolvedValueOnce({ stream: stream1, finish: finish1 })
-                .mockResolvedValueOnce({ stream: stream2, finish: finish2 })
-                .mockResolvedValueOnce({ stream: stream3, finish: finish3 })
+                .mockReturnValueOnce({ stream: stream1, finish: finish1 })
+                .mockReturnValueOnce({ stream: stream2, finish: finish2 })
+                .mockReturnValueOnce({ stream: stream3, finish: finish3 })
 
             const messages = [
                 createMessage('session1', [
@@ -743,7 +743,9 @@ describe('SessionBatchRecorder', () => {
 
         it('should handle writer errors', async () => {
             const error = new Error('Write failed')
-            mockWriter.newBatch.mockRejectedValueOnce(error)
+            mockWriter.newBatch.mockImplementationOnce(() => {
+                throw error
+            })
 
             const message = createMessage('session1', [{ type: 1, timestamp: 1, data: {} }])
             recorder.record(message)
@@ -786,7 +788,7 @@ describe('SessionBatchRecorder', () => {
             }
 
             const errorStream = new FailingStream()
-            mockWriter.newBatch.mockResolvedValueOnce({
+            mockWriter.newBatch.mockReturnValueOnce({
                 stream: errorStream,
                 finish: mockFinish,
             })

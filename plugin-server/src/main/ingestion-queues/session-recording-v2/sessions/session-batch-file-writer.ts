@@ -28,10 +28,10 @@ export interface SessionBatchFileWriter {
      *
      * Example usage:
      * ```
-     * const { stream, finish } = await writer.newBatch()
+     * const { stream, finish } = writer.newBatch()
      * stream.write(batchBytes) // Writer doesn't interpret these bytes
      * await finish() // Completes the write operation
      * ```
      */
-    newBatch(): Promise<StreamWithFinish>
+    newBatch(): StreamWithFinish
 }

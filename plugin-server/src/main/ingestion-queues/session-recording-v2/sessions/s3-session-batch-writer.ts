@@ -21,7 +21,7 @@ export class S3SessionBatchWriter implements SessionBatchFileWriter {
         status.info('🔄', 's3_session_batch_writer_created', { bucket: this.bucket, prefix: this.prefix })
     }
 
-    public async newBatch(): Promise<StreamWithFinish> {
+    public newBatch(): StreamWithFinish {
         const passThrough = new PassThrough()
         const key = this.generateKey()
 
@@ -37,7 +37,7 @@ export class S3SessionBatchWriter implements SessionBatchFileWriter {
             },
         })
 
-        return Promise.resolve({
+        return {
             stream: passThrough,
             finish: async () => {
                 status.debug('🔄', 's3_session_batch_writer_finishing_stream', { key })
@@ -50,7 +50,7 @@ export class S3SessionBatchWriter implements SessionBatchFileWriter {
                     throw error
                 }
             },
-        })
+        }
     }
 
     private generateKey(): string {
