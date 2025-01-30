@@ -27,7 +27,7 @@ export interface SessionBatchManagerConfig {
  * Each flush creates a new session batch file:
  * ```
  * Session Batch File 1 (flushed)
- * ├── Gzipped Session Recording Block 1
+ * ├── Compressed Session Recording Block 1
  * │   └── JSONL Session Recording Block
  * │       ├── [windowId, event1]
  * │       ├── [windowId, event2]
@@ -35,14 +35,14 @@ export interface SessionBatchManagerConfig {
  * └── ...
  *
  * Session Batch File 2 (flushed)
- * ├── Gzipped Session Recording Block 1
+ * ├── Compressed Session Recording Block 1
  * │   └── JSONL Session Recording Block
  * │       ├── [windowId, event1]
  * │       └── ...
  * └── ...
  *
  * Session Batch File 3 (current, returned to consumer)
- * ├── Gzipped Session Recording Block 1
+ * ├── Compressed Session Recording Block 1
  * │   └── JSONL Session Recording Block
  * │       ├── [windowId, event1]
  * │       └── ... (still recording)
