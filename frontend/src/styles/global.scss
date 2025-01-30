@@ -210,7 +210,7 @@ $xxl: 1600px;
         var(--primitive-neutral-cool-950)
     ); /* promonent bg for info blocks */
 
-    --bg-fill-input: light-dark(var(--color-white), var(--primitive-neutral-cool-950));
+    --bg-fill-input: light-dark(var(--color-white), var(--primitive-neutral-cool-850));
     --bg-fill-info-tertiary: light-dark(var(--color-blue-50), var(--color-blue-950)); /* subtle bg for info blocks */
     --bg-fill-warning-secondary: light-dark(
         var(--color-orange-100),
