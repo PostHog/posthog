@@ -10,11 +10,8 @@ import { isNodeWithSource, isValidQueryForExperiment } from '~/queries/utils'
 import {
     ChartDisplayType,
     FeatureFlagFilters,
-<<<<<<< HEAD
     FeatureFlagType,
-=======
     FunnelConversionWindowTimeUnit,
->>>>>>> master
     FunnelTimeConversionMetrics,
     FunnelVizType,
     InsightType,
