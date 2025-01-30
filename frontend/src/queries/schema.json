@@ -74,6 +74,9 @@
                     "const": "ActorsPropertyTaxonomyQuery",
                     "type": "string"
                 },
+                "maxPropertyValues": {
+                    "$ref": "#/definitions/integer"
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
@@ -4103,6 +4106,9 @@
                 "seriesBreakdownColumn": {
                     "type": ["string", "null"]
                 },
+                "showLegend": {
+                    "type": "boolean"
+                },
                 "stackBars100": {
                     "description": "Whether we fill the bars to 100% in stacked mode",
                     "type": "boolean"
@@ -6263,6 +6269,9 @@
                 "kind": {
                     "const": "EventTaxonomyQuery",
                     "type": "string"
+                },
+                "maxPropertyValues": {
+                    "$ref": "#/definitions/integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",

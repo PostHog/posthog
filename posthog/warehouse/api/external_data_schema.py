@@ -142,7 +142,6 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             payload["incremental_field"] = data.get("incremental_field")
             payload["incremental_field_type"] = data.get("incremental_field_type")
             payload["incremental_field_last_value"] = None
-            payload["incremental_field_last_value_v2"] = None
 
             validated_data["sync_type_config"] = payload
         else:
@@ -150,7 +149,6 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             payload.pop("incremental_field", None)
             payload.pop("incremental_field_type", None)
             payload.pop("incremental_field_last_value", None)
-            payload.pop("incremental_field_last_value_v2", None)
 
             validated_data["sync_type_config"] = payload
 
