@@ -117,7 +117,7 @@ pub async fn serve<F>(config: Config, listener: TcpListener, shutdown: F)
 where
     F: Future<Output = ()> + Send + 'static,
 {
-    let liveness = HealthRegistry::new("liveness");
+    let liveness = HealthRegistry::new_with_strategy("liveness", config.healthcheck_strategy.clone());
 
     let redis_client =
         Arc::new(RedisClient::new(config.redis_url.clone()).expect("failed to create redis client"));

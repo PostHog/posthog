@@ -1,6 +1,7 @@
 use std::{net::SocketAddr, num::NonZeroU32};
 
 use envconfig::Envconfig;
+use health::HealthStrategy;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum CaptureMode {
@@ -66,6 +67,9 @@ pub struct Config {
     pub s3_fallback_enabled: bool,
     pub s3_fallback_bucket: Option<String>,
     pub s3_fallback_endpoint: Option<String>,
+
+    #[envconfig(default = "ALL")]
+    pub healthcheck_strategy: HealthStrategy
 }
 
 impl Config {
@@ -108,6 +112,7 @@ impl Config {
             s3_fallback_enabled: false,
             s3_fallback_bucket: None,
             s3_fallback_endpoint: None,
+            healthcheck_strategy: HealthStrategy::All,
         }
     }
 }

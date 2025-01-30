@@ -25,6 +25,7 @@ use tokio::sync::Notify;
 use tokio::time::timeout;
 use tracing::{debug, warn};
 
+use health::HealthStrategy;
 use capture::config::{CaptureMode, Config, KafkaConfig};
 use capture::limiters::redis::{
     QuotaResource, OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY,
@@ -69,6 +70,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     s3_fallback_enabled: false,
     s3_fallback_bucket: None,
     s3_fallback_endpoint: None,
+    healthcheck_strategy: HealthStrategy::All,
 });
 
 static TRACING_INIT: Once = Once::new();
