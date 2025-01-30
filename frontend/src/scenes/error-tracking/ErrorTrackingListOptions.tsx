@@ -12,7 +12,7 @@ export const ErrorTrackingListOptions = (): JSX.Element => {
     const { setOrderBy } = useActions(errorTrackingSceneLogic)
 
     return (
-        <div className="flex justify-between">
+        <div className="flex justify-end space-x-2">
             <div className="flex gap-4 py-2">
                 <div className="flex items-center gap-1">
                     <span>Sort by:</span>
