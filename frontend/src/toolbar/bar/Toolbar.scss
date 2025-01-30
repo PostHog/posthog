@@ -43,18 +43,11 @@
         --mark: var(--secondary-3000-hover-dark);
 
         color-scheme: dark;
-
-        // @include dark-mode-3000-variables;
     }
 
     & .ReactModalPortal {
         color: var(--text-3000);
     }
-
-    // @include common-variables;
-
-    // default to light theme
-    // @include light-mode-3000-variables;
 }
 
 .ToolbarMenu {

@@ -517,9 +517,6 @@ $xxl: 1600px;
     --notebook-column-left-width: 27rem;
     --notebook-column-right-width: 20rem;
 
-    // --glass-bg-3000: var(--glass-bg-3000-light);
-    // --shadow-elevation-3000: var(--shadow-elevation-3000);
-
     // --border: light-dark(var(--border-3000-light), var(--border-3000-dark));
     --accent: light-dark(var(--accent-3000-light), var(--accent-3000-dark));
     --text-3000: light-dark(var(--text-3000-light), var(--text-3000-dark));
@@ -577,52 +574,6 @@ $xxl: 1600px;
         var(--danger-3000-button-border-hover-dark)
     );
     --tooltip-bg: light-dark(var(--tooltip-bg-light), var(--tooltip-bg-dark));
-}
-
-@mixin dark-mode-3000-variables {
-    --text-3000: var(--text-3000-dark);
-    --text-secondary-3000: var(--text-secondary-3000-dark);
-    --muted-3000: var(--muted-3000-dark);
-    --trace-3000: var(--trace-3000-dark);
-    --primary-3000: var(--accent-primary); // var(--primary-3000-dark); // TODO: remove this
-    // --primary-highlight: var(--accent-primary-highlight); // var(--primary-highlight-dark); // TODO: remove this
-    --primary-3000-hover: var(--accent-primary-hover); // var(--primary-3000-hover-dark); // TODO: remove this
-    --primary-3000-active: var(--accent-primary-active); // var(--primary-3000-active-dark); // TODO: remove this
-    --secondary-3000: var(--secondary-3000-dark);
-    --secondary-3000-hover: var(--secondary-3000-hover-dark);
-    --accent-3000: var(--accent-3000-dark);
-    --bg-3000: var(--bg-3000-dark);
-    --border-3000: var(--border-3000-dark);
-    --border-light-opaque: #1e2028;
-    --border-bold-3000: var(--border-bold-3000-dark);
-
-    // --glass-bg-3000: var(--glass-bg-3000-dark);
-    --glass-bg-3000: var(--surface-quaternary);
-    --glass-border-3000: var(--glass-border-3000-dark);
-    --bg-light: var(--surface-primary);
-    --bg-table: #232429;
-    --brand-key: #fff; // In dark mode the black in PostHog's logo is replaced with white for proper contrast
-    --link: var(--link-3000-dark);
-    --shadow-elevation-3000: var(--shadow-elevation-3000-dark);
-    --primary-3000-frame-bg: var(--primary-3000-frame-bg-dark);
-    --primary-3000-button-bg: var(--primary-3000-button-bg-dark);
-    --primary-3000-button-border: var(--primary-3000-button-border-dark);
-    --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-dark);
-    --primary-alt-highlight: var(--primary-alt-highlight-dark);
-    --secondary-3000-frame-bg: var(--secondary-3000-frame-bg-dark);
-    --secondary-3000-button-bg: var(--secondary-3000-button-bg-dark);
-    --secondary-3000-button-border: var(--secondary-3000-button-border-dark);
-    --secondary-3000-button-border-hover: var(--secondary-3000-button-border-hover-dark);
-    --danger-3000-frame-bg: var(--danger-3000-frame-bg-dark);
-    --danger-3000-button-border: var(--danger-3000-button-border-dark);
-    --danger-3000-button-border-hover: var(--danger-3000-button-border-hover-dark);
-    --tooltip-bg: var(--tooltip-bg-dark);
-    --data-color-2: #7f26d9;
-    --data-color-3: #3e7a76;
-    --data-color-4: #bf0d6c;
-    --data-color-5: #f0474f;
-    --data-color-6: #b36114;
-    --data-color-10: #6576b3;
 }
 
 // Set Tailwind theme variables
