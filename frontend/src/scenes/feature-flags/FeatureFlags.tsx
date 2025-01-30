@@ -320,7 +320,6 @@ export function OverViewTab({
                             value: 'multivariant',
                             'data-attr': 'feature-flag-select-type-option-multiple-variants',
                         },
-                        { label: 'Remote configuration', value: 'config' },
                         { label: 'Experiment', value: 'experiment' },
                         { label: 'Remote config', value: 'remote_config' },
                     ]}

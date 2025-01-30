@@ -932,6 +932,9 @@ class FeatureFlagViewSet(
         # method used to make the request as it is used in non-protected endpoints.
         decrypted_flag_payloads = get_decrypted_flag_payloads(request, feature_flag.filters.get("payloads", {}))
 
+        count = int(1 / settings.DECIDE_BILLING_SAMPLING_RATE)
+        increment_request_count(self.team.pk, count, FlagRequestType.REMOTE_CONFIG)
+
         return Response(decrypted_flag_payloads["true"] or None)
 
     @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])

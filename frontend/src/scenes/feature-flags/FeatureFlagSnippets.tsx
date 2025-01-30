@@ -1,11 +1,10 @@
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { apiHostOrigin } from 'lib/utils/apiHost'
+import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { GroupType } from '~/types'
-
-import { featureFlagLogic } from './featureFlagLogic'
 
 export const UTM_TAGS = '?utm_medium=in-product&utm_campaign=feature-flag'
 export interface FeatureFlagSnippet {
