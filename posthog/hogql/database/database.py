@@ -224,6 +224,7 @@ def _use_person_id_from_person_overrides(database: Database) -> None:
             "if(not(empty(override.distinct_id)), override.person_id, event_person_id)",
             start=None,
         ),
+        isolate_scope=True,
     )
 
 
@@ -407,10 +408,24 @@ def create_hogql_database(
             )
 
         if "person_id" not in warehouse[warehouse_modifier.table_name].fields.keys():
-            warehouse[warehouse_modifier.table_name].fields["person_id"] = ExpressionField(
-                name="person_id",
-                expr=parse_expr(warehouse_modifier.distinct_id_field),
+            events_join = (
+                DataWarehouseJoin.objects.filter(
+                    team_id=team.pk,
+                    source_table_name=warehouse_modifier.table_name,
+                    joining_table_name="events",
+                )
+                .exclude(deleted=True)
+                .first()
             )
+            if events_join:
+                warehouse[warehouse_modifier.table_name].fields["person_id"] = FieldTraverser(
+                    chain=[events_join.field_name, "person_id"]
+                )
+            else:
+                warehouse[warehouse_modifier.table_name].fields["person_id"] = ExpressionField(
+                    name="person_id",
+                    expr=parse_expr(warehouse_modifier.distinct_id_field),
+                )
 
         return warehouse
 

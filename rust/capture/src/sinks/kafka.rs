@@ -27,7 +27,10 @@ struct KafkaContext {
 impl rdkafka::ClientContext for KafkaContext {
     fn stats(&self, stats: rdkafka::Statistics) {
         // Signal liveness, as the main rdkafka loop is running and calling us
-        self.liveness.report_healthy_blocking();
+        // If rx_bytes is zero we've had no communication from the brokers so are probably not healthy
+        if stats.rx_bytes > 0 {
+            self.liveness.report_healthy_blocking();
+        }
 
         // Update exported metrics
         gauge!("capture_kafka_callback_queue_depth",).set(stats.replyq as f64);
