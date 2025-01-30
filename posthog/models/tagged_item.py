@@ -111,7 +111,7 @@ class TaggedItem(UUIDModel):
     )
 
     class Meta:
-        unique_together = set()
+        unique_together = None
         constraints = [
             *[build_partial_uniqueness_constraint(field=field) for field in RELATED_OBJECTS],
             models.CheckConstraint(check=build_check(RELATED_OBJECTS), name="exactly_one_related_object"),
