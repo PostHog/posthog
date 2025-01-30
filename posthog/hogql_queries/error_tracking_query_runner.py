@@ -75,8 +75,8 @@ class ErrorTrackingQueryRunner(QueryRunner):
             ast.Alias(
                 alias="users", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["distinct_id"])])
             ),
-            ast.Alias(alias="lastSeen", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
-            ast.Alias(alias="firstSeen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
+            ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
+            ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
             ast.Alias(alias="volumeDay", expr=self.volume(ErrorTrackingSparklineConfig(interval="hour", value=24))),
             ast.Alias(alias="volumeMonth", expr=self.volume(ErrorTrackingSparklineConfig(interval="day", value=31))),
         ]
@@ -212,8 +212,8 @@ class ErrorTrackingQueryRunner(QueryRunner):
                     results.append(
                         issue
                         | {
-                            "firstSeen": result_dict.get("firstSeen"),
-                            "lastSeen": result_dict.get("lastSeen"),
+                            "first_seen": result_dict.get("first_seen"),
+                            "last_seen": result_dict.get("last_seen"),
                             "aggregations": self.extract_aggregations(result_dict),
                         }
                     )
