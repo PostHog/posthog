@@ -14,6 +14,10 @@ class Migration(migrations.Migration):
             model_name="taggeditem",
             name="exactly_one_related_object",
         ),
+        migrations.AlterUniqueTogether(
+            name="taggeditem",
+            unique_together=set(),
+        ),
         migrations.AddField(
             model_name="taggeditem",
             name="experiment_saved_metric",
