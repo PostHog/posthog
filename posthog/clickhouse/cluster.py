@@ -151,7 +151,7 @@ class ClickhouseCluster:
             return executor.submit(self.__get_task_function(host, fn))
 
     def map_all_hosts(
-        self, fn: Callable[[Client], T], concurrency: int | None = None, node_type: NodeRole = NodeRole.ALL
+        self, fn: Callable[[Client], T], concurrency: int | None = None, node_role: NodeRole = NodeRole.ALL
     ) -> FuturesMap[HostInfo, T]:
         """
         Execute the callable once for each host in the cluster.
@@ -164,7 +164,7 @@ class ClickhouseCluster:
                 {
                     host: executor.submit(self.__get_task_function(host, fn))
                     for host in self.__hosts
-                    if host.host_cluster_role == node_type.value.lower() or node_type == NodeRole.ALL
+                    if host.host_cluster_role == node_role.value.lower() or node_role == NodeRole.ALL
                 }
             )
 
