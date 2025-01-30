@@ -20,6 +20,7 @@ import {
 import { BindLogic, useActions, useValues } from 'kea'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { FlagSelector } from 'lib/components/FlagSelector'
+import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -36,14 +37,16 @@ import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagRe
 import {
     ActionType,
     LinkSurveyQuestion,
+    PropertyFilterType,
+    PropertyOperator,
     RatingSurveyQuestion,
+    SurveyMatchType,
     SurveyQuestion,
     SurveyQuestionType,
     SurveyType,
-    SurveyUrlMatchType,
 } from '~/types'
 
-import { defaultSurveyAppearance, defaultSurveyFieldValues, SurveyUrlMatchTypeLabels } from './constants'
+import { defaultSurveyAppearance, defaultSurveyFieldValues, SurveyMatchTypeLabels } from './constants'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
@@ -639,8 +642,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                 URL
                                                                 <LemonSelect
                                                                     value={
-                                                                        value?.urlMatchType ||
-                                                                        SurveyUrlMatchType.Contains
+                                                                        value?.urlMatchType || SurveyMatchType.Contains
                                                                     }
                                                                     onChange={(matchTypeVal) => {
                                                                         onChange({
@@ -649,9 +651,9 @@ export default function SurveyEdit(): JSX.Element {
                                                                         })
                                                                     }}
                                                                     data-attr="survey-url-matching-type"
-                                                                    options={Object.keys(SurveyUrlMatchTypeLabels).map(
+                                                                    options={Object.keys(SurveyMatchTypeLabels).map(
                                                                         (key) => ({
-                                                                            label: SurveyUrlMatchTypeLabels[key],
+                                                                            label: SurveyMatchTypeLabels[key],
                                                                             value: key,
                                                                         })
                                                                     )}
@@ -663,6 +665,49 @@ export default function SurveyEdit(): JSX.Element {
                                                                     }
                                                                     placeholder="ex: https://app.posthog.com"
                                                                     fullWidth
+                                                                />
+                                                            </div>
+                                                        </LemonField.Pure>
+                                                        <LemonField.Pure
+                                                            label="Device Types"
+                                                            info="Select the device types to show the survey on"
+                                                        >
+                                                            <div className="flex flex-row gap-2 items-center">
+                                                                Device Types
+                                                                <LemonSelect
+                                                                    value={
+                                                                        value?.deviceTypesMatchType ||
+                                                                        SurveyMatchType.Contains
+                                                                    }
+                                                                    onChange={(matchTypeVal) => {
+                                                                        onChange({
+                                                                            ...value,
+                                                                            deviceTypesMatchType: matchTypeVal,
+                                                                        })
+                                                                    }}
+                                                                    data-attr="survey-device-types-matching-type"
+                                                                    options={Object.keys(SurveyMatchTypeLabels).map(
+                                                                        (key) => ({
+                                                                            label: SurveyMatchTypeLabels[key],
+                                                                            value: key,
+                                                                        })
+                                                                    )}
+                                                                />
+                                                                <PropertyValue
+                                                                    propertyKey="$device_type"
+                                                                    type={PropertyFilterType.Person}
+                                                                    onSet={(deviceTypes: string[]) =>
+                                                                        onChange({
+                                                                            ...value,
+                                                                            deviceTypes: deviceTypes,
+                                                                        })
+                                                                    }
+                                                                    operator={PropertyOperator.Exact}
+                                                                    placeholder="Enter value..."
+                                                                    autoFocus={true}
+                                                                    addRelativeDateTimeOptions={true}
+                                                                    value={value?.deviceTypes}
+                                                                    inputClassName="flex-1"
                                                                 />
                                                             </div>
                                                         </LemonField.Pure>
