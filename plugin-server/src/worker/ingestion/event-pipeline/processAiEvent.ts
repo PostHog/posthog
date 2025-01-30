@@ -1,8 +1,8 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import bigDecimal from 'js-big-decimal'
 
-import { ModelRow } from '../../../types'
-import { providers } from '../../../utils/ai-cost-data/mappings'
+import { costs } from '../../../utils/ai-costs'
+import { ModelRow } from '../../../utils/ai-costs/types'
 
 export const processAiEvent = (event: PluginEvent): PluginEvent => {
     if ((event.event !== '$ai_generation' && event.event !== '$ai_embedding') || !event.properties) {
@@ -18,12 +18,7 @@ const processCost = (event: PluginEvent) => {
         return event
     }
 
-    const provider = providers.find((provider) => event?.properties?.$ai_provider === provider.provider.toLowerCase())
-    if (!provider || !provider.costs) {
-        return event
-    }
-
-    const cost = findCostFromModel(provider.costs, event.properties['$ai_model'])
+    const cost = findCostFromModel(event.properties['$ai_model'])
     if (!cost) {
         return event
     }
@@ -90,14 +85,10 @@ export const extractCoreModelParams = (event: PluginEvent): PluginEvent => {
     return event
 }
 
-const findCostFromModel = (costs: ModelRow[], aiModel: string): ModelRow | undefined => {
-    return costs.find((cost) => {
-        const valueLower = cost.model.value.toLowerCase()
-        if (cost.model.operator === 'startsWith') {
-            return aiModel.startsWith(valueLower)
-        } else if (cost.model.operator === 'includes') {
-            return aiModel.includes(valueLower)
-        }
-        return valueLower === aiModel
-    })
+const findCostFromModel = (aiModel: string): ModelRow | undefined => {
+    let cost = costs.find((cost) => cost.model.toLowerCase() === aiModel.toLowerCase())
+    if (!cost) {
+        cost = costs.find((cost) => aiModel.toLowerCase().includes(cost.model.toLowerCase()))
+    }
+    return cost
 }
