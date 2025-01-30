@@ -1,4 +1,4 @@
-import { LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -44,7 +44,11 @@ const ProviderMappings: Record<
     },
 }
 
-export function DatawarehouseTableForm(): JSX.Element {
+interface Props {
+    onUpdate?: () => void
+}
+
+export function DatawarehouseTableForm({ onUpdate }: Props): JSX.Element {
     const { manualLinkingProvider } = useValues(sourceWizardLogic)
 
     const provider = manualLinkingProvider ?? 'aws'
@@ -125,6 +129,13 @@ export function DatawarehouseTableForm(): JSX.Element {
                         <Link to="https://cloud.google.com/storage/docs/authentication/hmackeys" target="_new">
                             here
                         </Link>
+                    </div>
+                )}
+                {!!onUpdate && (
+                    <div className="flex justify-end">
+                        <LemonButton type="primary" onClick={onUpdate}>
+                            Update
+                        </LemonButton>
                     </div>
                 )}
             </div>
