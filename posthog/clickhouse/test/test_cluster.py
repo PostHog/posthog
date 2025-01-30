@@ -7,7 +7,7 @@ import pytest
 from clickhouse_driver import Client
 
 from posthog.clickhouse.client.connection import NodeRole
-from posthog.clickhouse.cluster import T, ClickhouseCluster, ConnectionInfo, HostInfo, MutationRunner, get_cluster
+from posthog.clickhouse.cluster import T, ClickhouseCluster, HostInfo, MutationRunner, get_cluster
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 
 
@@ -76,40 +76,19 @@ def test_mutations(cluster: ClickhouseCluster) -> None:
     assert cluster.map_all_hosts(get_mutations_count).result() == mutations_count_before
 
 
-def test_map_all_hosts_filter_by_node_role(cluster: ClickhouseCluster) -> None:
-    hosts_info = [
-        HostInfo(
-            ConnectionInfo(address="host1", port=9000),
-            shard_num=1,
-            replica_num=1,
-            host_cluster_role="worker",
-            host_cluster_type="online",
-        ),
-        HostInfo(
-            ConnectionInfo(address="host2", port=9000),
-            shard_num=1,
-            replica_num=2,
-            host_cluster_role="worker",
-            host_cluster_type="online",
-        ),
-        HostInfo(
-            ConnectionInfo(address="host3", port=9000),
-            shard_num=1,
-            replica_num=3,
-            host_cluster_role="worker",
-            host_cluster_type="online",
-        ),
-        HostInfo(
-            ConnectionInfo(address="host4", port=9000),
-            shard_num=1,
-            replica_num=4,
-            host_cluster_role="coordinator",
-            host_cluster_type="online",
-        ),
+def test_map_all_hosts_filter_by_node_role() -> None:
+    bootstrap_client_mock = Mock()
+    bootstrap_client_mock.execute = Mock()
+    bootstrap_client_mock.execute.return_value = [
+        ("host1", "9000", "1", "1", "online", "worker"),
+        ("host2", "9000", "1", "2", "online", "worker"),
+        ("host3", "9000", "1", "3", "online", "worker"),
+        ("host4", "9000", "1", "4", "online", "coordinator"),
     ]
-    cluster._ClickhouseCluster__hosts = hosts_info
 
-    times_called = defaultdict(int)
+    cluster = ClickhouseCluster(bootstrap_client_mock)
+
+    times_called: defaultdict[NodeRole, int] = defaultdict(int)
 
     def mock_get_task_function(_, host: HostInfo, fn: Callable[[Client], T]) -> Callable[[], T]:
         if host.host_cluster_role == NodeRole.WORKER.value.lower():
