@@ -161,7 +161,7 @@ class ClickhouseCluster:
             )
 
     def map_all_hosts_in_shards(
-        self, shards: Sequence[int], fn: Sequence[Callable[[Client], T]], concurrency: int | None = None
+        self, shard_fns: Sequence[tuple[int, Callable[[Client], T]]], concurrency: int | None = None
     ) -> FuturesMap[HostInfo, T]:
         """
         Execute the callable once for each host in the specified shards.
@@ -174,7 +174,8 @@ class ClickhouseCluster:
 
         return reduce(
             lambda x, y: x.merge(y),
-            [self.map_all_hosts_in_shard(shard, fn, concurrency) for shard in shards],
+            [self.map_all_hosts_in_shard(shard, fn, concurrency) for shard, fn in shard_fns],
+            FuturesMap(),
         )
 
     def map_one_host_per_shard(
