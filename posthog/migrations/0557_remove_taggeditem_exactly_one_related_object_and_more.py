@@ -26,6 +26,21 @@ class Migration(migrations.Migration):
             model_name="taggeditem",
             name="exactly_one_related_object",
         ),
+        migrations.AlterUniqueTogether(
+            name="taggeditem",
+            unique_together={
+                (
+                    "tag",
+                    "dashboard",
+                    "insight",
+                    "event_definition",
+                    "property_definition",
+                    "action",
+                    "feature_flag",
+                    "experiment_saved_metric",
+                )
+            },
+        ),
         migrations.AddConstraint(
             model_name="taggeditem",
             constraint=models.UniqueConstraint(
