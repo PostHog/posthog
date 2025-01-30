@@ -1,6 +1,5 @@
 import { LegacyTransformationPlugin, LegacyTransformationPluginMeta } from '../../types'
 import { processEvent } from './dist'
-import metadata from './plugin.json'
 
 // NOTE: The dist.js is a compiled version of the plugin as it is has external dependencies that it inlines
 // It is mostly untouched other than removing console logs and moving the setup code here
@@ -15,7 +14,6 @@ const setupPlugin = ({ global, config, logger }: LegacyTransformationPluginMeta)
 
 export const posthogRouteCensorPlugin: LegacyTransformationPlugin = {
     id: 'posthog-route-censor-plugin',
-    metadata: metadata as any,
     processEvent,
     setupPlugin,
 }

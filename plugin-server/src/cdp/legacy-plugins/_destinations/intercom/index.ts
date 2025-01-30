@@ -3,7 +3,6 @@ import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 import { Response } from '~/src/utils/fetch'
 
 import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from '../../types'
-import metadata from './plugin.json'
 
 type IntercomMeta = LegacyDestinationPluginMeta & {
     global: {
@@ -191,7 +190,6 @@ function getTimestamp(meta: IntercomMeta, event: ProcessedPluginEvent): number {
 
 export const intercomPlugin: LegacyDestinationPlugin = {
     id: 'posthog-intercom-plugin',
-    metadata: metadata as any,
     onEvent,
     setupPlugin: () => Promise.resolve(),
 }

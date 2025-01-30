@@ -1,9 +1,17 @@
 import { customerioPlugin } from './_destinations/customerio'
 import { intercomPlugin } from './_destinations/intercom'
 import { downsamplingPlugin } from './_transformations/downsampling-plugin'
+import { dropEventsOnPropertyPlugin } from './_transformations/drop-events-on-property-plugin'
+import { flattenPropertiesPlugin } from './_transformations/flatten-properties-plugin'
 import { languageUrlSplitterApp } from './_transformations/language-url-splitter-app'
+import { pluginAdvancedGeoip } from './_transformations/plugin-advanced-geoip'
+import { pluginStonlyCleanCampaignName } from './_transformations/Plugin-Stonly-Clean-Campaign-Name'
+import { pluginStonlyUtmExtractor } from './_transformations/plugin-stonly-UTM-Extractor'
+import { posthogAppUnduplicator } from './_transformations/posthog-app-unduplicator'
 import { posthogAppUrlParametersToEventPropertiesPlugin } from './_transformations/posthog-app-url-parameters-to-event-properties'
 import { posthogFilterOutPlugin } from './_transformations/posthog-filter-out-plugin'
+import { posthogPluginGeoip } from './_transformations/posthog-plugin-geoip'
+import { posthogRouteCensorPlugin } from './_transformations/posthog-route-censor-plugin'
 import { posthogUrlNormalizerPlugin } from './_transformations/posthog-url-normalizer-plugin'
 import { propertyFilterPlugin } from './_transformations/property-filter-plugin'
 import { semverFlattenerPlugin } from './_transformations/semver-flattener-plugin'
@@ -27,4 +35,15 @@ export const TRANSFORMATION_PLUGINS_BY_ID = {
     [taxonomyPlugin.id]: taxonomyPlugin,
     [timestampParserPlugin.id]: timestampParserPlugin,
     [userAgentPlugin.id]: userAgentPlugin,
+}
+
+export const DEPRECATED_TRANSFORMATION_PLUGINS_BY_ID = {
+    [dropEventsOnPropertyPlugin.id]: dropEventsOnPropertyPlugin,
+    [flattenPropertiesPlugin.id]: flattenPropertiesPlugin,
+    [pluginAdvancedGeoip.id]: pluginAdvancedGeoip,
+    [pluginStonlyCleanCampaignName.id]: pluginStonlyCleanCampaignName,
+    [pluginStonlyUtmExtractor.id]: pluginStonlyUtmExtractor,
+    [posthogAppUnduplicator.id]: posthogAppUnduplicator,
+    [posthogPluginGeoip.id]: posthogPluginGeoip,
+    [posthogRouteCensorPlugin.id]: posthogRouteCensorPlugin,
 }

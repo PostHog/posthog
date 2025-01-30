@@ -1,7 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyTransformationPluginMeta } from '../../types'
-
+import { LegacyTransformationPlugin, LegacyTransformationPluginMeta } from '../../types'
 const cleanUtmCampain = (utmCampaign: string) => {
     return utmCampaign
         .replace('com-', 'comp-')
@@ -29,4 +28,9 @@ export function processEvent(event: PluginEvent, _: LegacyTransformationPluginMe
     }
     // Return the event to be ingested, or return null to discard
     return event
+}
+
+export const pluginStonlyCleanCampaignName: LegacyTransformationPlugin = {
+    id: 'plugin-stonly-clean-campaign-name',
+    processEvent,
 }

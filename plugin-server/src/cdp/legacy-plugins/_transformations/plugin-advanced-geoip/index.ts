@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyTransformationPluginMeta } from '../../types'
+import { LegacyTransformationPlugin, LegacyTransformationPluginMeta } from '../../types'
 
 const geoIpProps = [
     '$geoip_city_name',
@@ -96,4 +96,9 @@ export const processEvent = (event: PluginEvent, { config, logger }: LegacyTrans
     logger.log(`Finished processing ${event.uuid || event.event}.`)
 
     return event
+}
+
+export const pluginAdvancedGeoip: LegacyTransformationPlugin = {
+    id: 'plugin-advanced-geoip',
+    processEvent,
 }

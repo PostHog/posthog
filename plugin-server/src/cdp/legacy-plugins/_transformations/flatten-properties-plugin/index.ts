@@ -1,7 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyTransformationPluginMeta } from '../../types'
-
+import { LegacyTransformationPlugin, LegacyTransformationPluginMeta } from '../../types'
 /**
  * Some events will always create very large numbers of flattened properties
  * This is undesirable since a large enough number of properties for a particular team can slow down the property filter in the UI
@@ -10,7 +9,7 @@ import { LegacyTransformationPluginMeta } from '../../types'
  */
 const eventDenyList = ['$autocapture', 'organization usage report']
 
-function processEvent(event: PluginEvent, { config }: LegacyTransformationPluginMeta) {
+export function processEvent(event: PluginEvent, { config }: LegacyTransformationPluginMeta) {
     try {
         if (!eventDenyList.includes(event.event) && event.properties) {
             event.properties = flattenProperties(event.properties, config.separator)
@@ -57,6 +56,7 @@ const flattenProperties = (props: Record<string, any>, sep: string, nestedChain:
     return { ...props, ...newProps }
 }
 
-module.exports = {
+export const flattenPropertiesPlugin: LegacyTransformationPlugin = {
+    id: 'flatten-properties-plugin',
     processEvent,
 }

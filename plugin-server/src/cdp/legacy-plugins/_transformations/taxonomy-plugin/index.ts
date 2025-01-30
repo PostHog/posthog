@@ -1,7 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { LegacyTransformationPlugin, LegacyTransformationPluginMeta } from '../../types'
-import metadata from './plugin.json'
 
 type Transformation = {
     name: string
@@ -82,6 +81,5 @@ const standardizeName = (name: string, desiredPattern: Transformation) => {
 
 export const taxonomyPlugin: LegacyTransformationPlugin = {
     id: 'taxonomy-plugin',
-    metadata: metadata as any,
     processEvent,
 }

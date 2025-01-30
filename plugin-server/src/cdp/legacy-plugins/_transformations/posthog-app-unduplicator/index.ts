@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { createHash } from 'crypto'
 
-import { LegacyTransformationPluginMeta } from '../../types'
+import { LegacyTransformationPlugin, LegacyTransformationPluginMeta } from '../../types'
 
 // From UUID Namespace RFC (https://datatracker.ietf.org/doc/html/rfc4122)
 const NAMESPACE_OID = '6ba7b812-9dad-11d1-80b4-00c04fd430c8'
@@ -69,4 +69,9 @@ export function processEvent(event: PluginEvent, { config }: LegacyTransformatio
 
     event.uuid = stringifyUUID(eventKeyBuffer)
     return event
+}
+
+export const posthogAppUnduplicator: LegacyTransformationPlugin = {
+    id: 'posthog-app-unduplicator',
+    processEvent,
 }
