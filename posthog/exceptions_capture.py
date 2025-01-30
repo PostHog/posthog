@@ -4,5 +4,5 @@ def capture_exception(error=None, sentry_scope=None, **sentry_scope_kwargs):
 
     sentry_capture_exception(error, scope=sentry_scope, **sentry_scope_kwargs)
 
-    if not api_key:
+    if api_key:
         posthog_capture_exception(error)
