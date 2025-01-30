@@ -89,7 +89,12 @@ export function OutputPane(): JSX.Element {
         return response?.results?.map((row: any[]) => {
             const rowObject: Record<string, any> = {}
             response.columns.forEach((column: string, i: number) => {
-                rowObject[column] = row[i]
+                // Handling objects here as other viz methods can accept objects. Data grid does not for now
+                if (typeof row[i] === 'object' && row[i] !== null) {
+                    rowObject[column] = JSON.stringify(row[i])
+                } else {
+                    rowObject[column] = row[i]
+                }
             })
             return rowObject
         })
@@ -270,7 +275,7 @@ function InternalDataTableVisualization(
     }
 
     return (
-        <div className="h-full hide-scrollbar flex flex-1 gap-2">
+        <div className="DataVisualization h-full hide-scrollbar flex flex-1 gap-2">
             <div className="relative w-full flex flex-col gap-4 flex-1">
                 <div className="flex flex-1 flex-row gap-4 overflow-scroll hide-scrollbar">
                     {isChartSettingsPanelOpen && (

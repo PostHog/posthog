@@ -36,7 +36,7 @@ export const ConditionalFormattingTab = (): JSX.Element => {
         useActions(dataVisualizationLogic)
 
     return (
-        <div className="flex flex-col w-full ConditionalFormattingTab">
+        <div className="flex flex-col ConditionalFormattingTab">
             <p>You can add rules to make the cells in the table change color if they meet certain conditions.</p>
 
             {conditionalFormattingRules.length > 0 && (

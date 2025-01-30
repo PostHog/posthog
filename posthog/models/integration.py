@@ -503,10 +503,7 @@ class GoogleAdsIntegration:
             )
 
             if response.status_code != 200:
-                capture_exception(
-                    Exception(f"GoogleAdsIntegration: Failed to retrieve account details: {response.text}")
-                )
-                raise Exception(f"There was an internal error")
+                continue
 
             data = response.json()
             accounts_with_name.append(

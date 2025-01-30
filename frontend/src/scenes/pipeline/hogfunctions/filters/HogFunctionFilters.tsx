@@ -79,7 +79,9 @@ export function HogFunctionFilters(): JSX.Element {
         return <HogFunctionFiltersInternal />
     }
 
-    const showMasking = type === 'destination'
+    const isLegacyPlugin = configuration?.template?.id?.startsWith('plugin-')
+
+    const showMasking = type === 'destination' && !isLegacyPlugin
     const showDropEvents = type === 'transformation'
 
     return (

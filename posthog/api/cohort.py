@@ -1,5 +1,6 @@
 import csv
 
+from collections import defaultdict
 from django.db import DatabaseError
 from loginas.utils import is_impersonated_session
 from sentry_sdk import start_span
@@ -309,7 +310,73 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             if search_query:
                 queryset = queryset.filter(name__icontains=search_query)
 
+            # TODO: remove this filter once we can support behavioral cohorts for feature flags, it's only
+            # used in the feature flag property filter UI
+            if self.request.query_params.get("hide_behavioral_cohorts", "false").lower() == "true":
+                all_cohorts = {cohort.id: cohort for cohort in queryset.all()}
+                behavioral_cohort_ids = self._find_behavioral_cohorts(all_cohorts)
+                queryset = queryset.exclude(id__in=behavioral_cohort_ids)
+
         return queryset.prefetch_related("experiment_set", "created_by", "team").order_by("-created_at")
+
+    def _find_behavioral_cohorts(self, all_cohorts: dict[int, Cohort]) -> set[int]:
+        """
+        Find all cohorts that have behavioral filters or reference cohorts with behavioral filters
+        using a graph-based approach.
+        """
+        graph, behavioral_cohorts = self._build_cohort_dependency_graph(all_cohorts)
+        affected_cohorts = set(behavioral_cohorts)
+
+        def find_affected_cohorts() -> None:
+            changed = True
+            while changed:
+                changed = False
+                for source_id in list(graph.keys()):
+                    if source_id not in affected_cohorts:
+                        # NB: If this cohort points to any affected cohort, it's also affected
+                        if any(target_id in affected_cohorts for target_id in graph[source_id]):
+                            affected_cohorts.add(source_id)
+                            changed = True
+
+        find_affected_cohorts()
+        return affected_cohorts
+
+    def _build_cohort_dependency_graph(self, all_cohorts: dict[int, Cohort]) -> tuple[dict[int, set[int]], set[int]]:
+        """
+        Builds a directed graph of cohort dependencies and identifies behavioral cohorts.
+        Returns (adjacency_list, behavioral_cohort_ids).
+        """
+        graph = defaultdict(set)
+        behavioral_cohorts = set()
+
+        def check_property_values(values: Any, source_id: int) -> None:
+            """Process property values to build graph edges and identify behavioral cohorts."""
+            if not isinstance(values, list):
+                return
+
+            for value in values:
+                if not isinstance(value, dict):
+                    continue
+
+                if value.get("type") == "behavioral":
+                    behavioral_cohorts.add(source_id)
+                elif value.get("type") == "cohort":
+                    try:
+                        target_id = int(value.get("value", "0"))
+                        if target_id in all_cohorts:
+                            graph[source_id].add(target_id)
+                    except ValueError:
+                        continue
+                elif value.get("type") in ("AND", "OR") and value.get("values"):
+                    check_property_values(value["values"], source_id)
+
+        for cohort_id, cohort in all_cohorts.items():
+            if cohort.filters:
+                properties = cohort.filters.get("properties", {})
+                if isinstance(properties, dict):
+                    check_property_values(properties.get("values", []), cohort_id)
+
+        return graph, behavioral_cohorts
 
     @action(
         methods=["GET"],

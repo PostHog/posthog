@@ -1,6 +1,8 @@
+import { IconArchive } from '@posthog/icons'
 import { LemonBanner, LemonTabs, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -22,13 +24,12 @@ export const scene: SceneExport = {
 }
 
 const Filters = (): JSX.Element => {
-    const {
-        dateFilter: { dateTo, dateFrom },
-        shouldFilterTestAccounts,
-        generationsQuery,
-        propertyFilters,
-    } = useValues(llmObservabilityLogic)
+    const { dashboardDateFilter, dateFilter, shouldFilterTestAccounts, generationsQuery, propertyFilters, activeTab } =
+        useValues(llmObservabilityLogic)
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmObservabilityLogic)
+
+    const dateFrom = activeTab === 'dashboard' ? dashboardDateFilter.dateFrom : dateFilter.dateFrom
+    const dateTo = activeTab === 'dashboard' ? dashboardDateFilter.dateTo : dateFilter.dateTo
 
     return (
         <div className="flex gap-x-4 gap-y-2 items-center flex-wrap py-4 -mt-4 mb-4 border-b">
@@ -50,12 +51,13 @@ const Tiles = (): JSX.Element => {
 
     return (
         <div className="mt-2 grid grid-cols-1 @xl/dashboard:grid-cols-2 @4xl/dashboard:grid-cols-6 gap-4">
-            {tiles.map(({ title, description, query }, i) => (
+            {tiles.map(({ title, description, query, context }, i) => (
                 <QueryCard
                     key={i}
                     title={title}
                     description={description}
                     query={{ kind: NodeKind.InsightVizNode, source: query } as InsightVizNode}
+                    context={context}
                     className={clsx(
                         'h-96',
                         /* Second row is the only one to have 2 tiles in the xl layout */
@@ -83,10 +85,6 @@ const IngestionStatusCheck = (): JSX.Element | null => {
                     instrument your LLM calls with the PostHog SDK
                 </Link>{' '}
                 (otherwise it'll be a little empty!)
-            </p>
-            <p>
-                To get cost information, you'll also{' '}
-                <Link to="/pipeline/new/transformation">need to enable the "AI Costs" transformation.</Link>
             </p>
         </LemonBanner>
     )
@@ -125,8 +123,26 @@ function LLMObservabilityGenerations(): JSX.Element {
     )
 }
 
+function LLMObservabilityNoEvents(): JSX.Element {
+    return (
+        <div className="w-full flex flex-col items-center justify-center">
+            <div className="flex flex-col items-center justify-center max-w-md w-full">
+                <IconArchive className="text-5xl mb-2 text-muted-alt" />
+                <h2 className="text-xl leading-tight">We haven't detected any LLM generations yet</h2>
+                <p className="text-sm text-center text-balance">
+                    To use the LLM Observability product, please{' '}
+                    <Link to="https://posthog.com/docs/ai-engineering/observability">
+                        instrument your LLM calls with the PostHog SDK
+                    </Link>{' '}
+                </p>
+            </div>
+        </div>
+    )
+}
+
 export function LLMObservabilityScene(): JSX.Element {
-    const { activeTab } = useValues(llmObservabilityLogic)
+    const { activeTab, hasSentAiGenerationEvent } = useValues(llmObservabilityLogic)
+    const { searchParams } = useValues(router)
 
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_OBSERVABILITY_DATA_COLLECTION_NODE_ID }}>
@@ -138,19 +154,23 @@ export function LLMObservabilityScene(): JSX.Element {
                         key: 'dashboard',
                         label: 'Dashboard',
                         content: <LLMObservabilityDashboard />,
-                        link: urls.llmObservability('dashboard'),
+                        link: combineUrl(urls.llmObservabilityDashboard(), searchParams).url,
                     },
                     {
                         key: 'traces',
                         label: 'Traces',
-                        content: <LLMObservabilityTraces />,
-                        link: urls.llmObservability('traces'),
+                        content: hasSentAiGenerationEvent ? <LLMObservabilityTraces /> : <LLMObservabilityNoEvents />,
+                        link: combineUrl(urls.llmObservabilityTraces(), searchParams).url,
                     },
                     {
                         key: 'generations',
                         label: 'Generations',
-                        content: <LLMObservabilityGenerations />,
-                        link: urls.llmObservability('generations'),
+                        content: hasSentAiGenerationEvent ? (
+                            <LLMObservabilityGenerations />
+                        ) : (
+                            <LLMObservabilityNoEvents />
+                        ),
+                        link: combineUrl(urls.llmObservabilityGenerations(), searchParams).url,
                     },
                 ]}
             />

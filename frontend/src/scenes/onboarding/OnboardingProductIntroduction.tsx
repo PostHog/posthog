@@ -2,6 +2,7 @@ import { IconCheck, IconMap, IconMessage, IconStack } from '@posthog/icons'
 import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { WavingHog } from 'lib/components/hedgehogs'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import React from 'react'
 import { convertLargeNumberToWords } from 'scenes/billing/billing-utils'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
@@ -65,7 +66,7 @@ const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.E
                             setTeamPropertiesForProduct(product.type as ProductKey)
                             addProductIntent({
                                 product_type: product.type as ProductKey,
-                                intent_context: 'onboarding product selected - primary',
+                                intent_context: ProductIntentContext.ONBOARDING_PRODUCT_SELECTED_PRIMARY,
                             })
                             goToNextStep()
                         }}
@@ -85,7 +86,7 @@ const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.E
                             setTeamPropertiesForProduct(product.type as ProductKey)
                             addProductIntent({
                                 product_type: product.type as ProductKey,
-                                intent_context: 'onboarding product selected - secondary',
+                                intent_context: ProductIntentContext.ONBOARDING_PRODUCT_SELECTED_SECONDARY,
                             })
                             completeOnboarding()
                         }}
@@ -100,7 +101,7 @@ const GetStartedButton = ({ product }: { product: BillingProductV2Type }): JSX.E
                                 setTeamPropertiesForProduct(product.type as ProductKey)
                                 addProductIntent({
                                     product_type: product.type as ProductKey,
-                                    intent_context: 'onboarding product selected - secondary',
+                                    intent_context: ProductIntentContext.ONBOARDING_PRODUCT_SELECTED_SECONDARY,
                                 })
                                 goToNextStep()
                             }}
