@@ -210,14 +210,9 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
 
                 const input = JSON.parse(testInvocation.globals)
 
-                // To provide a nice diffing experience, we need to sort the json result so that the keys are in the same order
-                // as the input.
-                const sortedResult = JSON.parse(JSON.stringify(testResult.result))
-                const sortedInput = JSON.parse(JSON.stringify(input))
-
                 return {
-                    input: JSON.stringify(sortedInput, null, 2),
-                    output: JSON.stringify(sortedResult, null, 2),
+                    input: JSON.stringify(input, null, 2),
+                    output: JSON.stringify(testResult.result, null, 2),
                 }
             },
         ],
