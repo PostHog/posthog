@@ -71,11 +71,14 @@ export function SharedMetricModal({
             !experiment.saved_metrics.some((savedMetric) => savedMetric.saved_metric === metric.id)
     )
 
-    const availableTags = availableSharedMetrics
-        .filter((metric: SharedMetric) => metric.tags)
-        .flatMap((metric: SharedMetric) => metric.tags)
-        .filter(Boolean)
-        .sort()
+    const availableTags = Array.from(
+        new Set(
+            availableSharedMetrics
+                .filter((metric: SharedMetric) => metric.tags)
+                .flatMap((metric: SharedMetric) => metric.tags)
+                .filter(Boolean)
+        )
+    ).sort()
 
     return (
         <LemonModal
