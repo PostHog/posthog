@@ -1,13 +1,22 @@
 import { getSeriesColor } from 'lib/colors'
+import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import merge from 'lodash.merge'
 
 import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema'
-import { AnyEntityNode, NodeKind } from '~/queries/schema/schema-general'
+import { AnyEntityNode, type FunnelsQuery, NodeKind, type TrendsQuery } from '~/queries/schema/schema-general'
+import { isFunnelsQuery, isTrendsQuery } from '~/queries/utils'
+import { isNodeWithSource, isValidQueryForExperiment } from '~/queries/utils'
 import {
+    ChartDisplayType,
     FeatureFlagFilters,
+    FunnelConversionWindowTimeUnit,
     FunnelTimeConversionMetrics,
+    FunnelVizType,
     InsightType,
     PropertyFilterType,
     PropertyOperator,
+    type QueryBasedInsightModel,
     TrendResult,
     UniversalFiltersGroupValue,
 } from '~/types'
@@ -176,4 +185,113 @@ export function getViewRecordingFilters(
         }
     })
     return filters
+}
+
+export function getDefaultTrendsMetric(): ExperimentTrendsQuery {
+    return {
+        kind: NodeKind.ExperimentTrendsQuery,
+        count_query: {
+            kind: NodeKind.TrendsQuery,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    name: '$pageview',
+                    event: '$pageview',
+                },
+            ],
+            interval: 'day',
+            dateRange: {
+                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                explicitDate: true,
+            },
+            trendsFilter: {
+                display: ChartDisplayType.ActionsLineGraph,
+            },
+            filterTestAccounts: true,
+        },
+    }
+}
+
+export function getDefaultFunnelsMetric(): ExperimentFunnelsQuery {
+    return {
+        kind: NodeKind.ExperimentFunnelsQuery,
+        funnels_query: {
+            kind: NodeKind.FunnelsQuery,
+            filterTestAccounts: true,
+            dateRange: {
+                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                explicitDate: true,
+            },
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$pageview',
+                    name: '$pageview',
+                },
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$pageview',
+                    name: '$pageview',
+                },
+            ],
+            funnelsFilter: {
+                funnelVizType: FunnelVizType.Steps,
+                funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit.Day,
+                funnelWindowInterval: 14,
+                layout: FunnelLayout.horizontal,
+            },
+        },
+    }
+}
+
+export function getExperimentMetricFromInsight(
+    insight: QueryBasedInsightModel | null
+): ExperimentTrendsQuery | ExperimentFunnelsQuery | undefined {
+    if (!insight?.query || !isValidQueryForExperiment(insight?.query) || !isNodeWithSource(insight.query)) {
+        return undefined
+    }
+
+    const metricName = (insight?.name || insight?.derived_name) ?? undefined
+
+    if (isFunnelsQuery(insight.query.source)) {
+        const defaultFunnelsQuery = getDefaultFunnelsMetric().funnels_query
+
+        const funnelsQuery: FunnelsQuery = merge(defaultFunnelsQuery, {
+            series: insight.query.source.series,
+            funnelsFilter: {
+                funnelAggregateByHogQL: insight.query.source.funnelsFilter?.funnelAggregateByHogQL,
+                funnelWindowInterval: insight.query.source.funnelsFilter?.funnelWindowInterval,
+                funnelWindowIntervalUnit: insight.query.source.funnelsFilter?.funnelWindowIntervalUnit,
+                layout: insight.query.source.funnelsFilter?.layout,
+                breakdownAttributionType: insight.query.source.funnelsFilter?.breakdownAttributionType,
+                breakdownAttributionValue: insight.query.source.funnelsFilter?.breakdownAttributionValue,
+            },
+            filterTestAccounts: insight.query.source.filterTestAccounts,
+        })
+
+        return {
+            kind: NodeKind.ExperimentFunnelsQuery,
+            funnels_query: funnelsQuery,
+            name: metricName,
+        }
+    }
+
+    if (isTrendsQuery(insight.query.source)) {
+        const defaultTrendsQuery = getDefaultTrendsMetric().count_query
+
+        const trendsQuery: TrendsQuery = merge(defaultTrendsQuery, {
+            series: insight.query.source.series,
+            filterTestAccounts: insight.query.source.filterTestAccounts,
+        })
+
+        return {
+            kind: NodeKind.ExperimentTrendsQuery,
+            count_query: trendsQuery,
+            name: metricName,
+        }
+    }
+
+    return undefined
 }

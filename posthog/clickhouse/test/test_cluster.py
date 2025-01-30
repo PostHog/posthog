@@ -71,3 +71,55 @@ def test_mutations(cluster: ClickhouseCluster) -> None:
     assert shard_mutations == duplicate_mutations
 
     assert cluster.map_all_hosts(get_mutations_count).result() == mutations_count_before
+
+
+def test_lightweight_delete(cluster: ClickhouseCluster) -> None:
+    table = EVENTS_DATA_TABLE()
+    count = 100
+
+    def truncate_table(client: Client) -> None:
+        client.execute(f"TRUNCATE TABLE {table}")
+
+    cluster.map_one_host_per_shard(truncate_table).result()
+
+    # make sure there is some data to play with first
+    def populate_random_data(client: Client) -> None:
+        client.execute(f"INSERT INTO {table} SELECT * FROM generateRandom() LIMIT {count}")
+
+    cluster.map_one_host_per_shard(populate_random_data).result()
+
+    def get_random_row(client: Client) -> list[tuple[uuid.UUID]]:
+        return client.execute(f"SELECT uuid FROM {table} ORDER BY rand() LIMIT 1")
+
+    [[[eid]]] = cluster.map_all_hosts(get_random_row).result().values()
+
+    # construct the runner with a DELETE command
+    runner = MutationRunner(
+        table,
+        f"DELETE FROM {table} WHERE uuid = %(uuid)s",
+        {"uuid": eid},
+    )
+
+    # verify it's detected as a lightweight delete
+    assert runner.is_lightweight_delete
+
+    # start all mutations
+    shard_mutations = cluster.map_one_host_per_shard(runner.enqueue).result()
+    assert len(shard_mutations) > 0
+
+    # check results
+    def get_row_exists_count(client: Client) -> list[tuple[int]]:
+        return client.execute(f"SELECT count(1) FROM {table}")
+
+    for host_info, mutation in shard_mutations.items():
+        assert host_info.shard_num is not None
+
+        # wait for mutations to complete on shard
+        cluster.map_all_hosts_in_shard(host_info.shard_num, mutation.wait).result()
+
+        # check to make sure all mutations are marked as done
+        assert all(cluster.map_all_hosts_in_shard(host_info.shard_num, mutation.is_done).result().values())
+
+        # check to ensure data is as expected to be after update (fewer rows visible than initially created)
+        query_results = cluster.map_all_hosts_in_shard(host_info.shard_num, get_row_exists_count).result()
+        assert all(result[0][0] < count for result in query_results.values())
