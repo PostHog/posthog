@@ -317,7 +317,7 @@ class QueryDateRangeWithIntervals(QueryDateRange):
         if period.lower() not in PERIOD_MAP:
             raise ValueError(f"Period {period} is unsupported.")
 
-        return PERIOD_MAP[period.lower()] * interval
+        return cast(timedelta, PERIOD_MAP[period.lower()]) * interval
 
     @cached_property
     def intervals_between(self):
