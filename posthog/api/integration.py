@@ -146,12 +146,13 @@ class IntegrationViewSet(
         linkedin_ads = LinkedInAdsIntegration(instance)
         account_id = request.query_params.get("accountId")
 
+        response = linkedin_ads.list_linkedin_ads_conversion_rules(account_id)
         conversion_rules = [
             {
                 "id": conversionRule["id"],
                 "name": conversionRule["name"],
             }
-            for conversionRule in linkedin_ads.list_linkedin_ads_conversion_rules(account_id)["elements"]
+            for conversionRule in (response if isinstance(response, list) else [])
         ]
 
         return Response({"conversionRules": conversion_rules})
