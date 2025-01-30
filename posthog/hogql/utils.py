@@ -53,4 +53,4 @@ def deserialize_hog_ast(hog_ast: dict) -> AST:
         else:
             raise ValueError(f"Unexpected field '{key}' for AST node '{kind}'")
 
-    return cls(**init_args)
+    return cls(**init_args)  # type: ignore

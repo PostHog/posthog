@@ -852,7 +852,9 @@ class BytecodeCompiler(Visitor):
         response.append(len(node.attributes) + 1)
         return response
 
-    def _visit_hog_ast(self, node: ast.AST):
+    def _visit_hog_ast(self, node: ast.AST | None):
+        if node is None:
+            return [Operation.NULL]
         response = []
         response.extend([Operation.STRING, "__hqx"])
         response.extend([Operation.STRING, node.__class__.__name__])
