@@ -23,7 +23,7 @@
         }
 
         .table-title {
-            color: var(--muted-alt);
+            color: var(--text-secondary);
 
             td {
                 border-top: none;
@@ -33,7 +33,7 @@
         thead,
         .horizontal-header {
             font-weight: bold;
-            color: var(--muted);
+            color: var(--text-secondary);
             text-transform: uppercase;
             background-color: var(--bg-3000);
         }

@@ -186,7 +186,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                           </div>
                                       }
                                   >
-                                      <IconInfo className="text-xl text-muted-alt shrink-0 ml-1" />
+                                      <IconInfo className="text-xl text-secondary shrink-0 ml-1" />
                                   </Tooltip>
                               </div>
                           ),
@@ -260,7 +260,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                           </div>
                                       }
                                   >
-                                      <IconInfo className="text-xl text-muted-alt shrink-0 ml-1" />
+                                      <IconInfo className="text-xl text-secondary shrink-0 ml-1" />
                                   </Tooltip>
                               </div>
                           ),

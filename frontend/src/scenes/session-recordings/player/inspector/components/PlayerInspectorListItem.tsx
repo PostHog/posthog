@@ -135,7 +135,7 @@ function ItemTimeDisplay({ item }: { item: InspectorListItem }): JSX.Element {
                             title="This event occured before the recording started, likely as the page was loading."
                             placement="left"
                         >
-                            <span className="text-muted">load</span>
+                            <span className="text-secondary">load</span>
                         </Tooltip>
                     ) : (
                         colonDelimitedDuration(item.timeInRecording / 1000, fixedUnits)
@@ -364,7 +364,7 @@ export function PlayerInspectorListItem({
                             className="flex justify-end cursor-pointer mx-2 my-1"
                             onClick={() => setItemExpanded(index, false)}
                         >
-                            <span className="text-muted-alt">Collapse</span>
+                            <span className="text-secondary">Collapse</span>
                         </div>
                     </div>
                 </div>

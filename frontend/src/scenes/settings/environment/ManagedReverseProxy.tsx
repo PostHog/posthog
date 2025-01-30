@@ -117,7 +117,7 @@ export function ManagedReverseProxy(): JSX.Element {
                                 },
                             ]}
                         >
-                            <LemonButton size="small" icon={<IconEllipsis className="text-muted" />} />
+                            <LemonButton size="small" icon={<IconEllipsis className="text-secondary" />} />
                         </LemonMenu>
                     )
                 )

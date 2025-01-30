@@ -300,7 +300,7 @@ export function HogFunctionConfiguration({
                                             </div>
                                         }
                                     >
-                                        <div className="text-xs border border-dashed rounded text-muted-alt">
+                                        <div className="text-xs border border-dashed rounded text-secondary">
                                             <Link subtle className="flex flex-wrap items-center gap-1 p-2">
                                                 Built from template:
                                                 <span className="font-semibold">{hogFunction?.template.name}</span>
@@ -437,7 +437,7 @@ export function HogFunctionConfiguration({
                                             {({ value, onChange }) => (
                                                 <>
                                                     {!type.startsWith('site_') ? (
-                                                        <span className="text-xs text-muted-alt">
+                                                        <span className="text-xs text-secondary">
                                                             This is the underlying Hog code that will run whenever the
                                                             filters match.{' '}
                                                             <Link to="https://posthog.com/docs/hog">See the docs</Link>{' '}

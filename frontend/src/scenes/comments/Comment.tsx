@@ -73,7 +73,7 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
                         </LemonMenu>
                     </div>
                     <LemonMarkdown lowKeyHeadings>{comment.content}</LemonMarkdown>
-                    {comment.version ? <span className="text-xs text-muted italic">(edited)</span> : null}
+                    {comment.version ? <span className="text-xs text-secondary italic">(edited)</span> : null}
                 </div>
             </div>
 
@@ -123,7 +123,7 @@ export const CommentWithReplies = ({ commentWithReplies }: CommentProps): JSX.El
             {comment ? (
                 <Comment comment={comment} />
             ) : (
-                <div className="border rounded border-dashed p-2 font-semibold italic bg-bg-surface-primary text-muted-alt">
+                <div className="border rounded border-dashed p-2 font-semibold italic bg-bg-surface-primary text-secondary">
                     Deleted comment
                 </div>
             )}
