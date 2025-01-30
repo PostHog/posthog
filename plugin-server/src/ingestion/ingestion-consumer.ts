@@ -121,7 +121,8 @@ export class IngestionConsumer {
         await this.batchConsumer?.stop()
         status.info('🔁', `${this.name} - stopping kafka producer`)
         await this.kafkaProducer?.disconnect()
-
+        status.info('🔁', `${this.name} - stopping hog transformer`)
+        await this.hogTransformer.stop()
         status.info('👍', `${this.name} - stopped!`)
     }
 
