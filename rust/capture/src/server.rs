@@ -88,7 +88,7 @@ async fn create_sink(
             partition,
             replay_overflow_limiter,
         )
-        .expect("failed to start Kafka sink");
+        .await.expect("failed to start Kafka sink");
 
         if config.s3_fallback_enabled {
             let sink_liveness = liveness

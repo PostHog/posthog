@@ -124,7 +124,7 @@ pub struct KafkaSink {
 }
 
 impl KafkaSink {
-    pub fn new(
+    pub async fn new(
         config: KafkaConfig,
         liveness: HealthHandle,
         partition: Option<OverflowLimiter>,
@@ -173,14 +173,17 @@ impl KafkaSink {
 
         debug!("rdkafka configuration: {:?}", client_config);
         let producer: FutureProducer<KafkaContext> =
-            client_config.create_with_context(KafkaContext { liveness })?;
+            client_config.create_with_context(KafkaContext { liveness: liveness.clone() })?;
 
         // Ping the cluster to make sure we can reach brokers, fail after 10 seconds
-        drop(producer.client().fetch_metadata(
+        // Note: we don't error if we fail to connect as there may be other sinks that report healthy
+        if producer.client().fetch_metadata(
             Some("__consumer_offsets"),
             Timeout::After(Duration::new(10, 0)),
-        )?);
-        info!("connected to Kafka brokers");
+        ).is_ok() {
+            liveness.report_healthy().await;
+            info!("connected to Kafka brokers");
+        };
 
         Ok(KafkaSink {
             producer,
@@ -414,7 +417,7 @@ mod tests {
             kafka_producer_max_retries: 2,
             kafka_producer_acks: "all".to_string(),
         };
-        let sink = KafkaSink::new(config, handle, limiter, None).expect("failed to create sink");
+        let sink = KafkaSink::new(config, handle, limiter, None).await.expect("failed to create sink");
         (cluster, sink)
     }
 

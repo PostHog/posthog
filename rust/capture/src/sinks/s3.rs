@@ -144,12 +144,15 @@ impl S3Sink {
 
     async fn healthcheck(&self) {
         // Verify bucket exists and is accessible
-        match self.client.head_bucket().bucket(&self.bucket).send().await {
-            Ok(_) => {
-                self.liveness.report_healthy().await;
-            }
-            Err(_) => {
-            }
+        if self
+            .client
+            .head_bucket()
+            .bucket(&self.bucket)
+            .send()
+            .await
+            .is_ok()
+        {
+            self.liveness.report_healthy().await;
         };
     }
 
