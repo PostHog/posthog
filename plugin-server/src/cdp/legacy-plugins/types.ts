@@ -17,7 +17,7 @@ export type LegacyPluginMeta = {
 
 export type LegacyTransformationPluginMeta = LegacyPluginMeta & {
     geoip: {
-        locate: (ipAddress: string) => Record<string, any>
+        locate: (ipAddress: string) => Record<string, any> | null
     }
 }
 
