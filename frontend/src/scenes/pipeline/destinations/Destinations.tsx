@@ -26,7 +26,6 @@ import { hogFunctionTypeToPipelineStage } from '../hogfunctions/urls'
 import { AppMetricSparkLineV2 } from '../metrics/AppMetricsV2Sparkline'
 import { NewButton } from '../NewButton'
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
-import { PluginImage } from '../PipelinePluginImage'
 import { Destination, PipelineBackend, SiteApp, Transformation } from '../types'
 import { pipelineNodeMenuCommonItems, RenderApp, RenderBatchExportIcon } from '../utils'
 import { DestinationsFilters } from './DestinationsFilters'
@@ -66,7 +65,7 @@ export function Destinations({ types }: DestinationsProps): JSX.Element {
                 />
             ) : types.includes('transformation') ? (
                 <>
-                    <ReorderModal types={types} />
+                    <ReorderTransformationsModal types={types} />
                 </>
             ) : null}
 
@@ -103,7 +102,7 @@ export function DestinationsTable({
     const { loading, filteredDestinations, destinations, hiddenDestinations } = useValues(
         pipelineDestinationsLogic({ types })
     )
-    const { toggleNode, deleteNode, openReorderModal } = useActions(pipelineDestinationsLogic({ types }))
+    const { toggleNode, deleteNode, openReorderTransformationsModal } = useActions(pipelineDestinationsLogic({ types }))
     const { resetFilters } = useActions(destinationsFiltersLogic({ types }))
 
     const showFrequencyHistory = types.includes('destination')
@@ -128,9 +127,9 @@ export function DestinationsTable({
                 <div className="flex items-center gap-2">
                     Processed sequentially.
                     <LemonButton
-                        onClick={() => openReorderModal()}
+                        onClick={() => openReorderTransformationsModal()}
                         noPadding
-                        id="destination-reorder"
+                        id="transformation-reorder"
                         disabledReason={
                             canConfigurePlugins ? undefined : 'You do not have permission to reorder Transformations.'
                         }
@@ -299,9 +298,11 @@ export function DestinationsTable({
     )
 }
 
-function ReorderModal({ types }: { types: HogFunctionTypeType[] }): JSX.Element {
-    const { reorderModalOpen, destinations, temporaryOrder, loading } = useValues(pipelineDestinationsLogic({ types }))
-    const { closeReorderModal, setTemporaryOrder, saveDestinationsOrder } = useActions(
+function ReorderTransformationsModal({ types }: { types: HogFunctionTypeType[] }): JSX.Element {
+    const { reorderTransformationsModalOpen, destinations, temporaryTransformationOrder, loading } = useValues(
+        pipelineDestinationsLogic({ types })
+    )
+    const { closeReorderTransformationsModal, setTemporaryTransformationOrder, saveTransformationsOrder } = useActions(
         pipelineDestinationsLogic({ types })
     )
     const [initialOrders, setInitialOrders] = useState<Record<string, number>>({})
@@ -310,7 +311,7 @@ function ReorderModal({ types }: { types: HogFunctionTypeType[] }): JSX.Element 
 
     // Store initial orders when modal opens
     useEffect(() => {
-        if (reorderModalOpen) {
+        if (reorderTransformationsModalOpen) {
             const orders = enabledTransformations.reduce(
                 (acc, transformation) => ({
                     ...acc,
@@ -320,15 +321,15 @@ function ReorderModal({ types }: { types: HogFunctionTypeType[] }): JSX.Element 
             )
             setInitialOrders(orders)
         }
-    }, [reorderModalOpen, enabledTransformations])
+    }, [reorderTransformationsModalOpen, enabledTransformations])
 
     // Sort transformations based on temporaryOrder if it exists
     const sortedTransformations = [...enabledTransformations]
-    if (Object.keys(temporaryOrder).length > 0) {
+    if (Object.keys(temporaryTransformationOrder).length > 0) {
         sortedTransformations.sort((a, b) => {
             // Use hog_function.id for sorting
-            const orderA = temporaryOrder[a.hog_function.id] || 0
-            const orderB = temporaryOrder[b.hog_function.id] || 0
+            const orderA = temporaryTransformationOrder[a.hog_function.id] || 0
+            const orderB = temporaryTransformationOrder[b.hog_function.id] || 0
             return orderA - orderB
         })
     }
@@ -349,13 +350,13 @@ function ReorderModal({ types }: { types: HogFunctionTypeType[] }): JSX.Element 
                 return acc
             }, {} as Record<string, number>)
 
-            setTemporaryOrder(newTemporaryOrder)
+            setTemporaryTransformationOrder(newTemporaryOrder)
         }
     }
 
     const handleSaveOrder = (): void => {
         // Compare and only include changed orders
-        const changedOrders = Object.entries(temporaryOrder).reduce((acc, [id, newOrder]) => {
+        const changedOrders = Object.entries(temporaryTransformationOrder).reduce((acc, [id, newOrder]) => {
             const originalOrder = initialOrders[id]
             if (originalOrder !== newOrder) {
                 return {
@@ -368,16 +369,16 @@ function ReorderModal({ types }: { types: HogFunctionTypeType[] }): JSX.Element 
 
         // Only send if there are changes
         if (Object.keys(changedOrders).length > 0) {
-            saveDestinationsOrder(changedOrders)
+            saveTransformationsOrder(changedOrders)
         } else {
-            closeReorderModal()
+            closeReorderTransformationsModal()
         }
     }
 
     return (
         <LemonModal
-            onClose={closeReorderModal}
-            isOpen={reorderModalOpen}
+            onClose={closeReorderTransformationsModal}
+            isOpen={reorderTransformationsModalOpen}
             width={600}
             title="Reorder transformations"
             description={
@@ -388,7 +389,7 @@ function ReorderModal({ types }: { types: HogFunctionTypeType[] }): JSX.Element 
             }
             footer={
                 <>
-                    <LemonButton type="secondary" onClick={closeReorderModal}>
+                    <LemonButton type="secondary" onClick={closeReorderTransformationsModal}>
                         Cancel
                     </LemonButton>
                     <LemonButton loading={loading} type="primary" onClick={handleSaveOrder}>
@@ -400,8 +401,12 @@ function ReorderModal({ types }: { types: HogFunctionTypeType[] }): JSX.Element 
             <div className="flex flex-col gap-2">
                 <DndContext modifiers={[restrictToVerticalAxis, restrictToParentElement]} onDragEnd={handleDragEnd}>
                     <SortableContext items={sortedTransformations} strategy={verticalListSortingStrategy}>
-                        {sortedTransformations.map((destination, index) => (
-                            <MinimalDestinationView key={destination.id} destination={destination} order={index} />
+                        {sortedTransformations.map((transformation, index) => (
+                            <MinimalTransformationView
+                                key={transformation.id}
+                                transformation={transformation}
+                                order={index}
+                            />
                         ))}
                     </SortableContext>
                 </DndContext>
@@ -410,9 +415,15 @@ function ReorderModal({ types }: { types: HogFunctionTypeType[] }): JSX.Element 
     )
 }
 
-const MinimalDestinationView = ({ destination, order }: { destination: Destination; order: number }): JSX.Element => {
+const MinimalTransformationView = ({
+    transformation,
+    order,
+}: {
+    transformation: Transformation
+    order: number
+}): JSX.Element => {
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-        id: destination.id,
+        id: transformation.id,
     })
 
     return (
@@ -431,9 +442,7 @@ const MinimalDestinationView = ({ destination, order }: { destination: Destinati
             {...listeners}
         >
             <LemonBadge.Number count={order + 1} maxDigits={3} />
-            {destination.backend === 'plugin' && <PluginImage plugin={destination.plugin} size="small" />}
-            {destination.backend === 'batch_export' && <RenderBatchExportIcon type={destination.service.type} />}
-            <span className="font-semibold">{destination.name}</span>
+            <span className="font-semibold">{transformation.name}</span>
         </div>
     )
 }

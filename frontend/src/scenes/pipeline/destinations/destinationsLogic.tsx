@@ -75,12 +75,12 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
 
         updatePluginConfig: (pluginConfig: PluginConfigTypeNew) => ({ pluginConfig }),
         updateBatchExportConfig: (batchExportConfig: BatchExportConfiguration) => ({ batchExportConfig }),
-        openReorderModal: true,
-        closeReorderModal: true,
-        setTemporaryOrder: (tempOrder: Record<number, number>) => ({
+        openReorderTransformationsModal: true,
+        closeReorderTransformationsModal: true,
+        setTemporaryTransformationOrder: (tempOrder: Record<number, number>) => ({
             tempOrder,
         }),
-        saveDestinationsOrder: (newOrders: Record<number, number>) => ({ newOrders }),
+        saveTransformationsOrder: (newOrders: Record<number, number>) => ({ newOrders }),
     }),
     loaders(({ values, actions, props }) => ({
         plugins: [
@@ -192,7 +192,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                         : props.types.filter((type) => type !== 'site_destination')
                     return (await api.hogFunctions.list(undefined, destinationTypes)).results
                 },
-                saveDestinationsOrder: async ({ newOrders }) => {
+                saveTransformationsOrder: async ({ newOrders }) => {
                     const response = await api.update(`api/projects/@current/hog_functions/rearrange`, {
                         orders: newOrders,
                     })
@@ -232,11 +232,11 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 },
             },
         ],
-        temporaryOrder: [
+        temporaryTransformationOrder: [
             {} as Record<number, number>,
             {
-                setTemporaryOrder: async ({ tempOrder }) => tempOrder,
-                closeReorderModal: async () => ({}),
+                setTemporaryTransformationOrder: async ({ tempOrder }) => tempOrder,
+                closeReorderTransformationsModal: async () => ({}),
             },
         ],
     })),
@@ -335,12 +335,12 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         ],
     }),
     reducers({
-        reorderModalOpen: [
+        reorderTransformationsModalOpen: [
             false as boolean,
             {
-                openReorderModal: () => true,
-                closeReorderModal: () => false,
-                saveDestinationsOrder: () => false,
+                openReorderTransformationsModal: () => true,
+                closeReorderTransformationsModal: () => false,
+                saveTransformationsOrder: () => false,
             },
         ],
     }),
@@ -372,11 +372,11 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     break
             }
         },
-        saveDestinationsOrderSuccess: () => {
-            actions.closeReorderModal()
+        saveTransformationsOrderSuccess: () => {
+            actions.closeReorderTransformationsModal()
             lemonToast.success('Transformation order updated successfully')
         },
-        saveDestinationsOrderFailure: () => {
+        saveTransformationsOrderFailure: () => {
             lemonToast.error('Failed to update transformation order')
         },
     })),
