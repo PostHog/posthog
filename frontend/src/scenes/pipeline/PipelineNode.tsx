@@ -81,14 +81,14 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
                       ),
                   [PipelineNodeTab.Logs]: <PipelineNodeLogs id={id} stage={stage} />,
               }
-            : []
+            : {}
 
     if (node.backend === PipelineBackend.BatchExport) {
         tabToContent[PipelineNodeTab.Runs] = <BatchExportRuns id={node.id} />
     }
 
     if (node.backend === PipelineBackend.DataWarehouse) {
-        tabToContent[PipelineNodeTab.SourceConfiguration] = <SelfManaged id={node.id} />
+        tabToContent[PipelineNodeTab.SourceConfiguration] = <SelfManaged id={node.id.toString()} />
     }
 
     if (node.backend === PipelineBackend.Plugin) {

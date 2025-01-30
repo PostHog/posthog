@@ -33,7 +33,16 @@ type ManagedSourceId = {
     backend: PipelineBackend.ManagedSource
     id: string
 }
-export type PipelineNodeLimitedType = PluginNodeId | BatchExportNodeId | HogFunctionNodeId | ManagedSourceId
+type DataWarehouseId = {
+    backend: PipelineBackend.DataWarehouse
+    id: number | string
+}
+export type PipelineNodeLimitedType =
+    | PluginNodeId
+    | BatchExportNodeId
+    | HogFunctionNodeId
+    | ManagedSourceId
+    | DataWarehouseId
 
 export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
     props({} as PipelineNodeLogicProps),
