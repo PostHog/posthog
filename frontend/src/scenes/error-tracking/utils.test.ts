@@ -11,13 +11,15 @@ describe('mergeIssues', () => {
             name: 'TypeError',
             first_seen: '2024-07-22T13:15:07.074000Z',
             last_seen: '2024-07-20T13:15:50.186000Z',
-            occurrences: 250,
-            sessions: 100,
+            aggregations: {
+                occurrences: 250,
+                sessions: 100,
+                users: 50,
+                volumeDay: [10, 5, 10, 20, 50],
+                volumeMonth: [0, 0, 10, 25, 95],
+            },
             status: 'active',
-            users: 50,
             earliest: '',
-            volumeDay: [10, 5, 10, 20, 50],
-            volumeMonth: [0, 0, 10, 25, 95],
         }
 
         const mergingIssues: ErrorTrackingIssue[] = [
@@ -28,13 +30,15 @@ describe('mergeIssues', () => {
                 name: 'SyntaxError',
                 first_seen: '2024-07-21T13:15:07.074000Z',
                 last_seen: '2024-07-20T13:15:50.186000Z',
-                occurrences: 10,
-                sessions: 5,
+                aggregations: {
+                    occurrences: 10,
+                    sessions: 5,
+                    users: 1,
+                    volumeDay: [1, 1, 2, 1, 2],
+                    volumeMonth: [2, 7, 2, 6, 7],
+                },
                 status: 'active',
-                users: 1,
                 earliest: '',
-                volumeDay: [1, 1, 2, 1, 2],
-                volumeMonth: [2, 7, 2, 6, 7],
             },
             {
                 id: 'thirdId',
@@ -43,13 +47,15 @@ describe('mergeIssues', () => {
                 name: 'SyntaxError',
                 first_seen: '2024-07-21T13:15:07.074000Z',
                 last_seen: '2024-07-22T13:15:50.186000Z',
-                occurrences: 1,
-                sessions: 1,
+                aggregations: {
+                    occurrences: 1,
+                    sessions: 1,
+                    users: 1,
+                    volumeDay: [5, 10, 2, 3, 5],
+                    volumeMonth: [16, 4, 2, 16, 25],
+                },
                 status: 'active',
-                users: 1,
                 earliest: '',
-                volumeDay: [5, 10, 2, 3, 5],
-                volumeMonth: [16, 4, 2, 16, 25],
             },
             {
                 id: 'fourthId',
@@ -58,13 +64,15 @@ describe('mergeIssues', () => {
                 name: 'SyntaxError',
                 first_seen: '2023-07-22T13:15:07.074000Z',
                 last_seen: '2024-07-22T13:15:50.186000Z',
-                occurrences: 1000,
-                sessions: 500,
+                aggregations: {
+                    occurrences: 1000,
+                    sessions: 500,
+                    users: 50,
+                    volumeDay: [10, 100, 200, 300, 700],
+                    volumeMonth: [0, 500, 1500, 1000, 1310],
+                },
                 status: 'active',
-                users: 50,
                 earliest: '',
-                volumeDay: [10, 100, 200, 300, 700],
-                volumeMonth: [0, 500, 1500, 1000, 1310],
             },
         ]
 
@@ -82,13 +90,15 @@ describe('mergeIssues', () => {
             first_seen: '2023-07-22T13:15:07.074Z',
             // latest last_seen
             last_seen: '2024-07-22T13:15:50.186Z',
-            // sums counts
-            occurrences: 1261,
-            sessions: 606,
-            users: 102,
-            // sums volumes
-            volumeDay: [26, 116, 214, 324, 757],
-            volumeMonth: [18, 511, 1514, 1047, 1437],
+            aggregations: {
+                // sums counts
+                occurrences: 1261,
+                sessions: 606,
+                users: 102,
+                // sums volumes
+                volumeDay: [26, 116, 214, 324, 757],
+                volumeMonth: [18, 511, 1514, 1047, 1437],
+            },
         })
     })
 })

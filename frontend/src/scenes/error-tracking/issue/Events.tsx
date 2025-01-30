@@ -7,7 +7,7 @@ import { errorTrackingIssueSceneLogic, EventsMode } from '../errorTrackingIssueS
 import { getExceptionAttributes, hasStacktrace } from '../utils'
 import { Overview } from './Overview'
 import RecordingPanel from './panels/RecordingPanel'
-import StackTracePanel from './panels/StackTracePanel'
+import StackTracePanel from './panels/StacktracePanel'
 import { EventsTab } from './tabs/EventsTab'
 
 export type ErrorTrackingIssueEventsPanel = {
