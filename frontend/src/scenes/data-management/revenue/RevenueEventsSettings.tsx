@@ -44,7 +44,7 @@ export function RevenueEventsSettings(): JSX.Element {
             <ProductIntroduction
                 productName="Revenue tracking"
                 thingName="revenue event"
-                description="Revenue events are used to track revenue in Web analytics. You can choose which custom events PostHog should consider as revenue events, and which event property correspends to the value of the event."
+                description="Revenue events are used to track revenue in Web analytics. You can choose which custom events PostHog should consider as revenue events, and which event property corresponds to the value of the event."
                 isEmpty={events.length === 0}
                 action={() => buttonRef.current?.click()}
             />
