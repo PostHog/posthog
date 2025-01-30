@@ -38,6 +38,8 @@ export interface DestinationsProps {
 }
 
 export function Destinations({ types }: DestinationsProps): JSX.Element {
+    const { destinations, loading } = useValues(pipelineDestinationsLogic({ types }))
+
     return (
         <>
             {types.includes('destination') ? (
