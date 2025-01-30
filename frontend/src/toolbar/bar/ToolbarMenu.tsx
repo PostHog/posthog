@@ -16,7 +16,7 @@ ToolbarMenu.Header = function ToolbarMenuHeader({ children, className, noPadding
 
 ToolbarMenu.Body = function ToolbarMenuBody({ children, className, noPadding }: ToolbarMenuProps): JSX.Element {
     return (
-        <div className={clsx(!noPadding && 'px-1', 'flex flex-col flex-1 h-full overflow-y-auto min-h-20', className)}>
+        <div className={clsx(!noPadding && 'px-1', 'flex flex-col flex-1 h-full overflow-y-auto min-h-40', className)}>
             {children}
         </div>
     )

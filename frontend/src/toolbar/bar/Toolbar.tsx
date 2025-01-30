@@ -97,19 +97,24 @@ export function ToolbarInfoMenu(): JSX.Element | null {
     const { isAuthenticated } = useValues(toolbarConfigLogic)
     const showExperimentsFlag = useToolbarFeatureFlag('web-experiments')
     const showExperiments = inStorybook() || inStorybookTestRunner() ? true : showExperimentsFlag
-    const content = minimized ? null : visibleMenu === 'flags' ? (
-        <FlagsToolbarMenu />
-    ) : visibleMenu === 'heatmap' ? (
-        <HeatmapToolbarMenu />
-    ) : visibleMenu === 'actions' ? (
-        <ActionsToolbarMenu />
-    ) : visibleMenu === 'hedgehog' ? (
-        <HedgehogMenu />
-    ) : visibleMenu === 'debugger' ? (
-        <EventDebugMenu />
-    ) : visibleMenu === 'experiments' && showExperiments ? (
-        <ExperimentsToolbarMenu />
-    ) : null
+
+    // TEMP FOR TESTING
+    // const content = minimized ? null : visibleMenu === 'flags' ? (
+    //     <FlagsToolbarMenu />
+    // ) : visibleMenu === 'heatmap' ? (
+    //     <HeatmapToolbarMenu />
+    // ) : visibleMenu === 'actions' ? (
+    //     <ActionsToolbarMenu />
+    // ) : visibleMenu === 'hedgehog' ? (
+    //     <HedgehogMenu />
+    // ) : visibleMenu === 'debugger' ? (
+    //     <EventDebugMenu />
+    // ) : visibleMenu === 'experiments' && showExperiments ? (
+    //     <ExperimentsToolbarMenu />
+    // ) : null
+
+    // TEMP FOR TESTING
+    const content = <ExperimentsToolbarMenu />
 
     useEffect(() => {
         setMenu(ref.current)

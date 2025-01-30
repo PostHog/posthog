@@ -68,6 +68,7 @@ export function WebExperimentVariant({ variant }: WebExperimentVariantProps): JS
                         size="small"
                         activeKey={experimentForm?.variants[variant].transforms.length === 1 ? 0 : undefined}
                         panels={experimentForm?.variants[variant].transforms.map((transform, tIndex) => {
+                            console.log('transform', transform)
                             return {
                                 key: tIndex,
                                 header: (

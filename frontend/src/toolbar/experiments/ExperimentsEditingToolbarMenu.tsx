@@ -47,7 +47,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                 enableFormOnSubmit
                 className="flex flex-col overflow-hidden flex-1"
             >
-                <ToolbarMenu.Header className="border-b">
+                {/* <ToolbarMenu.Header className="border-b">
                     <h1 className="p-1 font-bold text-sm mb-0">
                         {selectedExperimentId === 'new' ? 'New ' : 'Edit '}
                         experiment
@@ -64,7 +64,7 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                 </LemonBanner>
                             )}
                     </div>
-                </ToolbarMenu.Header>
+                </ToolbarMenu.Header> */}
                 <ToolbarMenu.Body>
                     <div className="space-y-6 p-2">
                         <div className="flex w-full">
@@ -105,10 +105,10 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                     <LemonCollapse
                                         size="medium"
                                         activeKey={selectedVariant}
-                                        onChange={(variant) => {
-                                            if (variant) {
-                                                selectVariant(variant)
-                                                applyVariant(selectedVariant, variant)
+                                        onChange={(newVariantKey) => {
+                                            if (newVariantKey) {
+                                                selectVariant(newVariantKey)
+                                                applyVariant(selectedVariant, newVariantKey)
                                             }
                                         }}
                                         panels={Object.keys(experimentForm.variants || {})

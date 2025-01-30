@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
 import { EXPERIMENT_TARGET_SELECTOR } from 'lib/actionUtils'
@@ -29,7 +29,7 @@ function newExperiment(): ExperimentForm {
             control: {
                 transforms: [
                     {
-                        text: '',
+                        // text: '',
                         html: '',
                     } as unknown as WebExperimentTransform,
                 ],
@@ -39,7 +39,7 @@ function newExperiment(): ExperimentForm {
                 is_new: true,
                 transforms: [
                     {
-                        text: '',
+                        // text: '',
                         html: '',
                     } as unknown as WebExperimentTransform,
                 ],
@@ -82,9 +82,9 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
         removeVariant: (variant: string) => ({
             variant,
         }),
-        applyVariant: (current_variant: string, variant: string) => ({
-            current_variant,
-            variant,
+        applyVariant: (currentVariantKey: string, newVariantKey: string) => ({
+            currentVariantKey,
+            newVariantKey,
         }),
         addNewElement: (variant: string) => ({ variant }),
         removeElement: (variant: string, index: number) => ({ variant, index }),
@@ -314,9 +314,9 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                     if (index !== null && eVariant.transforms.length > index) {
                         const transform = eVariant.transforms[index]
                         transform.selector = element.id ? `#${element.id}` : elementToQuery(element, [])
-                        if (element.textContent) {
-                            transform.text = element.textContent
-                        }
+                        // if (element.textContent) {
+                        //     transform.text = element.textContent
+                        // }
                         transform.html = element.innerHTML
                         actions.setExperimentFormValue('variants', values.experimentForm.variants)
                     }
@@ -330,9 +330,9 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 actions.rebalanceRolloutPercentage()
             }
         },
-        applyVariant: ({ current_variant, variant }) => {
+        applyVariant: ({ currentVariantKey, newVariantKey }) => {
             if (values.experimentForm && values.experimentForm.variants) {
-                const selectedVariant = values.experimentForm.variants[variant]
+                const selectedVariant = values.experimentForm.variants[newVariantKey]
                 if (selectedVariant) {
                     if (values.experimentForm.undo_transforms === undefined) {
                         values.experimentForm.undo_transforms = []
@@ -349,13 +349,13 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                                         htmlElement.innerHTML = transform.html
                                     }
 
-                                    if (transform.css) {
-                                        htmlElement.setAttribute('style', transform.css)
-                                    }
+                                    // if (transform.css) {
+                                    //     htmlElement.setAttribute('style', transform.css)
+                                    // }
 
-                                    if (transform.text) {
-                                        htmlElement.innerText = transform.text
-                                    }
+                                    // if (transform.text) {
+                                    //     htmlElement.innerText = transform.text
+                                    // }
                                 }
                             })
                         }
@@ -375,19 +375,22 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                                         htmlElement.innerHTML = transform.html
                                     }
 
-                                    if (transform.css) {
-                                        undoTransform.css = htmlElement.getAttribute('style') || ' '
-                                        htmlElement.setAttribute('style', transform.css)
-                                    }
+                                    // if (transform.css) {
+                                    //     undoTransform.css = htmlElement.getAttribute('style') || ' '
+                                    //     htmlElement.setAttribute('style', transform.css)
+                                    // }
 
-                                    if (transform.text) {
-                                        undoTransform.text = htmlElement.innerText
-                                        htmlElement.innerText = transform.text
-                                    }
+                                    // if (transform.text) {
+                                    //     undoTransform.text = htmlElement.innerText
+                                    //     htmlElement.innerText = transform.text
+                                    // }
                                 }
                             })
 
-                            if ((current_variant === 'control' || current_variant === '') && variant !== 'control') {
+                            if (
+                                (currentVariantKey === 'control' || currentVariantKey === '') &&
+                                newVariantKey !== 'control'
+                            ) {
                                 values.experimentForm.undo_transforms?.push(undoTransform)
                             }
                         }
@@ -480,6 +483,12 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 await breakpoint(1000)
                 actions.setShowExperimentsTooltip(false)
             }
+        },
+    })),
+    // TEMP FOR TESTING
+    events(({ actions }) => ({
+        afterMount: () => {
+            actions.newExperiment()
         },
     })),
 ])
