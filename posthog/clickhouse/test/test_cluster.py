@@ -88,7 +88,7 @@ def test_lightweight_delete(cluster: ClickhouseCluster) -> None:
 
     cluster.map_one_host_per_shard(populate_random_data).result()
 
-    def get_random_row(client: Client) -> tuple[uuid.UUID]:
+    def get_random_row(client: Client) -> list[tuple[uuid.UUID]]:
         return client.execute(f"SELECT uuid FROM {table} ORDER BY rand() LIMIT 1")
 
     [[[eid]]] = cluster.map_all_hosts(get_random_row).result().values()
