@@ -18,13 +18,13 @@ export function getNiceTickValues(maxAbsValue: number): number[] {
     let baseUnit
     const normalizedMax = maxAbsValue / power
     if (normalizedMax <= 1) {
-        baseUnit = 0.1 * power
-    } else if (normalizedMax <= 2) {
         baseUnit = 0.2 * power
-    } else if (normalizedMax <= 5) {
+    } else if (normalizedMax <= 2) {
         baseUnit = 0.5 * power
-    } else {
+    } else if (normalizedMax <= 5) {
         baseUnit = 1 * power
+    } else {
+        baseUnit = 2 * power
     }
 
     // Calculate how many baseUnits we need to exceed maxAbsValue
