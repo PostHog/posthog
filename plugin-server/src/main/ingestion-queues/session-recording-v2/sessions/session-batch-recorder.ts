@@ -130,16 +130,24 @@ export class SessionBatchRecorder {
         let totalBytes = 0
 
         try {
+            // Set up error handler before writing
+            const writeError = new Promise<never>((_, reject) => {
+                outputStream.on('error', reject)
+            })
+
             for (const sessions of this.partitionSessions.values()) {
                 for (const recorder of sessions.values()) {
                     const { buffer, eventCount } = await recorder.end()
-                    const canWriteMore = outputStream.write(buffer)
 
-                    // Handle backpressure by waiting for drain if needed
+                    // Write and handle backpressure, but also watch for errors
+                    const canWriteMore = outputStream.write(buffer)
                     if (!canWriteMore) {
-                        await new Promise<void>((resolve) => {
-                            outputStream.once('drain', resolve)
-                        })
+                        await Promise.race([
+                            new Promise<void>((resolve) => {
+                                outputStream.once('drain', resolve)
+                            }),
+                            writeError,
+                        ])
                     }
 
                     totalEvents += eventCount

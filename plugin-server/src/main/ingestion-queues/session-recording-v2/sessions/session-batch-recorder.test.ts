@@ -1,4 +1,4 @@
-import { PassThrough } from 'stream'
+import { PassThrough, Writable } from 'stream'
 
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { ParsedMessageData } from '../kafka/types'
@@ -92,6 +92,10 @@ describe('SessionBatchRecorder', () => {
     }
 
     beforeEach(() => {
+        jest.clearAllMocks()
+
+        jest.mocked(SessionRecorder).mockImplementation(() => new SessionRecorderMock() as unknown as SessionRecorder)
+
         const openMock = createOpenMock()
         mockNewBatch = openMock.openMock
         mockFinish = openMock.finishMock
@@ -745,6 +749,49 @@ describe('SessionBatchRecorder', () => {
             recorder.record(message)
 
             await expect(recorder.flush()).rejects.toThrow(error)
+            expect(mockFinish).not.toHaveBeenCalled()
+            expect(mockOffsetManager.commit).not.toHaveBeenCalled()
+        })
+
+        it('should handle errors from batch file writer stream', async () => {
+            const message1 = createMessage('session1', [
+                {
+                    type: EventType.FullSnapshot,
+                    timestamp: 1000,
+                    data: { source: 1 },
+                },
+            ])
+            const message2 = createMessage('session2', [
+                {
+                    type: EventType.FullSnapshot,
+                    timestamp: 2000,
+                    data: { source: 2 },
+                },
+            ])
+            recorder.record(message1)
+            recorder.record(message2)
+
+            // Create a stream that fails on second write
+            class FailingStream extends Writable {
+                private writeCount = 0
+
+                _write(chunk: any, encoding: BufferEncoding, callback: (error?: Error | null) => void): void {
+                    this.writeCount++
+                    if (this.writeCount === 1) {
+                        callback(null) // First write succeeds
+                    } else {
+                        callback(new Error('Stream write error')) // Second write fails
+                    }
+                }
+            }
+
+            const errorStream = new FailingStream()
+            mockWriter.newBatch.mockResolvedValueOnce({
+                stream: errorStream,
+                finish: mockFinish,
+            })
+
+            await expect(recorder.flush()).rejects.toThrow('Stream write error')
             expect(mockFinish).not.toHaveBeenCalled()
             expect(mockOffsetManager.commit).not.toHaveBeenCalled()
         })
