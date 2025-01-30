@@ -346,6 +346,8 @@ class Team(UUIDClassicModel):
     external_data_workspace_id = models.CharField(max_length=400, null=True, blank=True)
     external_data_workspace_last_synced_at = models.DateTimeField(null=True, blank=True)
 
+    api_query_rate_limit = models.FloatField(null=True, blank=True, help_text="API rate limit, QPH")
+
     objects: TeamManager = TeamManager()
 
     @property
