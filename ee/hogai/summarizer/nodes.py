@@ -28,6 +28,7 @@ from posthog.clickhouse.client.execute_async import get_query_status
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantMessage,
@@ -134,7 +135,16 @@ class SummarizerNode(AssistantNode):
         if isinstance(viz_message.answer, AssistantTrendsQuery):
             return compress_and_format_trends_results(results)
         elif isinstance(viz_message.answer, AssistantFunnelsQuery):
-            return compress_and_format_funnels_results(viz_message.answer, results)
+            query_date_range = QueryDateRange(viz_message.answer.dateRange, self._team, viz_message.answer.interval)
+            funnel_step_reference = (
+                viz_message.answer.funnelsFilter.funnelStepReference if viz_message.answer.funnelsFilter else None
+            )
+            return compress_and_format_funnels_results(
+                results,
+                date_from=query_date_range.date_from_str,
+                date_to=query_date_range.date_to_str,
+                funnel_step_reference=funnel_step_reference,
+            )
         elif isinstance(viz_message.answer, AssistantRetentionQuery):
             return compress_and_format_retention_results(results)
         raise NotImplementedError(f"Unsupported query type: {type(viz_message.answer)}")

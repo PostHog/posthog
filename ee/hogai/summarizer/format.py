@@ -98,6 +98,12 @@ def _format_duration(
     return " ".join(units)
 
 
+def _replace_breakdown_labels(name: str) -> str:
+    return name.replace(BREAKDOWN_OTHER_STRING_LABEL, BREAKDOWN_OTHER_DISPLAY).replace(
+        BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_NULL_DISPLAY
+    )
+
+
 def _extract_series_label(series: dict) -> str:
     action = series.get("action")
     name = series["label"]
@@ -108,11 +114,7 @@ def _extract_series_label(series: dict) -> str:
     if series.get("breakdown_value") is not None:
         name += " (breakdown)"
 
-    # Replace breakdown labels
-    name.replace(BREAKDOWN_OTHER_STRING_LABEL, BREAKDOWN_OTHER_DISPLAY)
-    name.replace(BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_NULL_DISPLAY)
-
-    return name
+    return _replace_breakdown_labels(name)
 
 
 def _format_trends_results(results: list[dict]) -> str:
@@ -185,11 +187,6 @@ def _format_funnels_results(results: list[dict], conversion_type: FunnelStepRefe
         label = series.get("name")
         if series.get("custom_name") is not None:
             label = f"{label} {series['custom_name']}"
-        if series.get("breakdown_value") is not None:
-            breakdown_value = series["breakdown_value"]
-            if isinstance(breakdown_value, list):
-                breakdown_value = ", ".join(breakdown_value)
-            label = f"{label} {series['breakdown_value']} (breakdown)"
 
         matrix[0].append(label)
         matrix[1].append(series["count"])
@@ -220,10 +217,21 @@ def _format_funnels_results(results: list[dict], conversion_type: FunnelStepRefe
 
     matrix[1] = [_format_number(cell) for cell in matrix[1]]
 
-    return _format_matrix(matrix)
+    formatted_matrix = _format_matrix(matrix)
+    if results[0].get("breakdown_value") is not None:
+        breakdown_value = series["breakdown_value"]
+        if isinstance(breakdown_value, list):
+            breakdown_value = ", ".join(breakdown_value)
+        return f"---{breakdown_value}\n{formatted_matrix}"
+    return formatted_matrix
 
 
-def compress_and_format_funnels_results(query: AssistantFunnelsQuery, results: list[dict] | list[list[dict]]) -> str:
+def compress_and_format_funnels_results(
+    results: list[dict] | list[list[dict]],
+    date_from: str,
+    date_to: str,
+    funnel_step_reference: Optional[FunnelStepReference] = FunnelStepReference.TOTAL,
+) -> str:
     """
     Compresses and formats funnels results into a LLM-friendly string.
 
@@ -236,37 +244,24 @@ def compress_and_format_funnels_results(query: AssistantFunnelsQuery, results: l
     Drop-off rate|value1|value2
     Average conversion time|value1|value2
     Median conversion time|value1|value2
-
-    Conversion rates are relative to the previous steps.
     ```
     """
     if len(results) == 0:
         return "No data recorded for this time period."
 
+    matrixes = []
+    if isinstance(results[0], list):
+        for result in results:
+            matrixes.append(_format_funnels_results(result, funnel_step_reference))
+    else:
+        matrixes.append(_format_funnels_results(results, funnel_step_reference))
+
     conversion_type_hint = 'Conversion and drop-off rates are calculated in overall. For example, "Conversion rate: 9%" means that 9% of users from the first step completed the funnel.'
-    if query.funnelsFilter is not None and query.funnelsFilter.funnelStepReference == FunnelStepReference.PREVIOUS:
+    if funnel_step_reference == FunnelStepReference.PREVIOUS:
         conversion_type_hint = "Conversion and drop-off rates are relative to the previous steps. For example, 'Conversion rate: 90%' means that 90% of users from the previous step completed the funnel."
 
-    return f"""
-    Date range: 2025-01-01 to 2025-01-21
-
-    ---AU
-    Metric|$pageview|$ai_span
-    Total person count|288|46
-    Conversion rate|100%|16.0%
-    Dropoff rate|0%|83.3%
-    Average conversion time|300s|6903s
-    Median conversion time|300s|7100s
-    ---US
-    Metric|$pageview|$ai_span
-    Total person count|288|46
-    Conversion rate|100%|16.0%
-    Dropoff rate|0%|83.3%
-    Average conversion time|300s|6903s
-    Median conversion time|300s|7100s
-
-    {conversion_type_hint}
-    """
+    joined_matrixes = "\n\n".join(matrixes)
+    return f"Date range: {date_from} to {date_to}\n\n{joined_matrixes}\n\n{conversion_type_hint}"
 
 
 def compress_and_format_retention_results(query: AssistantFunnelsQuery, results: list[dict]) -> str:

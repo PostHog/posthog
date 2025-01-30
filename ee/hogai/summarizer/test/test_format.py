@@ -3,6 +3,7 @@ from ee.hogai.summarizer.format import (
     _format_duration,
     _format_funnels_results,
     _format_number,
+    compress_and_format_funnels_results,
     compress_and_format_trends_results,
 )
 from posthog.schema import Compare, FunnelStepReference
@@ -172,8 +173,98 @@ class TestFormat(BaseTest):
                 "median_conversion_time": 22,
             },
         ]
-
         self.assertEqual(
             _format_funnels_results(results, FunnelStepReference.TOTAL),
             "Metric|$pageview custom|$pageview|$pageview\nTotal person count|5|2|1\nConversion rate|100%|40%|20%\nDropoff rate|0%|60%|80%\nAverage conversion time|-|10s|20s\nMedian conversion time|-|11s|22s",
+        )
+        self.assertEqual(
+            _format_funnels_results(results, FunnelStepReference.PREVIOUS),
+            "Metric|$pageview custom|$pageview|$pageview\nTotal person count|5|2|1\nConversion rate|100%|40%|50%\nDropoff rate|0%|60%|50%\nAverage conversion time|-|10s|20s\nMedian conversion time|-|11s|22s",
+        )
+
+    def test_funnels_breakdown(self):
+        results = [
+            {
+                "action_id": "$pageview",
+                "name": "$pageview",
+                "order": 0,
+                "people": [],
+                "count": 5,
+                "type": "events",
+                "average_conversion_time": None,
+                "median_conversion_time": None,
+                "breakdown_value": ["au"],
+            },
+            {
+                "action_id": "signup",
+                "name": "signup",
+                "order": 1,
+                "people": [],
+                "count": 2,
+                "type": "events",
+                "average_conversion_time": 10,
+                "median_conversion_time": 11,
+                "breakdown_value": ["au"],
+            },
+        ]
+        self.assertEqual(
+            _format_funnels_results(results, FunnelStepReference.TOTAL),
+            "---au\nMetric|$pageview|signup\nTotal person count|5|2\nConversion rate|100%|40%\nDropoff rate|0%|60%\nAverage conversion time|-|10s\nMedian conversion time|-|11s",
+        )
+
+    def test_format_multiple_series(self):
+        results = [
+            [
+                {
+                    "action_id": "$pageview",
+                    "name": "$pageview",
+                    "order": 0,
+                    "people": [],
+                    "count": 5,
+                    "type": "events",
+                    "average_conversion_time": None,
+                    "median_conversion_time": None,
+                    "breakdown_value": ["au"],
+                },
+                {
+                    "action_id": "signup",
+                    "name": "signup",
+                    "order": 1,
+                    "people": [],
+                    "count": 2,
+                    "type": "events",
+                    "average_conversion_time": 10,
+                    "median_conversion_time": 11,
+                    "breakdown_value": ["au"],
+                },
+            ],
+            [
+                {
+                    "action_id": "$pageview",
+                    "name": "$pageview",
+                    "order": 0,
+                    "people": [],
+                    "count": 5,
+                    "type": "events",
+                    "average_conversion_time": None,
+                    "median_conversion_time": None,
+                    "breakdown_value": ["us"],
+                },
+                {
+                    "action_id": "signup",
+                    "name": "signup",
+                    "order": 1,
+                    "people": [],
+                    "count": 2,
+                    "type": "events",
+                    "average_conversion_time": 10,
+                    "median_conversion_time": 11,
+                    "breakdown_value": ["us"],
+                },
+            ],
+        ]
+
+        self.assertIn(
+            "Date range: 2025-01-20 to 2025-01-22\n\n---au\nMetric|$pageview|signup\nTotal person count|5|2\nConversion rate|100%|40%\nDropoff rate|0%|60%\nAverage conversion time|-|10s\nMedian conversion time|-|11s\n\n---us\nMetric|$pageview|signup\nTotal person count|5|2\nConversion rate|100%|40%\nDropoff rate|0%|60%\nAverage conversion time|-|10s\nMedian conversion time|-|11s",
+            compress_and_format_funnels_results(results, date_from="2025-01-20", date_to="2025-01-22"),
         )
