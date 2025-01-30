@@ -41,7 +41,7 @@ export function TaxonomicStringPopover(props: TaxonomicPopoverProps<string>): JS
     )
 }
 
-export const TaxonomicPopover = forwardRef(function TaxonomicPopover<
+export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
     ValueType extends TaxonomicFilterValue = TaxonomicFilterValue
 >(
     {
@@ -131,4 +131,6 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover<
             )}
         </LemonDropdown>
     )
-})
+}) as <ValueType extends TaxonomicFilterValue = TaxonomicFilterValue>(
+    p: TaxonomicPopoverProps<ValueType> & { ref?: Ref<HTMLButtonElement> }
+) => JSX.Element
