@@ -1,5 +1,6 @@
 import uuid
 from collections.abc import Iterator
+from typing import Any
 
 import pytest
 from clickhouse_driver import Client
@@ -71,3 +72,45 @@ def test_mutations(cluster: ClickhouseCluster) -> None:
     assert shard_mutations == duplicate_mutations
 
     assert cluster.map_all_hosts(get_mutations_count).result() == mutations_count_before
+
+
+def test_lightweight_delete(cluster: ClickhouseCluster) -> None:
+    table = EVENTS_DATA_TABLE()
+    count = 100
+
+    # make sure there is some data to play with first
+    def populate_random_data(client: Client) -> None:
+        client.execute(f"INSERT INTO {table} SELECT * FROM generateRandom() LIMIT {count}")
+
+    cluster.map_one_host_per_shard(populate_random_data).result()
+
+    # construct the runner with a DELETE command
+    runner = MutationRunner(
+        table,
+        f"DELETE FROM {table} WHERE 1 = 1",
+        {},
+    )
+
+    # verify it's detected as a lightweight delete
+    assert runner.is_lightweight_delete
+
+    # start all mutations
+    shard_mutations = cluster.map_one_host_per_shard(runner.enqueue).result()
+    assert len(shard_mutations) > 0
+
+    # check results
+    def get_row_exists_count(client: Client) -> Any:
+        return client.execute(f"SELECT _row_exists, count() FROM {table} GROUP BY ALL ORDER BY ALL")
+
+    for host_info, mutation in shard_mutations.items():
+        assert host_info.shard_num is not None
+
+        # wait for mutations to complete on shard
+        cluster.map_all_hosts_in_shard(host_info.shard_num, mutation.wait).result()
+
+        # check to make sure all mutations are marked as done
+        assert all(cluster.map_all_hosts_in_shard(host_info.shard_num, mutation.is_done).result().values())
+
+        # check to ensure data is as expected to be after update (_row_exists = 0 for all rows)
+        query_results = cluster.map_all_hosts_in_shard(host_info.shard_num, get_row_exists_count).result()
+        assert all(result == [(0, count)] for result in query_results.values())
