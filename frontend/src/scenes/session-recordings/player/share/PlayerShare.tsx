@@ -94,9 +94,7 @@ function LinearLink(props: PlayerShareLogicProps): JSX.Element {
 
     return (
         <>
-            <p>
-                <b>Click the button below</b> to start creating a new issue in Linear with a link to this recording.
-            </p>
+            <p>Add an issue to your Linear workspace with a link to this recording,</p>
 
             <Form logic={playerShareLogic} props={props} formKey="linearLinkForm" className="flex flex-col gap-2">
                 <LemonField className="gap-1" name="issueTitle" label="Issue title">
