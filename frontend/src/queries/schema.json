@@ -74,6 +74,9 @@
                     "const": "ActorsPropertyTaxonomyQuery",
                     "type": "string"
                 },
+                "maxPropertyValues": {
+                    "$ref": "#/definitions/integer"
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
@@ -6266,6 +6269,9 @@
                 "kind": {
                     "const": "EventTaxonomyQuery",
                     "type": "string"
+                },
+                "maxPropertyValues": {
+                    "$ref": "#/definitions/integer"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",

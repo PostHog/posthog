@@ -569,7 +569,7 @@ class Producer:
 
         extra_query_parameters = parameters.pop("extra_query_parameters", {}) or {}
 
-        if filters is not None:
+        if filters is not None and len(filters) > 0:
             filters_str, extra_query_parameters = await database_sync_to_async(compose_filters_clause)(
                 filters, team_id=team_id, values=extra_query_parameters
             )
