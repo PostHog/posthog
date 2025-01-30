@@ -10,14 +10,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RemoveConstraint(
-            model_name="taggeditem",
-            name="exactly_one_related_object",
-        ),
-        migrations.AlterUniqueTogether(
-            name="taggeditem",
-            unique_together=set(),
-        ),
         migrations.AddField(
             model_name="taggeditem",
             name="experiment_saved_metric",
@@ -28,6 +20,14 @@ class Migration(migrations.Migration):
                 related_name="tagged_items",
                 to="posthog.experimentsavedmetric",
             ),
+        ),
+        migrations.RemoveConstraint(
+            model_name="taggeditem",
+            name="exactly_one_related_object",
+        ),
+        migrations.AlterUniqueTogether(
+            name="taggeditem",
+            unique_together=set(),
         ),
         migrations.AlterUniqueTogether(
             name="taggeditem",
