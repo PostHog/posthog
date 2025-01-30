@@ -1,4 +1,3 @@
-from datetime import datetime
 from typing import Optional
 
 
@@ -85,6 +84,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "text": "Pay $10",
                     }
                 ],
+                last_calculated_at=self.EVENT_TIMESTAMP,  # oldest
             )
             a1 = Action.objects.create(
                 team=self.team,
@@ -96,7 +96,8 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "text": "Contacted Sales",
                     }
                 ],
-                pinned_at=datetime.now(),
+                pinned_at=self.QUERY_TIMESTAMP,
+                last_calculated_at=self.QUERY_TIMESTAMP,
             )
             a2 = Action.objects.create(
                 team=self.team,
@@ -108,6 +109,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "url_matching": "regex",
                     }
                 ],
+                last_calculated_at=self.QUERY_TIMESTAMP,  # newest
             )
             return a0, a1, a2
 
