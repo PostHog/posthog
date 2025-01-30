@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from types import UnionType
 from typing import Any, Generic, Optional, TypeGuard, TypeVar, Union, cast
 
 import structlog
@@ -498,7 +499,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self.query_id = query_id
 
         if not self.is_query_node(query):
-            query = self.query_type.model_validate(query)
+            if isinstance(self.query_type, UnionType):
+                for query_type in self.query_type.__args__:
+                    if isinstance(query, query_type):
+                        query = query_type.model_validate(query)
+                        break
+            else:
+                query = self.query_type.model_validate(query)
         assert isinstance(query, self.query_type)
         self.query = query
 
