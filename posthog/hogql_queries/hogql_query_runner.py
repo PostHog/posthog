@@ -35,7 +35,7 @@ class HogQLQueryRunner(QueryRunner):
             if isinstance(self.query.query, str):
                 parsed_select = parse_select(self.query.query, timings=self.timings, placeholders=values)
             elif isinstance(self.query.query, dict):
-                if "__hog_ast" in self.query.query:
+                if "__hqx" in self.query.query:
                     parsed_select = deserialize_hog_ast(self.query.query)
                 else:
                     raise ValueError("Invalid query")

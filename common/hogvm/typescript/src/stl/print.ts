@@ -159,7 +159,7 @@ export class SQLPrinter {
         this.indentLevel += 1
 
         let result: string
-        const nodeType = node.get('__hog_ast') as string
+        const nodeType = node.get('__hqx') as string
 
         if (!nodeType) {
             throw new Error('Node type is missing or undefined.')
@@ -387,7 +387,7 @@ export class SQLPrinter {
         if (!node) {
             return ''
         }
-        const nodeType = node.get('__hog_ast') as string
+        const nodeType = node.get('__hqx') as string
 
         if (nodeType === 'JoinExpr') {
             return this.visitJoinExpr(node)
@@ -477,7 +477,7 @@ export class SQLPrinter {
             return this.visit(node.get('expr'))
         }
         let expr = node.get('expr') as ASTNode
-        while (expr && expr instanceof Map && expr.get('__hog_ast') === 'Alias' && expr.get('hidden')) {
+        while (expr && expr instanceof Map && expr.get('__hqx') === 'Alias' && expr.get('hidden')) {
             expr = expr.get('expr')
         }
         const inside = this.visit(expr)

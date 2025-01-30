@@ -22,9 +22,9 @@ def is_ast_subclass(t):
 
 
 def deserialize_hog_ast(hog_ast: dict) -> AST:
-    kind = hog_ast.pop("__hog_ast", None)
+    kind = hog_ast.pop("__hqx", None)
     if kind is None or kind not in AST_CLASSES:
-        raise ValueError(f"Invalid or missing '__hog_ast' kind: {kind}")
+        raise ValueError(f"Invalid or missing '__hqx' kind: {kind}")
 
     cls = AST_CLASSES[kind]
     cls_fields = {f.name: f.type for f in fields(cls)}
@@ -32,13 +32,13 @@ def deserialize_hog_ast(hog_ast: dict) -> AST:
 
     for key, value in hog_ast.items():
         if key in cls_fields:
-            if isinstance(value, dict) and "__hog_ast" in value:
+            if isinstance(value, dict) and "__hqx" in value:
                 init_args[key] = deserialize_hog_ast(value)
             elif isinstance(value, list):
                 field_type = unwrap_list(cls_fields[key])
                 init_args[key] = []
                 for item in value:
-                    if isinstance(item, dict) and "__hog_ast" in item:
+                    if isinstance(item, dict) and "__hqx" in item:
                         init_args[key].append(deserialize_hog_ast(item))
                     elif is_ast_subclass(field_type):
                         init_args[key].append(Constant(value=item))

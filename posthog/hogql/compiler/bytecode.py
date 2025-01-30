@@ -854,7 +854,7 @@ class BytecodeCompiler(Visitor):
 
     def _visit_hog_ast(self, node: ast.AST):
         response = []
-        response.extend([Operation.STRING, "__hog_ast"])
+        response.extend([Operation.STRING, "__hqx"])
         response.extend([Operation.STRING, node.__class__.__name__])
         fields = 1
         for field in dataclasses.fields(node):
