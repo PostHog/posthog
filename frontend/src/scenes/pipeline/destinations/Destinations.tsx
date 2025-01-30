@@ -39,13 +39,6 @@ export interface DestinationsProps {
 }
 
 export function Destinations({ types }: DestinationsProps): JSX.Element {
-    const { destinations, loading } = useValues(pipelineDestinationsLogic({ types }))
-    const { canConfigurePlugins } = useValues(pipelineAccessLogic)
-    const { openReorderModal } = useActions(pipelineDestinationsLogic({ types }))
-
-    const transformations = destinations.filter((d) => d.stage === PipelineStage.Transformation)
-    const enabledTransformations = transformations.filter((d) => d.enabled)
-
     return (
         <>
             {types.includes('destination') ? (
@@ -73,25 +66,7 @@ export function Destinations({ types }: DestinationsProps): JSX.Element {
                 />
             ) : types.includes('transformation') ? (
                 <>
-                    {enabledTransformations.length > 1 && (
-                        <>
-                            <ReorderModal types={types} />
-                            <div className="flex items-center gap-2">
-                                <LemonButton
-                                    onClick={() => openReorderModal()}
-                                    noPadding
-                                    id="destination-reorder"
-                                    disabledReason={
-                                        canConfigurePlugins
-                                            ? undefined
-                                            : 'You do not have permission to reorder Transformations.'
-                                    }
-                                >
-                                    Change order
-                                </LemonButton>
-                            </div>
-                        </>
-                    )}
+                    <ReorderModal types={types} />
                 </>
             ) : null}
 
@@ -128,7 +103,7 @@ export function DestinationsTable({
     const { loading, filteredDestinations, destinations, hiddenDestinations } = useValues(
         pipelineDestinationsLogic({ types })
     )
-    const { toggleNode, deleteNode } = useActions(pipelineDestinationsLogic({ types }))
+    const { toggleNode, deleteNode, openReorderModal } = useActions(pipelineDestinationsLogic({ types }))
     const { resetFilters } = useActions(destinationsFiltersLogic({ types }))
 
     const showFrequencyHistory = types.includes('destination')
@@ -139,13 +114,31 @@ export function DestinationsTable({
             ? 'site app'
             : 'Hog function'
 
+    const enabledTransformations = destinations.filter((d) => d.stage === PipelineStage.Transformation && d.enabled)
+
     return (
-        <div className="space-y-2">
+        <div className="space-y-4">
             <DestinationsFilters
                 types={types}
                 hideFeedback={hideFeedback}
                 hideAddDestinationButton={hideAddDestinationButton}
             />
+
+            {types.includes('transformation') && enabledTransformations.length > 1 && (
+                <div className="flex items-center gap-2">
+                    Processed sequentially.
+                    <LemonButton
+                        onClick={() => openReorderModal()}
+                        noPadding
+                        id="destination-reorder"
+                        disabledReason={
+                            canConfigurePlugins ? undefined : 'You do not have permission to reorder Transformations.'
+                        }
+                    >
+                        Change order
+                    </LemonButton>
+                </div>
+            )}
 
             <LemonTable
                 dataSource={filteredDestinations}
