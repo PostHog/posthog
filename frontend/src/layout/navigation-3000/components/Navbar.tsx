@@ -21,6 +21,7 @@ import { SidePanelTab } from '~/types'
 import { navigation3000Logic } from '../navigationLogic'
 import { activationLogic } from '../sidepanel/panels/activation/activationLogic'
 import { SidePanelActivationIcon } from '../sidepanel/panels/activation/SidePanelActivation'
+import { sidePanelLogic } from '../sidepanel/sidePanelLogic'
 import { KeyboardShortcut } from './KeyboardShortcut'
 import { NavbarButton } from './NavbarButton'
 
@@ -34,7 +35,7 @@ export function Navbar(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { toggleSearchBar } = useActions(commandBarLogic)
     const { openSidePanel } = useActions(activationLogic)
-    const { hasCompletedAllTasks, isReady: isActivationReady } = useValues(activationLogic)
+    const { visibleTabs } = useValues(sidePanelLogic)
 
     const containerRef = useRef<HTMLDivElement | null>(null)
 
@@ -83,11 +84,11 @@ export function Navbar(): JSX.Element {
                     <div className="Navbar3000__bottom">
                         <ul>
                             <DebugNotice />
-                            {isActivationReady && !hasCompletedAllTasks && (
+                            {visibleTabs.includes(SidePanelTab.Activation) && (
                                 <NavbarButton
                                     identifier="activation-button"
                                     icon={<SidePanelActivationIcon className="" />}
-                                    title="Quick Start"
+                                    title="Quick start"
                                     onClick={() => openSidePanel(SidePanelTab.Activation)}
                                 />
                             )}

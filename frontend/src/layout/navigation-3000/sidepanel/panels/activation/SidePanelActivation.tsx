@@ -1,14 +1,5 @@
-import {
-    IconCheckCircle,
-    IconChevronRight,
-    IconDatabase,
-    IconFeatures,
-    IconGraph,
-    IconMessage,
-    IconRewindPlay,
-    IconTestTube,
-    IconToggle,
-} from '@posthog/icons'
+import { IconCheckCircle, IconChevronRight, IconLock } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ProfessorHog } from 'lib/components/hedgehogs'
@@ -17,60 +8,21 @@ import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonProgressCircle } from 'lib/lemon-ui/LemonProgressCircle'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useState } from 'react'
-import { availableOnboardingProducts } from 'scenes/onboarding/onboardingLogic'
 
 import {
     activationLogic,
-    ActivationSection,
+    type ActivationSection,
     ActivationTaskType,
 } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 
-const ACTIVATION_SECTIONS: Record<ActivationSection, { title: string; icon: JSX.Element }> = {
-    [ActivationSection.QuickStart]: {
-        title: 'Get Started',
-        icon: <IconFeatures className="h-5 w-5 text-accent-primary" />,
-    },
-    [ActivationSection.ProductAnalytics]: {
-        title: 'Product analytics',
-        icon: <IconGraph className="h-5 w-5" color={availableOnboardingProducts.product_analytics.iconColor} />,
-    },
-    [ActivationSection.SessionReplay]: {
-        title: 'Session replay',
-        icon: (
-            <IconRewindPlay
-                className="h-5 w-5 text-brand-yellow"
-                color={availableOnboardingProducts.product_analytics.iconColor}
-            />
-        ),
-    },
-    [ActivationSection.FeatureFlags]: {
-        title: 'Feature flags',
-        icon: (
-            <IconToggle className="h-5 w-5 text-seagreen" color={availableOnboardingProducts.feature_flags.iconColor} />
-        ),
-    },
-    [ActivationSection.Experiments]: {
-        title: 'Experiments',
-        icon: (
-            <IconTestTube className="h-5 w-5 text-purple" color={availableOnboardingProducts.experiments.iconColor} />
-        ),
-    },
-    [ActivationSection.DataWarehouse]: {
-        title: 'Data warehouse',
-        icon: (
-            <IconDatabase className="h-5 w-5 text-lilac" color={availableOnboardingProducts.data_warehouse.iconColor} />
-        ),
-    },
-    [ActivationSection.Surveys]: {
-        title: 'Surveys',
-        icon: <IconMessage className="h-5 w-5 text-salmon" color={availableOnboardingProducts.surveys.iconColor} />,
-    },
-}
-
 export const SidePanelActivation = (): JSX.Element => {
-    const { completionPercent } = useValues(activationLogic)
+    const { completionPercent, sections, isReady } = useValues(activationLogic)
+
+    if (!isReady) {
+        return null
+    }
 
     return (
         <>
@@ -95,12 +47,9 @@ export const SidePanelActivation = (): JSX.Element => {
                     </div>
                 </div>
                 <div className="divide-y divide-muted-alt">
-                    {Object.entries(ACTIVATION_SECTIONS).map(([sectionKey, section]) => (
-                        <div className="px-4" key={sectionKey}>
-                            <ActivationSectionComponent
-                                sectionKey={sectionKey as ActivationSection}
-                                section={section}
-                            />
+                    {sections.map((section) => (
+                        <div className="px-4" key={section.key}>
+                            <ActivationSectionComponent sectionKey={section.key} section={section} />
                         </div>
                     ))}
                 </div>
@@ -132,7 +81,7 @@ const ActivationSectionComponent = ({
     section: any
 }): JSX.Element | null => {
     const { activeTasks, completedTasks } = useValues(activationLogic)
-    const [isOpen, setIsOpen] = useState(true)
+    const [isOpen, setIsOpen] = useState(section.defaultOpen)
 
     const tasks = [...activeTasks, ...completedTasks].filter((task) => task.section === sectionKey)
 
@@ -171,7 +120,7 @@ const ActivationSectionComponent = ({
     )
 }
 
-const ActivationTask = ({ id, title, completed, skipped, url }: ActivationTaskType): JSX.Element => {
+const ActivationTask = ({ id, title, completed, skipped, lockedReason, url }: ActivationTaskType): JSX.Element => {
     const { runTask } = useActions(activationLogic)
     const { reportActivationSideBarTaskClicked } = useActions(eventUsageLogic)
 
@@ -184,24 +133,31 @@ const ActivationTask = ({ id, title, completed, skipped, url }: ActivationTaskTy
         }
     }
 
+    const canInteract = !completed && !skipped && !lockedReason
+
     return (
         <li
             className={clsx(
                 'p-2 border bg-primary-alt-highlight flex items-center justify-between gap-2 select-none',
                 completed && 'line-through opacity-70',
-                !completed && !skipped && 'cursor-pointer'
+                canInteract && 'cursor-pointer',
+                lockedReason && 'opacity-70'
             )}
-            onClick={!completed && !skipped ? handleClick : undefined}
+            onClick={canInteract ? handleClick : undefined}
         >
             <div className="flex items-center gap-2">
                 {completed ? (
                     <IconCheckCircle className="h-6 w-6 text-success" />
+                ) : lockedReason ? (
+                    <Tooltip title={lockedReason}>
+                        <IconLock className="h-6 w-6 text-muted-alt" />
+                    </Tooltip>
                 ) : (
                     <div className="rounded-full border-2 w-5 h-5 border-muted-alt" />
                 )}
                 <p className="m-0 font-semibold">{title}</p>
             </div>
-            {!completed && !skipped && <IconChevronRight className="h-6 font-semibold text-muted-alt" />}
+            {canInteract && <IconChevronRight className="h-6 font-semibold text-muted-alt" />}
 
             {/* <div className="flex-1">
                 {!completed && !skipped && <p className="text-xs text-gray-500">{content}</p>}
