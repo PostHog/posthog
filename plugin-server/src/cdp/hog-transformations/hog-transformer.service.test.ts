@@ -191,7 +191,7 @@ describe('HogTransformer', () => {
 
             await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
 
-            const createHogFunctionInvocationSpy = jest.spyOn(hogTransformer as any, 'createHogFunctionInvocation')
+            const executeHogFunctionSpy = jest.spyOn(hogTransformer as any, 'executeHogFunction')
 
             const event: PluginEvent = {
                 ip: '89.160.20.129',
@@ -207,10 +207,10 @@ describe('HogTransformer', () => {
 
             await hogTransformer.transformEvent(event)
 
-            expect(createHogFunctionInvocationSpy).toHaveBeenCalledTimes(3)
-            expect(createHogFunctionInvocationSpy.mock.calls[0][1]).toMatchObject({ execution_order: 1 })
-            expect(createHogFunctionInvocationSpy.mock.calls[1][1]).toMatchObject({ execution_order: 2 })
-            expect(createHogFunctionInvocationSpy.mock.calls[2][1]).toMatchObject({ execution_order: 3 })
+            expect(executeHogFunctionSpy).toHaveBeenCalledTimes(3)
+            expect(executeHogFunctionSpy.mock.calls[0][0]).toMatchObject({ execution_order: 1 })
+            expect(executeHogFunctionSpy.mock.calls[1][0]).toMatchObject({ execution_order: 2 })
+            expect(executeHogFunctionSpy.mock.calls[2][0]).toMatchObject({ execution_order: 3 })
             expect(event.properties?.test_property).toEqual('test_value')
         })
 
@@ -270,7 +270,7 @@ describe('HogTransformer', () => {
 
             await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
 
-            const createHogFunctionInvocationSpy = jest.spyOn(hogTransformer as any, 'createHogFunctionInvocation')
+            const executeHogFunctionSpy = jest.spyOn(hogTransformer as any, 'executeHogFunction')
 
             const event: PluginEvent = {
                 ip: '89.160.20.129',
@@ -291,7 +291,7 @@ describe('HogTransformer', () => {
              * Second call is the deleting the test property
              * hence the result is null
              */
-            expect(createHogFunctionInvocationSpy).toHaveBeenCalledTimes(2)
+            expect(executeHogFunctionSpy).toHaveBeenCalledTimes(2)
             expect(result?.event?.properties?.test_property).toEqual(null)
         })
         it('should execute tranformation without execution_order last', async () => {
@@ -369,7 +369,7 @@ describe('HogTransformer', () => {
             await insertHogFunction(hub.db.postgres, teamId, firstTransformationFunction)
             await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
 
-            const createHogFunctionInvocationSpy = jest.spyOn(hogTransformer as any, 'createHogFunctionInvocation')
+            const executeHogFunctionSpy = jest.spyOn(hogTransformer as any, 'executeHogFunction')
 
             const event: PluginEvent = {
                 ip: '89.160.20.129',
@@ -384,10 +384,10 @@ describe('HogTransformer', () => {
             }
 
             await hogTransformer.transformEvent(event)
-            expect(createHogFunctionInvocationSpy).toHaveBeenCalledTimes(3)
-            expect(createHogFunctionInvocationSpy.mock.calls[0][1]).toMatchObject({ execution_order: 1 })
-            expect(createHogFunctionInvocationSpy.mock.calls[1][1]).toMatchObject({ execution_order: 2 })
-            expect(createHogFunctionInvocationSpy.mock.calls[2][1]).toMatchObject({ execution_order: null })
+            expect(executeHogFunctionSpy).toHaveBeenCalledTimes(3)
+            expect(executeHogFunctionSpy.mock.calls[0][0]).toMatchObject({ execution_order: 1 })
+            expect(executeHogFunctionSpy.mock.calls[1][0]).toMatchObject({ execution_order: 2 })
+            expect(executeHogFunctionSpy.mock.calls[2][0]).toMatchObject({ execution_order: null })
         })
     })
 
