@@ -92,6 +92,7 @@ export enum PluginServerMode {
     cdp_internal_events = 'cdp-internal-events',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     cdp_cyclotron_worker_plugins = 'cdp-cyclotron-worker-plugins',
+    cdp_api = 'cdp-api',
     functional_tests = 'functional-tests',
 }
 
@@ -334,6 +335,10 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     COOKIELESS_SALT_TTL_SECONDS: number
     COOKIELESS_SESSION_INACTIVITY_MS: number
     COOKIELESS_IDENTIFIES_TTL_SECONDS: number
+
+    SESSION_RECORDING_V2_S3_BUCKET?: string
+    SESSION_RECORDING_V2_S3_PREFIX?: string
+    SESSION_RECORDING_V2_S3_REGION?: string
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -404,6 +409,7 @@ export interface PluginServerCapabilities {
     cdpInternalEvents?: boolean
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerPlugins?: boolean
+    cdpApi?: boolean
     appManagementSingleton?: boolean
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
     http?: boolean
@@ -1309,61 +1315,6 @@ export type AppMetric2Type = {
         | 'inputs_failed'
         | 'fetch'
     count: number
-}
-
-interface TextOperator {
-    operator: 'equals' | 'startsWith' | 'includes'
-    value: string
-}
-
-export interface ModelDetails {
-    matches: string[]
-    searchTerms: string[]
-    info: {
-        releaseDate: string
-        maxTokens?: number
-        description: string
-        tradeOffs: string[]
-        benchmarks: {
-            [key: string]: number
-        }
-        capabilities: string[]
-        strengths: string[]
-        weaknesses: string[]
-        recommendations: string[]
-    }
-}
-
-export type ModelDetailsMap = {
-    [key: string]: ModelDetails
-}
-
-export interface ModelRow {
-    model: TextOperator
-    cost: {
-        prompt_token: number
-        completion_token: number
-    }
-    showInPlayground?: boolean
-    targetUrl?: string
-    dateRange?: {
-        start: string
-        end: string
-    }
-}
-
-export interface ModelRow {
-    model: TextOperator
-    cost: {
-        prompt_token: number
-        completion_token: number
-    }
-    showInPlayground?: boolean
-    targetUrl?: string
-    dateRange?: {
-        start: string
-        end: string
-    }
 }
 
 export interface CookielessConfig {

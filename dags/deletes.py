@@ -1,5 +1,4 @@
 import pydantic
-import time
 from clickhouse_driver.client import Client
 from datetime import datetime
 from dataclasses import dataclass
@@ -14,9 +13,13 @@ from dagster import (
     ConfigurableResource,
 )
 from django.conf import settings
-from functools import reduce
 
-from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
+from posthog.clickhouse.cluster import (
+    ClickhouseCluster,
+    Mutation,
+    MutationRunner,
+    get_cluster,
+)
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 
@@ -48,28 +51,6 @@ class DeleteConfig(Config):
     @property
     def parsed_timestamp(self) -> datetime:
         return datetime.fromisoformat(self.timestamp)
-
-
-@dataclass
-class Mutation:
-    table: str
-    mutation_id: str
-
-    def is_done(self, client: Client) -> bool:
-        result = client.execute(
-            f"""
-            SELECT is_done
-            FROM system.mutations
-            WHERE database = %(database)s AND table = %(table)s AND mutation_id = %(mutation_id)s
-            ORDER BY create_time DESC
-            """,
-            {"database": settings.CLICKHOUSE_DATABASE, "table": self.table, "mutation_id": self.mutation_id},
-        )
-        return bool(result[0][0]) if result else False
-
-    def wait(self, client: Client) -> None:
-        while not self.is_done(client):
-            time.sleep(15.0)
 
 
 ShardMutations = dict[int, Mutation]
@@ -142,57 +123,22 @@ class PendingPersonEventDeletesTable:
             VALUES
         """
 
-    def __find_existing_mutation(self, client: Client, table: str, command_kind: str) -> Mutation | None:
-        results = client.execute(
+    @property
+    def person_event_delete_mutation_runner(self) -> MutationRunner:
+        return MutationRunner(
+            EVENTS_DATA_TABLE(),
             f"""
-            SELECT mutation_id
-            FROM system.mutations
-            WHERE
-                database = %(database)s
-                AND table = %(table)s
-                AND startsWith(command, %(command_kind)s)
-                AND command like concat('%%', %(name)s, '%%')
-                AND NOT is_killed  -- ok to restart a killed mutation
-            ORDER BY create_time DESC
-            """,
-            {
-                "database": settings.CLICKHOUSE_DATABASE,
-                "table": table,
-                "command_kind": command_kind,
-                "name": self.qualified_name,
-            },
-        )
-        if not results:
-            return None
-        else:
-            assert len(results) == 1
-            [[mutation_id]] = results
-            return Mutation(table, mutation_id)
-
-    def enqueue_person_event_delete_mutation(self, client: Client) -> Mutation:
-        table = EVENTS_DATA_TABLE()
-
-        # if this mutation already exists, don't start it again
-        # NOTE: this is theoretically subject to replication lag and accuracy of this result is not a guarantee
-        if mutation := self.__find_existing_mutation(client, table, "UPDATE"):
-            return mutation
-
-        client.execute(
-            f"""
-            DELETE FROM {table} WHERE (uuid, event, team_id, person_id, timestamp) IN (
+            DELETE FROM {EVENTS_DATA_TABLE()} WHERE (uuid, event, team_id, person_id, timestamp) IN (
                 SELECT e.uuid, e.event, e.team_id, e.person_id, e.timestamp
                 FROM events e
                 INNER JOIN {self.qualified_name} d
                 ON e.team_id = d.team_id
-                AND e.distinct_id = d.person_id
+                AND e.person_id = d.person_id
                 AND e.timestamp < d.created_at
             )
-            """
+            """,
+            {},
         )
-
-        mutation = self.__find_existing_mutation(client, table, "UPDATE")
-        assert mutation is not None
-        return mutation
 
     def checksum(self, client: Client):
         results = client.execute(
@@ -336,7 +282,7 @@ def delete_person_events(
     shard_mutations = {
         host.shard_num: mutation
         for host, mutation in (
-            cluster.map_one_host_per_shard(load_pending_person_deletions.enqueue_person_event_delete_mutation)
+            cluster.map_one_host_per_shard(load_pending_person_deletions.person_event_delete_mutation_runner.enqueue)
             .result()
             .items()
         )
@@ -346,18 +292,13 @@ def delete_person_events(
 
 @op
 def wait_for_delete_mutations(
+    context: OpExecutionContext,
     cluster: ResourceParam[ClickhouseCluster],
     delete_person_events: tuple[PendingPersonEventDeletesTable, ShardMutations],
 ) -> PendingPersonEventDeletesTable:
     pending_person_deletions, shard_mutations = delete_person_events
 
-    if not shard_mutations:
-        return pending_person_deletions  # or handle the empty case as needed
-
-    reduce(
-        lambda x, y: x.merge(y),
-        [cluster.map_all_hosts_in_shard(shard, mutation.wait) for shard, mutation in shard_mutations.items()],
-    ).result()
+    cluster.map_all_hosts_in_shards({shard: mutation.wait for shard, mutation in shard_mutations.items()}).result()
 
     return pending_person_deletions
 

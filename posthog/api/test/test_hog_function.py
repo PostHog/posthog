@@ -8,6 +8,8 @@ from inline_snapshot import snapshot
 from rest_framework import status
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
+from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+from posthog.api.hog_function_template import HogFunctionTemplates
 from posthog.constants import AvailableFeature
 from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction
@@ -71,6 +73,13 @@ def get_db_field_value(field, model_id):
 
 
 class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+    def setUp(self):
+        super().setUp()
+        with patch("posthog.api.hog_function_template.get_hog_function_templates") as mock_get_templates:
+            mock_get_templates.return_value.status_code = 200
+            mock_get_templates.return_value.json.return_value = MOCK_NODE_TEMPLATES
+            HogFunctionTemplates._load_templates()  # Cache templates to simplify tests
+
     def _create_slack_function(self, data: Optional[dict] = None):
         payload = {
             "name": "Slack",
@@ -172,6 +181,11 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             {"key": AvailableFeature.DATA_PIPELINES, "name": AvailableFeature.DATA_PIPELINES}
         ]
         self.organization.save()
+
+        with patch("posthog.api.hog_function_template.get_hog_function_templates") as mock_get_templates:
+            mock_get_templates.return_value.status_code = 200
+            mock_get_templates.return_value.json.return_value = MOCK_NODE_TEMPLATES
+            HogFunctionTemplates._load_templates()  # Cache templates to simplify tests
 
     def _get_function_activity(
         self,

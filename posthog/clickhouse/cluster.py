@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+import re
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from concurrent.futures import (
     ALL_COMPLETED,
@@ -106,6 +107,10 @@ class ClickhouseCluster:
         self.__logger = logger
         self.__client_settings = client_settings
 
+    @property
+    def shards(self) -> list[int]:
+        return list({host.shard_num for host in self.__hosts if host.shard_num is not None})
+
     def __get_task_function(self, host: HostInfo, fn: Callable[[Client], T]) -> Callable[[], T]:
         pool = self.__pools.get(host)
         if pool is None:
@@ -113,14 +118,14 @@ class ClickhouseCluster:
 
         def task():
             with pool.get_client() as client:
-                self.__logger.debug("Executing %r on %r...", fn, host)
+                self.__logger.info("Executing %r on %r...", fn, host)
                 try:
                     result = fn(client)
                 except Exception:
-                    self.__logger.debug("Failed to execute %r on %r!", fn, host, exc_info=True)
+                    self.__logger.warn("Failed to execute %r on %r!", fn, host, exc_info=True)
                     raise
                 else:
-                    self.__logger.debug("Successfully executed %r on %r.", fn, host)
+                    self.__logger.info("Successfully executed %r on %r.", fn, host)
                 return result
 
         return task
@@ -156,6 +161,31 @@ class ClickhouseCluster:
                     for host in self.__hosts
                     if host.shard_num == shard_num
                 }
+            )
+
+    def map_all_hosts_in_shards(
+        self, shard_fns: dict[int, Callable[[Client], T]], concurrency: int | None = None
+    ) -> FuturesMap[HostInfo, T]:
+        """
+        Execute the callable once for each host in the specified shards.
+
+        The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
+        default limit of the executor.
+
+        Wait for all to return before returning upon ``.values()``
+        """
+
+        shard_host_fn = {}
+        for shard, fn in shard_fns.items():
+            if shard not in self.shards:
+                raise ValueError(f"Shard {shard} not found in cluster")
+            for host in self.__hosts:
+                if host.shard_num == shard:
+                    shard_host_fn[host] = fn
+
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
+            return FuturesMap(
+                {host: executor.submit(self.__get_task_function(host, fn)) for host, fn in shard_host_fn.items()}
             )
 
     def map_one_host_per_shard(
@@ -218,6 +248,12 @@ class MutationRunner:
 
     def find(self, client: Client) -> Mutation | None:
         """Find the running mutation task, if one exists."""
+
+        if self.is_lightweight_delete:
+            command = self.__convert_lightweight_delete_to_mutation_command(self.command)
+        else:
+            command = self.command
+
         results = client.execute(
             f"""
             SELECT mutation_id
@@ -228,7 +264,7 @@ class MutationRunner:
                 -- only one command per mutation is currently supported, so throw if the mutation contains more than we expect to find
                 -- throwIf always returns 0 if it does not throw, so negation turns this condition into effectively a noop if the test passes
                 AND NOT throwIf(
-                    length(splitByChar('\n', formatQuery($_sql_{id(self)}$ALTER TABLE {settings.CLICKHOUSE_DATABASE}{self.table} {self.command}$_sql_{id(self)}$)) as lines) != 2,
+                    length(splitByChar('\n', formatQuery($_sql_{id(self)}$ALTER TABLE {settings.CLICKHOUSE_DATABASE}{self.table} {command}$_sql_{id(self)}$)) as lines) != 2,
                     'unexpected number of lines, expected 2 (ALTER TABLE prefix, followed by single command)'
                 )
                 AND command = trim(lines[2])
@@ -249,16 +285,36 @@ class MutationRunner:
             return Mutation(self.table, mutation_id)
 
     def enqueue(self, client: Client) -> Mutation:
-        """Enqueue the mutation (or return the existing mutation if it is already running.)"""
+        """Enqueue the mutation (or return the existing mutation if it is already running or has run.)"""
         if task := self.find(client):
             return task
 
-        client.execute(
-            f"ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} {self.command}",
-            self.parameters,
-        )
+        if self.is_lightweight_delete:
+            client.execute(self.command, self.parameters)
 
-        task = self.find(client)
-        assert task is not None
+        else:
+            client.execute(
+                f"ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} {self.command}",
+                self.parameters,
+            )
 
-        return task
+        # mutations are not always immediately visible, so give it a bit of time to show up
+        start = time.time()
+        for _ in range(5):
+            if task := self.find(client):
+                return task
+            time.sleep(1.0)
+
+        raise Exception(f"unable to find mutation after {time.time()-start:0.2f}s!")
+
+    @property
+    def is_lightweight_delete(self) -> bool:
+        return re.match(r"(?i)^DELETE\s+FROM\s+(?:\w+\.)*\w+\s+WHERE\s+.*", self.command) is not None
+
+    def __convert_lightweight_delete_to_mutation_command(self, command: str) -> str:
+        # converts DELETE FROM table WHERE foo='bar' to UPDATE _row_exists = 0 WHERE foo='bar'
+        match = re.match(r"(?i)^DELETE\s+FROM\s+(?:\w+\.)*\w+\s+WHERE\s+(.*)", command)
+        if not match:
+            raise ValueError(f"Invalid DELETE command format: {command}")
+        where_clause = match.group(1)
+        return f"UPDATE _row_exists = 0 WHERE {where_clause}"

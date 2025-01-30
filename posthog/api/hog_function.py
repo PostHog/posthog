@@ -13,14 +13,13 @@ from rest_framework.response import Response
 
 from posthog.api.app_metrics2 import AppMetricsMixin
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.hog_function_template import HogFunctionTemplateSerializer
+from posthog.api.hog_function_template import HogFunctionTemplateSerializer, HogFunctionTemplates
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 
 from posthog.cdp.filters import compile_filters_bytecode, compile_filters_expr
 from posthog.cdp.services.icons import CDPIconsService
-from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES_BY_ID
 from posthog.cdp.templates._internal.template_legacy_plugin import create_legacy_plugin_template
 from posthog.cdp.validation import compile_hog, generate_template_bytecode, validate_inputs, validate_inputs_schema
 from posthog.cdp.site_functions import get_transpiled_function
@@ -156,7 +155,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         is_create = self.context.get("view") and self.context["view"].action == "create"
 
         template_id = attrs.get("template_id", instance.template_id if instance else None)
-        template = HOG_FUNCTION_TEMPLATES_BY_ID.get(template_id, None)
+        template = HogFunctionTemplates.template(template_id) if template_id else None
 
         if template_id and template_id.startswith("plugin-"):
             template = create_legacy_plugin_template(template_id)
@@ -366,7 +365,11 @@ class HogFunctionViewSet(
 
     @action(detail=True, methods=["POST"])
     def invocations(self, request: Request, *args, **kwargs):
-        hog_function = self.get_object()
+        try:
+            hog_function = self.get_object()
+        except Exception:
+            hog_function = None
+
         serializer = HogFunctionInvocationSerializer(
             data=request.data, context={**self.get_serializer_context(), "instance": hog_function}
         )
@@ -381,8 +384,8 @@ class HogFunctionViewSet(
         mock_async_functions = serializer.validated_data["mock_async_functions"]
 
         res = create_hog_invocation_test(
-            team_id=hog_function.team_id,
-            hog_function_id=hog_function.id,
+            team_id=self.team_id,
+            hog_function_id=str(hog_function.id) if hog_function else "new",
             globals=hog_globals,
             configuration=configuration,
             mock_async_functions=mock_async_functions,
