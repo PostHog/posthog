@@ -250,6 +250,7 @@ $xxl: 1600px;
         var(--color-orange-800),
         var(--color-orange-50)
     ); /* On-fill text for warning */
+
     --text-error-on-bg-fill: light-dark(var(--color-red-800), var(--color-red-50)); /* On-fill text for error */
     --text-success-on-bg-fill: light-dark(var(--color-green-800), var(--color-green-50)); /* On-fill text for success */
 
@@ -401,7 +402,7 @@ $xxl: 1600px;
     // `--muted-alt` can be removed now, as it's the same as `--muted` after the 3000 redesign
     // --muted-alt: var(--muted-3000);
     --primary-alt: var(--text-3000);
-    --border: var(--border-3000);
+    --border: var(--border-primary);
     --border-bold: var(--border-bold-3000);
     --bg-bridge: #ebece8;
 
@@ -855,7 +856,7 @@ $xxl: 1600px;
     --color-muted-alt: var(--muted-3000);
     --color-primary-alt: var(--text-3000);
 
-    // --color-border: var(--border-3000);
+    // --color-border: var(--border-primary);
     // --color-border-bold: var(--border-bold-3000);
     // --color-data-color-1: var(--data-color-1);
     // --color-data-color-10: var(--data-color-10);
@@ -1041,11 +1042,11 @@ $xxl: 1600px;
     --color-secondary-3000-hover: var(--secondary-3000-hover);
     --color-accent-3000: var(--surface-primary);
     --color-bg-3000: var(--bg-primary);
-    --color-border-3000: var(--border-3000);
+    --color-border-3000: var(--border-primary);
     --color-border-light-opaque: var(--border-light-opaque);
     --color-border-bold-3000: var(--border-bold-3000);
     --color-glass-bg-3000: var(--glass-bg-3000);
-    --color-glass-border-3000: var(--glass-border-3000);
+    --color-glass-border-3000: var(--border-primary);
     --color-bg-light: var(--surface-primary);
     --color-bg-table: var(--bg-table);
 
@@ -1121,7 +1122,7 @@ $xxl: 1600px;
     ::before,
     ::backdrop,
     ::file-selector-button {
-        border-color: var(--border, currentColor);
+        border-color: var(--border-primary, currentColor);
     }
 }
 

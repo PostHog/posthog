@@ -16,7 +16,7 @@ export function ResizeHandle1D({ orientation }: { orientation: 'horizontal' | 'v
                     <rect height="2" rx=".25" width="2" x="5" y="13" />
                     <rect height="2" rx=".25" width="2" x="5" y="17" />
                 </g>
-                <rect height="23" rx="3.5" stroke="var(--border)" width="15" x=".5" y=".5" />
+                <rect height="23" rx="3.5" stroke="var(--border-primary)" width="15" x=".5" y=".5" />
             </svg>
         </div>
     )
@@ -36,7 +36,7 @@ export function ResizeHandle2D(): JSX.Element {
                     <rect height="2" rx=".25" width="2" x="12" y="8" />
                     <rect height="2" rx=".25" width="2" x="12" y="12" />
                 </g>
-                <rect height="17" rx="3.5" stroke="var(--border)" width="17" x=".5" y=".5" />
+                <rect height="17" rx="3.5" stroke="var(--border-primary)" width="17" x=".5" y=".5" />
             </svg>
         </div>
     )
