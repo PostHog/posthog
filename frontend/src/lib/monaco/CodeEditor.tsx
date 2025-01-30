@@ -206,7 +206,6 @@ export function CodeEditor({
     }, [])
 
     const editorOptions: editor.IStandaloneEditorConstructionOptions = {
-        // :TRICKY: We need to declare all options here, as omitting something will carry its value from one <CodeEditor> to another.
         minimap: {
             enabled: false,
         },
@@ -269,6 +268,7 @@ export function CodeEditor({
     }
 
     if (originalValue) {
+        // If originalValue is provided, we render a diff editor instead
         return (
             <MonacoDiffEditor
                 key={queryKey}
