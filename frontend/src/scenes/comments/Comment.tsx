@@ -123,7 +123,7 @@ export const CommentWithReplies = ({ commentWithReplies }: CommentProps): JSX.El
             {comment ? (
                 <Comment comment={comment} />
             ) : (
-                <div className="border rounded border-dashed p-2 font-semibold italic bg-bg-surface-primary text-secondary">
+                <div className="border rounded border-dashed p-2 font-semibold italic bg-surface-primary text-secondary">
                     Deleted comment
                 </div>
             )}
