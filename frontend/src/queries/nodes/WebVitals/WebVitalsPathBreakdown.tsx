@@ -69,10 +69,9 @@ const Header = ({ band, label }: { band: WebVitalsMetricBand; label: string }): 
 
     const thresholdText = useMemo(() => {
         const threshold = WEB_VITALS_THRESHOLDS[webVitalsTab]
-        const inSeconds = webVitalsTab !== 'CLS'
 
-        const { value: poorValue, unit: poorUnit } = getValueWithUnit(threshold.poor, inSeconds)
-        const { value: goodValue, unit: goodUnit } = getValueWithUnit(threshold.good, inSeconds)
+        const { value: poorValue, unit: poorUnit } = getValueWithUnit(threshold.poor, webVitalsTab)
+        const { value: goodValue, unit: goodUnit } = getValueWithUnit(threshold.good, webVitalsTab)
 
         if (band === 'poor') {
             return (
@@ -150,6 +149,8 @@ const Content = ({
                     values?.map(({ path, value }) => {
                         const width = computePositionInBand(value, threshold) * 100
 
+                        const { value: parsedValue, unit } = getValueWithUnit(value, webVitalsTab)
+
                         return (
                             <div
                                 className="flex flex-row items-center justify-between relative w-full p-2 py-1"
@@ -170,7 +171,8 @@ const Content = ({
                                     {isPathCleaningEnabled ? parseAliasToReadable(path) : path}
                                 </span>
                                 <span className="relative z-10 flex-shrink-0">
-                                    {value >= 1 ? value.toFixed(0) : value.toFixed(2)}
+                                    {parsedValue}
+                                    {unit}
                                 </span>
                             </div>
                         )
