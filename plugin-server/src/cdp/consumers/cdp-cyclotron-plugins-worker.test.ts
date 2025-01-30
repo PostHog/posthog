@@ -11,7 +11,7 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
-import { PLUGINS_BY_ID } from '../legacy-plugins'
+import { DESTINATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { CdpCyclotronWorkerPlugins } from './cdp-cyclotron-plugins-worker.consumer'
 
@@ -37,7 +37,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
         return item
     }
 
-    const intercomPlugin = PLUGINS_BY_ID['posthog-intercom-plugin']
+    const intercomPlugin = DESTINATION_PLUGINS_BY_ID['posthog-intercom-plugin']
 
     beforeEach(async () => {
         await resetTestDatabase()
@@ -48,7 +48,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
 
         await processor.start()
 
-        processor.fetch = mockFetch = jest.fn(() =>
+        processor['pluginExecutor'].fetch = mockFetch = jest.fn(() =>
             Promise.resolve({
                 status: 200,
                 json: () =>
@@ -141,7 +141,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
 
     describe('onEvent', () => {
         it('should call the plugin onEvent method', async () => {
-            jest.spyOn(intercomPlugin, 'onEvent')
+            jest.spyOn(intercomPlugin as any, 'onEvent')
 
             const invocation = createInvocation(fn, globals)
             invocation.globals.event.event = 'mycustomevent'
@@ -220,7 +220,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
         })
 
         it('should mock out fetch if it is a test function', async () => {
-            jest.spyOn(intercomPlugin, 'onEvent')
+            jest.spyOn(intercomPlugin as any, 'onEvent')
 
             const invocation = createInvocation(fn, globals)
             invocation.hogFunction.name = 'My function [CDP-TEST-HIDDEN]'
@@ -247,7 +247,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
         })
 
         it('should handle and collect errors', async () => {
-            jest.spyOn(intercomPlugin, 'onEvent')
+            jest.spyOn(intercomPlugin as any, 'onEvent')
 
             const invocation = createInvocation(fn, globals)
             invocation.globals.event.event = 'mycustomevent'
@@ -278,7 +278,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
     })
 
     describe('smoke tests', () => {
-        const testCases = Object.entries(PLUGINS_BY_ID).map(([pluginId, plugin]) => ({
+        const testCases = Object.entries(DESTINATION_PLUGINS_BY_ID).map(([pluginId, plugin]) => ({
             name: pluginId,
             plugin,
         }))
