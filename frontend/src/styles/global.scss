@@ -1124,6 +1124,10 @@ $xxl: 1600px;
     ::file-selector-button {
         border-color: var(--border-primary, currentColor);
     }
+
+    input[type='text'] {
+        font-weight: 400;
+    }
 }
 
 input[type='radio'] {
