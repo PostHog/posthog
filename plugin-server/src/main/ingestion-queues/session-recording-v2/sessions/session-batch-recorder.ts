@@ -3,7 +3,7 @@ import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithTeam } from '../teams/types'
 import { SessionBatchMetrics } from './metrics'
 import { SessionBatchFileWriter } from './session-batch-file-writer'
-import { SessionRecorder } from './session-recorder'
+import { SnappySessionRecorder } from './snappy-session-recorder'
 
 /**
  * Manages the recording of a batch of session recordings:
@@ -19,12 +19,12 @@ import { SessionRecorder } from './session-recorder'
  * └── ... (previous batch)
  *
  * Session Batch File 2 <── One SessionBatchRecorder corresponds to one batch file
- * ├── Gzipped Session Recording Block 1
+ * ├── Compressed Session Recording Block 1
  * │   └── JSONL Session Recording Block
  * │       ├── [windowId, event1]
  * │       ├── [windowId, event2]
  * │       └── ...
- * ├── Gzipped Session Recording Block 2
+ * ├── Compressed Session Recording Block 2
  * │   └── JSONL Session Recording Block
  * │       ├── [windowId, event1]
  * │       └── ...
@@ -44,7 +44,7 @@ import { SessionRecorder } from './session-recorder'
  * as only the relevant session block needs to be retrieved and decompressed.
  */
 export class SessionBatchRecorder {
-    private readonly partitionSessions = new Map<number, Map<string, SessionRecorder>>()
+    private readonly partitionSessions = new Map<number, Map<string, SnappySessionRecorder>>()
     private readonly partitionSizes = new Map<number, number>()
     private _size: number = 0
 
@@ -69,7 +69,7 @@ export class SessionBatchRecorder {
 
         const sessions = this.partitionSessions.get(partition)!
         if (!sessions.has(sessionId)) {
-            sessions.set(sessionId, new SessionRecorder())
+            sessions.set(sessionId, new SnappySessionRecorder())
         }
 
         const recorder = sessions.get(sessionId)!
