@@ -149,12 +149,13 @@ export function DestinationsTable({
                 loading={loading}
                 columns={[
                     {
-                        title: '',
+                        title: 'Prio',
                         key: 'order',
                         width: 0,
+                        align: 'center',
                         render: function RenderOrdering(_, transformation, index) {
                             if (transformation.stage === PipelineStage.Transformation && transformation.enabled) {
-                                return index + 1
+                                return <div className="text-center">{index + 1}</div>
                             }
                             return null
                         },
