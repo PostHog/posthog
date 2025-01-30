@@ -557,8 +557,6 @@ class BatchExportBackfillSerializer(serializers.ModelSerializer):
     class Meta:
         model = BatchExportBackfill
         fields = "__all__"
-        # TODO
-        # read_only_fields = ["batch_export"]
 
 
 class BackfillsCursorPagination(CursorPagination):

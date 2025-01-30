@@ -3,54 +3,17 @@ import datetime as dt
 import pytest
 from django.test.client import Client as HttpClient
 
-from posthog.api.test.batch_exports.fixtures import create_organization
+from posthog.api.test.batch_exports.fixtures import (
+    create_backfill,
+    create_batch_export,
+    create_destination,
+    create_organization,
+)
 from posthog.api.test.batch_exports.operations import list_batch_export_backfills_ok
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.batch_exports.models import (
-    BatchExport,
-    BatchExportBackfill,
-    BatchExportDestination,
-)
 
 pytestmark = [pytest.mark.django_db]
-
-
-def create_destination() -> BatchExportDestination:
-    """Create a test batch export destination."""
-    return BatchExportDestination.objects.create(
-        type="S3",
-        config={
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-            "aws_access_key_id": "abc123",
-            "aws_secret_access_key": "secret",
-        },
-    )
-
-
-def create_batch_export(team, destination) -> BatchExport:
-    """Create a test batch export."""
-    return BatchExport.objects.create(
-        team=team,
-        name="my-production-s3-bucket-destination",
-        destination=destination,
-        interval="hour",
-    )
-
-
-def create_backfill(team, batch_export, start_at, end_at, status, finished_at) -> BatchExportBackfill:
-    """Create test backfill."""
-
-    return BatchExportBackfill.objects.create(
-        batch_export=batch_export,
-        team=team,
-        start_at=start_at,
-        end_at=end_at,
-        status=status,
-        finished_at=finished_at,
-    )
 
 
 def test_list_batch_export_backfills(client: HttpClient):
