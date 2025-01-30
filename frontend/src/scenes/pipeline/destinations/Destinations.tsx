@@ -149,6 +149,17 @@ export function DestinationsTable({
                 loading={loading}
                 columns={[
                     {
+                        title: '',
+                        key: 'order',
+                        width: 0,
+                        render: function RenderOrdering(_, transformation, index) {
+                            if (transformation.stage === PipelineStage.Transformation && transformation.enabled) {
+                                return index + 1
+                            }
+                            return null
+                        },
+                    },
+                    {
                         title: 'App',
                         width: 0,
                         render: function RenderAppInfo(_, destination) {
@@ -167,7 +178,6 @@ export function DestinationsTable({
                     {
                         title: 'Name',
                         sticky: true,
-                        sorter: true,
                         key: 'name',
                         dataIndex: 'name',
                         render: function RenderPluginName(_, destination) {
