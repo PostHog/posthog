@@ -364,10 +364,14 @@ export function DeltaChart({
                             <svg
                                 ref={chartSvgRef}
                                 viewBox={`0 0 ${VIEW_BOX_WIDTH} ${chartHeight}`}
-                                preserveAspectRatio="xMidYMid meet"
+                                preserveAspectRatio="xMinYMid slice"
                                 className="ml-12"
                                 // eslint-disable-next-line react/forbid-dom-props
-                                style={{ minHeight: `${chartHeight}px`, maxWidth: `${CHART_MAX_WIDTH}px` }}
+                                style={{
+                                    minHeight: `${chartHeight}px`,
+                                    maxWidth: `${CHART_MAX_WIDTH}px`,
+                                    width: '100%', // Added to maintain consistent scaling
+                                }}
                             >
                                 {/* Vertical grid lines */}
                                 {tickValues.map((value, index) => {
@@ -517,17 +521,22 @@ export function DeltaChart({
                                                 </>
                                             )}
                                             {/* Delta marker */}
-                                            <rect
-                                                x={deltaX - CONVERSION_RATE_RECT_WIDTH / 2}
-                                                y={y}
-                                                width={CONVERSION_RATE_RECT_WIDTH}
-                                                height={BAR_HEIGHT}
-                                                fill={
-                                                    variant.key === 'control'
-                                                        ? COLORS.BAR_MIDDLE_POINT_CONTROL
-                                                        : COLORS.BAR_MIDDLE_POINT
-                                                }
-                                            />
+                                            <g transform={`translate(${deltaX}, 0)`}>
+                                                <line
+                                                    x1={0}
+                                                    y1={y}
+                                                    x2={0}
+                                                    y2={y + BAR_HEIGHT}
+                                                    stroke={
+                                                        variant.key === 'control'
+                                                            ? COLORS.BAR_MIDDLE_POINT_CONTROL
+                                                            : COLORS.BAR_MIDDLE_POINT
+                                                    }
+                                                    strokeWidth={CONVERSION_RATE_RECT_WIDTH}
+                                                    vectorEffect="non-scaling-stroke"
+                                                    shapeRendering="crispEdges"
+                                                />
+                                            </g>
                                         </g>
                                     )
                                 })}
