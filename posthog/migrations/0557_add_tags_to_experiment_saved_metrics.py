@@ -3,6 +3,47 @@
 from django.db import migrations, models
 import django.db.models.deletion
 
+# Original migration is a single transaction, but CREATE INDEX CONCURRENTLY can't run in a transaction.
+# As such, we need to run a bunch of separate statements.
+#
+# BEGIN;
+# --
+# -- Remove constraint exactly_one_related_object from model taggeditem
+# --
+# ALTER TABLE "posthog_taggeditem" DROP CONSTRAINT "exactly_one_related_object";
+# --
+# -- Alter unique_together for taggeditem (0 constraint(s))
+# --
+# ALTER TABLE "posthog_taggeditem" DROP CONSTRAINT "posthog_taggeditem_tag_id_dashboard_id_insi_a13e3a20_uniq";
+# --
+# -- Add field experiment_saved_metric to taggeditem
+# --
+# ALTER TABLE "posthog_taggeditem" ADD COLUMN "experiment_saved_metric_id" integer NULL CONSTRAINT "posthog_taggeditem_experiment_saved_met_b6af2199_fk_posthog_e" REFERENCES "posthog_experimentsavedmetric"("id") DEFERRABLE INITIALLY DEFERRED; SET CONSTRAINTS "posthog_taggeditem_experiment_saved_met_b6af2199_fk_posthog_e" IMMEDIATE;
+# --
+# -- Alter unique_together for taggeditem (1 constraint(s))
+# --
+# ALTER TABLE "posthog_taggeditem" ADD CONSTRAINT "posthog_taggeditem_tag_id_dashboard_id_insi_734394e1_uniq" UNIQUE ("tag_id", "dashboard_id", "insight_id", "event_definition_id", "property_definition_id", "action_id", "feature_flag_id", "experiment_saved_metric_id");
+# --
+# -- Create constraint unique_experiment_saved_metric_tagged_item on model taggeditem
+# --
+# CREATE UNIQUE INDEX "unique_experiment_saved_metric_tagged_item" ON "posthog_taggeditem" ("tag_id", "experiment_saved_metric_id") WHERE "experiment_saved_metric_id" IS NOT NULL;
+# --
+# -- Create constraint exactly_one_related_object on model taggeditem
+# --
+# ALTER TABLE "posthog_taggeditem"
+# ADD CONSTRAINT "exactly_one_related_object"
+# CHECK ((
+#     ("dashboard_id" IS NOT NULL AND "insight_id" IS NULL AND "event_definition_id" IS NULL AND "property_definition_id" IS NULL AND "action_id" IS NULL AND "feature_flag_id" IS NULL AND "experiment_saved_metric_id" IS NULL) OR
+#     ("dashboard_id" IS NULL AND "insight_id" IS NOT NULL AND "event_definition_id" IS NULL AND "property_definition_id" IS NULL AND "action_id" IS NULL AND "feature_flag_id" IS NULL AND "experiment_saved_metric_id" IS NULL) OR
+#     ("dashboard_id" IS NULL AND "insight_id" IS NULL AND "event_definition_id" IS NOT NULL AND "property_definition_id" IS NULL AND "action_id" IS NULL AND "feature_flag_id" IS NULL AND "experiment_saved_metric_id" IS NULL) OR
+#     ("dashboard_id" IS NULL AND "insight_id" IS NULL AND "event_definition_id" IS NULL AND "property_definition_id" IS NOT NULL AND "action_id" IS NULL AND "feature_flag_id" IS NULL AND "experiment_saved_metric_id" IS NULL) OR
+#     ("dashboard_id" IS NULL AND "insight_id" IS NULL AND "event_definition_id" IS NULL AND "property_definition_id" IS NULL AND "action_id" IS NOT NULL AND "feature_flag_id" IS NULL AND "experiment_saved_metric_id" IS NULL) OR
+#     ("dashboard_id" IS NULL AND "insight_id" IS NULL AND "event_definition_id" IS NULL AND "property_definition_id" IS NULL AND "action_id" IS NULL AND "feature_flag_id" IS NOT NULL AND "experiment_saved_metric_id" IS NULL) OR
+#     ("dashboard_id" IS NULL AND "insight_id" IS NULL AND "event_definition_id" IS NULL AND "property_definition_id" IS NULL AND "action_id" IS NULL AND "feature_flag_id" IS NULL AND "experiment_saved_metric_id" IS NOT NULL)
+# ));
+# CREATE INDEX "posthog_taggeditem_experiment_saved_metric_id_b6af2199" ON "posthog_taggeditem" ("experiment_saved_metric_id");
+# COMMIT;
+
 
 class Migration(migrations.Migration):
     atomic = False  # Added to support concurrent index creation
