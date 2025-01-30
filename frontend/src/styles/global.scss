@@ -457,28 +457,28 @@ $xxl: 1600px;
     --funnel-grid: #ddd;
 
     // Z-indexes
-    --z-bottom-notice: 5100;
-    --z-command-palette: 1875;
-    --z-force-modal-above-popovers: 1850;
-    --z-tooltip: 1070;
+    --z-bottom-notice: 1450;
+    --z-command-palette: 1400;
+    --z-force-modal-above-popovers: 1350;
+    --z-tooltip: 1300;
 
     // 1066 through 1069 are reserved to be set from code
-    --z-definition-popover: 1065;
-    --z-popover: 1064;
-    --z-graph-tooltip: 1063;
+    --z-definition-popover: 1250;
+    --z-popover: 1200;
+    --z-graph-tooltip: 1150;
 
     // 1061 and 1062 are reserved to be set from code
-    --z-modal: 1060;
-    --z-hedgehog-buddy: 1059;
-    --z-annotation-popover: 1049;
-    --z-drawer: 950;
-    --z-notifications-popover: 949; // below the TZ aware popover but over the main-nav
-    --z-main-nav: 948;
-    --z-lemon-sidebar: 940;
-    --z-lemon-activation-sidebar: 939;
-    --z-mobile-nav-overlay: 931;
-    --z-top-navigation: 800;
-    --z-content-overlay: 488;
+    --z-modal: 1100;
+    --z-hedgehog-buddy: 1050;
+    --z-annotation-popover: 100;
+    --z-drawer: 900;
+    --z-notifications-popover: 800; // below the TZ aware popover but over the main-nav
+    --z-main-nav: 750;
+    --z-lemon-sidebar: 700;
+    --z-lemon-activation-sidebar: 650;
+    --z-mobile-nav-overlay: 600;
+    --z-top-navigation: 550;
+    --z-content-overlay: 500;
     --z-raised: 5;
 
     // Toasts
