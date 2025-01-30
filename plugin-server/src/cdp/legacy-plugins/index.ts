@@ -5,6 +5,7 @@ import { dropEventsOnPropertyPlugin } from './_transformations/drop-events-on-pr
 import { flattenPropertiesPlugin } from './_transformations/flatten-properties-plugin'
 import { languageUrlSplitterApp } from './_transformations/language-url-splitter-app'
 import { pluginAdvancedGeoip } from './_transformations/plugin-advanced-geoip'
+import { posthogNetdataEventProcessingPlugin } from './_transformations/plugin-netdata-event-processing'
 import { pluginStonlyCleanCampaignName } from './_transformations/Plugin-Stonly-Clean-Campaign-Name'
 import { pluginStonlyUtmExtractor } from './_transformations/plugin-stonly-UTM-Extractor'
 import { posthogAppUnduplicator } from './_transformations/posthog-app-unduplicator'
@@ -46,4 +47,5 @@ export const DEPRECATED_TRANSFORMATION_PLUGINS_BY_ID = {
     [posthogAppUnduplicator.id]: posthogAppUnduplicator,
     [posthogPluginGeoip.id]: posthogPluginGeoip,
     [posthogRouteCensorPlugin.id]: posthogRouteCensorPlugin,
+    [posthogNetdataEventProcessingPlugin.id]: posthogNetdataEventProcessingPlugin,
 }
