@@ -51,10 +51,10 @@ module.exports = {
         'scss/comment-no-empty': [
             true,
             {
-                ignoreAtRules: ['theme', 'custom-variant']
-            }
+                ignoreAtRules: ['theme', 'custom-variant'],
+            },
         ],
-        'scss/at-rule-no-unknown': null, 
+        'scss/at-rule-no-unknown': null,
         'order/order': ['dollar-variables', 'custom-properties', 'declarations', 'rules', 'at-rules'],
         'color-function-notation': ['modern', { ignore: ['with-var-inside'] }],
     },

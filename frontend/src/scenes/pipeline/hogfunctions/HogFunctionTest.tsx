@@ -58,7 +58,6 @@ const HogFunctionTestEditor = ({
     )
 }
 
-
 export function HogFunctionTest(): JSX.Element {
     const { logicProps } = useValues(hogFunctionConfigurationLogic)
     const {
