@@ -49,9 +49,9 @@ export function PathCleanFilterItem({ filter, onChange, onRemove }: PathCleanFil
                     title={`${filter.regex} is mapped to ${filter.alias}`}
                 >
                     <span className="inline-flex items-center">
-                        <span className="font-mono text-accent-primary text-xs">{filter.regex}</span>
+                        <span className="font-mono text-accent-primary text-xs">{filter.regex ?? '(Empty)'}</span>
                         <IconArrowCircleRight className="mx-2" />
-                        <span className="font-mono text-xs">{parseAliasToReadable(filter.alias ?? '')}</span>
+                        <span className="font-mono text-xs">{parseAliasToReadable(filter.alias ?? '(Empty)')}</span>
                     </span>
                 </LemonSnack>
             </div>
@@ -60,14 +60,16 @@ export function PathCleanFilterItem({ filter, onChange, onRemove }: PathCleanFil
 }
 
 // Very opinionated take on what a dynamic path looks like.
-// e.g. /project/<org_id>/notebooks/<notebook_id>
+// It's either `<dynamic_part>` or `:dynamic_part`
+// e.g. /project/<org_id>/notebooks/<notebook_id>/edit
+// e.g. /project/:org_id/notebooks/:notebook_id/edit
 export const parseAliasToReadable = (alias: string): JSX.Element[] => {
     const parts = alias.split('/')
 
     return parts.map((part, index) => {
         const includeSlash = index !== parts.length - 1
 
-        if (part.startsWith('<') && part.endsWith('>')) {
+        if ((part.startsWith('<') && part.endsWith('>')) || part.startsWith(':')) {
             return (
                 <span key={index}>
                     <span className="rounded bg-accent-primary-highlight px-1">{part}</span>
