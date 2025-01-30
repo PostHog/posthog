@@ -154,7 +154,7 @@ class JavaScriptCompiler(Visitor):
         if node is None:
             return "null"
 
-        fields = [f'"__hqx": {json.dumps(node.__class__.__name__)}']
+        fields = [f'"__hx_ast": {json.dumps(node.__class__.__name__)}']
         for field in dataclasses.fields(node):
             if field.name in ["start", "end", "type"]:
                 continue

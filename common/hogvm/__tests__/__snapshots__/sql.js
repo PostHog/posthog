@@ -1,4 +1,4 @@
-function print (...args) { console.log(...args.map(__printHogStringOutput)) }
+function print(...args) { console.log(...args.map(__printHogStringOutput)) }
 function __printHogStringOutput(obj) { if (typeof obj === 'string') { return obj } return __printHogValue(obj) }
 function __printHogValue(obj, marked = new Set()) {
     if (typeof obj === 'object' && obj !== null && obj !== undefined) {
@@ -20,10 +20,10 @@ function __printHogValue(obj, marked = new Set()) {
     } else if (typeof obj === 'boolean') return obj ? 'true' : 'false';
     else if (obj === null || obj === undefined) return 'null';
     else if (typeof obj === 'string') return __escapeString(obj);
-            if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name || 'lambda')}(${obj.length})>`;
+    if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name || 'lambda')}(${obj.length})>`;
     return obj.toString();
 }
-function __isHogError(obj) {return obj && obj.__hogError__ === true}
+function __isHogError(obj) { return obj && obj.__hogError__ === true }
 function __isHogDateTime(obj) { return obj && obj.__hogDateTime__ === true }
 function __isHogDate(obj) { return obj && obj.__hogDate__ === true }
 function __getProperty(objectOrArray, key, nullish) {
@@ -42,12 +42,12 @@ function __escapeIdentifier(identifier) {
     return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
 }
 
-let a = {"__hqx": "Field", "chain": ["event"]};
-let b = {"__hqx": "Field", "chain": ["uuid"]};
+let a = { "__hx_ast": "Field", "chain": ["event"] };
+let b = { "__hx_ast": "Field", "chain": ["uuid"] };
 let c = 3;
-let query = {"__hqx": "SelectQuery", "select": [{"__hqx": "Field", "chain": ["*"]}, ((c > 0) ? a : b)], "select_from": {"__hqx": "JoinExpr", "table": {"__hqx": "Field", "chain": ["events"]}}};
+let query = { "__hx_ast": "SelectQuery", "select": [{ "__hx_ast": "Field", "chain": ["*"] }, ((c > 0) ? a : b)], "select_from": { "__hx_ast": "JoinExpr", "table": { "__hx_ast": "Field", "chain": ["events"] } } };
 print(query);
 print(__getProperty(query, "select", true));
 let event = "$pageview";
-let query2 = {"__hqx": "SelectQuery", "select": [{"__hqx": "Field", "chain": ["*"]}], "select_from": {"__hqx": "JoinExpr", "table": {"__hqx": "Field", "chain": ["events"]}}, "where": {"__hqx": "CompareOperation", "left": {"__hqx": "Field", "chain": ["event"]}, "right": event, "op": "=="}};
+let query2 = { "__hx_ast": "SelectQuery", "select": [{ "__hx_ast": "Field", "chain": ["*"] }], "select_from": { "__hx_ast": "JoinExpr", "table": { "__hx_ast": "Field", "chain": ["events"] } }, "where": { "__hx_ast": "CompareOperation", "left": { "__hx_ast": "Field", "chain": ["event"] }, "right": event, "op": "==" } };
 print(query2);

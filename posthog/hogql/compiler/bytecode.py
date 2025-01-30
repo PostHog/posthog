@@ -859,8 +859,8 @@ class BytecodeCompiler(Visitor):
         if node is None:
             return [Operation.NULL]
         response = []
-        # We consider any object with the element "__hqx" to be a HogQLX AST node
-        response.extend([Operation.STRING, "__hqx"])
+        # We consider any object with the element "__hx_ast" to be a HogQLX AST node
+        response.extend([Operation.STRING, "__hx_ast"])
         response.extend([Operation.STRING, node.__class__.__name__])
         fields = 1
         for field in dataclasses.fields(node):

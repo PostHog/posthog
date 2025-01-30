@@ -13,6 +13,7 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
     CachedHogQLQueryResponse,
     HogQLQuery,
+    HogQLASTQuery,
     HogQLQueryResponse,
     DashboardFilter,
     HogQLFilters,
@@ -21,7 +22,7 @@ from posthog.schema import (
 
 
 class HogQLQueryRunner(QueryRunner):
-    query: HogQLQuery
+    query: HogQLQuery | HogQLASTQuery
     response: HogQLQueryResponse
     cached_response: CachedHogQLQueryResponse
 
@@ -32,13 +33,10 @@ class HogQLQueryRunner(QueryRunner):
             {key: ast.Constant(value=value) for key, value in self.query.values.items()} if self.query.values else None
         )
         with self.timings.measure("parse_select"):
-            if isinstance(self.query.query, str):
+            if isinstance(self.query, HogQLQuery):
                 parsed_select = parse_select(self.query.query, timings=self.timings, placeholders=values)
-            elif isinstance(self.query.query, dict):
-                if "__hqx" in self.query.query:
-                    parsed_select = cast(ast.SelectQuery, deserialize_hog_ast(self.query.query))
-                else:
-                    raise ValueError("Invalid query")
+            elif isinstance(self.query, HogQLASTQuery):
+                parsed_select = cast(ast.SelectQuery, deserialize_hog_ast(self.query.query))
 
         if self.query.filters:
             with self.timings.measure("filters"):

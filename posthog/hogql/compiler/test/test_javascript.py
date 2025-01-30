@@ -1,5 +1,5 @@
 from posthog.hogql.compiler.javascript import JavaScriptCompiler, Local, _sanitize_identifier, to_js_program, to_js_expr
-from posthog.hogql.errors import NotImplementedError, QueryError
+from posthog.hogql.errors import QueryError
 from posthog.hogql import ast
 from posthog.test.base import BaseTest
 
@@ -90,11 +90,6 @@ class TestJavaScript(BaseTest):
         compiler = JavaScriptCompiler()
         code = compiler.visit_return_statement(ast.ReturnStatement(expr=ast.Constant(value="test")))
         self.assertEqual(code, 'return "test";')
-
-    def test_not_implemented_visit_select_query(self):
-        with self.assertRaises(NotImplementedError) as e:
-            to_js_expr("(select 1)")
-        self.assertEqual(str(e.exception), "JavaScriptCompiler does not support SelectQuery")
 
     def test_throw_statement(self):
         compiler = JavaScriptCompiler()
@@ -229,20 +224,20 @@ return fibonacci(6);"""
     def test_bytecode_sql(self):
         self.assertEqual(
             to_js_expr("sql(1 + 1)"),
-            '{"__hqx": "ArithmeticOperation", "left": {"__hqx": "Constant", "value": 1}, "right": {"__hqx": "Constant", "value": 1}, "op": "+"}',
+            '{"__hx_ast": "ArithmeticOperation", "left": {"__hx_ast": "Constant", "value": 1}, "right": {"__hx_ast": "Constant", "value": 1}, "op": "+"}',
         )
 
     def test_bytecode_sql_select(self):
         self.assertEqual(
             to_js_expr("(select 1)"),
-            '{"__hqx": "SelectQuery", "select": [{"__hqx": "Constant", "value": 1}]}',
+            '{"__hx_ast": "SelectQuery", "select": [{"__hx_ast": "Constant", "value": 1}]}',
         )
 
         self.assertEqual(
             to_js_expr("(select b.* from b join a on a.id = b.id)"),
-            '{"__hqx": "SelectQuery", "select": [{"__hqx": "Field", "chain": ["b", "*"]}], "select_from": {"__hqx": "JoinExpr", '
-            '"table": {"__hqx": "Field", "chain": ["b"]}, "next_join": {"__hqx": "JoinExpr", "join_type": "JOIN", "table": '
-            '{"__hqx": "Field", "chain": ["a"]}, "constraint": {"__hqx": "JoinConstraint", "expr": {"__hqx": "CompareOperation", '
-            '"left": {"__hqx": "Field", "chain": ["a", "id"]}, "right": {"__hqx": "Field", "chain": ["b", "id"]}, "op": "=="}, '
+            '{"__hx_ast": "SelectQuery", "select": [{"__hx_ast": "Field", "chain": ["b", "*"]}], "select_from": {"__hx_ast": "JoinExpr", '
+            '"table": {"__hx_ast": "Field", "chain": ["b"]}, "next_join": {"__hx_ast": "JoinExpr", "join_type": "JOIN", "table": '
+            '{"__hx_ast": "Field", "chain": ["a"]}, "constraint": {"__hx_ast": "JoinConstraint", "expr": {"__hx_ast": "CompareOperation", '
+            '"left": {"__hx_ast": "Field", "chain": ["a", "id"]}, "right": {"__hx_ast": "Field", "chain": ["b", "id"]}, "op": "=="}, '
             '"constraint_type": "ON"}}}}',
         )

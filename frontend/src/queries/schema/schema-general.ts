@@ -63,6 +63,7 @@ export enum NodeKind {
     PersonsNode = 'PersonsNode',
     HogQuery = 'HogQuery',
     HogQLQuery = 'HogQLQuery',
+    HogQLASTQuery = 'HogQLASTQuery',
     HogQLMetadata = 'HogQLMetadata',
     HogQLAutocomplete = 'HogQLAutocomplete',
     ActorsQuery = 'ActorsQuery',
@@ -303,6 +304,11 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     values?: Record<string, any>
     /** @deprecated use modifiers.debug instead */
     explain?: boolean
+}
+
+export interface HogQLASTQuery extends Omit<HogQLQuery, 'query' | 'kind'> {
+    kind: NodeKind.HogQLASTQuery
+    query: Record<string, any>
 }
 
 export interface HogQueryResponse {
