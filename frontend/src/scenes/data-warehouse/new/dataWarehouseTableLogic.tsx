@@ -71,6 +71,7 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
         updateTableSuccess: async ({ table }) => {
             lemonToast.success(<>Table {table.name} updated</>)
             actions.editingTable(false)
+            actions.loadDatabase()
             router.actions.replace(urls.dataWarehouse())
         },
     })),
