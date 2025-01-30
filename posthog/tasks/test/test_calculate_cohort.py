@@ -7,7 +7,7 @@ from freezegun import freeze_time
 
 from posthog.models.cohort import Cohort
 from posthog.models.person import Person
-from posthog.tasks.calculate_cohort import calculate_cohort_from_list, calculate_cohorts, MAX_AGE_MINUTES
+from posthog.tasks.calculate_cohort import calculate_cohort_from_list, enqueue_cohorts_to_calculate, MAX_AGE_MINUTES
 from posthog.test.base import APIBaseTest
 
 
@@ -88,7 +88,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
                 errors_calculating=1,
                 team_id=self.team.pk,
             )
-            calculate_cohorts(5)
+            enqueue_cohorts_to_calculate(5)
             self.assertEqual(patch_update_cohort.call_count, 2)
 
     return TestCalculateCohort
