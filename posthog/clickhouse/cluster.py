@@ -277,4 +277,8 @@ class MutationRunner:
 
     def __convert_lightweight_delete_to_mutation_command(self, command: str) -> str:
         # converts DELETE FROM table WHERE foo='bar' to UPDATE _row_exists = 0 WHERE foo='bar'
-        return f"UPDATE _row_exists = 0 WHERE {command}"
+        match = re.match(r"^DELETE FROM \w+ WHERE (.*)", command)
+        if not match:
+            raise ValueError(f"Invalid DELETE command format: {command}")
+        where_clause = match.group(1)
+        return f"UPDATE _row_exists = 0 WHERE {where_clause}"
