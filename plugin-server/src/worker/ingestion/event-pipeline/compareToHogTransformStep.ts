@@ -48,6 +48,8 @@ export const compareEvents = (pluginEvent: PluginEvent, hogEvent: PluginEvent): 
     if (diffProperties.length > 0) {
         return { key: 'properties', plugins: diffProperties.join(','), hog: diffProperties.join(',') }
     }
+
+    return null
 }
 
 export async function compareToHogTransformStep(
