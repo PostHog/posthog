@@ -22,11 +22,11 @@ export const ErrorTrackingListOptions = (): JSX.Element => {
                         value={orderBy}
                         options={[
                             {
-                                value: 'lastSeen',
+                                value: 'last_seen',
                                 label: 'Last seen',
                             },
                             {
-                                value: 'firstSeen',
+                                value: 'first_seen',
                                 label: 'First seen',
                             },
                             {
@@ -47,18 +47,16 @@ export const ErrorTrackingListOptions = (): JSX.Element => {
                 </div>
             </div>
             <div className="flex items-center gap-1">
-                <>
-                    <span>Assigned to:</span>
-                    <AssigneeSelect
-                        showName
-                        showIcon={false}
-                        assignee={assignee}
-                        onChange={(assignee) => setAssignee(assignee)}
-                        unassignedLabel="Any user"
-                        type="secondary"
-                        size="small"
-                    />
-                </>
+                <span>Assigned to:</span>
+                <AssigneeSelect
+                    showName
+                    showIcon={false}
+                    assignee={assignee}
+                    onChange={(assignee) => setAssignee(assignee)}
+                    unassignedLabel="Any user"
+                    type="secondary"
+                    size="small"
+                />
             </div>
         </div>
     )

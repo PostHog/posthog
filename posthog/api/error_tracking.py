@@ -34,6 +34,8 @@ class ObjectStorageUnavailable(Exception):
 
 
 class ErrorTrackingIssueSerializer(serializers.ModelSerializer):
+    # Might not be entirely accurate if an issue is merged but it's a good
+    # approximation to use in absence of doing a ClickHouse query
     first_seen = serializers.DateTimeField(source="created_at")
     # assignee: ErrorTrackingIssueAssignee | null
 

@@ -92,7 +92,7 @@ export const errorTrackingIssueEventsQuery = ({
         where,
         properties,
         filterTestAccounts: filterTestAccounts,
-        after: dateRange.date_from || issue.firstSeen,
+        after: dateRange.date_from || issue.first_seen,
         before: dateRange.date_to || undefined,
     }
 

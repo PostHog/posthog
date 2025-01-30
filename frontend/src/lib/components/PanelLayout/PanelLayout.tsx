@@ -3,12 +3,11 @@ import clsx from 'clsx'
 import { LemonMenu, LemonMenuItem, LemonMenuProps } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { PropsWithChildren } from 'react'
 
-type PanelContainerProps = {
-    children: React.ReactNode
+type PanelContainerProps = PropsWithChildren<{
     primary: boolean
     className?: string
     column?: boolean
-}
+}>
 
 interface SettingsMenuProps extends Omit<LemonMenuProps, 'items' | 'children'> {
     label?: string

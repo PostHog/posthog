@@ -8,7 +8,7 @@ import { errorTrackingIssueSceneLogic } from 'scenes/error-tracking/errorTrackin
 export const Metadata = (): JSX.Element => {
     const { issue } = useValues(errorTrackingIssueSceneLogic)
 
-    const hasSessionCount = issue && issue.aggregations && issue.aggregations.sessions != 0
+    const hasSessionCount = issue && issue.aggregations && issue.aggregations.sessions !== 0
 
     const Count = ({ value }: { value: number | undefined }): JSX.Element => {
         return issue && issue.aggregations ? (
@@ -38,15 +38,15 @@ export const Metadata = (): JSX.Element => {
                     <div>
                         <div className="text-muted text-xs">First seen</div>
                         {issue ? (
-                            <TZLabel time={issue.firstSeen} className="border-dotted border-b" />
+                            <TZLabel time={issue.first_seen} className="border-dotted border-b" />
                         ) : (
                             <LemonSkeleton />
                         )}
                     </div>
                     <div>
                         <div className="text-muted text-xs">Last seen</div>
-                        {issue && issue.lastSeen ? (
-                            <TZLabel time={issue.lastSeen} className="border-dotted border-b" />
+                        {issue && issue.last_seen ? (
+                            <TZLabel time={issue.last_seen} className="border-dotted border-b" />
                         ) : (
                             <LemonSkeleton />
                         )}

@@ -83,11 +83,11 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     const response = await api.query(
                         errorTrackingIssueQuery({
                             issueId: props.id,
-                            dateRange: generateIssueDateRange(firstSeen, values.issue?.lastSeen),
+                            dateRange: generateIssueDateRange(firstSeen, values.issue?.last_seen),
                         }),
                         {},
                         undefined,
-                        'lazy_async'
+                        true
                     )
 
                     // ErrorTrackingQuery returns a list of issues
@@ -144,11 +144,11 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             const issue = values.issue
             if (!issue) {
                 actions.loadRelationalIssue()
-            } else if (!issue.lastSeen) {
-                actions.loadClickHouseIssue(issue.firstSeen)
+            } else if (!issue.last_seen) {
+                actions.loadClickHouseIssue(issue.first_seen)
             }
         },
-        loadRelationalIssueSuccess: ({ issue }) => actions.loadClickHouseIssue(issue.firstSeen),
+        loadRelationalIssueSuccess: ({ issue }) => actions.loadClickHouseIssue(issue.first_seen),
         setIssueSuccess: () => actions.loadIssue(),
     })),
 ])

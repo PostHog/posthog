@@ -5967,14 +5967,14 @@
                 "earliest": {
                     "type": "string"
                 },
-                "firstSeen": {
+                "first_seen": {
                     "format": "date-time",
                     "type": "string"
                 },
                 "id": {
                     "type": "string"
                 },
-                "lastSeen": {
+                "last_seen": {
                     "format": "date-time",
                     "type": "string"
                 },
@@ -5986,7 +5986,7 @@
                     "type": "string"
                 }
             },
-            "required": ["assignee", "description", "firstSeen", "id", "name", "status"],
+            "required": ["assignee", "description", "first_seen", "id", "name", "status"],
             "type": "object"
         },
         "ErrorTrackingIssueAggregations": {
@@ -6094,7 +6094,7 @@
                     "$ref": "#/definitions/integer"
                 },
                 "orderBy": {
-                    "enum": ["lastSeen", "firstSeen", "occurrences", "users", "sessions"],
+                    "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
                     "type": "string"
                 },
                 "response": {
@@ -6174,7 +6174,7 @@
                 "description": {
                     "type": ["string", "null"]
                 },
-                "firstSeen": {
+                "first_seen": {
                     "format": "date-time",
                     "type": "string"
                 },
@@ -6189,7 +6189,7 @@
                     "type": "string"
                 }
             },
-            "required": ["id", "name", "description", "assignee", "status", "firstSeen"],
+            "required": ["id", "name", "description", "assignee", "status", "first_seen"],
             "type": "object"
         },
         "ErrorTrackingSparklineConfig": {

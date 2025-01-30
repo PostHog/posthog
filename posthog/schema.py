@@ -650,8 +650,8 @@ class Type1(StrEnum):
 
 
 class OrderBy(StrEnum):
-    LAST_SEEN = "lastSeen"
-    FIRST_SEEN = "firstSeen"
+    LAST_SEEN = "last_seen"
+    FIRST_SEEN = "first_seen"
     OCCURRENCES = "occurrences"
     USERS = "users"
     SESSIONS = "sessions"
@@ -2097,7 +2097,7 @@ class ErrorTrackingRelationalIssue(BaseModel):
     )
     assignee: Optional[ErrorTrackingIssueAssignee] = None
     description: Optional[str] = None
-    firstSeen: AwareDatetime
+    first_seen: AwareDatetime
     id: str
     name: Optional[str] = None
     status: Status
@@ -4247,9 +4247,9 @@ class ErrorTrackingIssue(BaseModel):
     assignee: Optional[ErrorTrackingIssueAssignee] = None
     description: Optional[str] = None
     earliest: Optional[str] = None
-    firstSeen: AwareDatetime
+    first_seen: AwareDatetime
     id: str
-    lastSeen: Optional[AwareDatetime] = None
+    last_seen: Optional[AwareDatetime] = None
     name: Optional[str] = None
     status: Status
 

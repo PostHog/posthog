@@ -1,7 +1,6 @@
 import { LemonCollapse, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import PanelLayout, { SettingsButton, SettingsMenu } from 'lib/components/PanelLayout/PanelLayout'
-import { capitalizeFirstLetter } from 'lib/utils'
+import PanelLayout, { SettingsButton } from 'lib/components/PanelLayout/PanelLayout'
 import { useState } from 'react'
 
 import { errorTrackingIssueSceneLogic, EventsMode } from '../errorTrackingIssueSceneLogic'
@@ -42,7 +41,8 @@ export const Events = (): JSX.Element => {
     return (
         <>
             <PanelLayout.PanelSettings title="Events" border="bottom">
-                {eventsMode != EventsMode.All && (
+                {/* TODO: follow up PR when we support this in the events query */}
+                {/* {eventsMode != EventsMode.All && (
                     <SettingsMenu
                         highlightWhenActive={false}
                         items={[
@@ -64,7 +64,7 @@ export const Events = (): JSX.Element => {
                         ]}
                         label={capitalizeFirstLetter(eventsMode)}
                     />
-                )}
+                )} */}
                 <SettingsButton
                     label={eventsMode === EventsMode.All ? 'Close' : 'View all events'}
                     active

@@ -15,13 +15,11 @@ const errorTrackingDateOptions = dateMapping.filter((dm) => dm.key != 'Yesterday
 
 export const ErrorTrackingFilters = (): JSX.Element => {
     return (
-        <div className="flex flex-col space-y-2">
-            <div className="flex flex-1 items-center gap-2">
-                <DateRange />
-                <UniversalSearch />
-                <FilterGroup />
-                <InternalAccounts />
-            </div>
+        <div className="flex flex-1 items-center gap-2">
+            <DateRange />
+            <UniversalSearch />
+            <FilterGroup />
+            <InternalAccounts />
         </div>
     )
 }
