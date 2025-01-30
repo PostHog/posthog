@@ -93,47 +93,50 @@ function LinearLink(props: PlayerShareLogicProps): JSX.Element {
     const { setLinearLinkFormValue } = useActions(logic)
 
     return (
-        <Form logic={playerShareLogic} props={props} formKey="linearLinkForm">
+        <>
             <p>
                 <b>Click the button below</b> to start creating a new issue in Linear with a link to this recording.
             </p>
 
-            <LemonField name="issueTitle" label="Issue title">
-                <LemonInput fullWidth />
-            </LemonField>
-            <LemonField
-                name="issueDescription"
-                label="Issue description"
-                help={<span>We'll include a link to the recording in the description.</span>}
-            >
-                <LemonTextArea />
-            </LemonField>
-            <div className="flex gap-2 items-center">
-                <LemonField name="includeTime">
-                    <LemonCheckbox label="Start at" checked={linearLinkForm.includeTime} />
+            <Form logic={playerShareLogic} props={props} formKey="linearLinkForm" className="flex flex-col gap-2">
+                <LemonField className="gap-1" name="issueTitle" label="Issue title">
+                    <LemonInput fullWidth />
                 </LemonField>
-                <LemonField name="time" inline>
-                    <LemonInput
-                        className={clsx('w-20', { 'opacity-50': !linearLinkForm.includeTime })}
-                        onFocus={() => setLinearLinkFormValue('includeTime', true)}
-                        placeholder="00:00"
-                        fullWidth={false}
-                        size="small"
-                    />
-                </LemonField>
-            </div>
-            <div className="flex justify-end">
-                <LemonButton
-                    type="primary"
-                    to={linearUrl}
-                    targetBlank={true}
-                    icon={<IconExternal />}
-                    disabledReason={linearLinkFormHasErrors ? 'Fix all errors before continuing' : undefined}
+                <LemonField
+                    className="gap-1"
+                    name="issueDescription"
+                    label="Issue description"
+                    help={<span>We'll include a link to the recording in the description.</span>}
                 >
-                    Create issue
-                </LemonButton>
-            </div>
-        </Form>
+                    <LemonTextArea />
+                </LemonField>
+                <div className="flex gap-1 items-center">
+                    <LemonField name="includeTime">
+                        <LemonCheckbox label="Start at" checked={linearLinkForm.includeTime} />
+                    </LemonField>
+                    <LemonField name="time" inline>
+                        <LemonInput
+                            className={clsx('w-20', { 'opacity-50': !linearLinkForm.includeTime })}
+                            onFocus={() => setLinearLinkFormValue('includeTime', true)}
+                            placeholder="00:00"
+                            fullWidth={false}
+                            size="small"
+                        />
+                    </LemonField>
+                </div>
+                <div className="flex justify-end">
+                    <LemonButton
+                        type="primary"
+                        to={linearUrl}
+                        targetBlank={true}
+                        icon={<IconExternal />}
+                        disabledReason={linearLinkFormHasErrors ? 'Fix all errors before continuing' : undefined}
+                    >
+                        Create issue
+                    </LemonButton>
+                </div>
+            </Form>
+        </>
     )
 }
 
