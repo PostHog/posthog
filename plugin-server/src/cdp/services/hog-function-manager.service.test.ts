@@ -108,6 +108,7 @@ describe('HogFunctionManager', () => {
                 name: 'Test Hog Function team 1',
                 type: 'destination',
                 enabled: true,
+                execution_order: null,
                 bytecode: {},
                 filters: null,
                 inputs_schema: [
@@ -219,5 +220,123 @@ describe('HogFunctionManager', () => {
                 value: integrations[0].id,
             },
         })
+    })
+})
+
+describe('Hogfunction Manager - Execution Order', () => {
+    let hub: Hub
+    let manager: HogFunctionManagerService
+    let hogFunctions: HogFunctionType[]
+    let teamId: number
+
+    beforeEach(async () => {
+        hub = await createHub()
+        await resetTestDatabase()
+        manager = new HogFunctionManagerService(hub)
+
+        const team = await hub.db.fetchTeam(2)
+        teamId = await createTeam(hub.db.postgres, team!.organization_id)
+
+        hogFunctions = []
+
+        hogFunctions.push(
+            await insertHogFunction(hub.postgres, teamId, {
+                name: 'fn1',
+                execution_order: 1,
+                type: 'transformation',
+            })
+        )
+
+        hogFunctions.push(
+            await insertHogFunction(hub.postgres, teamId, {
+                name: 'fn2',
+                execution_order: 2,
+                type: 'transformation',
+            })
+        )
+
+        hogFunctions.push(
+            await insertHogFunction(hub.postgres, teamId, {
+                name: 'fn3',
+                execution_order: 3,
+                type: 'transformation',
+            })
+        )
+
+        await manager.start(['transformation'])
+    })
+
+    afterEach(async () => {
+        await manager.stop()
+        await closeHub(hub)
+    })
+
+    it('maintains correct execution order after individual reloads', async () => {
+        // Initial order check
+        let teamFunctions = manager.getTeamHogFunctions(teamId)
+        expect(teamFunctions).toHaveLength(3)
+        expect(teamFunctions.map((f) => ({ name: f.name, order: f.execution_order }))).toEqual([
+            { name: 'fn1', order: 1 },
+            { name: 'fn2', order: 2 },
+            { name: 'fn3', order: 3 },
+        ])
+
+        // change order in database and reload single functions to simulate changes over the django API.
+
+        // Update fn2's to be last
+        await hub.db.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `UPDATE posthog_hogfunction SET execution_order = 3 WHERE id = $1`,
+            [hogFunctions[1].id],
+            'testKey'
+        )
+
+        // therefore fn3's execution order should be 2
+        await hub.db.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `UPDATE posthog_hogfunction SET execution_order = 2 WHERE id = $1`,
+            [hogFunctions[2].id],
+            'testKey'
+        )
+
+        await manager.reloadHogFunctions(teamId, [hogFunctions[1].id, hogFunctions[2].id])
+        teamFunctions = manager.getTeamHogFunctions(teamId)
+        expect(teamFunctions).toHaveLength(3)
+        expect(teamFunctions.map((f) => ({ name: f.name, order: f.execution_order }))).toEqual([
+            { name: 'fn1', order: 1 },
+            { name: 'fn3', order: 2 },
+            { name: 'fn2', order: 3 },
+        ])
+
+        // change fn1 to be last
+        await hub.db.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `UPDATE posthog_hogfunction SET execution_order = 3 WHERE id = $1`,
+            [hogFunctions[0].id],
+            'testKey'
+        )
+        // change fn3 to be first
+        await hub.db.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `UPDATE posthog_hogfunction SET execution_order = 1 WHERE id = $1`,
+            [hogFunctions[2].id],
+            'testKey'
+        )
+        // change fn2 to be second
+        await hub.db.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `UPDATE posthog_hogfunction SET execution_order = 2 WHERE id = $1`,
+            [hogFunctions[1].id],
+            'testKey'
+        )
+
+        await manager.reloadHogFunctions(teamId, [hogFunctions[0].id, hogFunctions[1].id, hogFunctions[2].id])
+        teamFunctions = manager.getTeamHogFunctions(teamId)
+        expect(teamFunctions).toHaveLength(3)
+        expect(teamFunctions.map((f) => ({ name: f.name, order: f.execution_order }))).toEqual([
+            { name: 'fn3', order: 1 },
+            { name: 'fn2', order: 2 },
+            { name: 'fn1', order: 3 },
+        ])
     })
 })

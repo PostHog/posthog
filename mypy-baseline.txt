@@ -149,7 +149,6 @@ posthog/hogql_queries/legacy_compatibility/filter_to_query.py:0: error: Dict ent
 posthog/hogql_queries/legacy_compatibility/filter_to_query.py:0: error: Dict entry 0 has incompatible type "str": "StickinessFilter"; expected "str": "TrendsFilter"  [dict-item]
 posthog/session_recordings/models/session_recording.py:0: error: Argument "distinct_id" to "MissingPerson" has incompatible type "str | None"; expected "str"  [arg-type]
 posthog/session_recordings/models/session_recording.py:0: error: Incompatible type for lookup 'persondistinctid__team_id': (got "Team", expected "str | int")  [misc]
-posthog/models/hog_functions/hog_function.py:0: error: Argument 1 to "get" of "dict" has incompatible type "str | None"; expected "str"  [arg-type]
 ee/tasks/subscriptions/slack_subscriptions.py:0: error: Item "None" of "datetime | None" has no attribute "strftime"  [union-attr]
 posthog/warehouse/models/table.py:0: error: Item "None" of "DataWarehouseCredential | None" has no attribute "access_key"  [union-attr]
 posthog/warehouse/models/table.py:0: error: Item "None" of "DataWarehouseCredential | None" has no attribute "access_secret"  [union-attr]

@@ -48,7 +48,8 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
         return null
     }
 
-    if (newAccessControl) {
+    // Only render the new access control if they are not using the old dashboard permissions (v1) and have the feature flag enabled
+    if (newAccessControl && dashboard.access_control_version === 'v2') {
         return (
             <AccessControlPopoutCTA
                 callback={() => {

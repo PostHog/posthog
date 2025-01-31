@@ -10,6 +10,7 @@ import { HogFunctionType, HogFunctionTypeType, IntegrationType } from '../types'
 type HogFunctionCache = {
     functions: Record<HogFunctionType['id'], HogFunctionType | undefined>
     teams: Record<Team['id'], HogFunctionType['id'][] | undefined>
+    orderedTeamFunctions: Record<Team['id'], HogFunctionType[] | undefined>
 }
 
 const HOG_FUNCTION_FIELDS = [
@@ -26,6 +27,7 @@ const HOG_FUNCTION_FIELDS = [
     'masking',
     'type',
     'template_id',
+    'execution_order',
 ]
 
 export class HogFunctionManagerService {
@@ -42,6 +44,7 @@ export class HogFunctionManagerService {
         this.cache = {
             functions: {},
             teams: {},
+            orderedTeamFunctions: {},
         }
 
         this.pubSub = new PubSub(this.hub, {
@@ -94,9 +97,27 @@ export class HogFunctionManagerService {
             throw new Error('HogFunctionManagerService is not ready! Run HogFunctionManagerService.start() before this')
         }
 
-        return Object.values(this.cache.teams[teamId] || [])
-            .map((id) => this.cache.functions[id])
-            .filter((x) => !!x) as HogFunctionType[]
+        if (!this.cache.orderedTeamFunctions[teamId]) {
+            const functions = Object.values(this.cache.teams[teamId] || [])
+                .map((id) => this.cache.functions[id])
+                .filter((x) => !!x) as HogFunctionType[]
+
+            this.cache.orderedTeamFunctions[teamId] = this.sortHogFunctions(functions)
+        }
+
+        return this.cache.orderedTeamFunctions[teamId] || []
+    }
+
+    private sortHogFunctions(functions: HogFunctionType[]): HogFunctionType[] {
+        return [...functions].sort((a, b) => {
+            if (a.execution_order === null || a.execution_order === undefined) {
+                return 1
+            }
+            if (b.execution_order === null || b.execution_order === undefined) {
+                return -1
+            }
+            return a.execution_order - b.execution_order
+        })
     }
 
     public getHogFunction(id: HogFunctionType['id']): HogFunctionType | undefined {
@@ -105,17 +126,6 @@ export class HogFunctionManagerService {
         }
 
         return this.cache.functions[id]
-    }
-
-    public getTeamHogFunction(teamId: Team['id'], hogFunctionId: HogFunctionType['id']): HogFunctionType | undefined {
-        if (!this.ready) {
-            throw new Error('HogFunctionManagerService is not ready! Run HogFunctionManagerService.start() before this')
-        }
-
-        const fn = this.cache.functions[hogFunctionId]
-        if (fn?.team_id === teamId) {
-            return fn
-        }
     }
 
     public teamHasHogDestinations(teamId: Team['id']): boolean {
@@ -130,6 +140,7 @@ export class HogFunctionManagerService {
             SELECT ${HOG_FUNCTION_FIELDS.join(', ')}
             FROM posthog_hogfunction
             WHERE deleted = FALSE AND enabled = TRUE AND type = ANY($1)
+            ORDER BY execution_order NULLS LAST
         `,
                 [this.hogTypes],
                 'fetchAllHogFunctions'
@@ -142,6 +153,7 @@ export class HogFunctionManagerService {
         const cache: HogFunctionCache = {
             functions: {},
             teams: {},
+            orderedTeamFunctions: {},
         }
 
         for (const item of items) {
@@ -181,6 +193,8 @@ export class HogFunctionManagerService {
             this.cache.teams[teamId] = this.cache.teams[teamId] || []
             this.cache.teams[teamId]!.push(item.id)
         }
+
+        delete this.cache.orderedTeamFunctions[teamId]
     }
 
     public async fetchHogFunction(id: HogFunctionType['id']): Promise<HogFunctionType | null> {

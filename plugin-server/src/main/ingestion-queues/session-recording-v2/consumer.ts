@@ -30,6 +30,8 @@ import { KafkaMessageParser } from './kafka/message-parser'
 import { KafkaOffsetManager } from './kafka/offset-manager'
 import { SessionRecordingIngesterMetrics } from './metrics'
 import { PromiseScheduler } from './promise-scheduler'
+import { BlackholeSessionBatchWriter } from './sessions/blackhole-session-batch-writer'
+import { S3SessionBatchWriter } from './sessions/s3-session-batch-writer'
 import { SessionBatchManager } from './sessions/session-batch-manager'
 import { SessionBatchRecorder } from './sessions/session-batch-recorder'
 import { TeamFilter } from './teams/team-filter'
@@ -83,10 +85,22 @@ export class SessionRecordingIngester {
         }
 
         const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
+        const writer =
+            this.config.SESSION_RECORDING_V2_S3_BUCKET &&
+            this.config.SESSION_RECORDING_V2_S3_REGION &&
+            this.config.SESSION_RECORDING_V2_S3_PREFIX
+                ? new S3SessionBatchWriter({
+                      bucket: this.config.SESSION_RECORDING_V2_S3_BUCKET,
+                      prefix: this.config.SESSION_RECORDING_V2_S3_PREFIX,
+                      region: this.config.SESSION_RECORDING_V2_S3_REGION,
+                  })
+                : new BlackholeSessionBatchWriter()
+
         this.sessionBatchManager = new SessionBatchManager({
-            maxBatchSizeBytes: (config.SESSION_RECORDING_MAX_BATCH_SIZE_KB ?? 0) * 1024,
+            maxBatchSizeBytes: (config.SESSION_RECORDING_MAX_BATCH_SIZE_KB ?? 1024) * 1024,
             maxBatchAgeMs: config.SESSION_RECORDING_MAX_BATCH_AGE_MS ?? 1000,
             offsetManager,
+            writer,
         })
 
         this.consumerGroupId = this.consumeOverflow ? KAFKA_CONSUMER_GROUP_ID_OVERFLOW : KAFKA_CONSUMER_GROUP_ID
@@ -159,12 +173,11 @@ export class SessionRecordingIngester {
     }
 
     private async processMessages(parsedMessages: MessageWithTeam[]) {
-        await this.sessionBatchManager.withBatch(async (batch) => {
-            for (const message of parsedMessages) {
-                this.consume(message, batch)
-            }
-            return Promise.resolve()
-        })
+        const batch = this.sessionBatchManager.getCurrentBatch()
+        for (const message of parsedMessages) {
+            this.consume(message, batch)
+        }
+        return Promise.resolve()
     }
 
     private consume(message: MessageWithTeam, batch: SessionBatchRecorder) {
@@ -287,7 +300,7 @@ export class SessionRecordingIngester {
         return this.assignedTopicPartitions.map((x) => x.partition)
     }
 
-    private async onRevokePartitions(topicPartitions: TopicPartition[]): Promise<void> {
+    private onRevokePartitions(topicPartitions: TopicPartition[]): Promise<void> {
         /**
          * The revoke_partitions indicates that the consumer group has had partitions revoked.
          * As a result, we need to drop all sessions currently managed for the revoked partitions
@@ -295,11 +308,12 @@ export class SessionRecordingIngester {
 
         const revokedPartitions = topicPartitions.map((x) => x.partition)
         if (!revokedPartitions.length) {
-            return
+            return Promise.resolve()
         }
 
         SessionRecordingIngesterMetrics.resetSessionsHandled()
-        await this.sessionBatchManager.discardPartitions(revokedPartitions)
+        this.sessionBatchManager.discardPartitions(revokedPartitions)
+        return Promise.resolve()
     }
 
     private async commitOffsets(offsets: TopicPartitionOffset[]): Promise<void> {
