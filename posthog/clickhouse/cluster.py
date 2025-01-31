@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 import time
 import re
@@ -16,6 +17,7 @@ from dataclasses import dataclass
 from typing import Any, Literal, NamedTuple, TypeVar
 
 from clickhouse_driver import Client
+from clickhouse_driver.protocol import ServerPacketTypes
 from clickhouse_pool import ChPool
 
 from posthog import settings
@@ -240,6 +242,36 @@ class Mutation:
             time.sleep(15.0)
 
 
+@contextlib.contextmanager
+def capture_logs(client: Client, level: str = "trace") -> Iterator[Client]:
+    # TODO: this also needs to patch out ``get_connection`` to ensure on reconnect we intercept ``receive_packet``
+    logs = []
+
+    original_log_level = client.settings.get("send_logs_level")
+
+    connection = client.get_connection()
+    original_receive_packet = connection.receive_packet
+
+    def receive_packet_with_log_capturing():
+        packet = original_receive_packet()
+        if packet.type == ServerPacketTypes.LOG and packet.block is not None:
+            column_names = [name for name, type in packet.block.columns_with_types]
+            for row in packet.block.get_rows():
+                logs.append(dict(zip(column_names, row)))
+        return packet
+
+    try:
+        client.settings["send_logs_level"] = level
+        connection.receive_packet = receive_packet_with_log_capturing
+        yield logs
+    finally:
+        connection.receive_packet = original_receive_packet
+        if original_log_level:
+            client.settings["send_logs_level"] = original_log_level
+        else:
+            del client.settings["send_logs_level"]
+
+
 @dataclass
 class MutationRunner:
     table: str
@@ -289,23 +321,22 @@ class MutationRunner:
         if task := self.find(client):
             return task
 
-        if self.is_lightweight_delete:
-            client.execute(self.command, self.parameters)
+        created_mutation_log_text_pattern = re.compile(r"^Created mutation with ID (\w+)")
 
-        else:
-            client.execute(
-                f"ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} {self.command}",
-                self.parameters,
-            )
+        with capture_logs(client) as logs:
+            if self.is_lightweight_delete:
+                client.execute(self.command, self.parameters)
+            else:
+                client.execute(
+                    f"ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} {self.command}",
+                    self.parameters,
+                )
 
-        # mutations are not always immediately visible, so give it a bit of time to show up
-        start = time.time()
-        for _ in range(5):
-            if task := self.find(client):
-                return task
-            time.sleep(1.0)
+        for record in logs:
+            if match := created_mutation_log_text_pattern.match(record["text"]):
+                return Mutation(self.table, match.groups(0))
 
-        raise Exception(f"unable to find mutation after {time.time()-start:0.2f}s!")
+        raise Exception("could not find mutation id")
 
     @property
     def is_lightweight_delete(self) -> bool:
