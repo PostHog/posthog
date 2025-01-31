@@ -16,7 +16,7 @@ from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from posthog.cdp.templates.webhook.template_webhook import template as template_webhook
-from posthog.cdp.templates.slack.template_slack import template as template_slack
+from posthog.cdp.templates.slack.template_slack import template as slack_template
 
 
 EXAMPLE_FULL = {
@@ -84,7 +84,7 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
     def _create_slack_function(self, data: Optional[dict] = None):
         payload = {
             "name": "Slack",
-            "template_id": template_slack.id,
+            "template_id": slack_template.id,
             "type": "destination",
             "inputs": {
                 "slack_workspace": {"value": 1},
@@ -103,8 +103,8 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         response = self._create_slack_function()
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["created_by"]["id"] == self.user.id
-        assert response.json()["hog"] == template_slack.hog
-        assert response.json()["inputs_schema"] == template_slack.inputs_schema
+        assert response.json()["hog"] == slack_template.hog
+        assert response.json()["inputs_schema"] == slack_template.inputs_schema
 
     def test_free_users_cannot_override_hog_or_schema(self):
         response = self._create_slack_function(
@@ -117,8 +117,8 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         )
         new_response = response.json()
         # These did not change
-        assert new_response["hog"] == template_slack.hog
-        assert new_response["inputs_schema"] == template_slack.inputs_schema
+        assert new_response["hog"] == slack_template.hog
+        assert new_response["inputs_schema"] == slack_template.inputs_schema
 
     def test_free_users_cannot_use_without_template(self):
         response = self._create_slack_function({"template_id": None})
@@ -1266,33 +1266,70 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
     @override_settings(HOG_TRANSFORMATIONS_ENABLED=False)
-    def test_cannot_modify_transformation_code_when_disabled(self):
-        # First create a transformation
+    def test_transformation_functions_require_template_when_disabled(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
             data={
+                "name": "Custom Transform",
                 "type": "transformation",
-                "name": "Test Function",
-                "description": "Test description",
-                "hog": "return original_event",
-                "inputs": {},
+                "hog": "return event",
             },
         )
-        assert response.status_code == status.HTTP_201_CREATED
-        original_code = response.json()["hog"]
 
-        # Try to modify the transformation code
-        function_id = response.json()["id"]
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
-            data={
-                "hog": "return modified_event",  # Should be ignored
-                "name": "Updated Name",  # Should be allowed to change
-            },
-        )
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["hog"] == original_code  # Code should not change
-        assert response.json()["name"] == "Updated Name"  # Other fields should update
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "Transformation functions must be created from a template.",
+            "attr": "template_id",
+        }
+
+    @override_settings(HOG_TRANSFORMATIONS_ENABLED=False)
+    def test_transformation_functions_preserve_template_code_when_disabled(self):
+        # Create a proper mock template class
+        class MockTemplate:
+            id = "test-template"
+            name = "Test Template"
+            type = "transformation"
+            description = "Test template description"
+            status = "free"
+            inputs_schema = []
+            hog = "return event"
+            icon_url = None
+            category = None
+            filters = None
+            masking = None
+            mappings = None
+            mapping_templates = None
+            sub_templates = None
+
+        with patch("posthog.api.hog_function_template.HogFunctionTemplates.template") as mock_template:
+            mock_template.return_value = MockTemplate()
+
+            # First create with transformations enabled
+            with override_settings(HOG_TRANSFORMATIONS_ENABLED=True):
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/hog_functions/",
+                    data={
+                        "name": "Template Transform",
+                        "type": "transformation",
+                        "template_id": "test-template",
+                        "hog": "return event",
+                    },
+                )
+                assert response.status_code == status.HTTP_201_CREATED, response.json()
+                function_id = response.json()["id"]
+
+            # Try to update with transformations disabled
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
+                data={
+                    "hog": "return modified_event",
+                },
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["hog"] == "return event"  # Original code preserved
 
     @override_settings(HOG_TRANSFORMATIONS_ENABLED=True)
     def test_transformation_uses_template_code_even_when_enabled(self):
