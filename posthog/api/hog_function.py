@@ -154,7 +154,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         has_addon = team.organization.is_feature_available(AvailableFeature.DATA_PIPELINES)
         instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
 
-        # Get the type, either from attrs or from instance
         hog_type = attrs.get("type", instance.type if instance else "destination")
         is_create = self.context.get("view") and self.context["view"].action == "create"
 
