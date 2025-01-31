@@ -57,7 +57,6 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 # Compile and install Node.js dependencies.
 COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./plugin-server/
 COPY ./plugin-server/patches/ ./plugin-server/patches/
-COPY ./frontend/patches/ ./frontend/patches/
 ENV PNPM_HOME /tmp/pnpm-store 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -72,11 +71,8 @@ RUN apt-get update && \
 
 COPY ./common/ ./common/
 
-# We're ONLY installing frontend here since it's the <root> project, and otherwise `nx build plugin-server` won't work.
-# We should fix this and make the root project a small @posthog/build instead.
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
     corepack enable && \
-    pnpm install --frozen-lockfile --filter @posthog/frontend --prod --store-dir /tmp/pnpm-store && \
     pnpm install --frozen-lockfile --filter @posthog/plugin-server... --store-dir /tmp/pnpm-store
 
 # Build the plugin server.
