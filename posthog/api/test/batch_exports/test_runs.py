@@ -173,11 +173,11 @@ def test_cancelling_a_batch_export_run(client: HttpClient, temporal):
 
     with patch("posthog.temporal.batch_exports.s3_batch_export.Producer.start") as mock_producer_start:
         # Mock the producer to sleep so we can test cancellation
-        async def mock_producer_start(*args, **kwargs):
+        async def mock_sleep(*args, **kwargs):
             await asyncio.sleep(5)
             return None
 
-        mock_producer_start.side_effect = mock_producer_start
+        mock_producer_start.side_effect = mock_sleep
 
         with start_test_worker(temporal):
             batch_export = create_batch_export_ok(
