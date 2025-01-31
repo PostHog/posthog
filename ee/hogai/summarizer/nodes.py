@@ -1,8 +1,10 @@
 import datetime
+import json
 from time import sleep
 from uuid import uuid4
 
 from django.conf import settings
+from django.core.serializers.json import DjangoJSONEncoder
 from django.utils import timezone
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
@@ -16,11 +18,12 @@ from ee.hogai.summarizer.format import (
     compress_and_format_trends_results,
 )
 from ee.hogai.summarizer.prompts import (
-    FUNNELS_EXAMPLE,
-    RETENTION_EXAMPLE,
+    FALLBACK_EXAMPLE_PROMPT,
+    FUNNELS_EXAMPLE_PROMPT,
+    RETENTION_EXAMPLE_PROMPT,
     SUMMARIZER_INSTRUCTION_PROMPT,
     SUMMARIZER_SYSTEM_PROMPT,
-    TRENDS_EXAMPLE,
+    TRENDS_EXAMPLE_PROMPT,
 )
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
@@ -99,15 +102,26 @@ class SummarizerNode(AssistantNode):
         utc_now = timezone.now().astimezone(datetime.UTC)
         project_now = utc_now.astimezone(self._team.timezone_info)
 
+        try:
+            results = self._compress_results(viz_message, results_response["results"])
+            example_prompt = self._get_example_prompt(viz_message)
+        except Exception as err:
+            if isinstance(err, NotImplementedError):
+                raise
+            capture_exception(err)
+            # In case something is wrong with the compression, we fall back to the plain JSON.
+            results = json.dumps(results_response["results"], cls=DjangoJSONEncoder, separators=(",", ":"))
+            example_prompt = FALLBACK_EXAMPLE_PROMPT
+
         message = chain.invoke(
             {
                 "query_kind": viz_message.answer.kind,
                 "core_memory": self.core_memory_text,
-                "results": self._compress_results(viz_message, results_response["results"]),
+                "results": results,
                 "utc_datetime_display": utc_now.strftime("%Y-%m-%d %H:%M:%S"),
                 "project_datetime_display": project_now.strftime("%Y-%m-%d %H:%M:%S"),
                 "project_timezone": self._team.timezone_info.tzname(utc_now),
-                "example": self._get_example_prompt(viz_message),
+                "example": example_prompt,
             },
             config,
         )
@@ -157,9 +171,9 @@ class SummarizerNode(AssistantNode):
 
     def _get_example_prompt(self, viz_message: VisualizationMessage) -> str:
         if isinstance(viz_message.answer, AssistantTrendsQuery):
-            return TRENDS_EXAMPLE
+            return TRENDS_EXAMPLE_PROMPT
         if isinstance(viz_message.answer, AssistantFunnelsQuery):
-            return FUNNELS_EXAMPLE
+            return FUNNELS_EXAMPLE_PROMPT
         if isinstance(viz_message.answer, AssistantRetentionQuery):
-            return RETENTION_EXAMPLE
+            return RETENTION_EXAMPLE_PROMPT
         raise NotImplementedError(f"Unsupported query type: {type(viz_message.answer)}")
