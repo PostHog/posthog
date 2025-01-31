@@ -17,7 +17,7 @@ import { BuilderHog3, DetectiveHog } from '../hedgehogs'
 export type ProductIntroductionProps = {
     /** The name of the product, e.g. "Cohorts" */
     productName: string
-    productKey: ProductKey
+    productKey?: ProductKey
     /** The name of the thing that they will create, e.g. "cohort" */
     thingName: string
     description: string
@@ -52,7 +52,7 @@ export const ProductIntroduction = ({
         return null
     }
 
-    if (!isEmpty && user.has_seen_product_intro_for?.[productKey]) {
+    if (!isEmpty && (!productKey || user.has_seen_product_intro_for?.[productKey])) {
         // Hide if its not an empty list but the user has seen it before
         return null
     }
@@ -66,7 +66,7 @@ export const ProductIntroduction = ({
                         <LemonButton
                             icon={<IconX />}
                             onClick={() => {
-                                updateHasSeenProductIntroFor(productKey, true)
+                                productKey && updateHasSeenProductIntroFor(productKey, true)
                             }}
                         />
                     </div>
@@ -107,7 +107,7 @@ export const ProductIntroduction = ({
                                 type="primary"
                                 icon={<IconPlus />}
                                 onClick={() => {
-                                    updateHasSeenProductIntroFor(productKey, true)
+                                    productKey && updateHasSeenProductIntroFor(productKey, true)
                                     action && action()
                                 }}
                                 data-attr={'create-' + thingName.replace(' ', '-').toLowerCase()}
