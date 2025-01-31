@@ -6,6 +6,8 @@ from posthog.clickhouse.table_engines import (
     MergeTreeEngine,
 )
 
+ON_CLUSTER_CLAUSE = lambda: f"ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+
 """
 We want to use ML to convert session replay data to embeddings, these will let us check similarity between sessions
 and so to cluster sessions. We will store the embeddings in a separate table to the session replay data, so we can
@@ -19,7 +21,7 @@ And to select sessions from session_replay_event which don't have an embedding y
 SESSION_REPLAY_EMBEDDINGS_DATA_TABLE = lambda: "sharded_session_replay_embeddings"
 
 SESSION_REPLAY_EMBEDDINGS_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
     -- part of order by so will aggregate correctly
     session_id VARCHAR,
@@ -37,7 +39,7 @@ SESSION_REPLAY_EMBEDDINGS_DATA_TABLE_ENGINE = lambda: MergeTreeEngine(
     "session_replay_embeddings", replication_scheme=ReplicationScheme.SHARDED
 )
 
-SESSION_REPLAY_EMBEDDINGS_TABLE_SQL = lambda: (
+SESSION_REPLAY_EMBEDDINGS_TABLE_SQL = lambda on_cluster=True: (
     SESSION_REPLAY_EMBEDDINGS_TABLE_BASE_SQL
     + """
     PARTITION BY toYYYYMM(generation_timestamp)
@@ -52,16 +54,16 @@ SETTINGS index_granularity=512
 """
 ).format(
     table_name=SESSION_REPLAY_EMBEDDINGS_DATA_TABLE(),
-    cluster=settings.CLICKHOUSE_CLUSTER,
+    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
     engine=SESSION_REPLAY_EMBEDDINGS_DATA_TABLE_ENGINE(),
 )
 
 # Distributed engine tables are only created if CLICKHOUSE_REPLICATED
 
 # This table is responsible for writing to sharded_session_replay_embeddings based on a sharding key.
-WRITABLE_SESSION_REPLAY_EMBEDDINGS_TABLE_SQL = lambda: SESSION_REPLAY_EMBEDDINGS_TABLE_BASE_SQL.format(
+WRITABLE_SESSION_REPLAY_EMBEDDINGS_TABLE_SQL = lambda on_cluster=True: SESSION_REPLAY_EMBEDDINGS_TABLE_BASE_SQL.format(
     table_name="writable_session_replay_embeddings",
-    cluster=settings.CLICKHOUSE_CLUSTER,
+    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
     engine=Distributed(
         data_table=SESSION_REPLAY_EMBEDDINGS_DATA_TABLE(),
         sharding_key="sipHash64(session_id)",
@@ -69,13 +71,15 @@ WRITABLE_SESSION_REPLAY_EMBEDDINGS_TABLE_SQL = lambda: SESSION_REPLAY_EMBEDDINGS
 )
 
 # This table is responsible for reading from session_replay_embeddings on a cluster setting
-DISTRIBUTED_SESSION_REPLAY_EMBEDDINGS_TABLE_SQL = lambda: SESSION_REPLAY_EMBEDDINGS_TABLE_BASE_SQL.format(
-    table_name="session_replay_embeddings",
-    cluster=settings.CLICKHOUSE_CLUSTER,
-    engine=Distributed(
-        data_table=SESSION_REPLAY_EMBEDDINGS_DATA_TABLE(),
-        sharding_key="sipHash64(session_id)",
-    ),
+DISTRIBUTED_SESSION_REPLAY_EMBEDDINGS_TABLE_SQL = (
+    lambda on_cluster=True: SESSION_REPLAY_EMBEDDINGS_TABLE_BASE_SQL.format(
+        table_name="session_replay_embeddings",
+        on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
+        engine=Distributed(
+            data_table=SESSION_REPLAY_EMBEDDINGS_DATA_TABLE(),
+            sharding_key="sipHash64(session_id)",
+        ),
+    )
 )
 
 DROP_SESSION_REPLAY_EMBEDDINGS_TABLE_SQL = lambda: (

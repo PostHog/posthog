@@ -7,20 +7,16 @@ from posthog.clickhouse.table_engines import (
     AggregatingMergeTree,
 )
 
+ON_CLUSTER_CLAUSE = lambda: f"ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+
 # V1 Sessions table
 TABLE_BASE_NAME = "sessions"
 SESSIONS_DATA_TABLE = lambda: f"sharded_{TABLE_BASE_NAME}"
 
-TRUNCATE_SESSIONS_TABLE_SQL = (
-    lambda: f"TRUNCATE TABLE IF EXISTS {SESSIONS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
-)
-DROP_SESSION_TABLE_SQL = (
-    lambda: f"DROP TABLE IF EXISTS {SESSIONS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
-)
-DROP_SESSION_MATERIALIZED_VIEW_SQL = (
-    lambda: f"DROP TABLE IF EXISTS {TABLE_BASE_NAME}_mv ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
-)
-DROP_SESSION_VIEW_SQL = lambda: f"DROP VIEW IF EXISTS {TABLE_BASE_NAME}_v ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+TRUNCATE_SESSIONS_TABLE_SQL = lambda: f"TRUNCATE TABLE IF EXISTS {SESSIONS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
+DROP_SESSION_TABLE_SQL = lambda: f"DROP TABLE IF EXISTS {SESSIONS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
+DROP_SESSION_MATERIALIZED_VIEW_SQL = lambda: f"DROP TABLE IF EXISTS {TABLE_BASE_NAME}_mv {ON_CLUSTER_CLAUSE()}"
+DROP_SESSION_VIEW_SQL = lambda: f"DROP VIEW IF EXISTS {TABLE_BASE_NAME}_v {ON_CLUSTER_CLAUSE()}"
 
 # Only teams that were grandfathered into the V1 sessions table are allowed to use it. Everyone else should use V2,
 # i.e. raw_sessions. These teams were those who were seen to have changed their session table version in these metabase
@@ -52,7 +48,7 @@ ALLOWED_TEAM_IDS_SQL = ", ".join(str(team_id) for team_id in ALLOWED_TEAM_IDS)
 # if updating these column definitions
 # you'll need to update the explicit column definitions in the materialized view creation statement below
 SESSIONS_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
     -- part of order by so will aggregate correctly
     session_id VARCHAR,
@@ -101,7 +97,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 
 SESSIONS_DATA_TABLE_ENGINE = lambda: AggregatingMergeTree(TABLE_BASE_NAME, replication_scheme=ReplicationScheme.SHARDED)
 
-SESSIONS_TABLE_SQL = lambda: (
+SESSIONS_TABLE_SQL = lambda on_cluster=True: (
     SESSIONS_TABLE_BASE_SQL
     + """
     PARTITION BY toYYYYMM(min_timestamp)
@@ -120,7 +116,7 @@ SETTINGS index_granularity=512
 """
 ).format(
     table_name=SESSIONS_DATA_TABLE(),
-    cluster=settings.CLICKHOUSE_CLUSTER,
+    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
     engine=SESSIONS_DATA_TABLE_ENGINE(),
 )
 
@@ -201,14 +197,14 @@ GROUP BY `$session_id`, team_id
 
 SESSIONS_TABLE_MV_SQL = (
     lambda: """
-CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
+CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name} {on_cluster_clause}
 TO {database}.{target_table}
 AS
 {select_sql}
 """.format(
         table_name=f"{TABLE_BASE_NAME}_mv",
         target_table=f"writable_{TABLE_BASE_NAME}",
-        cluster=settings.CLICKHOUSE_CLUSTER,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(),
         database=settings.CLICKHOUSE_DATABASE,
         select_sql=SESSION_TABLE_MV_SELECT_SQL(),
     )
@@ -227,9 +223,9 @@ ALTER TABLE {table_name} MODIFY QUERY
 # Distributed engine tables are only created if CLICKHOUSE_REPLICATED
 
 # This table is responsible for writing to sharded_sessions based on a sharding key.
-WRITABLE_SESSIONS_TABLE_SQL = lambda: SESSIONS_TABLE_BASE_SQL.format(
+WRITABLE_SESSIONS_TABLE_SQL = lambda on_cluster=True: SESSIONS_TABLE_BASE_SQL.format(
     table_name=f"writable_{TABLE_BASE_NAME}",
-    cluster=settings.CLICKHOUSE_CLUSTER,
+    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
     engine=Distributed(
         data_table=SESSIONS_DATA_TABLE(),
         # shard via session_id so that all events for a session are on the same shard
@@ -238,9 +234,9 @@ WRITABLE_SESSIONS_TABLE_SQL = lambda: SESSIONS_TABLE_BASE_SQL.format(
 )
 
 # This table is responsible for reading from sessions on a cluster setting
-DISTRIBUTED_SESSIONS_TABLE_SQL = lambda: SESSIONS_TABLE_BASE_SQL.format(
+DISTRIBUTED_SESSIONS_TABLE_SQL = lambda on_cluster=True: SESSIONS_TABLE_BASE_SQL.format(
     table_name=TABLE_BASE_NAME,
-    cluster=settings.CLICKHOUSE_CLUSTER,
+    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
     engine=Distributed(
         data_table=SESSIONS_DATA_TABLE(),
         sharding_key="sipHash64(session_id)",
@@ -252,7 +248,7 @@ DISTRIBUTED_SESSIONS_TABLE_SQL = lambda: SESSIONS_TABLE_BASE_SQL.format(
 # debugging
 SESSIONS_VIEW_SQL = (
     lambda: f"""
-CREATE OR REPLACE VIEW {TABLE_BASE_NAME}_v ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' AS
+CREATE OR REPLACE VIEW {TABLE_BASE_NAME}_v {ON_CLUSTER_CLAUSE()} AS
 SELECT
     session_id,
     team_id,

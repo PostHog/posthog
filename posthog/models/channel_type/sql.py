@@ -8,12 +8,14 @@ from posthog.clickhouse.table_engines import (
 )
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_PASSWORD
 
+ON_CLUSTER_CLAUSE = lambda: f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+
 CHANNEL_DEFINITION_TABLE_NAME = "channel_definition"
 CHANNEL_DEFINITION_DICTIONARY_NAME = "channel_definition_dict"
 
 CHANNEL_DEFINITION_TABLE_SQL = (
-    lambda: """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}' (
+    lambda on_cluster=True: """
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
     domain String NOT NULL,
     kind String NOT NULL,
     domain_type String NULL,
@@ -24,7 +26,7 @@ ORDER BY (domain, kind);
 """.format(
         table_name=CHANNEL_DEFINITION_TABLE_NAME,
         engine=MergeTreeEngine("channel_definition", replication_scheme=ReplicationScheme.REPLICATED),
-        cluster=CLICKHOUSE_CLUSTER,
+        on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
     )
 )
 
@@ -62,8 +64,9 @@ INSERT INTO channel_definition (domain, kind, domain_type, type_if_paid, type_if
 )
 
 # Use COMPLEX_KEY_HASHED, as we have a composite key
-CHANNEL_DEFINITION_DICTIONARY_SQL = f"""
-CREATE DICTIONARY IF NOT EXISTS {CHANNEL_DEFINITION_DICTIONARY_NAME} ON CLUSTER '{CLICKHOUSE_CLUSTER}' (
+CHANNEL_DEFINITION_DICTIONARY_SQL = (
+    lambda on_cluster=True: f"""
+CREATE DICTIONARY IF NOT EXISTS {CHANNEL_DEFINITION_DICTIONARY_NAME} {ON_CLUSTER_CLAUSE() if on_cluster else ""} (
     domain String,
     kind String,
     domain_type Nullable(String),
@@ -75,6 +78,7 @@ SOURCE(CLICKHOUSE(TABLE '{CHANNEL_DEFINITION_TABLE_NAME}' PASSWORD '{CLICKHOUSE_
 LIFETIME(MIN 3000 MAX 3600)
 LAYOUT(COMPLEX_KEY_HASHED())
 """
+)
 
 DROP_CHANNEL_DEFINITION_DICTIONARY_SQL = (
     f"DROP DICTIONARY IF EXISTS {CHANNEL_DEFINITION_DICTIONARY_NAME} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"

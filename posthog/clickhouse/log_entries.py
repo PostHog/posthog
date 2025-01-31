@@ -3,11 +3,13 @@ from posthog.clickhouse.table_engines import ReplacingMergeTree
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
+ON_CLUSTER_CLAUSE = lambda: f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+
 LOG_ENTRIES_TABLE = "log_entries"
 LOG_ENTRIES_TTL_DAYS = 90
 
 LOG_ENTRIES_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
     team_id UInt64,
     -- The name of the service or product that generated the logs.
@@ -33,7 +35,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 """
 
 LOG_ENTRIES_TABLE_ENGINE = lambda: ReplacingMergeTree(LOG_ENTRIES_TABLE, ver="_timestamp")
-LOG_ENTRIES_TABLE_SQL = lambda: (
+LOG_ENTRIES_TABLE_SQL = lambda on_cluster=True: (
     LOG_ENTRIES_TABLE_BASE_SQL
     + """PARTITION BY toStartOfHour(timestamp) ORDER BY (team_id, log_source, log_source_id, instance_id, timestamp)
 {ttl_period}
@@ -41,15 +43,15 @@ SETTINGS index_granularity=512
 """
 ).format(
     table_name=LOG_ENTRIES_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
+    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
     extra_fields=KAFKA_COLUMNS,
     engine=LOG_ENTRIES_TABLE_ENGINE(),
     ttl_period=ttl_period("timestamp", LOG_ENTRIES_TTL_DAYS, unit="DAY"),
 )
 
-KAFKA_LOG_ENTRIES_TABLE_SQL = lambda: LOG_ENTRIES_TABLE_BASE_SQL.format(
+KAFKA_LOG_ENTRIES_TABLE_SQL = lambda on_cluster=True: LOG_ENTRIES_TABLE_BASE_SQL.format(
     table_name="kafka_" + LOG_ENTRIES_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
+    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
     engine=kafka_engine(topic=KAFKA_LOG_ENTRIES),
     extra_fields="",
 )

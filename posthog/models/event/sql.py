@@ -245,7 +245,7 @@ FROM {database}.kafka_events_recent_json
     )
 )
 
-EVENTS_RECENT_TABLE_SQL = lambda: (
+EVENTS_RECENT_TABLE_SQL = lambda on_cluster=True: (
     EVENTS_TABLE_BASE_SQL
     + """PARTITION BY toStartOfHour(inserted_at)
 ORDER BY (team_id, toStartOfHour(inserted_at), event, cityHash64(distinct_id), cityHash64(uuid))
@@ -254,7 +254,7 @@ TTL toDateTime(inserted_at) + INTERVAL 7 DAY
 """
 ).format(
     table_name=EVENTS_RECENT_DATA_TABLE(),
-    on_cluster_clause=ON_CLUSTER_CLAUSE(),
+    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
     engine=ReplacingMergeTree(EVENTS_RECENT_DATA_TABLE(), ver="_timestamp"),
     extra_fields=KAFKA_COLUMNS_WITH_PARTITION + INSERTED_AT_NOT_NULLABLE_COLUMN + f", {KAFKA_TIMESTAMP_MS_COLUMN}",
     materialized_columns="",
@@ -262,9 +262,9 @@ TTL toDateTime(inserted_at) + INTERVAL 7 DAY
     storage_policy=STORAGE_POLICY(),
 )
 
-DISTRIBUTED_EVENTS_RECENT_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
+DISTRIBUTED_EVENTS_RECENT_TABLE_SQL = lambda on_cluster=True: EVENTS_TABLE_BASE_SQL.format(
     table_name="distributed_events_recent",
-    on_cluster_clause=ON_CLUSTER_CLAUSE(),
+    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
     engine=Distributed(
         data_table=EVENTS_RECENT_DATA_TABLE(),
         sharding_key="sipHash64(distinct_id)",

@@ -8,6 +8,8 @@ from posthog.clickhouse.table_engines import (
 )
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS
 
+ON_CLUSTER_CLAUSE = lambda: f"ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+
 SESSION_REPLAY_EVENTS_DATA_TABLE = lambda: "sharded_session_replay_events"
 
 """
@@ -16,7 +18,7 @@ We write first_timestamp and last_timestamp as individual records
 They will be grouped as min_first_timestamp and max_last_timestamp in the main table
 """
 KAFKA_SESSION_REPLAY_EVENTS_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
     session_id VARCHAR,
     team_id Int64,
@@ -43,7 +45,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 # if updating these column definitions
 # you'll need to update the explicit column definitions in the materialized view creation statement below
 SESSION_REPLAY_EVENTS_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
     -- part of order by so will aggregate correctly
     session_id VARCHAR,
@@ -88,7 +90,7 @@ SESSION_REPLAY_EVENTS_DATA_TABLE_ENGINE = lambda: AggregatingMergeTree(
     "session_replay_events", replication_scheme=ReplicationScheme.SHARDED
 )
 
-SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: (
+SESSION_REPLAY_EVENTS_TABLE_SQL = lambda on_cluster=True: (
     SESSION_REPLAY_EVENTS_TABLE_BASE_SQL
     + """
     PARTITION BY toYYYYMM(min_first_timestamp)
@@ -107,13 +109,13 @@ SETTINGS index_granularity=512
 """
 ).format(
     table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
-    cluster=settings.CLICKHOUSE_CLUSTER,
+    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
     engine=SESSION_REPLAY_EVENTS_DATA_TABLE_ENGINE(),
 )
 
-KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: KAFKA_SESSION_REPLAY_EVENTS_TABLE_BASE_SQL.format(
+KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda on_cluster=True: KAFKA_SESSION_REPLAY_EVENTS_TABLE_BASE_SQL.format(
     table_name="kafka_session_replay_events",
-    cluster=settings.CLICKHOUSE_CLUSTER,
+    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
     engine=kafka_engine(topic=KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS),
 )
 
@@ -182,9 +184,9 @@ group by session_id, team_id
 # Distributed engine tables are only created if CLICKHOUSE_REPLICATED
 
 # This table is responsible for writing to sharded_session_replay_events based on a sharding key.
-WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: SESSION_REPLAY_EVENTS_TABLE_BASE_SQL.format(
+WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda on_cluster=True: SESSION_REPLAY_EVENTS_TABLE_BASE_SQL.format(
     table_name="writable_session_replay_events",
-    cluster=settings.CLICKHOUSE_CLUSTER,
+    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
     engine=Distributed(
         data_table=SESSION_REPLAY_EVENTS_DATA_TABLE(),
         sharding_key="sipHash64(distinct_id)",
@@ -192,9 +194,9 @@ WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: SESSION_REPLAY_EVENTS_TABLE_B
 )
 
 # This table is responsible for reading from session_replay_events on a cluster setting
-DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: SESSION_REPLAY_EVENTS_TABLE_BASE_SQL.format(
+DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda on_cluster=True: SESSION_REPLAY_EVENTS_TABLE_BASE_SQL.format(
     table_name="session_replay_events",
-    cluster=settings.CLICKHOUSE_CLUSTER,
+    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
     engine=Distributed(
         data_table=SESSION_REPLAY_EVENTS_DATA_TABLE(),
         sharding_key="sipHash64(distinct_id)",

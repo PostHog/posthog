@@ -14,6 +14,8 @@ from posthog.clickhouse.table_engines import (
 )
 from posthog.kafka_client.topics import KAFKA_PERFORMANCE_EVENTS
 
+ON_CLUSTER_CLAUSE = lambda: f"ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+
 """
 # expected queries
 
@@ -104,7 +106,7 @@ PERFORMANCE_EVENT_DATA_TABLE = lambda: "sharded_performance_events"
 
 PERFORMANCE_EVENTS_TABLE_BASE_SQL = (
     lambda: """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
     {columns}
     {extra_fields}
@@ -112,7 +114,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 """
 )
 
-PERFORMANCE_EVENTS_TABLE_SQL = lambda: (
+PERFORMANCE_EVENTS_TABLE_SQL = lambda on_cluster=True: (
     PERFORMANCE_EVENTS_TABLE_BASE_SQL()
     + """PARTITION BY toYYYYMM(timestamp)
 ORDER BY (team_id, toDate(timestamp), session_id, pageview_id, timestamp)
@@ -122,7 +124,7 @@ ORDER BY (team_id, toDate(timestamp), session_id, pageview_id, timestamp)
 ).format(
     columns=PERFORMANCE_EVENT_COLUMNS,
     table_name=PERFORMANCE_EVENT_DATA_TABLE(),
-    cluster=settings.CLICKHOUSE_CLUSTER,
+    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
     engine=PERFORMANCE_EVENT_TABLE_ENGINE(),
     extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
     ttl_period=ttl_period(field="timestamp"),
@@ -130,10 +132,10 @@ ORDER BY (team_id, toDate(timestamp), session_id, pageview_id, timestamp)
 )
 
 
-KAFKA_PERFORMANCE_EVENTS_TABLE_SQL = lambda: PERFORMANCE_EVENTS_TABLE_BASE_SQL().format(
+KAFKA_PERFORMANCE_EVENTS_TABLE_SQL = lambda on_cluster=True: PERFORMANCE_EVENTS_TABLE_BASE_SQL().format(
     columns=PERFORMANCE_EVENT_COLUMNS,
     table_name="kafka_performance_events",
-    cluster=settings.CLICKHOUSE_CLUSTER,
+    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
     engine=kafka_engine(topic=KAFKA_PERFORMANCE_EVENTS),
     extra_fields="",
 )
@@ -156,10 +158,10 @@ def _column_names_from_column_definitions(column_definitions: str) -> str:
     return ", ".join([cl for cl in column_names if cl])
 
 
-DISTRIBUTED_PERFORMANCE_EVENTS_TABLE_SQL = lambda: PERFORMANCE_EVENTS_TABLE_BASE_SQL().format(
+DISTRIBUTED_PERFORMANCE_EVENTS_TABLE_SQL = lambda on_cluster=True: PERFORMANCE_EVENTS_TABLE_BASE_SQL().format(
     columns=PERFORMANCE_EVENT_COLUMNS,
     table_name="performance_events",
-    cluster=settings.CLICKHOUSE_CLUSTER,
+    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
     engine=Distributed(
         data_table=PERFORMANCE_EVENT_DATA_TABLE(),
         sharding_key="sipHash64(session_id)",
@@ -167,10 +169,10 @@ DISTRIBUTED_PERFORMANCE_EVENTS_TABLE_SQL = lambda: PERFORMANCE_EVENTS_TABLE_BASE
     extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
 )
 
-WRITABLE_PERFORMANCE_EVENTS_TABLE_SQL = lambda: PERFORMANCE_EVENTS_TABLE_BASE_SQL().format(
+WRITABLE_PERFORMANCE_EVENTS_TABLE_SQL = lambda on_cluster=True: PERFORMANCE_EVENTS_TABLE_BASE_SQL().format(
     columns=PERFORMANCE_EVENT_COLUMNS,
     table_name="writeable_performance_events",
-    cluster=settings.CLICKHOUSE_CLUSTER,
+    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
     engine=Distributed(
         data_table=PERFORMANCE_EVENT_DATA_TABLE(),
         sharding_key="sipHash64(session_id)",
