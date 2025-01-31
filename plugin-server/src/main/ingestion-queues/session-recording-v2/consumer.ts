@@ -1,3 +1,4 @@
+import { S3Client } from '@aws-sdk/client-s3'
 import { captureException } from '@sentry/node'
 import {
     CODES,
@@ -63,6 +64,7 @@ export class SessionRecordingIngester {
         private config: PluginsServerConfig,
         private consumeOverflow: boolean,
         private postgres: PostgresRouter,
+        s3Client: S3Client | null = null,
         batchConsumerFactory: BatchConsumerFactory,
         ingestionWarningProducer?: KafkaProducerWrapper
     ) {
@@ -86,14 +88,12 @@ export class SessionRecordingIngester {
 
         const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
         const writer =
-            this.config.SESSION_RECORDING_V2_S3_BUCKET &&
-            this.config.SESSION_RECORDING_V2_S3_REGION &&
-            this.config.SESSION_RECORDING_V2_S3_PREFIX
-                ? new S3SessionBatchWriter({
-                      bucket: this.config.SESSION_RECORDING_V2_S3_BUCKET,
-                      prefix: this.config.SESSION_RECORDING_V2_S3_PREFIX,
-                      region: this.config.SESSION_RECORDING_V2_S3_REGION,
-                  })
+            s3Client && this.config.SESSION_RECORDING_V2_S3_BUCKET && this.config.SESSION_RECORDING_V2_S3_PREFIX
+                ? new S3SessionBatchWriter(
+                      s3Client,
+                      this.config.SESSION_RECORDING_V2_S3_BUCKET,
+                      this.config.SESSION_RECORDING_V2_S3_PREFIX
+                  )
                 : new BlackholeSessionBatchWriter()
 
         this.sessionBatchManager = new SessionBatchManager({
