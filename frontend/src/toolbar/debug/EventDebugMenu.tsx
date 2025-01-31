@@ -128,7 +128,7 @@ export const EventDebugMenu = (): JSX.Element => {
 
     return (
         <ToolbarMenu>
-            <ToolbarMenu.Header noPadding>
+            <ToolbarMenu.Header>
                 <div className="flex flex-col pb-2 space-y-1">
                     <div className="flex justify-center flex-col">
                         <SettingsBar border="bottom" className="justify-end">
@@ -200,7 +200,7 @@ export const EventDebugMenu = (): JSX.Element => {
                     )}
                 </div>
             </ToolbarMenu.Body>
-            <ToolbarMenu.Footer noPadding>
+            <ToolbarMenu.Footer>
                 <SettingsBar border="top" className="justify-between">
                     <SettingsMenu
                         items={hideThingsMenuItems}
