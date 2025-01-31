@@ -55,6 +55,7 @@ Conversion rate|100%|50%
 Dropoff rate|0%|50%
 Average conversion time|-|1d
 Median conversion time|-|1d
+```
 """.strip()
 
 

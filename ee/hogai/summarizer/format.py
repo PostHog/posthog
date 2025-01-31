@@ -233,7 +233,7 @@ def _format_funnels_results(results: list[dict], conversion_type: FunnelStepRefe
 
     formatted_matrix = _format_matrix(matrix)
     if results[0].get("breakdown_value") is not None:
-        breakdown_value = series["breakdown_value"]
+        breakdown_value = results[0]["breakdown_value"]
         if isinstance(breakdown_value, list):
             breakdown_value = ", ".join(breakdown_value)
         return f"---{breakdown_value}\n{formatted_matrix}"

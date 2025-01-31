@@ -19,7 +19,6 @@ class TestFormat(BaseTest):
         self.assertEqual(_format_number(1.0), "1")
         self.assertEqual(_format_number(1.1), "1.1")
         self.assertEqual(_format_number(1.123456789), "1.12346")
-        self.assertEqual(_format_number(1.123456789), "1.12346")
         self.assertEqual(_format_number(1.10000), "1.1")
 
     def test_format_duration(self):
