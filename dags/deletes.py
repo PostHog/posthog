@@ -136,10 +136,10 @@ class PendingPersonEventDeletesTable:
             f"""
             DELETE FROM {EVENTS_DATA_TABLE()} WHERE (uuid, event, team_id, person_id, timestamp) IN (
                 SELECT e.uuid, e.event, e.team_id, e.person_id, e.timestamp
-                FROM events e
+                FROM {settings.CLICKHOUSE_DATABASE}.{EVENTS_DATA_TABLE()} e
                 INNER JOIN {self.qualified_name} d
                 ON e.team_id = d.team_id
-                AND e.person_id = d.key
+                AND toString(e.person_id) = d.key
                 WHERE
                     e.timestamp < d.created_at
                     AND d.delete_verified_at IS NULL
