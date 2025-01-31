@@ -201,7 +201,7 @@ export const EventDebugMenu = (): JSX.Element => {
                 </div>
             </ToolbarMenu.Body>
             <ToolbarMenu.Footer>
-                <SettingsBar border="top" className="justify-between">
+                <SettingsBar border="none" className="justify-between">
                     <SettingsMenu
                         items={hideThingsMenuItems}
                         highlightWhenActive={false}
