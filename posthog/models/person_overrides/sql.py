@@ -11,6 +11,7 @@
 # table to the `sharded_events` table to find all events that were associated
 # and therefore reconcile the events to be associated with the same Person.
 
+import uuid
 from django.conf import settings
 
 from posthog.kafka_client.topics import KAFKA_PERSON_OVERRIDE
@@ -72,7 +73,7 @@ PERSON_OVERRIDES_CREATE_TABLE_SQL = (
     ENGINE = ReplicatedReplacingMergeTree(
         -- NOTE: for testing we use a uuid to ensure that we don't get conflicts
         -- when the tests tear down and recreate the table.
-        '/clickhouse/tables/{'{uuid}' if settings.TEST or settings.E2E_TESTING else ''}noshard/{CLICKHOUSE_DATABASE}.person_overrides',
+        '/clickhouse/tables/{uuid.uuid4() if settings.TEST or settings.E2E_TESTING else ''}noshard/{CLICKHOUSE_DATABASE}.person_overrides',
         '{{replica}}-{{shard}}',
         version
     )
