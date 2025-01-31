@@ -565,12 +565,17 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 hasAvailableFeature(AvailableFeature.PATHS_ADVANCED) && isPathCleaningEnabled,
         ],
         webAnalyticsFilters: [
-            (s) => [s._webAnalyticsFilters, s.isPathCleaningEnabled],
-            (webAnalyticsFilters: WebAnalyticsPropertyFilters, isPathCleaningEnabled: boolean) => {
+            (s) => [s._webAnalyticsFilters, s.isPathCleaningEnabled, () => values.featureFlags],
+            (webAnalyticsFilters: WebAnalyticsPropertyFilters, isPathCleaningEnabled: boolean, featureFlags) => {
+                if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_IMPROVED_PATH_CLEANING] || !isPathCleaningEnabled) {
+                    return webAnalyticsFilters
+                }
+
+                // Translate exact path filters to cleaned path filters
                 return webAnalyticsFilters.map((filter) => ({
                     ...filter,
                     operator:
-                        filter.operator === PropertyOperator.Exact && isPathCleaningEnabled
+                        filter.operator === PropertyOperator.Exact
                             ? PropertyOperator.IsCleanedPathExact
                             : filter.operator,
                 }))
