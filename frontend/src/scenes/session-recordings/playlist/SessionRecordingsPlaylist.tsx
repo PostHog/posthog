@@ -114,6 +114,7 @@ export function SessionRecordingsPlaylist({
                     filterActions={
                         notebookNode ? null : (
                             <RecordingsUniversalFilters
+                                rootKey={logic.key}
                                 filters={filters}
                                 setFilters={setFilters}
                                 className="border-b"

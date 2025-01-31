@@ -1,5 +1,5 @@
 import posthogEE from '@posthog/ee/exports'
-import { customEvent, EventType, eventWithTime, fullSnapshotEvent, IncrementalSource } from '@rrweb/types'
+import { customEvent, EventType, eventWithTime, fullSnapshotEvent, IncrementalSource } from '@posthog/rrweb-types'
 import { captureException } from '@sentry/react'
 import { gunzipSync, strFromU8, strToU8 } from 'fflate'
 import {
