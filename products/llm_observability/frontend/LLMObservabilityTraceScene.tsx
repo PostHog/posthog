@@ -1,24 +1,37 @@
-import { LemonDivider, LemonTag, LemonTagProps, Link, SpinnerOverlay } from '@posthog/lemon-ui'
+import { IconAIText, IconMessage, IconReceipt } from '@posthog/icons'
+import { LemonDivider, LemonTable, LemonTag, LemonTagProps, Link, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 import classNames from 'classnames'
-import { useValues } from 'kea'
+import clsx from 'clsx'
+import { BindLogic, useValues } from 'kea'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { NotFound } from 'lib/components/NotFound'
-import { range } from 'lib/utils'
-import React, { useMemo } from 'react'
+import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
+import { identifierToHuman, isObject, pluralize } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
+import React, { useState } from 'react'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { LLMTrace, LLMTraceEvent, TracesQueryResponse } from '~/queries/schema'
+import { LLMTrace, LLMTraceEvent } from '~/queries/schema'
 
+import { FeedbackTag } from './components/FeedbackTag'
+import { MetricTag } from './components/MetricTag'
 import { ConversationMessagesDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
 import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
 import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
 import { LLMInputOutput } from './LLMInputOutput'
-import { getDataNodeLogicProps, llmObservabilityTraceLogic } from './llmObservabilityTraceLogic'
-import { formatLLMCost, formatLLMLatency, formatLLMUsage, isLLMTraceEvent, removeMilliseconds } from './utils'
+import { llmObservabilityTraceDataLogic, TraceTreeNode } from './llmObservabilityTraceDataLogic'
+import { llmObservabilityTraceLogic } from './llmObservabilityTraceLogic'
+import {
+    formatLLMCost,
+    formatLLMEventTitle,
+    formatLLMLatency,
+    formatLLMUsage,
+    isLLMTraceEvent,
+    removeMilliseconds,
+} from './utils'
 
 export const scene: SceneExport = {
     component: LLMObservabilityTraceScene,
@@ -26,23 +39,19 @@ export const scene: SceneExport = {
 }
 
 export function LLMObservabilityTraceScene(): JSX.Element {
-    const { traceId, query, eventId, cachedTraceResponse } = useValues(llmObservabilityTraceLogic)
+    const { traceId, query } = useValues(llmObservabilityTraceLogic)
 
-    const { response, responseLoading, responseError } = useValues(
-        dataNodeLogic(getDataNodeLogicProps({ traceId, query, cachedResults: cachedTraceResponse }))
+    return (
+        <BindLogic logic={llmObservabilityTraceDataLogic} props={{ traceId, query }}>
+            <TraceSceneWrapper />
+        </BindLogic>
     )
+}
 
-    const traceResponse = response as TracesQueryResponse | null
-    const event: LLMTrace | LLMTraceEvent | null = useMemo(() => {
-        const trace = traceResponse?.results?.[0]
-        if (!trace) {
-            return null
-        }
-        if (eventId && eventId !== trace.id) {
-            return trace.events.find((event) => event.id === eventId) || null
-        }
-        return trace
-    }, [traceResponse, eventId])
+function TraceSceneWrapper(): JSX.Element {
+    const { eventId } = useValues(llmObservabilityTraceLogic)
+    const { tree, trace, event, responseLoading, responseError, feedbackEvents, metricEvents } =
+        useValues(llmObservabilityTraceDataLogic)
 
     return (
         <>
@@ -50,13 +59,17 @@ export function LLMObservabilityTraceScene(): JSX.Element {
                 <SpinnerOverlay />
             ) : responseError ? (
                 <InsightErrorState />
-            ) : !traceResponse || traceResponse.results.length === 0 ? (
+            ) : !trace ? (
                 <NotFound object="trace" />
             ) : (
                 <div className="relative space-y-4 flex flex-col md:h-[calc(100vh_-_var(--breadcrumbs-height-full)_-_var(--scene-padding)_-_var(--scene-padding-bottom))] ">
-                    <TraceMetadata trace={traceResponse.results[0]} />
+                    <TraceMetadata
+                        trace={trace}
+                        metricEvents={metricEvents as LLMTraceEvent[]}
+                        feedbackEvents={feedbackEvents as LLMTraceEvent[]}
+                    />
                     <div className="flex flex-1 min-h-0 gap-4 flex-col md:flex-row">
-                        <TraceSidebar trace={traceResponse.results[0]} eventId={eventId} />
+                        <TraceSidebar trace={trace} eventId={eventId} tree={tree} />
                         <EventContent event={event} />
                     </div>
                 </div>
@@ -65,80 +78,125 @@ export function LLMObservabilityTraceScene(): JSX.Element {
     )
 }
 
-function Chip({ title, children }: { title: string; children: React.ReactNode }): JSX.Element {
+function Chip({
+    title,
+    children,
+    icon,
+}: {
+    title: string
+    children: React.ReactNode
+    icon?: JSX.Element
+}): JSX.Element {
     return (
-        <div className="flex items-center gap-1.5 p-2 border bg-bg-light rounded">
-            <span className="font-medium">{title}:</span>
-            <span>{children}</span>
-        </div>
+        <Tooltip title={title}>
+            <LemonTag size="medium" className="bg-bg-light" icon={icon}>
+                <span className="sr-only">{title}</span>
+                {children}
+            </LemonTag>
+        </Tooltip>
     )
 }
 
 function UsageChip({ event }: { event: LLMTraceEvent | LLMTrace }): JSX.Element | null {
     const usage = formatLLMUsage(event)
-    return usage ? <Chip title="Usage">{usage}</Chip> : null
+    return usage ? (
+        <Chip title="Usage" icon={<IconAIText />}>
+            {usage}
+        </Chip>
+    ) : null
 }
 
-function CostChip({ cost, title }: { cost: number; title: string }): JSX.Element {
-    return <Chip title={title}>{formatLLMCost(cost)}</Chip>
-}
-
-function TraceMetadata({ trace }: { trace: LLMTrace }): JSX.Element {
+function TraceMetadata({
+    trace,
+    metricEvents,
+    feedbackEvents,
+}: {
+    trace: LLMTrace
+    metricEvents: LLMTraceEvent[]
+    feedbackEvents: LLMTraceEvent[]
+}): JSX.Element {
     return (
-        <header className="flex gap-y-1 gap-x-2 flex-wrap text-sm">
+        <header className="flex gap-2 flex-wrap">
             {'person' in trace && (
                 <Chip title="Person">
                     <PersonDisplay withIcon="sm" person={trace.person} />
                 </Chip>
             )}
             <UsageChip event={trace} />
-            {typeof trace.inputCost === 'number' && <CostChip cost={trace.inputCost} title="Input cost" />}
-            {typeof trace.outputCost === 'number' && <CostChip cost={trace.outputCost} title="Output cost" />}
-            {typeof trace.totalCost === 'number' && <CostChip cost={trace.totalCost} title="Total cost" />}
+            {typeof trace.inputCost === 'number' && (
+                <Chip title="Input cost" icon={<IconArrowUp />}>
+                    {formatLLMCost(trace.inputCost)}
+                </Chip>
+            )}
+            {typeof trace.outputCost === 'number' && (
+                <Chip title="Output cost" icon={<IconArrowDown />}>
+                    {formatLLMCost(trace.outputCost)}
+                </Chip>
+            )}
+            {typeof trace.totalCost === 'number' && (
+                <Chip title="Total cost" icon={<IconReceipt />}>
+                    {formatLLMCost(trace.totalCost)}
+                </Chip>
+            )}
+            {metricEvents.map((metric) => (
+                <MetricTag key={metric.id} properties={metric.properties} />
+            ))}
+            {feedbackEvents.map((feedback) => (
+                <FeedbackTag key={feedback.id} properties={feedback.properties} />
+            ))}
         </header>
     )
 }
 
-function TraceSidebar({ trace, eventId }: { trace: LLMTrace; eventId?: string | null }): JSX.Element {
+function TraceSidebar({
+    trace,
+    eventId,
+    tree,
+}: {
+    trace: LLMTrace
+    eventId?: string | null
+    tree: TraceTreeNode[]
+}): JSX.Element {
     return (
-        <aside className="border-border max-h-fit bg-bg-light border rounded overflow-hidden md:w-72">
+        <aside className="border-border max-h-fit bg-bg-light border rounded overflow-hidden flex flex-col md:w-80">
             <h3 className="font-medium text-sm px-2 my-2">Tree</h3>
             <LemonDivider className="m-0" />
-            <NestingGroup>
-                <TraceNode topLevelTrace={trace} item={trace} isSelected={!eventId || eventId === trace.id} />
-                <NestingGroup level={1}>
-                    {trace.events.map((event) => (
-                        <TraceNode
-                            topLevelTrace={trace}
-                            key={event.id}
-                            item={event}
-                            isSelected={!!eventId && eventId === event.id}
-                        />
-                    ))}
-                </NestingGroup>
-            </NestingGroup>
+            <ul className="overflow-y-auto p-1 first:*:mt-0 overflow-x-hidden">
+                <TreeNode topLevelTrace={trace} item={trace} isSelected={!eventId || eventId === trace.id} />
+                <TreeNodeChildren tree={tree} trace={trace} selectedEventId={eventId} />
+            </ul>
         </aside>
     )
 }
 
-function NestingGroup({ level = 0, children }: { level?: number; children: React.ReactNode }): JSX.Element {
-    const listEl = <ul className={!level ? 'overflow-y-auto p-1 first:*:mt-0' : 'flex-1'}>{children}</ul>
-
-    if (!level) {
-        return listEl
-    }
-
+function NestingGroup({
+    onToggle,
+    isCollapsed,
+    children,
+}: {
+    onToggle?: () => void
+    isCollapsed?: boolean
+    children: React.ReactNode
+}): JSX.Element {
     return (
-        <div className="flex items-stretch">
-            {range(level).map((i) => (
-                <LemonDivider key={i} vertical className="mt-0 mb-1 mx-2" />
-            ))}
-            {listEl}
-        </div>
+        <li className={clsx('flex items-stretch min-w-0', isCollapsed && 'text-border hover:text-muted')}>
+            <div
+                className={clsx('mb-1 ml-1 cursor-pointer', !isCollapsed && 'text-border hover:text-muted')}
+                onClick={onToggle}
+            >
+                <div
+                    className={clsx(
+                        'w-0 h-full my-0 ml-1 mr-2 border-l border-current',
+                        isCollapsed && 'border-dashed'
+                    )}
+                />
+            </div>
+            <ul className="flex-1 min-w-0">{children}</ul>
+        </li>
     )
 }
 
-function TraceNode({
+const TreeNode = React.memo(function TraceNode({
     topLevelTrace,
     item,
     isSelected,
@@ -151,6 +209,27 @@ function TraceNode({
     const latency = 'properties' in item ? item.properties.$ai_latency : item.totalLatency
     const usage = formatLLMUsage(item)
 
+    const children = [
+        isLLMTraceEvent(item) && item.properties.$ai_is_error && (
+            <LemonTag key="error-tag" type="danger">
+                Error
+            </LemonTag>
+        ),
+        latency >= 0.01 && (
+            <LemonTag key="latency-tag" type="muted">
+                {formatLLMLatency(latency)}
+            </LemonTag>
+        ),
+        (usage != null || totalCost != null) && (
+            <span key="usage-tag">
+                {usage}
+                {usage != null && totalCost != null && <span>{' / '}</span>}
+                {totalCost != null && formatLLMCost(totalCost)}
+            </span>
+        ),
+    ]
+    const hasChildren = children.some((child) => !!child)
+
     return (
         <li key={item.id} className="mt-0.5">
             <Link
@@ -159,52 +238,122 @@ function TraceNode({
                     timestamp: removeMilliseconds(topLevelTrace.createdAt),
                 })}
                 className={classNames(
-                    'flex flex-col gap-1 p-1 text-xs rounded hover:bg-accent-primary-highlight',
+                    'flex flex-col gap-1 p-1 text-xs rounded min-h-8 justify-center hover:bg-accent-primary-highlight',
                     isSelected && 'bg-accent-primary-highlight'
                 )}
             >
-                <div className="flex flex-row flex-wrap items-center gap-1.5">
+                <div className="flex flex-row items-center gap-1.5">
                     <EventTypeTag event={item} size="small" />
-                    <span>
-                        {'properties' in item
-                            ? `${item.properties.$ai_model} (${item.properties.$ai_provider})`
-                            : item.traceName}
-                    </span>
+                    <Tooltip title={formatLLMEventTitle(item)}>
+                        <span className="flex-1 truncate">{formatLLMEventTitle(item)}</span>
+                    </Tooltip>
                 </div>
-                <div className="flex flex-row flex-wrap text-muted items-center gap-1.5">
-                    <LemonTag type="muted">{formatLLMLatency(latency)}</LemonTag>
-                    {(usage != null || totalCost != null) && (
-                        <span>
-                            {usage}
-                            {usage != null && totalCost != null && <span>{' / '}</span>}
-                            {totalCost != null && formatLLMCost(totalCost)}
-                        </span>
-                    )}
-                </div>
+                {hasChildren && (
+                    <div className="flex flex-row flex-wrap text-muted items-center gap-1.5">{children}</div>
+                )}
             </Link>
         </li>
     )
+})
+
+function TreeNodeChildren({
+    tree,
+    trace,
+    selectedEventId,
+}: {
+    tree: TraceTreeNode[]
+    trace: LLMTrace
+    selectedEventId?: string | null
+}): JSX.Element {
+    const [isCollapsed, setIsCollapsed] = useState(false)
+
+    return (
+        <NestingGroup isCollapsed={isCollapsed} onToggle={() => setIsCollapsed(!isCollapsed)}>
+            {!isCollapsed ? (
+                tree.map(({ event, children }) => (
+                    <React.Fragment key={event.id}>
+                        <TreeNode
+                            topLevelTrace={trace}
+                            item={event}
+                            isSelected={!!selectedEventId && selectedEventId === event.id}
+                        />
+                        {children && (
+                            <TreeNodeChildren tree={children} trace={trace} selectedEventId={selectedEventId} />
+                        )}
+                    </React.Fragment>
+                ))
+            ) : (
+                <div
+                    className="text-muted hover:text-default text-xxs cursor-pointer p-1"
+                    onClick={() => setIsCollapsed(false)}
+                >
+                    Show {pluralize(tree.length, 'collapsed child', 'collapsed children')}
+                </div>
+            )}
+        </NestingGroup>
+    )
 }
 
-function EventContent({ event }: { event: LLMTrace | LLMTraceEvent | null }): JSX.Element {
+function EventContentDisplay({
+    input,
+    output,
+    raisedError,
+}: {
+    input: unknown
+    output: unknown
+    raisedError?: boolean
+}): JSX.Element {
+    if (!input && !output) {
+        // If we have no data here we should not render anything
+        // In future plan to point docs to show how to add custom trace events
+        return <></>
+    }
     return (
-        <div className="flex-1 bg-bg-light border rounded flex flex-col border-border p-4 overflow-y-auto">
+        <LLMInputOutput
+            inputDisplay={
+                <div className="p-2 text-xs border rounded bg-[var(--bg-fill-secondary)]">
+                    {isObject(input) ? (
+                        <JSONViewer src={input} collapsed={4} />
+                    ) : (
+                        <span className="font-mono">{JSON.stringify(input ?? null)}</span>
+                    )}
+                </div>
+            }
+            outputDisplay={
+                <div
+                    className={cn(
+                        'p-2 text-xs border rounded',
+                        !raisedError ? 'bg-[var(--bg-fill-success-tertiary)]' : 'bg-[var(--bg-fill-error-tertiary)]'
+                    )}
+                >
+                    {isObject(output) ? (
+                        <JSONViewer src={output} collapsed={4} />
+                    ) : (
+                        <span className="font-mono">{JSON.stringify(output ?? null)}</span>
+                    )}
+                </div>
+            }
+        />
+    )
+}
+
+const EventContent = React.memo(({ event }: { event: LLMTrace | LLMTraceEvent | null }): JSX.Element => {
+    return (
+        <div className="flex-1 bg-bg-light max-h-fit border rounded flex flex-col border-border p-4 overflow-y-auto">
             {!event ? (
                 <InsightEmptyState heading="Event not found" detail="Check if the event ID is correct." />
             ) : (
                 <>
-                    <header className="mb-4">
-                        <div className="flex-row flex items-center gap-2 mb-4">
+                    <header className="space-y-2">
+                        <div className="flex-row flex items-center gap-2">
                             <EventTypeTag event={event} />
-
-                            <h3 className="text-lg font-semibold p-0 m-0">
-                                {isLLMTraceEvent(event)
-                                    ? `${event.properties.$ai_model} (${event.properties.$ai_provider})`
-                                    : event.traceName}
+                            <h3 className="text-lg font-semibold p-0 m-0 truncate flex-1">
+                                {formatLLMEventTitle(event)}
                             </h3>
                         </div>
                         {isLLMTraceEvent(event) ? (
                             <MetadataHeader
+                                isError={event.properties.$ai_is_error}
                                 inputTokens={event.properties.$ai_input_tokens}
                                 outputTokens={event.properties.$ai_output_tokens}
                                 totalCostUsd={event.properties.$ai_total_cost_usd}
@@ -222,47 +371,83 @@ function EventContent({ event }: { event: LLMTrace | LLMTraceEvent | null }): JS
                         {isLLMTraceEvent(event) && <ParametersHeader eventProperties={event.properties} />}
                     </header>
                     {isLLMTraceEvent(event) ? (
-                        <ConversationMessagesDisplay
-                            input={event.properties.$ai_input}
-                            output={event.properties.$ai_output_choices || event.properties.$ai_output}
-                            httpStatus={event.properties.$ai_http_status}
-                        />
+                        event.event === '$ai_generation' ? (
+                            <ConversationMessagesDisplay
+                                input={event.properties.$ai_input}
+                                output={
+                                    event.properties.$ai_is_error
+                                        ? event.properties.$ai_error
+                                        : event.properties.$ai_output_choices ?? event.properties.$ai_output
+                                }
+                                httpStatus={event.properties.$ai_http_status}
+                                raisedError={event.properties.$ai_is_error}
+                            />
+                        ) : (
+                            <EventContentDisplay
+                                input={event.properties.$ai_input_state}
+                                output={event.properties.$ai_output_state ?? event.properties.$ai_error}
+                                raisedError={event.properties.$ai_is_error}
+                            />
+                        )
                     ) : (
-                        <LLMInputOutput
-                            inputDisplay={
-                                <div className="p-2 text-xs border rounded bg-[var(--bg-fill-tertiary)]">
-                                    {event.inputState != null &&
-                                    typeof event.inputState !== 'number' &&
-                                    typeof event.inputState !== 'string' &&
-                                    typeof event.inputState !== 'boolean' ? (
-                                        <JSONViewer src={event.inputState || null} collapsed={4} />
-                                    ) : (
-                                        <span className="font-mono">{JSON.stringify(event.inputState ?? null)}</span>
-                                    )}
-                                </div>
-                            }
-                            outputDisplay={
-                                <div className="p-2 text-xs border rounded bg-[var(--bg-fill-success-tertiary)]">
-                                    {event.outputState ? (
-                                        <JSONViewer src={event.outputState} collapsed={4} />
-                                    ) : (
-                                        <span className="font-mono">{JSON.stringify(event.outputState ?? null)}</span>
-                                    )}
-                                </div>
-                            }
-                        />
+                        <>
+                            <TraceMetricsTable />
+                            <EventContentDisplay input={event.inputState} output={event.outputState} />
+                        </>
                     )}
                 </>
             )}
         </div>
     )
-}
+})
+EventContent.displayName = 'EventContent'
 
 function EventTypeTag({ event, size }: { event: LLMTrace | LLMTraceEvent; size?: LemonTagProps['size'] }): JSX.Element {
-    const eventType = isLLMTraceEvent(event) && event.properties.$ai_model ? 'generation' : 'trace'
+    let eventType = 'trace'
+    if (isLLMTraceEvent(event)) {
+        eventType = event.event === '$ai_generation' ? 'generation' : 'span'
+    }
     return (
-        <LemonTag className="uppercase" type={eventType === 'trace' ? 'completion' : 'default'} size={size}>
+        <LemonTag
+            className="uppercase"
+            type={eventType === 'trace' ? 'completion' : eventType === 'span' ? 'default' : 'success'}
+            size={size}
+        >
             {eventType}
         </LemonTag>
+    )
+}
+
+function TraceMetricsTable(): JSX.Element | null {
+    const { metricsAndFeedbackEvents } = useValues(llmObservabilityTraceDataLogic)
+
+    if (!metricsAndFeedbackEvents?.length) {
+        return null
+    }
+
+    return (
+        <div className="mb-3">
+            <h4 className="flex items-center gap-x-1.5 text-xs font-semibold mb-2">
+                <IconMessage className="text-base" />
+                Metrics and user feedback
+            </h4>
+            <LemonTable
+                columns={[
+                    {
+                        title: 'Metric',
+                        key: 'metric',
+                        render: (_, { metric }) => <span>{identifierToHuman(metric)}</span>,
+                        width: '40%',
+                    },
+                    {
+                        title: 'Value',
+                        key: 'value',
+                        render: (_, { value }) => <span>{value ?? '–'}</span>,
+                        width: '60%',
+                    },
+                ]}
+                dataSource={metricsAndFeedbackEvents}
+            />
+        </div>
     )
 }

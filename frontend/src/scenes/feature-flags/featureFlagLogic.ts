@@ -9,6 +9,7 @@ import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagL
 import { sum, toParams } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
@@ -129,7 +130,7 @@ export function validateFeatureFlagKey(key: string): string | undefined {
         : undefined
 }
 
-function validatePayloadRequired(payload: JsonType, is_remote_configuration: boolean): string | undefined {
+function validatePayloadRequired(is_remote_configuration: boolean, payload?: JsonType): string | undefined {
     if (!is_remote_configuration) {
         return undefined
     }
@@ -324,9 +325,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             ValidationErrorType
                         >[],
                         payloads: {
-                            true: validatePayloadRequired(filters?.payloads['true'], is_remote_configuration),
-                        } as unknown as DeepPartialMap<Record<string, JsonType>, ValidationErrorType> | undefined,
-                        // Forced cast necessary to prevent Kea's typechecking from raising "Type instantiation
+                            true: validatePayloadRequired(is_remote_configuration, filters?.payloads?.['true']),
+                        } as any,
+                        // Forced any cast necessary to prevent Kea's typechecking from raising "Type instantiation
                         // is excessively deep and possibly infinite" error
                     },
                 }
@@ -589,7 +590,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         if (values.roleBasedAccessEnabled && savedFlag.id) {
                             featureFlagPermissionsLogic({ flagId: null })?.actions.addAssociatedRoles(savedFlag.id)
                         }
-                        actions.addProductIntent({ product_type: ProductKey.FEATURE_FLAGS })
+                        actions.addProductIntent({
+                            product_type: ProductKey.FEATURE_FLAGS,
+                            intent_context: ProductIntentContext.FEATURE_FLAG_CREATED,
+                        })
                     } else {
                         const cachedFlag = featureFlagsLogic
                             .findMounted()
@@ -1035,9 +1039,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ],
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [
-            (s) => [s.featureFlag],
-            (featureFlag): SidePanelSceneContext | null => {
-                return featureFlag?.id
+            (s) => [s.featureFlag, s.currentTeam],
+            (featureFlag, currentTeam): SidePanelSceneContext | null => {
+                // Only render the new access control on side panel if they have been migrated
+                return featureFlag?.id && currentTeam?.access_control_version === 'v2'
                     ? {
                           activity_scope: ActivityScope.FEATURE_FLAG,
                           activity_item_id: `${featureFlag.id}`,

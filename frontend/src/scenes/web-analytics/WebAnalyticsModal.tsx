@@ -3,10 +3,13 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebPropertyFilters } from 'scenes/web-analytics/WebPropertyFilters'
+
+import { ProductKey } from '~/types'
 
 export const WebAnalyticsModal = (): JSX.Element | null => {
     const {
@@ -53,6 +56,13 @@ export const WebAnalyticsModal = (): JSX.Element | null => {
                             icon={<IconOpenInNew />}
                             size="small"
                             type="secondary"
+                            onClick={() => {
+                                void addProductIntentForCrossSell({
+                                    from: ProductKey.WEB_ANALYTICS,
+                                    to: ProductKey.PRODUCT_ANALYTICS,
+                                    intent_context: ProductIntentContext.WEB_ANALYTICS_INSIGHT,
+                                })
+                            }}
                         >
                             Open as new Insight
                         </LemonButton>

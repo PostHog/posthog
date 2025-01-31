@@ -391,7 +391,10 @@ def _session_recording_config_response(request: HttpRequest, team: Team) -> bool
     try:
         if team.session_recording_opt_in and not _session_recording_domain_not_allowed(team, request):
             capture_console_logs = True if team.capture_console_log_opt_in else False
-            sample_rate = str(team.session_recording_sample_rate) if team.session_recording_sample_rate else None
+            sample_rate = (
+                str(team.session_recording_sample_rate) if team.session_recording_sample_rate is not None else None
+            )
+
             if sample_rate == "1.00":
                 sample_rate = None
 

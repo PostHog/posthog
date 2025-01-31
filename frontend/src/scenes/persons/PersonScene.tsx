@@ -239,7 +239,11 @@ export function PersonScene(): JSX.Element | null {
                                     </div>
                                 ) : null}
                                 <div className="SessionRecordingPlaylistHeightWrapper">
-                                    <SessionRecordingsPlaylist personUUID={person.uuid} updateSearchParams />
+                                    <SessionRecordingsPlaylist
+                                        logicKey={`person-scene-${person.uuid}`}
+                                        personUUID={person.uuid}
+                                        updateSearchParams
+                                    />
                                 </div>
                             </>
                         ),
