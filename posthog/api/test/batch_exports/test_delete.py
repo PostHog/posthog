@@ -16,6 +16,7 @@ from posthog.api.test.batch_exports.operations import (
     delete_batch_export,
     delete_batch_export_ok,
     get_batch_export,
+    wait_for_workflow_executions,
 )
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
@@ -61,26 +62,6 @@ def test_delete_batch_export(client: HttpClient, temporal):
 
     with pytest.raises(RPCError):
         describe_schedule(temporal, batch_export_id)
-
-
-@async_to_sync
-async def wait_for_workflow_executions(
-    temporal: temporalio.client.Client, query: str, timeout: int = 30, sleep: int = 1
-):
-    """Wait for Workflow Executions matching query."""
-    workflows = [workflow async for workflow in temporal.list_workflows(query=query)]
-
-    total = 0
-    while not workflows:
-        total += sleep
-
-        if total > timeout:
-            raise TimeoutError(f"No backfill Workflow Executions after {timeout} seconds")
-
-        await asyncio.sleep(sleep)
-        workflows = [workflow async for workflow in temporal.list_workflows(query=query)]
-
-    return workflows
 
 
 @async_to_sync

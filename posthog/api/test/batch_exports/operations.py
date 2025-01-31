@@ -1,3 +1,7 @@
+import asyncio
+
+import temporalio.client
+from asgiref.sync import async_to_sync
 from django.test.client import Client as TestClient
 from rest_framework import status
 
@@ -151,3 +155,23 @@ def get_batch_export_backfill_ok(client: TestClient, team_id: int, batch_export_
     response = get_batch_export_backfill(client, team_id, batch_export_id, backfill_id)
     assert response.status_code == status.HTTP_200_OK, response.json()
     return response.json()
+
+
+@async_to_sync
+async def wait_for_workflow_executions(
+    temporal: temporalio.client.Client, query: str, timeout: int = 30, sleep: int = 1
+):
+    """Wait for Workflow Executions matching query."""
+    workflows = [workflow async for workflow in temporal.list_workflows(query=query)]
+
+    total = 0
+    while not workflows:
+        total += sleep
+
+        if total > timeout:
+            raise TimeoutError(f"No backfill Workflow Executions after {timeout} seconds")
+
+        await asyncio.sleep(sleep)
+        workflows = [workflow async for workflow in temporal.list_workflows(query=query)]
+
+    return workflows
