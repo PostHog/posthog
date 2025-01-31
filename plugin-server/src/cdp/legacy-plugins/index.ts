@@ -9,6 +9,7 @@ import { pluginAdvancedGeoip } from './_transformations/plugin-advanced-geoip'
 import { posthogNetdataEventProcessingPlugin } from './_transformations/plugin-netdata-event-processing'
 import { pluginStonlyCleanCampaignName } from './_transformations/Plugin-Stonly-Clean-Campaign-Name'
 import { pluginStonlyUtmExtractor } from './_transformations/plugin-stonly-UTM-Extractor'
+import { pluginPosthogAnonymization } from './_transformations/posthog-anonymization'
 import { posthogAppUnduplicator } from './_transformations/posthog-app-unduplicator'
 import { posthogAppUrlParametersToEventPropertiesPlugin } from './_transformations/posthog-app-url-parameters-to-event-properties'
 import { posthogFilterOutPlugin } from './_transformations/posthog-filter-out-plugin'
@@ -34,6 +35,7 @@ export const DEPRECATED_TRANSFORMATION_PLUGINS_BY_ID = {
     [pluginStonlyCleanCampaignName.id]: pluginStonlyCleanCampaignName,
     [pluginStonlyUtmExtractor.id]: pluginStonlyUtmExtractor,
     [posthogAppUnduplicator.id]: posthogAppUnduplicator,
+    [pluginPosthogAnonymization.id]: pluginPosthogAnonymization,
     [posthogPluginGeoip.id]: posthogPluginGeoip,
     [posthogRouteCensorPlugin.id]: posthogRouteCensorPlugin,
     [posthogNetdataEventProcessingPlugin.id]: posthogNetdataEventProcessingPlugin,

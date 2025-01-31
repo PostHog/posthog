@@ -94,6 +94,13 @@ exports[`LegacyPluginExecutorService smoke tests should run the transformation p
 ]
 `;
 
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'plugin-posthog-anonymization', plugin: [Object] } 1`] = `
+[
+  "Executing plugin plugin-posthog-anonymization",
+  "Execution successful",
+]
+`;
+
 exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'plugin-stonly-clean-campaign-name', plugin: [Object] } 1`] = `
 [
   "Executing plugin plugin-stonly-clean-campaign-name",

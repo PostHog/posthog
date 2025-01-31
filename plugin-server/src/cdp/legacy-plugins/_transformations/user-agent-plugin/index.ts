@@ -165,5 +165,5 @@ export const userAgentPlugin: LegacyTransformationPlugin = {
     id: 'user-agent-plugin',
     metadata,
     processEvent,
-    setupPlugin,
+    setupPlugin: setupPlugin as (meta: LegacyTransformationPluginMeta) => void,
 }
