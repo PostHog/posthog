@@ -18,38 +18,31 @@ export const counterHogTransformationDiff = new Counter({
     labelNames: ['outcome'], // either same or diff
 })
 
-export const compareEvents = (pluginEvent: PluginEvent, hogEvent: PluginEvent): Diff | null => {
+export const compareEvents = (pluginEvent: PluginEvent, hogEvent: PluginEvent): Diff[] => {
     // Comparing objects is expensive so we will do this instead by iterating over the keys we care about
 
     if (pluginEvent.event !== hogEvent.event) {
-        return { key: 'event', plugins: pluginEvent.event, hog: hogEvent.event }
+        return [{ key: 'event', plugins: pluginEvent.event, hog: hogEvent.event }]
     }
 
     if (pluginEvent.distinct_id !== hogEvent.distinct_id) {
-        return { key: 'distinct_id', plugins: pluginEvent.distinct_id, hog: hogEvent.distinct_id }
+        return [{ key: 'distinct_id', plugins: pluginEvent.distinct_id, hog: hogEvent.distinct_id }]
     }
 
     const pluginProperties = Object.keys(pluginEvent.properties ?? {}).sort()
-    const hogProperties = Object.keys(hogEvent.properties ?? {}).sort()
 
-    // Loosely compare the two events by comparing the properties
-    if (pluginProperties.length !== hogProperties.length) {
-        return { key: 'properties', plugins: pluginProperties.join(','), hog: hogProperties.join(',') }
-    }
-
+    const diffs: Diff[] = []
     // Compare each property individually
-    const diffProperties = pluginProperties.filter((property) => {
+    pluginProperties.forEach((property) => {
         const pluginValue = pluginEvent.properties?.[property]
         const hogValue = hogEvent.properties?.[property]
 
-        return JSON.stringify(pluginValue) === JSON.stringify(hogValue)
+        if (JSON.stringify(pluginValue) !== JSON.stringify(hogValue)) {
+            diffs.push({ key: `properties.${property}`, plugins: pluginValue, hog: hogValue })
+        }
     })
 
-    if (diffProperties.length > 0) {
-        return { key: 'properties', plugins: diffProperties.join(','), hog: diffProperties.join(',') }
-    }
-
-    return null
+    return diffs
 }
 
 export async function compareToHogTransformStep(
@@ -74,6 +67,7 @@ export async function compareToHogTransformStep(
 
         if (!hogEvent || !postPluginsEvent) {
             if (!hogEvent && !postPluginsEvent) {
+                status.info('✅', 'Both plugin and hog transformation produced no event')
                 counterHogTransformationDiff.inc({ outcome: 'same' })
             } else if (!hogEvent && postPluginsEvent) {
                 status.warn('⚠️', 'Hog transformation produced no event but the plugin did')
@@ -85,14 +79,15 @@ export async function compareToHogTransformStep(
             return
         }
 
-        const diff = compareEvents(postPluginsEvent, hogEvent)
-        if (diff) {
+        const diffs = compareEvents(postPluginsEvent, hogEvent)
+        if (diffs.length > 0) {
             status.warn('⚠️', 'Hog transformation was different from plugin', {
                 team_id: prePluginsEvent.team_id,
-                diff,
+                diffs,
             })
             counterHogTransformationDiff.inc({ outcome: 'diff' })
         } else {
+            status.info('✅', 'Both plugin and hog transformation produced the same event')
             counterHogTransformationDiff.inc({ outcome: 'same' })
         }
     } catch (error) {
