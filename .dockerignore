@@ -12,12 +12,13 @@
 !ee
 !frontend/@posthog
 !frontend/*.*
+!frontend/patches
 !frontend/public
 !frontend/src
 !frontend/types
 !gunicorn.config.py
 !manage.py
-!nx.json
+!turbo.json
 !package.json
 !patches
 !playwright.config.ts
@@ -34,7 +35,6 @@
 !posthog
 !posthog.json
 !products
-!project.json
 !requirements-dev.txt
 !requirements.txt
 !rust

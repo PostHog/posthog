@@ -26,7 +26,7 @@ WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # Install all build dpes
-COPY package.json pnpm-lock.yaml nx.json pnpm-workspace.yaml .npmrc project.json ./
+COPY package.json pnpm-lock.yaml turbo.json pnpm-workspace.yaml .npmrc ./
 COPY common/ common/
 COPY frontend/patches/ frontend/patches/
 ENV PNPM_HOME /tmp/pnpm-store 
@@ -48,13 +48,13 @@ RUN bin/turbo run build --filter=@posthog/frontend
 FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.80.1-node_18.19.1 AS plugin-server-build
 WORKDIR /code
 # Workspace settings
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml nx.json .npmrc project.json ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json .npmrc ./
 COPY ./bin/ ./bin/
 COPY ./rust ./rust
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # Compile and install Node.js dependencies.
-COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./plugin-server/project.json ./plugin-server/
+COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./plugin-server/
 COPY ./plugin-server/patches/ ./plugin-server/patches/
 COPY ./frontend/patches/ ./frontend/patches/
 ENV PNPM_HOME /tmp/pnpm-store 
