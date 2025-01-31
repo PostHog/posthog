@@ -1,8 +1,7 @@
 import re
-from typing import Optional
+from typing import Optional, Callable
 from posthog.cdp.filters import compile_filters_bytecode
 from posthog.cdp.validation import compile_hog, validate_inputs
-from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.cdp.templates.webhook.template_webhook import template as webhook_template
 from posthog.plugins.plugin_server_api import reload_all_hog_functions_on_workers
@@ -43,7 +42,7 @@ def convert_link(text: str, url: str, is_slack: bool) -> str:
     return f"[{text}]({url})"
 
 
-def convert_slack_message_format_to_hog(action: Action, is_slack: bool) -> tuple[str, str]:
+def convert_slack_message_format_to_hog(action, is_slack: bool) -> tuple[str, str]:
     message_format = action.slack_message_format or "[action.name] triggered by [person]"
     message_format = message_format.replace("{", "\\{")
     matches = re.findall(r"(\[[^\]]+\])", message_format)
@@ -105,7 +104,7 @@ def convert_slack_message_format_to_hog(action: Action, is_slack: bool) -> tuple
     return (markdown, text)
 
 
-def convert_to_hog_function(action: Action, inert=False) -> Optional[HogFunction]:
+def convert_to_hog_function(action, hog_function_init, inert=False) -> Optional[HogFunction]:
     webhook_url = action.team.slack_incoming_webhook
     if not webhook_url:
         return None
@@ -123,7 +122,7 @@ def convert_to_hog_function(action: Action, inert=False) -> Optional[HogFunction
     hog_name = f"Webhook for action {action.id} ({action.name})"
     if inert:
         hog_name = f"[CDP-TEST-HIDDEN] {hog_name}"
-    hog_function = HogFunction(
+    hog_function = hog_function_init(
         name=hog_name,
         type="destination",
         description="Automatically migrated from legacy action webhooks",
@@ -146,12 +145,15 @@ def convert_to_hog_function(action: Action, inert=False) -> Optional[HogFunction
     return hog_function
 
 
-def migrate_all_teams_action_webhooks(dry_run=False, inert=False):
+def migrate_all_teams_action_webhooks(apps, dry_run=False, inert=False):
     """Migrate actions for all teams in the system."""
     print("Starting migration of actions for all teams")  # noqa: T201
 
     # Get the query without evaluating it
+    Action = apps.get_model("posthog", "Action")
     query = Action.objects.select_related("team").filter(post_to_slack=True, deleted=False).order_by("id")
+
+    HogFunction = apps.get_model("posthog", "HogFunction")
 
     batch_size = 100
     hog_functions: list[HogFunction] = []
@@ -164,7 +166,7 @@ def migrate_all_teams_action_webhooks(dry_run=False, inert=False):
             continue
 
         try:
-            hog_function = convert_to_hog_function(action, inert)
+            hog_function = convert_to_hog_function(action, HogFunction, inert)
             if hog_function:
                 hog_functions.append(hog_function)
                 if not inert:

@@ -58,7 +58,7 @@ class TestMigrateActionWebhooks(BaseTest):
                 )
 
         # Run the migration
-        migrate_all_teams_action_webhooks()
+        migrate_all_teams_action_webhooks(apps)
 
         # Count resulting HogFunctions
         hog_function_count = HogFunction.objects.filter(team_id__in=[team.id for team in teams]).count()

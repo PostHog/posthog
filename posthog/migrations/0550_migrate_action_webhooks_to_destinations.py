@@ -6,7 +6,7 @@ from django.db import migrations
 def migrate_action_webhooks_forward(apps, schema_editor):
     from posthog.management.commands.migrate_action_webhooks import migrate_all_teams_action_webhooks
 
-    migrate_all_teams_action_webhooks()
+    migrate_all_teams_action_webhooks(apps)
 
 
 def migrate_action_webhooks_backward(apps, schema_editor):
