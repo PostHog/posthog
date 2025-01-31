@@ -8,6 +8,11 @@ from django.db.models import Q
 
 # python manage.py migrate_plugins_to_hog_functions --dry-run --test-mode
 
+"""
+from posthog.models.hog_functions.hog_function import HogFunction
+HogFunction.objects.filter(type="transformation", name__contains="CDP-TEST-HIDDEN").delete()
+"""
+
 
 def migrate_legacy_plugins(dry_run=True, team_ids=None, test_mode=True, kind=str):
     # Get all legacy plugin_configs that are active with their attachments and global values
@@ -89,6 +94,7 @@ def migrate_legacy_plugins(dry_run=True, team_ids=None, test_mode=True, kind=str
                 "label": schema.get("name", schema["key"]),
                 "secret": schema.get("secret", False),
                 "required": schema.get("required", False),
+                "hog": False,
             }
 
             if schema.get("default"):
@@ -115,11 +121,13 @@ def migrate_legacy_plugins(dry_run=True, team_ids=None, test_mode=True, kind=str
         for key, value in plugin_config["config"].items():
             inputs[key] = {"value": value}
 
-        # Load all attachments for this plugin config
-        attachments = PluginAttachment.objects.filter(plugin_config_id=plugin_config["id"])
+        if len(plugin_config["config"]) > 0:
+            # Load all attachments for this plugin config if there is some config
+            attachments = PluginAttachment.objects.filter(plugin_config_id=plugin_config["id"])
 
-        for attachment in attachments:
-            inputs[attachment.key] = {"value": attachment.parse_contents()}
+            for attachment in attachments:
+                print("Attachment", attachment.key, attachment.parse_contents())  # noqa: T201
+                inputs[attachment.key] = {"value": attachment.parse_contents()}
 
         team = teams_by_id[plugin_config["team_id"]]
         serializer_context = {"team": team, "get_team": (lambda t=team: t)}
