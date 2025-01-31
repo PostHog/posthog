@@ -154,11 +154,13 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         has_addon = team.organization.is_feature_available(AvailableFeature.DATA_PIPELINES)
         instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
 
-        # Add check for HOG_TRANSFORMATIONS_ENABLED
-        if "hog" in attrs and not settings.HOG_TRANSFORMATIONS_ENABLED:
-            raise serializers.ValidationError({"hog": "Modifying hog function code is currently disabled."})
-
+        # Get the type, either from attrs or from instance
         hog_type = attrs.get("type", instance.type if instance else "destination")
+
+        # Only check HOG_TRANSFORMATIONS_ENABLED for transformation type
+        if "hog" in attrs and hog_type == "transformation" and not settings.HOG_TRANSFORMATIONS_ENABLED:
+            raise serializers.ValidationError({"hog": "Modifying transformation code is currently disabled."})
+
         is_create = self.context.get("view") and self.context["view"].action == "create"
 
         template_id = attrs.get("template_id", instance.template_id if instance else None)
