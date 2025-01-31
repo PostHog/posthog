@@ -52,7 +52,7 @@ class AssistantNode(ABC):
         return self._utc_now_datetime.astimezone(self._team.timezone_info).strftime("%Y-%m-%d %H:%M:%S")
 
     @property
-    def project_timezone(self) -> str:
+    def project_timezone(self) -> str | None:
         """
         Returns the timezone of the project.
         """
