@@ -26,7 +26,7 @@ from posthog.cdp.validation import compile_hog, generate_template_bytecode, vali
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.constants import AvailableFeature
 from posthog.hogql.compiler.javascript import JavaScriptCompiler
-from posthog.models.activity_logging.activity_log import log_activity, changes_between, Detail
+from posthog.models.activity_logging.activity_log import log_activity, changes_between, Detail, Change
 from posthog.models.hog_functions.hog_function import (
     HogFunction,
     HogFunctionState,
@@ -495,15 +495,18 @@ class HogFunctionViewSet(
                             item_id=str(function.id),
                             was_impersonated=is_impersonated_session(request),
                             scope="HogFunction",
-                            activity="reordered",
+                            activity="updated",
                             detail=Detail(
                                 name=function.name,
+                                type=function.type or "transformation",
                                 changes=[
-                                    {
-                                        "type": "transformation",
-                                        "old_order": old_order,
-                                        "new_order": new_order,
-                                    }
+                                    Change(
+                                        type="HogFunction",
+                                        action="changed",
+                                        field="priority",
+                                        before=old_order,
+                                        after=new_order,
+                                    )
                                 ],
                             ),
                         )
