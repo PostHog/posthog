@@ -206,6 +206,7 @@ def load_pending_person_deletions(
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
         secure=settings.CLICKHOUSE_SECURE,
+        verify=settings.CLICKHOUSE_VERIFY,
     )
 
     for deletion in pending_deletions:
