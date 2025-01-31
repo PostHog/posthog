@@ -9,9 +9,10 @@ from django.db.models import Q
 # python manage.py migrate_plugins_to_hog_functions --dry-run --test-mode
 
 
-def migrate_legacy_plugins(dry_run=True, team_ids=None, test_mode=True):
+def migrate_legacy_plugins(dry_run=True, team_ids=None, test_mode=True, kind=str):
     # Get all legacy plugin_configs that are active with their attachments and global values
     # Plugins are huge (JS and assets) so we only grab the bits we really need
+
     legacy_plugins = (
         PluginConfig.objects.values(
             "id",
@@ -22,15 +23,23 @@ def migrate_legacy_plugins(dry_run=True, team_ids=None, test_mode=True):
             "plugin__capabilities",
             "plugin__config_schema",
             "plugin__icon",
+            # Order by order asc but with nulls last
         )
         .filter(enabled=True)
-        .filter(
+        .order_by("order")
+    )
+
+    if kind == "destination":
+        legacy_plugins = legacy_plugins.filter(
             Q(plugin__capabilities__methods__contains=["onEvent"])
             | Q(plugin__capabilities__methods__contains=["composeWebhook"])
         )
-        # always filter out geoip as we are not migrating it this way
-        .exclude(plugin__name="GeoIP")
-    )
+    elif kind == "transformation":
+        legacy_plugins = legacy_plugins.filter(plugin__capabilities__methods__contains=["processEvent"])
+    else:
+        raise ValueError(f"Invalid kind: {kind}")
+
+    print(legacy_plugins.query, legacy_plugins.count())
 
     if team_ids:
         legacy_plugins = legacy_plugins.filter(team_id__in=team_ids)
@@ -48,12 +57,6 @@ def migrate_legacy_plugins(dry_run=True, team_ids=None, test_mode=True):
             plugin_config["plugin__name"],
             plugin_config["plugin__capabilities"],
         )
-
-        methods = plugin_config["plugin__capabilities"].get("methods", [])
-
-        if "onEvent" not in methods and "composeWebhook" not in methods:
-            print("Skipping plugin", plugin_config["plugin__name"], "as it doesn't have onEvent or composeWebhook")  # noqa: T201
-            continue
 
         print("Attempting to migrate plugin", plugin_config)  # noqa: T201
         url: str = plugin_config["plugin__url"] or ""
@@ -121,21 +124,20 @@ def migrate_legacy_plugins(dry_run=True, team_ids=None, test_mode=True):
         team = teams_by_id[plugin_config["team_id"]]
         serializer_context = {"team": team, "get_team": (lambda t=team: t)}
 
-        icon_url = plugin_config["plugin__icon"]
-
-        if not icon_url:
-            icon_url = f"https://raw.githubusercontent.com/PostHog/{plugin_id}/main/logo.png"
+        icon_url = (
+            plugin_config["plugin__icon"] or f"https://raw.githubusercontent.com/PostHog/{plugin_id}/main/logo.png"
+        )
 
         data = {
             "template_id": f"plugin-{plugin_id}",
-            "type": "destination",
+            "type": kind,
             "name": plugin_name,
             "description": "This is a legacy destination migrated from our old plugin system.",
             "filters": {},
             "inputs": inputs,
             "inputs_schema": inputs_schema,
             "enabled": True,
-            "icon_url": plugin_config["plugin__icon"],
+            "icon_url": icon_url,
         }
 
         print("Attempting to create hog function...")  # noqa: T201
