@@ -92,7 +92,13 @@ class ClickhouseCluster:
             logger = logging.getLogger(__name__)
 
         self.__hosts = [
-            HostInfo(ConnectionInfo(host_address, port), shard_num, replica_num, host_cluster_type, host_cluster_role)
+            HostInfo(
+                ConnectionInfo(host_address, port),
+                shard_num if host_cluster_role != "coordinator" else None,
+                replica_num,
+                host_cluster_type,
+                host_cluster_role,
+            )
             for (
                 host_address,
                 port,
