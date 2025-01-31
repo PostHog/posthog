@@ -169,8 +169,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             and "hog" in attrs
             and hog_type == "transformation"
             and not settings.HOG_TRANSFORMATIONS_ENABLED
+            and instance is not None
         ):
-            attrs["hog"] = instance.hog  # Preserve the original code
+            attrs["hog"] = instance.hog  # Now we know instance exists
 
         if not has_addon:
             # In this case they are only allowed to create or update the function with free templates
