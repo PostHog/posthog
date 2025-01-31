@@ -1,5 +1,6 @@
 import { LemonButton, LemonDialog, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconCancel, IconRefresh } from 'lib/lemon-ui/icons'
@@ -13,8 +14,11 @@ import { pipelineAccessLogic } from './pipelineAccessLogic'
 export function BatchExportBackfills({ id }: BatchExportBackfillsLogicProps): JSX.Element {
     const logic = batchExportBackfillsLogic({ id })
     const { openBackfillModal } = useActions(logic)
+    const { batchExportConfig } = useValues(logic)
 
-    // TODO: handle 404
+    if (!batchExportConfig) {
+        return <NotFound object="batch export" />
+    }
 
     return (
         <>
@@ -50,11 +54,15 @@ function BatchExportBackfillsControls({ id }: BatchExportBackfillsLogicProps): J
 
 function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX.Element {
     const logic = batchExportBackfillsLogic({ id })
-    const { latestBackfills, loading, hasMoreBackfillsToLoad } = useValues(logic)
+    const { latestBackfills, loading, hasMoreBackfillsToLoad, batchExportConfig } = useValues(logic)
     const { cancelBackfill, loadOlderBackfills, openBackfillModal } = useActions(logic)
     // this permission acts as a proxy for the user's ability to cancel backfills
     const { canEnableNewDestinations } = useValues(pipelineAccessLogic)
-    // TODO: handle 404
+
+    if (!batchExportConfig) {
+        return <NotFound object="batch export" />
+    }
+
     return (
         <>
             <LemonTable
@@ -175,11 +183,7 @@ function BackfillCancelButton({
                 size="small"
                 type="secondary"
                 icon={<IconCancel />}
-                disabledReason={
-                    backfill.status === 'Running' || backfill.status === 'Starting'
-                        ? null
-                        : `Cannot cancel as backfill is '${backfill.status}'`
-                }
+                tooltip="Cancel backfill"
                 onClick={() =>
                     LemonDialog.open({
                         title: 'Cancel run?',

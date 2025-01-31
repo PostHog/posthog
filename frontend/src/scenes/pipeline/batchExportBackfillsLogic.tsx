@@ -2,6 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, selecto
 import { loaders } from 'kea-loaders'
 import api, { PaginatedResponse } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { BatchExportBackfill, RawBatchExportBackfill } from '~/types'
@@ -85,10 +86,9 @@ export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
     }),
     listeners(({ actions, props }) => ({
         cancelBackfill: async ({ backfill }) => {
-            // TODO
-            // await api.batchExports.cancelBackfill(props.id, backfill.id)
-            // lemonToast.success('Backfill has been cancelled.')
-            console.log('cancelBackfill not yet implemented ;(')
+            await api.batchExports.cancelBackfill(props.id, backfill.id)
+            lemonToast.success('Backfill has been cancelled.')
+            actions.loadBackfills()
         },
     })),
     afterMount(({ actions }) => {
