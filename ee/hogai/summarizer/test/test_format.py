@@ -1,14 +1,16 @@
-from ee.hogai.summarizer.format import (
+from posthog.schema import Compare, FunnelStepReference
+from posthog.test.base import BaseTest
+
+from ..format import (
     _extract_series_label,
-    _format_date,
     _format_duration,
     _format_funnels_results,
     _format_number,
+    _strip_datetime_seconds,
     compress_and_format_funnels_results,
+    compress_and_format_retention_results,
     compress_and_format_trends_results,
 )
-from posthog.schema import Compare, FunnelStepReference
-from posthog.test.base import BaseTest
 
 
 class TestFormat(BaseTest):
@@ -183,6 +185,40 @@ class TestFormat(BaseTest):
             "Metric|$pageview custom|$pageview|$pageview\nTotal person count|5|2|1\nConversion rate|100%|40%|50%\nDropoff rate|0%|60%|50%\nAverage conversion time|-|10s|20s\nMedian conversion time|-|11s|22s",
         )
 
+    def test_funnels_with_zero_count(self):
+        results = [
+            {
+                "action_id": "$pageview",
+                "name": "$pageview",
+                "custom_name": "custom",
+                "order": 0,
+                "people": [],
+                "count": 0,
+                "type": "events",
+                "average_conversion_time": None,
+                "median_conversion_time": None,
+            },
+            {
+                "action_id": "$pageview",
+                "name": "$pageview",
+                "custom_name": None,
+                "order": 1,
+                "people": [],
+                "count": 0,
+                "type": "events",
+                "average_conversion_time": None,
+                "median_conversion_time": None,
+            },
+        ]
+        self.assertEqual(
+            _format_funnels_results(results, FunnelStepReference.TOTAL),
+            "Metric|$pageview custom|$pageview\nTotal person count|0|0\nConversion rate|100%|0%\nDropoff rate|0%|100%\nAverage conversion time|-|-\nMedian conversion time|-|-",
+        )
+        self.assertEqual(
+            _format_funnels_results(results, FunnelStepReference.PREVIOUS),
+            "Metric|$pageview custom|$pageview\nTotal person count|0|0\nConversion rate|100%|0%\nDropoff rate|0%|100%\nAverage conversion time|-|-\nMedian conversion time|-|-",
+        )
+
     def test_funnels_breakdown(self):
         results = [
             {
@@ -271,6 +307,68 @@ class TestFormat(BaseTest):
         )
 
     def test_format_date(self):
-        self.assertEqual(_format_date("2025-01-20"), "2025-01-20")
-        self.assertEqual(_format_date("2025-01-20 00:00:00"), "2025-01-20 00:00")
-        self.assertEqual(_format_date("2025-01-20 15:00"), "2025-01-20 15:00")
+        self.assertEqual(_strip_datetime_seconds("2025-01-20"), "2025-01-20")
+        self.assertEqual(_strip_datetime_seconds("2025-01-20 00:00:00"), "2025-01-20 00:00")
+        self.assertEqual(_strip_datetime_seconds("2025-01-20 15:00"), "2025-01-20 15:00")
+
+    def test_format_retention(self):
+        results = [
+            {
+                "date": "2025-01-21T00:00:00-08:00",
+                "label": "Day 0",
+                "values": [{"count": 100}, {"count": 100}, {"count": 50}, {"count": 25}],
+            },
+            {
+                "date": "2025-01-22T00:00:00-08:00",
+                "label": "Day 1",
+                "values": [{"count": 100}, {"count": 50}, {"count": 25}],
+            },
+            {
+                "date": "2025-01-23T00:00:00-08:00",
+                "label": "Day 2",
+                "values": [{"count": 50}, {"count": 25}],
+            },
+            {"date": "2025-01-24T00:00:00-08:00", "label": "Day 3", "values": [{"count": 25}]},
+        ]
+
+        self.assertEqual(
+            compress_and_format_retention_results(results),
+            "Date range: 2025-01-21 00:00 to 2025-01-24 00:00\n"
+            "Granularity: Day\n"
+            "Date|Number of persons on date|Day 0|Day 1|Day 2|Day 3\n"
+            "2025-01-21 00:00|100|100%|100%|50%|25%\n"
+            "2025-01-22 00:00|100|100%|50%|25%\n"
+            "2025-01-23 00:00|50|100%|50%\n"
+            "2025-01-24 00:00|25|100%",
+        )
+
+    def test_format_retention_with_zero_count(self):
+        results = [
+            {
+                "date": "2025-01-21T00:00:00-08:00",
+                "label": "Day 0",
+                "values": [{"count": 0}, {"count": 0}, {"count": 0}, {"count": 0}],
+            },
+            {
+                "date": "2025-01-22T00:00:00-08:00",
+                "label": "Day 1",
+                "values": [{"count": 0}, {"count": 0}, {"count": 0}],
+            },
+            {
+                "date": "2025-01-23T00:00:00-08:00",
+                "label": "Day 2",
+                "values": [{"count": 0}, {"count": 0}],
+            },
+            {"date": "2025-01-24T00:00:00-08:00", "label": "Day 3", "values": [{"count": 0}]},
+        ]
+
+        self.assertEqual(
+            compress_and_format_retention_results(results),
+            "Date range: 2025-01-21 00:00 to 2025-01-24 00:00\n"
+            "Granularity: Day\n"
+            "Date|Number of persons on date|Day 0|Day 1|Day 2|Day 3\n"
+            "2025-01-21 00:00|0|100%|0%|0%|0%\n"
+            "2025-01-22 00:00|0|100%|0%|0%\n"
+            "2025-01-23 00:00|0|100%|0%\n"
+            "2025-01-24 00:00|0|100%",
+        )

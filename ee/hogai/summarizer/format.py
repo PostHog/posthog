@@ -1,6 +1,6 @@
 from datetime import datetime
 from math import floor
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, cast
 
 from posthog.hogql_queries.insights.trends.breakdown import (
     BREAKDOWN_NULL_DISPLAY,
@@ -8,7 +8,7 @@ from posthog.hogql_queries.insights.trends.breakdown import (
     BREAKDOWN_OTHER_DISPLAY,
     BREAKDOWN_OTHER_STRING_LABEL,
 )
-from posthog.schema import AssistantFunnelsQuery, Compare, FunnelStepReference
+from posthog.schema import Compare, FunnelStepReference, RetentionPeriod
 
 
 def _format_matrix(matrix: list[list[str]]) -> str:
@@ -179,7 +179,7 @@ def compress_and_format_trends_results(results: list[dict]) -> str:
 
 
 def _format_funnels_results(results: list[dict], conversion_type: FunnelStepReference) -> str:
-    matrix = [
+    matrix: list[list[Any]] = [
         ["Metric"],
         ["Total person count"],
         ["Conversion rate"],
@@ -189,7 +189,7 @@ def _format_funnels_results(results: list[dict], conversion_type: FunnelStepRefe
     ]
 
     for idx, series in enumerate(results):
-        label = series.get("name")
+        label = series["name"]
         if series.get("custom_name") is not None:
             label = f"{label} {series['custom_name']}"
 
@@ -202,11 +202,20 @@ def _format_funnels_results(results: list[dict], conversion_type: FunnelStepRefe
             conversion_rate = "100%"
             dropoff_rate = "0%"
         elif conversion_type == FunnelStepReference.PREVIOUS:
-            conversion_rate = _format_percentage(this_step_count / matrix[1][idx])
-            dropoff_rate = _format_percentage((matrix[1][idx] - this_step_count) / matrix[1][idx])
+            prev_count = matrix[1][idx]
+            if prev_count != 0:
+                conversion_rate = _format_percentage(this_step_count / prev_count)
+                dropoff_rate = _format_percentage((prev_count - this_step_count) / prev_count)
+            else:
+                conversion_rate = "0%"
+                dropoff_rate = "100%"
         else:
-            conversion_rate = _format_percentage(this_step_count / first_step_count)
-            dropoff_rate = _format_percentage((first_step_count - this_step_count) / first_step_count)
+            if first_step_count != 0:
+                conversion_rate = _format_percentage(this_step_count / first_step_count)
+                dropoff_rate = _format_percentage((first_step_count - this_step_count) / first_step_count)
+            else:
+                conversion_rate = "0%"
+                dropoff_rate = "100%"
 
         matrix[2].append(conversion_rate)
         matrix[3].append(dropoff_rate)
@@ -235,7 +244,7 @@ def compress_and_format_funnels_results(
     results: list[dict] | list[list[dict]],
     date_from: str,
     date_to: str,
-    funnel_step_reference: Optional[FunnelStepReference] = FunnelStepReference.TOTAL,
+    funnel_step_reference: FunnelStepReference | None = None,
 ) -> str:
     """
     Compresses and formats funnels results into a LLM-friendly string.
@@ -251,15 +260,17 @@ def compress_and_format_funnels_results(
     Median conversion time|value1|value2
     ```
     """
+    funnel_step_reference = funnel_step_reference or FunnelStepReference.TOTAL
+
     if len(results) == 0:
         return "No data recorded for this time period."
 
     matrixes = []
     if isinstance(results[0], list):
         for result in results:
-            matrixes.append(_format_funnels_results(result, funnel_step_reference))
+            matrixes.append(_format_funnels_results(cast(list[dict], result), funnel_step_reference))
     else:
-        matrixes.append(_format_funnels_results(results, funnel_step_reference))
+        matrixes.append(_format_funnels_results(cast(list[dict], results), funnel_step_reference))
 
     conversion_type_hint = 'Conversion and drop-off rates are calculated in overall. For example, "Conversion rate: 9%" means that 9% of users from the first step completed the funnel.'
     if funnel_step_reference == FunnelStepReference.PREVIOUS:
@@ -269,5 +280,42 @@ def compress_and_format_funnels_results(
     return f"Date range: {date_from} to {date_to}\n\n{joined_matrixes}\n\n{conversion_type_hint}"
 
 
-def compress_and_format_retention_results(query: AssistantFunnelsQuery, results: list[dict]) -> str:
-    pass
+def compress_and_format_retention_results(results: list[dict], period: RetentionPeriod | None = None) -> str:
+    """
+    Compresses and formats retention results into a LLM-friendly string.
+
+    Example answer:
+    ```
+    Start Date: date
+    Period: period
+    Date|Number of persons on date|Day 0|Day 1|Day 2|Day 3
+    2024-01-28|Total Persons on Date 1|Percentage of retained users on 2024-01-29|Percentage of retained users on 2024-01-30|Percentage of retained users on 2024-01-31
+    2024-01-29|Total Persons on Date 2|Percentage of retained users on 2024-01-30|Percentage of retained users on 2024-01-31
+    2024-01-30|Total Persons on Date 3|Percentage of retained users on 2024-01-31
+    2024-01-31|Total Persons on Date 4
+    ```
+    """
+    period = period or RetentionPeriod.DAY
+
+    if not results:
+        return "No data recorded for this time period."
+
+    matrix = [["Date", "Number of persons on date"]]
+    for series in results:
+        matrix[0].append(series["label"])
+        row = [_strip_datetime_seconds(series["date"])]
+        for idx, val in enumerate(series["values"]):
+            initial_count = series["values"][0]["count"]
+            count = val["count"]
+            if idx == 0:
+                row.append(_format_number(count))
+                row.append("100%")
+            elif initial_count != 0:
+                row.append(_format_percentage(count / initial_count))
+            else:
+                row.append("0%")
+        matrix.append(row)
+
+    date_from = _strip_datetime_seconds(results[0]["date"])
+    date_to = _strip_datetime_seconds(results[-1]["date"])
+    return f"Date range: {date_from} to {date_to}\nGranularity: {period}\n{_format_matrix(matrix)}"

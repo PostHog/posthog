@@ -17,6 +17,7 @@ from ee.hogai.summarizer.format import (
 )
 from ee.hogai.summarizer.prompts import (
     FUNNELS_EXAMPLE,
+    RETENTION_EXAMPLE,
     SUMMARIZER_INSTRUCTION_PROMPT,
     SUMMARIZER_SYSTEM_PROMPT,
     TRENDS_EXAMPLE,
@@ -148,7 +149,10 @@ class SummarizerNode(AssistantNode):
                 funnel_step_reference=funnel_step_reference,
             )
         elif isinstance(viz_message.answer, AssistantRetentionQuery):
-            return compress_and_format_retention_results(results)
+            return compress_and_format_retention_results(
+                results,
+                viz_message.answer.retentionFilter.period,
+            )
         raise NotImplementedError(f"Unsupported query type: {type(viz_message.answer)}")
 
     def _get_example_prompt(self, viz_message: VisualizationMessage) -> str:
@@ -156,4 +160,6 @@ class SummarizerNode(AssistantNode):
             return TRENDS_EXAMPLE
         if isinstance(viz_message.answer, AssistantFunnelsQuery):
             return FUNNELS_EXAMPLE
+        if isinstance(viz_message.answer, AssistantRetentionQuery):
+            return RETENTION_EXAMPLE
         raise NotImplementedError(f"Unsupported query type: {type(viz_message.answer)}")
