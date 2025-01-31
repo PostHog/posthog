@@ -167,7 +167,7 @@ class PendingEventDeletesTable:
     @property
     def create_table_query(self) -> str:
         return f"""
-            CREATE TABLE IF NOT EXISTS {self.qualified_name}
+            CREATE TABLE IF NOT EXISTS {self.qualified_name} ON CLUSTER '{self.cluster}'
             (
                 uuid UUID,
                 event String,
