@@ -12,6 +12,7 @@
 !ee
 !frontend/@posthog
 !frontend/*.*
+!frontend/bin
 !frontend/patches
 !frontend/public
 !frontend/src

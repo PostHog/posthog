@@ -28,6 +28,7 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 # Install all build dpes
 COPY package.json pnpm-lock.yaml turbo.json pnpm-workspace.yaml .npmrc ./
 COPY common/ common/
+COPY frontend/package.json frontend/pnpm-lock.yaml frontend/
 COPY frontend/patches/ frontend/patches/
 ENV PNPM_HOME /tmp/pnpm-store 
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
