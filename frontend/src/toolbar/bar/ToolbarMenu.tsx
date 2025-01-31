@@ -21,6 +21,6 @@ ToolbarMenu.Body = function ToolbarMenuBody({ children, className }: ToolbarMenu
     )
 }
 
-ToolbarMenu.Footer = function ToolbarMenufooter({ children, className }: ToolbarMenuProps): JSX.Element {
+ToolbarMenu.Footer = function ToolbarMenuFooter({ children, className }: ToolbarMenuProps): JSX.Element {
     return <div className={clsx('flex flex-row items-center border-t gap-2 px-2 py-1', className)}>{children}</div>
 }
