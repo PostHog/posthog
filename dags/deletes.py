@@ -221,10 +221,7 @@ def load_pending_person_deletions(
 
         if len(current_chunk) >= chunk_size:
             client.execute(
-                f"""
-                INSERT INTO {create_pending_deletes_table.table_name} (team_id, deletion_type, key, created_at)
-                VALUES
-                """,
+                create_pending_deletes_table.populate_query,
                 current_chunk,
             )
             total_rows += len(current_chunk)
@@ -233,10 +230,7 @@ def load_pending_person_deletions(
     # Insert any remaining records
     if current_chunk:
         client.execute(
-            f"""
-            INSERT INTO {create_pending_deletes_table.qualified_name} (team_id, deletion_type, key, created_at)
-            VALUES
-            """,
+            create_pending_deletes_table.populate_query,
             current_chunk,
         )
         total_rows += len(current_chunk)
