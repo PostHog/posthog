@@ -11,9 +11,8 @@
 # table to the `sharded_events` table to find all events that were associated
 # and therefore reconcile the events to be associated with the same Person.
 
-import uuid
-from django.conf import settings
 
+from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_PERSON_OVERRIDE
 from posthog.settings.data_stores import (
     CLICKHOUSE_CLUSTER,
@@ -70,13 +69,7 @@ PERSON_OVERRIDES_CREATE_TABLE_SQL = (
     -- consider all replicas as the same. See
     -- https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/replication
     -- for details.
-    ENGINE = ReplicatedReplacingMergeTree(
-        -- NOTE: for testing we use a uuid to ensure that we don't get conflicts
-        -- when the tests tear down and recreate the table.
-        '/clickhouse/tables/{uuid.uuid4() if settings.TEST or settings.E2E_TESTING else ''}noshard/{CLICKHOUSE_DATABASE}.person_overrides',
-        '{{replica}}-{{shard}}',
-        version
-    )
+    ENGINE = {{engine}}
 
     -- We partition the table by the `oldest_event` column. This allows us to
     -- handle updating the events table partition by partition, progressing each
@@ -89,7 +82,9 @@ PERSON_OVERRIDES_CREATE_TABLE_SQL = (
     -- the newest known mapping for it in the table. Query side we will need to
     -- ensure that we are always querying the latest version of the mapping.
     ORDER BY (team_id, old_person_id)
-"""
+""".format(
+        engine=ReplacingMergeTree("person_overrides", replication_scheme=ReplicationScheme.REPLICATED, ver="version")
+    )
 )
 
 # An abstraction over Kafka that allows us to consume, via a ClickHouse
