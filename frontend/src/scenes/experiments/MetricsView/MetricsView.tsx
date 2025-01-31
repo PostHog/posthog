@@ -193,7 +193,7 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
                                                 negative.
                                             </p>
                                             <img
-                                                src="https://res.cloudinary.com/dmukukwp6/image/upload/Screenshot_2024_12_28_at_21_09_55_8828faf254.png"
+                                                src="https://res.cloudinary.com/dmukukwp6/image/upload/violin_plot_screenshot_acca775d36.png"
                                                 width={700}
                                                 className="rounded border object-contain"
                                                 alt="How to read metrics"
