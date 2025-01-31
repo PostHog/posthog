@@ -160,7 +160,10 @@ class ClickhouseCluster:
         Execute the callable once for any host with the given node role.
         """
         with ThreadPoolExecutor() as executor:
-            host = next(host for host in self.__hosts if host.host_cluster_role == node_role.value.lower())
+            try:
+                host = next(host for host in self.__hosts if host.host_cluster_role == node_role.value.lower())
+            except StopIteration:
+                raise ValueError(f"No hosts found with role {node_role.value}")
             return executor.submit(self.__get_task_function(host, fn))
 
     def map_all_hosts(self, fn: Callable[[Client], T], concurrency: int | None = None) -> FuturesMap[HostInfo, T]:
