@@ -14,6 +14,8 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -70,6 +72,8 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             ['user'],
             featureFlagLogic,
             ['featureFlags'],
+            sceneLogic,
+            ['activeScene'],
         ],
         actions: [tagsModel, ['loadTags']],
         logic: [eventUsageLogic, dashboardsModel],
@@ -334,8 +338,16 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         ],
         showPersonsModal: [() => [(s) => s.query], (query) => !query || !query.hidePersonsModal],
         supportsCreatingExperiment: [
-            (s) => [s.insight],
-            (insight: QueryBasedInsightModel) => insight?.query && isValidQueryForExperiment(insight.query),
+            (s) => [s.insight, s.activeScene],
+            (insight: QueryBasedInsightModel, activeScene: Scene) =>
+                insight?.query &&
+                isValidQueryForExperiment(insight.query) &&
+                ![
+                    Scene.Experiment,
+                    Scene.Experiments,
+                    Scene.ExperimentsSharedMetric,
+                    Scene.ExperimentsSharedMetrics,
+                ].includes(activeScene),
         ],
     }),
     listeners(({ actions, values }) => ({

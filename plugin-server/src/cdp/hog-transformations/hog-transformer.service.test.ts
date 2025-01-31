@@ -4,8 +4,7 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { brotliDecompressSync } from 'zlib'
 
-import { template as filterOutPluginTemplate } from '~/src/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
-
+import { template as filterOutPluginTemplate } from '../../../src/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { template as defaultTemplate } from '../../../src/cdp/templates/_transformations/default/default.template'
 import { template as geoipTemplate } from '../../../src/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '../../../src/cdp/templates/compiler'
@@ -57,10 +56,12 @@ describe('HogTransformer', () => {
 
         hub.mmdb = Reader.openBuffer(brotliDecompressSync(mmdbBrotliContents))
         hogTransformer = new HogTransformerService(hub)
+        await hogTransformer.start()
     })
 
     afterEach(async () => {
         await closeHub(hub)
+        await hogTransformer.stop()
 
         jest.spyOn(hogTransformer['pluginExecutor'], 'execute')
     })
@@ -81,7 +82,7 @@ describe('HogTransformer', () => {
 
             // Start the transformer after inserting functions because it is
             // starting the hogfunction manager which updates the cache
-            await hogTransformer.start()
+            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
 
             const event: PluginEvent = createPluginEvent({}, teamId)
             const result = await hogTransformer.transformEvent(event)
@@ -188,9 +189,9 @@ describe('HogTransformer', () => {
             await insertHogFunction(hub.db.postgres, teamId, defaultTransformationFunction)
             await insertHogFunction(hub.db.postgres, teamId, geoIpTransformationFunction)
 
-            await hogTransformer.start()
+            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
 
-            const createHogFunctionInvocationSpy = jest.spyOn(hogTransformer as any, 'createHogFunctionInvocation')
+            const executeHogFunctionSpy = jest.spyOn(hogTransformer as any, 'executeHogFunction')
 
             const event: PluginEvent = {
                 ip: '89.160.20.129',
@@ -206,10 +207,10 @@ describe('HogTransformer', () => {
 
             await hogTransformer.transformEvent(event)
 
-            expect(createHogFunctionInvocationSpy).toHaveBeenCalledTimes(3)
-            expect(createHogFunctionInvocationSpy.mock.calls[0][1]).toMatchObject({ execution_order: 1 })
-            expect(createHogFunctionInvocationSpy.mock.calls[1][1]).toMatchObject({ execution_order: 2 })
-            expect(createHogFunctionInvocationSpy.mock.calls[2][1]).toMatchObject({ execution_order: 3 })
+            expect(executeHogFunctionSpy).toHaveBeenCalledTimes(3)
+            expect(executeHogFunctionSpy.mock.calls[0][0]).toMatchObject({ execution_order: 1 })
+            expect(executeHogFunctionSpy.mock.calls[1][0]).toMatchObject({ execution_order: 2 })
+            expect(executeHogFunctionSpy.mock.calls[2][0]).toMatchObject({ execution_order: 3 })
             expect(event.properties?.test_property).toEqual('test_value')
         })
 
@@ -267,9 +268,9 @@ describe('HogTransformer', () => {
             await insertHogFunction(hub.db.postgres, teamId, deletingTransformationFunction)
             await insertHogFunction(hub.db.postgres, teamId, addingTransformationFunction)
 
-            await hogTransformer.start()
+            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
 
-            const createHogFunctionInvocationSpy = jest.spyOn(hogTransformer as any, 'createHogFunctionInvocation')
+            const executeHogFunctionSpy = jest.spyOn(hogTransformer as any, 'executeHogFunction')
 
             const event: PluginEvent = {
                 ip: '89.160.20.129',
@@ -290,7 +291,7 @@ describe('HogTransformer', () => {
              * Second call is the deleting the test property
              * hence the result is null
              */
-            expect(createHogFunctionInvocationSpy).toHaveBeenCalledTimes(2)
+            expect(executeHogFunctionSpy).toHaveBeenCalledTimes(2)
             expect(result?.event?.properties?.test_property).toEqual(null)
         })
         it('should execute tranformation without execution_order last', async () => {
@@ -366,9 +367,9 @@ describe('HogTransformer', () => {
             await insertHogFunction(hub.db.postgres, teamId, thirdTransformationFunction)
             await insertHogFunction(hub.db.postgres, teamId, secondTransformationFunction)
             await insertHogFunction(hub.db.postgres, teamId, firstTransformationFunction)
-            await hogTransformer.start()
+            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
 
-            const createHogFunctionInvocationSpy = jest.spyOn(hogTransformer as any, 'createHogFunctionInvocation')
+            const executeHogFunctionSpy = jest.spyOn(hogTransformer as any, 'executeHogFunction')
 
             const event: PluginEvent = {
                 ip: '89.160.20.129',
@@ -383,10 +384,10 @@ describe('HogTransformer', () => {
             }
 
             await hogTransformer.transformEvent(event)
-            expect(createHogFunctionInvocationSpy).toHaveBeenCalledTimes(3)
-            expect(createHogFunctionInvocationSpy.mock.calls[0][1]).toMatchObject({ execution_order: 1 })
-            expect(createHogFunctionInvocationSpy.mock.calls[1][1]).toMatchObject({ execution_order: 2 })
-            expect(createHogFunctionInvocationSpy.mock.calls[2][1]).toMatchObject({ execution_order: null })
+            expect(executeHogFunctionSpy).toHaveBeenCalledTimes(3)
+            expect(executeHogFunctionSpy.mock.calls[0][0]).toMatchObject({ execution_order: 1 })
+            expect(executeHogFunctionSpy.mock.calls[1][0]).toMatchObject({ execution_order: 2 })
+            expect(executeHogFunctionSpy.mock.calls[2][0]).toMatchObject({ execution_order: null })
         })
     })
 
@@ -410,7 +411,7 @@ describe('HogTransformer', () => {
             })
 
             await insertHogFunction(hub.db.postgres, teamId, filterOutPlugin)
-            await hogTransformer.start()
+            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
 
             // Set up the spy after hogTransformer is initialized
             executeSpy = jest.spyOn(hogTransformer['pluginExecutor'], 'execute')
