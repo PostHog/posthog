@@ -4,6 +4,7 @@ import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import QuerySet
 from loginas.utils import is_impersonated_session
+from django.db import transaction
 
 from rest_framework import serializers, viewsets, exceptions
 from rest_framework.serializers import BaseSerializer
@@ -25,7 +26,7 @@ from posthog.cdp.validation import compile_hog, generate_template_bytecode, vali
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.constants import AvailableFeature
 from posthog.hogql.compiler.javascript import JavaScriptCompiler
-from posthog.models.activity_logging.activity_log import log_activity, changes_between, Detail
+from posthog.models.activity_logging.activity_log import log_activity, changes_between, Detail, Change
 from posthog.models.hog_functions.hog_function import (
     HogFunction,
     HogFunctionState,
@@ -67,6 +68,7 @@ class HogFunctionMinimalSerializer(serializers.ModelSerializer):
             "icon_url",
             "template",
             "status",
+            "execution_order",
         ]
         read_only_fields = fields
 
@@ -115,6 +117,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "template",
             "template_id",
             "status",
+            "execution_order",
         ]
         read_only_fields = [
             "id",
@@ -272,8 +275,21 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
     def create(self, validated_data: dict, *args, **kwargs) -> HogFunction:
         request = self.context["request"]
         validated_data["created_by"] = request.user
-        hog_function = super().create(validated_data=validated_data)
 
+        # Set execution_order for transformation type
+        if validated_data.get("type") == "transformation":
+            # Get the highest execution_order for existing transformations
+            highest_order = (
+                HogFunction.objects.filter(team_id=validated_data["team"].id, type="transformation", deleted=False)
+                .order_by("-execution_order")
+                .values_list("execution_order", flat=True)
+                .first()
+            )
+
+            # Set to 1 if no existing transformations, otherwise increment by 1
+            validated_data["execution_order"] = (highest_order or 0) + 1
+
+        hog_function = super().create(validated_data=validated_data)
         return hog_function
 
     def update(self, instance: HogFunction, validated_data: dict, *args, **kwargs) -> HogFunction:
@@ -320,6 +336,8 @@ class HogFunctionViewSet(
             else:
                 types = ["destination"]
             queryset = queryset.filter(type__in=types)
+            # Add ordering by execution_order and created_at
+            queryset = queryset.order_by("execution_order", "created_at")
 
         if self.request.GET.get("filters"):
             try:
@@ -433,3 +451,75 @@ class HogFunctionViewSet(
                 changes=changes, name=serializer.instance.name, type=serializer.instance.type or "destination"
             ),
         )
+
+    @action(methods=["PATCH"], detail=False)
+    def rearrange(self, request: Request, *args, **kwargs) -> Response:
+        """Update the execution order of multiple HogFunctions."""
+        team = self.team
+        orders: dict[str, int] = request.data.get("orders", {})
+
+        if not orders:
+            raise exceptions.ValidationError("No orders provided")
+
+        with transaction.atomic():
+            # Get all functions in a single query and validate them
+            function_ids = list(orders.keys())
+            functions = {
+                str(f.id): f
+                for f in HogFunction.objects.filter(
+                    id__in=function_ids, team=team, type="transformation", deleted=False
+                )
+            }
+
+            # Validate all functions exist
+            missing_ids = set(function_ids) - set(functions.keys())
+            if missing_ids:
+                raise exceptions.ValidationError(f"HogFunction with id {missing_ids.pop()} does not exist")
+
+            # Update orders and create activity logs
+            from django.utils import timezone
+            from django.contrib.auth.models import AnonymousUser
+
+            current_time = timezone.now()
+            user = None if isinstance(request.user, AnonymousUser) else request.user
+
+            for function_id, function in functions.items():
+                new_order = orders[function_id]
+                old_order = function.execution_order
+
+                if old_order != new_order:
+                    function.execution_order = new_order
+                    function.updated_at = current_time
+
+                    log_activity(
+                        organization_id=self.organization.id,
+                        team_id=self.team_id,
+                        user=user,
+                        item_id=str(function.id),
+                        was_impersonated=is_impersonated_session(request),
+                        scope="HogFunction",
+                        activity="updated",
+                        detail=Detail(
+                            name=function.name,
+                            type="transformation",
+                            changes=[
+                                Change(
+                                    type="HogFunction",
+                                    action="changed",
+                                    field="priority",
+                                    before=str(old_order),
+                                    after=str(new_order),
+                                )
+                            ],
+                        ),
+                    )
+
+                    function.save(update_fields=["execution_order", "updated_at"])
+
+        # Get final ordered list in a single query
+        transformations = HogFunction.objects.filter(team=team, type="transformation", deleted=False).order_by(
+            "execution_order"
+        )
+
+        serializer = self.get_serializer(transformations, many=True)
+        return Response(serializer.data)

@@ -12,6 +12,7 @@ export const template: HogFunctionTemplate = {
     inputs_schema: [
         {
             key: 'properties',
+            templating: false,
             label: 'comma separated properties to explode version number from',
             type: 'string',
             description: 'my_version_number,app_version',

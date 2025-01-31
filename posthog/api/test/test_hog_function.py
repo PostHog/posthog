@@ -242,6 +242,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "masking": None,
             "mappings": None,
             "status": {"rating": 0, "state": 0, "tokens": 0},
+            "execution_order": None,
         }
 
         id = response.json()["id"]
@@ -1262,3 +1263,95 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "attr": "inputs__required",
             }
         )
+
+    def test_list_hog_functions_ordered_by_execution_order_and_created_at(self):
+        # Create functions with different execution orders and creation times
+        with freeze_time("2024-01-01T00:00:00Z"):
+            self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    **EXAMPLE_FULL,
+                    "name": "Function 1",
+                    "execution_order": 1,
+                },
+            ).json()
+
+        with freeze_time("2024-01-02T00:00:00Z"):
+            self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    **EXAMPLE_FULL,
+                    "name": "Function 2",
+                    "execution_order": 1,  # Same execution_order as fn1
+                },
+            ).json()
+
+        with freeze_time("2024-01-03T00:00:00Z"):
+            self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    **EXAMPLE_FULL,
+                    "name": "Function 3",
+                    "execution_order": 2,
+                },
+            ).json()
+
+        with freeze_time("2024-01-04T00:00:00Z"):
+            self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    **EXAMPLE_FULL,
+                    "name": "Function 4",
+                    "execution_order": None,  # No execution order
+                },
+            ).json()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/")
+        assert response.status_code == status.HTTP_200_OK
+
+        results = response.json()["results"]
+
+        # Verify order: execution_order ASC, created_at ASC, nulls last
+        assert [f["name"] for f in results] == [
+            "Function 1",  # execution_order=1, created first
+            "Function 2",  # execution_order=1, created second
+            "Function 3",  # execution_order=2
+            "Function 4",  # execution_order=null
+        ]
+
+    def test_transformation_type_gets_execution_order_automatically(self):
+        # Create first transformation function
+        response1 = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "type": "transformation",
+                "name": "First Transformation",
+            },
+        )
+        assert response1.status_code == status.HTTP_201_CREATED
+        assert response1.json()["execution_order"] == 1
+
+        # Create second transformation function
+        response2 = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "type": "transformation",
+                "name": "Second Transformation",
+            },
+        )
+        assert response2.status_code == status.HTTP_201_CREATED
+        assert response2.json()["execution_order"] == 2
+
+        # Create a non-transformation function - should not get execution_order
+        response3 = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "type": "destination",
+                "name": "Destination Function",
+            },
+        )
+        assert response3.status_code == status.HTTP_201_CREATED
+        assert response3.json()["execution_order"] is None

@@ -1,13 +1,16 @@
 import { IconTrash } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { useCallback } from 'react'
-import { revenueEventsSettingsLogic } from 'scenes/settings/environment/revenueEventsSettingsLogic'
+import { useCallback, useRef } from 'react'
+import { revenueEventsSettingsLogic } from 'scenes/data-management/revenue/revenueEventsSettingsLogic'
 
 import { RevenueTrackingEventItem } from '~/queries/schema'
+
+const ADD_EVENT_BUTTON_ID = 'data-management-revenue-settings-add-event'
 
 export function RevenueEventsSettings(): JSX.Element {
     const { saveDisabledReason, events } = useValues(revenueEventsSettingsLogic)
@@ -34,11 +37,17 @@ export function RevenueEventsSettings(): JSX.Element {
         [updatePropertyName]
     )
 
+    const buttonRef = useRef<HTMLButtonElement | null>(null)
+
     return (
         <div className="space-y-4">
-            <div>
-                <p>Add revenue tracking for Custom events in Web analytics</p>
-            </div>
+            <ProductIntroduction
+                productName="Revenue tracking"
+                thingName="revenue event"
+                description="Revenue events are used to track revenue in Web analytics. You can choose which custom events PostHog should consider as revenue events, and which event property corresponds to the value of the event."
+                isEmpty={events.length === 0}
+                action={() => buttonRef.current?.click()}
+            />
             <LemonTable<RevenueTrackingEventItem>
                 columns={[
                     { key: 'eventName', title: 'Event name', dataIndex: 'eventName' },
@@ -67,13 +76,16 @@ export function RevenueEventsSettings(): JSX.Element {
             />
 
             <TaxonomicPopover
+                type="primary"
                 groupType={TaxonomicFilterGroupType.CustomEvents}
                 onChange={addEvent}
                 value={undefined}
-                placeholder="Choose custom events to add"
+                placeholder="Create revenue event"
                 excludedProperties={{
                     [TaxonomicFilterGroupType.CustomEvents]: [null, ...events.map((item) => item.eventName)],
                 }}
+                id={ADD_EVENT_BUTTON_ID}
+                ref={buttonRef}
             />
             <div className="mt-4">
                 <LemonButton type="primary" onClick={save} disabledReason={saveDisabledReason}>
