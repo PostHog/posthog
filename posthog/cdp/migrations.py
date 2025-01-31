@@ -40,8 +40,6 @@ def migrate_legacy_plugins(dry_run=True, team_ids=None, test_mode=True, kind=str
     else:
         raise ValueError(f"Invalid kind: {kind}")
 
-    print(legacy_plugins.query, legacy_plugins.count())
-
     if team_ids:
         legacy_plugins = legacy_plugins.filter(team_id__in=team_ids)
 
