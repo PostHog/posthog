@@ -33,7 +33,7 @@ You MUST point out if the executed query or its results are insufficient for a f
 """.strip()
 
 TRENDS_EXAMPLE_PROMPT = """
-You'll be given a table with the results of a trends query. Values are separated by the pipe character "|" and rows are separated by newlines. The first row is the header row with series names received from the query. The first column is the date, and the rest are the values for each series.
+You will be given a table with the results of a trends query. Values are separated by the pipe character "|" and rows are separated by newlines. The first row is the header row with series names received from the query. The first column is the date, and the rest are the values for each series.
 
 Example:
 ```
@@ -45,7 +45,7 @@ Date|$pageview|sign up
 
 
 FUNNELS_EXAMPLE_PROMPT = """
-You'll be given a table with the results of a funnel query. Values are separated by the pipe character "|" and rows are separated by newlines. The first column is the metric name, and the rest are the values for each metric. The first row is the header row with series names received from the query. Rows can be separated by a line with "---", indicating series with a breakdown. For example, "---control" indicates that the series is for the value "control".
+You will be given a table with the results of a funnel query. Values are separated by the pipe character "|" and rows are separated by newlines. The first column is the metric name, and the rest are the values for each metric. The first row is the header row with series names received from the query. Rows can be separated by a line with "---", indicating a series with a breakdown. For example, `---control` indicates that the series is for the value `control`.
 
 Example:
 ```
@@ -59,7 +59,7 @@ Median conversion time|-|1d
 
 
 RETENTION_EXAMPLE_PROMPT = """
-You'll be given a matrix with the results of a retention query. Values are separated by the pipe character "|" and rows are separated by newlines. The first row is the header row with series names received from the query. The first column is the date, the second column is the count of persons completed the event on that date, and the rest are the retention values for each day relative to the following days.
+You will be given a matrix with the results of a retention query. Values are separated by the pipe character "|" and rows are separated by newlines. The first row is the header row with series names received from the query. The first column is the date, the second column is the count of persons who completed the action on that date, and the rest are the retention values for each day relative to the following days.
 
 Example:
 ```
