@@ -1,5 +1,4 @@
 import pydantic
-import time
 from clickhouse_driver.client import Client
 from datetime import datetime
 from dataclasses import dataclass
@@ -14,9 +13,13 @@ from dagster import (
     ConfigurableResource,
 )
 from django.conf import settings
-from functools import reduce
 
-from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
+from posthog.clickhouse.cluster import (
+    ClickhouseCluster,
+    Mutation,
+    MutationRunner,
+    get_cluster,
+)
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 
@@ -44,32 +47,14 @@ class DeleteConfig(Config):
         default=datetime.now().isoformat(),
         description="The timestamp to delete events up to in ISO format (YYYY-MM-DDTHH:MM:SS.mmmmmm+HH:MM). If not provided, current time will be used.",
     )
+    cleanup: bool = pydantic.Field(
+        default=True,
+        description="If true, the temporary table will be dropped after the job is run.",
+    )
 
     @property
     def parsed_timestamp(self) -> datetime:
         return datetime.fromisoformat(self.timestamp)
-
-
-@dataclass
-class Mutation:
-    table: str
-    mutation_id: str
-
-    def is_done(self, client: Client) -> bool:
-        result = client.execute(
-            f"""
-            SELECT is_done
-            FROM system.mutations
-            WHERE database = %(database)s AND table = %(table)s AND mutation_id = %(mutation_id)s
-            ORDER BY create_time DESC
-            """,
-            {"database": settings.CLICKHOUSE_DATABASE, "table": self.table, "mutation_id": self.mutation_id},
-        )
-        return bool(result[0][0]) if result else False
-
-    def wait(self, client: Client) -> None:
-        while not self.is_done(client):
-            time.sleep(15.0)
 
 
 ShardMutations = dict[int, Mutation]
@@ -111,11 +96,13 @@ class PendingPersonEventDeletesTable:
             CREATE TABLE IF NOT EXISTS {self.table_name} ON CLUSTER '{self.cluster}'
             (
                 team_id Int64,
-                person_id UUID,
-                created_at DateTime DEFAULT now()
+                deletion_type Int8,
+                key String,
+                created_at DateTime,
+                delete_verified_at Nullable(DateTime)
             )
             ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/{self.table_name}', '{{shard}}-{{replica}}')
-            ORDER BY (team_id, person_id)
+            ORDER BY (team_id, deletion_type, key)
         """
 
     @property
@@ -142,57 +129,25 @@ class PendingPersonEventDeletesTable:
             VALUES
         """
 
-    def __find_existing_mutation(self, client: Client, table: str, command_kind: str) -> Mutation | None:
-        results = client.execute(
+    @property
+    def person_event_delete_mutation_runner(self) -> MutationRunner:
+        return MutationRunner(
+            EVENTS_DATA_TABLE(),
             f"""
-            SELECT mutation_id
-            FROM system.mutations
-            WHERE
-                database = %(database)s
-                AND table = %(table)s
-                AND startsWith(command, %(command_kind)s)
-                AND command like concat('%%', %(name)s, '%%')
-                AND NOT is_killed  -- ok to restart a killed mutation
-            ORDER BY create_time DESC
-            """,
-            {
-                "database": settings.CLICKHOUSE_DATABASE,
-                "table": table,
-                "command_kind": command_kind,
-                "name": self.qualified_name,
-            },
-        )
-        if not results:
-            return None
-        else:
-            assert len(results) == 1
-            [[mutation_id]] = results
-            return Mutation(table, mutation_id)
-
-    def enqueue_person_event_delete_mutation(self, client: Client) -> Mutation:
-        table = EVENTS_DATA_TABLE()
-
-        # if this mutation already exists, don't start it again
-        # NOTE: this is theoretically subject to replication lag and accuracy of this result is not a guarantee
-        if mutation := self.__find_existing_mutation(client, table, "UPDATE"):
-            return mutation
-
-        client.execute(
-            f"""
-            DELETE FROM {table} WHERE (uuid, event, team_id, person_id, timestamp) IN (
+            DELETE FROM {EVENTS_DATA_TABLE()} WHERE (uuid, event, team_id, person_id, timestamp) IN (
                 SELECT e.uuid, e.event, e.team_id, e.person_id, e.timestamp
-                FROM events e
+                FROM {settings.CLICKHOUSE_DATABASE}.{EVENTS_DATA_TABLE()} e
                 INNER JOIN {self.qualified_name} d
                 ON e.team_id = d.team_id
-                AND e.distinct_id = d.person_id
-                AND e.timestamp < d.created_at
+                AND toString(e.person_id) = d.key
+                WHERE
+                    e.timestamp < d.created_at
+                    AND d.delete_verified_at IS NULL
+                    AND d.deletion_type = '1'
             )
-            """
+            """,
+            {},
         )
-
-        mutation = self.__find_existing_mutation(client, table, "UPDATE")
-        assert mutation is not None
-        return mutation
 
     def checksum(self, client: Client):
         results = client.execute(
@@ -228,26 +183,18 @@ def load_pending_person_deletions(
 
     if not create_pending_deletes_table.team_id:
         # Use Django's queryset iterator for memory efficiency
-        pending_deletions = (
-            AsyncDeletion.objects.filter(
-                deletion_type=DeletionType.Person,
-                delete_verified_at__isnull=True,
-                created_at__lte=create_pending_deletes_table.timestamp,
-            )
-            .values("team_id", "key", "created_at")
-            .iterator()
-        )
+        pending_deletions = AsyncDeletion.objects.filter(
+            deletion_type=DeletionType.Person,
+            delete_verified_at__isnull=True,
+            created_at__lte=create_pending_deletes_table.timestamp,
+        ).iterator()
     else:
-        pending_deletions = (
-            AsyncDeletion.objects.filter(
-                deletion_type=DeletionType.Person,
-                team_id=create_pending_deletes_table.team_id,
-                delete_verified_at__isnull=True,
-                created_at__lte=create_pending_deletes_table.timestamp,
-            )
-            .values("team_id", "key", "created_at")
-            .iterator()
-        )
+        pending_deletions = AsyncDeletion.objects.filter(
+            deletion_type=DeletionType.Person,
+            team_id=create_pending_deletes_table.team_id,
+            delete_verified_at__isnull=True,
+            created_at__lte=create_pending_deletes_table.timestamp,
+        ).iterator()
 
     # Process and insert in chunks
     chunk_size = 10000
@@ -264,13 +211,18 @@ def load_pending_person_deletions(
     for deletion in pending_deletions:
         # Rename 'key' to 'person_id' to match our schema
         current_chunk.append(
-            {"team_id": deletion["team_id"], "person_id": deletion["key"], "created_at": deletion["created_at"]}
+            {
+                "team_id": deletion.team_id,
+                "deletion_type": deletion.deletion_type,
+                "key": deletion.key,
+                "created_at": deletion.created_at,
+            }
         )
 
         if len(current_chunk) >= chunk_size:
             client.execute(
                 f"""
-                INSERT INTO {create_pending_deletes_table.table_name} (team_id, person_id, created_at)
+                INSERT INTO {create_pending_deletes_table.table_name} (team_id, deletion_type, key, created_at)
                 VALUES
                 """,
                 current_chunk,
@@ -282,7 +234,7 @@ def load_pending_person_deletions(
     if current_chunk:
         client.execute(
             f"""
-            INSERT INTO {create_pending_deletes_table.qualified_name} (team_id, person_id, created_at)
+            INSERT INTO {create_pending_deletes_table.qualified_name} (team_id, deletion_type, key, created_at)
             VALUES
             """,
             current_chunk,
@@ -336,7 +288,7 @@ def delete_person_events(
     shard_mutations = {
         host.shard_num: mutation
         for host, mutation in (
-            cluster.map_one_host_per_shard(load_pending_person_deletions.enqueue_person_event_delete_mutation)
+            cluster.map_one_host_per_shard(load_pending_person_deletions.person_event_delete_mutation_runner.enqueue)
             .result()
             .items()
         )
@@ -346,18 +298,13 @@ def delete_person_events(
 
 @op
 def wait_for_delete_mutations(
+    context: OpExecutionContext,
     cluster: ResourceParam[ClickhouseCluster],
     delete_person_events: tuple[PendingPersonEventDeletesTable, ShardMutations],
 ) -> PendingPersonEventDeletesTable:
     pending_person_deletions, shard_mutations = delete_person_events
 
-    if not shard_mutations:
-        return pending_person_deletions  # or handle the empty case as needed
-
-    reduce(
-        lambda x, y: x.merge(y),
-        [cluster.map_all_hosts_in_shard(shard, mutation.wait) for shard, mutation in shard_mutations.items()],
-    ).result()
+    cluster.map_all_hosts_in_shards({shard: mutation.wait for shard, mutation in shard_mutations.items()}).result()
 
     return pending_person_deletions
 
@@ -365,11 +312,16 @@ def wait_for_delete_mutations(
 @op
 def cleanup_delete_assets(
     cluster: ResourceParam[ClickhouseCluster],
+    config: DeleteConfig,
     create_pending_deletes_table: PendingPersonEventDeletesTable,
     wait_for_delete_mutations: PendingPersonEventDeletesTable,
 ) -> bool:
     """Clean up temporary tables and mark deletions as verified."""
     # Drop the dictionary and table using the table object
+
+    if not config.cleanup:
+        config.log.info("Skipping cleanup as cleanup is disabled")
+        return True
 
     cluster.any_host(create_pending_deletes_table.drop).result()
 
