@@ -478,8 +478,10 @@ class HogFunctionViewSet(
 
             # Update orders and create activity logs
             from django.utils import timezone
+            from django.contrib.auth.models import AnonymousUser
 
             current_time = timezone.now()
+            user = None if isinstance(request.user, AnonymousUser) else request.user
 
             for function_id, function in functions.items():
                 new_order = orders[function_id]
@@ -492,7 +494,7 @@ class HogFunctionViewSet(
                     log_activity(
                         organization_id=self.organization.id,
                         team_id=self.team_id,
-                        user=request.user,
+                        user=user,
                         item_id=str(function.id),
                         was_impersonated=is_impersonated_session(request),
                         scope="HogFunction",
