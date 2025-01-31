@@ -3,7 +3,7 @@ import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 import { randomBytes } from 'crypto'
 import { PassThrough } from 'stream'
 
-import { LegacyPlugin, LegacyPluginMeta } from '../types'
+import { LegacyPlugin, LegacyPluginMeta } from '../../types'
 import metadata from './plugin.json'
 
 type gcsMeta = LegacyPluginMeta & {

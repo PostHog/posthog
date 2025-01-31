@@ -3,7 +3,7 @@ import { CacheExtension, Properties, RetryError } from '@posthog/plugin-scaffold
 import type { Response } from 'node-fetch'
 import { URL } from 'url'
 
-import { LegacyPlugin, LegacyPluginMeta } from '../../types'
+import { LegacyPlugin, LegacyPluginMeta } from '../../../types'
 import metadata from '../plugin.json'
 
 export interface EventSink {

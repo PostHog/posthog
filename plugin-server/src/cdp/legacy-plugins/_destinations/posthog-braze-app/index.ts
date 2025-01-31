@@ -3,7 +3,7 @@ import crypto from 'crypto'
 
 import { Response } from '~/src/utils/fetch'
 
-import { LegacyPlugin, LegacyPluginMeta } from '../types'
+import { LegacyPlugin, LegacyPluginMeta } from '../../types'
 import metadata from './plugin.json'
 
 export type FetchBraze = (

@@ -1,6 +1,6 @@
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyPlugin, LegacyPluginMeta } from '../types'
+import { LegacyPlugin, LegacyPluginMeta } from '../../types'
 import metadata from './plugin.json'
 
 type EngagePluginEvent = ProcessedPluginEvent & {

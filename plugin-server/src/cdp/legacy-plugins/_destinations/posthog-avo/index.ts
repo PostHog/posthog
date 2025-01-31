@@ -1,7 +1,7 @@
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { randomUUID } from 'crypto'
 
-import { LegacyPlugin, LegacyPluginMeta } from '../types'
+import { LegacyPlugin, LegacyPluginMeta } from '../../types'
 import metadata from './plugin.json'
 
 type AvoPluginMeta = LegacyPluginMeta & {

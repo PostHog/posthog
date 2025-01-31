@@ -1,6 +1,6 @@
 import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 
-import { LegacyPlugin, LegacyPluginMeta } from '../types'
+import { LegacyPlugin, LegacyPluginMeta } from '../../types'
 import metadata from './plugin.json'
 
 export interface ReplicatorMetaInput {
