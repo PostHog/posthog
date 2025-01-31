@@ -37,7 +37,7 @@ from posthog.models.hog_functions.hog_function import (
 )
 from posthog.models.plugin import TranspilerError
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
-
+from django.conf import settings
 
 logger = structlog.get_logger(__name__)
 
@@ -153,6 +153,10 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         has_addon = team.organization.is_feature_available(AvailableFeature.DATA_PIPELINES)
         instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
+
+        # Add check for HOG_TRANSFORMATIONS_ENABLED
+        if "hog" in attrs and not settings.HOG_TRANSFORMATIONS_ENABLED:
+            raise serializers.ValidationError({"hog": "Modifying hog function code is currently disabled."})
 
         hog_type = attrs.get("type", instance.type if instance else "destination")
         is_create = self.context.get("view") and self.context["view"].action == "create"

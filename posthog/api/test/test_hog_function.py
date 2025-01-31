@@ -6,6 +6,7 @@ from django.db import connection
 from freezegun import freeze_time
 from inline_snapshot import snapshot
 from rest_framework import status
+from django.test.utils import override_settings
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
@@ -1263,6 +1264,62 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "attr": "inputs__required",
             }
         )
+
+    @override_settings(HOG_TRANSFORMATIONS_ENABLED=False)
+    def test_cannot_modify_hog_when_transformations_disabled(self):
+        # First create a function
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "type": "destination",
+                "name": "Test Function",
+                "description": "Test description",
+                "hog": "",
+                "inputs": {},
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        function_id = response.json()["id"]
+
+        # Try to modify the hog code
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
+            data={
+                "hog": "return event",
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": {"hog": "Modifying hog function code is currently disabled."},
+        }
+
+    @override_settings(HOG_TRANSFORMATIONS_ENABLED=True)
+    def test_can_modify_hog_when_transformations_enabled(self):
+        # First create a function
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "type": "destination",
+                "name": "Test Function",
+                "description": "Test description",
+                "hog": "fetch(inputs.url);",
+                "inputs": {},
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        function_id = response.json()["id"]
+
+        # Try to modify the hog code
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
+            data={
+                "hog": "return event",
+            },
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["hog"] == "modified_code();"
 
     def test_list_hog_functions_ordered_by_execution_order_and_created_at(self):
         # Create functions with different execution orders and creation times

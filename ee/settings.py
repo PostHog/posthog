@@ -75,3 +75,6 @@ LANGFUSE_SECRET_KEY = get_from_env("LANGFUSE_SECRET_KEY", "", type_cast=str)
 LANGFUSE_HOST = get_from_env("LANGFUSE_HOST", "https://us.cloud.langfuse.com", type_cast=str)
 
 ANTHROPIC_API_KEY = get_from_env("ANTHROPIC_API_KEY", "")
+
+# Whether to allow modification of hog function code
+HOG_TRANSFORMATIONS_ENABLED = False
