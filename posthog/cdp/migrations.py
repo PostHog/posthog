@@ -9,11 +9,6 @@ from django.db.models import Q
 
 # python manage.py migrate_plugins_to_hog_functions --dry-run --test-mode
 
-"""
-from posthog.models.hog_functions.hog_function import HogFunction
-HogFunction.objects.filter(type="transformation", name__contains="CDP-TEST-HIDDEN").delete()
-"""
-
 
 def migrate_legacy_plugins(dry_run=True, team_ids=None, test_mode=True, kind=str):
     # Get all legacy plugin_configs that are active with their attachments and global values
