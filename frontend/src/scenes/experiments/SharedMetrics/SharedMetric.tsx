@@ -1,9 +1,11 @@
 import { IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonLabel, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { tagsModel } from '~/models/tagsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
 
 import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../utils'
@@ -24,6 +26,8 @@ export function SharedMetric(): JSX.Element {
     const { setSharedMetric, createSharedMetric, updateSharedMetric, deleteSharedMetric } =
         useActions(sharedMetricLogic)
     const { isDarkModeOn } = useValues(themeLogic)
+
+    const { tags: allExistingTags } = useValues(tagsModel)
 
     if (!sharedMetric || !sharedMetric.query) {
         return (
@@ -103,6 +107,22 @@ export function SharedMetric(): JSX.Element {
                             })
                         }}
                     />
+                </div>
+                <div className="mb-4">
+                    <LemonLabel>Tags</LemonLabel>
+                    <div className="mt-2">
+                        <ObjectTags
+                            tags={sharedMetric.tags || []}
+                            onChange={(newTags) => {
+                                setSharedMetric({
+                                    tags: newTags,
+                                })
+                            }}
+                            saving={false}
+                            tagsAvailable={allExistingTags}
+                            data-attr="shared-metric-tags"
+                        />
+                    </div>
                 </div>
                 {sharedMetric.query.kind === NodeKind.ExperimentTrendsQuery ? (
                     <SharedTrendsMetricForm />
