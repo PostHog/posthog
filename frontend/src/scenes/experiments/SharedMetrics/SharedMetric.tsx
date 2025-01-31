@@ -6,10 +6,11 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { NodeKind } from '~/queries/schema/schema-general'
 
-import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../experimentLogic'
+import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../utils'
 import { SharedFunnelsMetricForm } from './SharedFunnelsMetricForm'
 import { sharedMetricLogic } from './sharedMetricLogic'
 import { SharedTrendsMetricForm } from './SharedTrendsMetricForm'
+
 export const scene: SceneExport = {
     component: SharedMetric,
     logic: sharedMetricLogic,

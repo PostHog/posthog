@@ -493,6 +493,7 @@ export interface TeamBasicType extends WithAccessControl {
     timezone: string
     /** Whether the project is private. */
     access_control: boolean
+    access_control_version: 'v1' | 'v2'
 }
 
 export interface CorrelationConfigType {
@@ -1885,6 +1886,7 @@ export interface DashboardBasicType extends WithAccessControl {
     restriction_level: DashboardRestrictionLevel
     effective_restriction_level: DashboardRestrictionLevel
     effective_privilege_level: DashboardPrivilegeLevel
+    access_control_version: 'v1' | 'v2'
     tags?: string[]
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
@@ -2956,9 +2958,9 @@ export interface MultivariateFlagOptions {
 
 export interface FeatureFlagFilters {
     groups: FeatureFlagGroupType[]
-    multivariate: MultivariateFlagOptions | null
+    multivariate?: MultivariateFlagOptions | null
     aggregation_group_type_index?: integer | null
-    payloads: Record<string, JsonType>
+    payloads?: Record<string, JsonType>
     super_groups?: FeatureFlagGroupType[]
 }
 
@@ -4338,6 +4340,7 @@ export type BatchExportConfiguration = {
     end_at: string | null
     paused: boolean
     model: string
+    filters: AnyPropertyFilter[]
     latest_runs?: BatchExportRun[]
 }
 
@@ -4776,6 +4779,13 @@ export type HogFunctionInvocationGlobals = {
             properties: Record<string, any>
         }
     >
+}
+
+export type HogFunctionTestInvocationResult = {
+    status: 'success' | 'error'
+    logs: LogEntry[]
+    result: any
+    errors?: string[]
 }
 
 export type AppMetricsV2Response = {

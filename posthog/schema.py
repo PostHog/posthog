@@ -1949,6 +1949,7 @@ class ChartSettings(BaseModel):
     leftYAxisSettings: Optional[YAxisSettings] = None
     rightYAxisSettings: Optional[YAxisSettings] = None
     seriesBreakdownColumn: Optional[str] = None
+    showLegend: Optional[bool] = None
     stackBars100: Optional[bool] = Field(default=None, description="Whether we fill the bars to 100% in stacked mode")
     xAxis: Optional[ChartAxis] = None
     yAxis: Optional[list[ChartAxis]] = None
@@ -5823,6 +5824,7 @@ class ActorsPropertyTaxonomyQuery(BaseModel):
     )
     group_type_index: Optional[int] = None
     kind: Literal["ActorsPropertyTaxonomyQuery"] = "ActorsPropertyTaxonomyQuery"
+    maxPropertyValues: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
@@ -6156,6 +6158,7 @@ class EventTaxonomyQuery(BaseModel):
     )
     event: str
     kind: Literal["EventTaxonomyQuery"] = "EventTaxonomyQuery"
+    maxPropertyValues: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )

@@ -1,39 +1,68 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
 import { tryJsonParse } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { groupsModel } from '~/models/groupsModel'
-import { HogFunctionInvocationGlobals, LogEntry } from '~/types'
+import { HogFunctionInvocationGlobals, HogFunctionTestInvocationResult } from '~/types'
 
-import { hogFunctionConfigurationLogic, sanitizeConfiguration } from './hogFunctionConfigurationLogic'
+import {
+    hogFunctionConfigurationLogic,
+    HogFunctionConfigurationLogicProps,
+    sanitizeConfiguration,
+} from './hogFunctionConfigurationLogic'
 import type { hogFunctionTestLogicType } from './hogFunctionTestLogicType'
-
-export interface HogFunctionTestLogicProps {
-    id: string
-}
 
 export type HogFunctionTestInvocationForm = {
     globals: string // HogFunctionInvocationGlobals
     mock_async_functions: boolean
 }
 
-export type HogFunctionTestInvocationResult = {
-    status: 'success' | 'error'
-    logs: LogEntry[]
+export type HogTransformationEvent = {
+    event: any
+    uuid: string
+    distinct_id: string
+    timestamp: string
+    properties: any
+}
+
+const convertToTransformationEvent = (result: any): HogTransformationEvent => {
+    const properties = result.properties ?? {}
+    properties.$ip = properties.$ip ?? '89.160.20.129'
+    return {
+        event: result.event,
+        uuid: result.uuid,
+        distinct_id: result.distinct_id,
+        timestamp: result.timestamp,
+        properties,
+    }
+}
+
+const convertFromTransformationEvent = (result: HogTransformationEvent): Record<string, any> => {
+    return {
+        event: result.event,
+        uuid: result.uuid,
+        distinct_id: result.distinct_id,
+        timestamp: result.timestamp,
+        properties: result.properties,
+    }
 }
 
 export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
-    props({} as HogFunctionTestLogicProps),
-    key((props) => props.id),
+    props({} as HogFunctionConfigurationLogicProps),
+    key(({ id, templateId }: HogFunctionConfigurationLogicProps) => {
+        return id ?? templateId ?? 'new'
+    }),
+
     path((id) => ['scenes', 'pipeline', 'hogfunctions', 'hogFunctionTestLogic', id]),
-    connect((props: HogFunctionTestLogicProps) => ({
+    connect((props: HogFunctionConfigurationLogicProps) => ({
         values: [
-            hogFunctionConfigurationLogic({ id: props.id }),
+            hogFunctionConfigurationLogic(props),
             [
                 'configuration',
+                'templateId',
                 'configurationHasErrors',
                 'sampleGlobals',
                 'sampleGlobalsLoading',
@@ -45,7 +74,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
             ['groupTypes'],
         ],
         actions: [
-            hogFunctionConfigurationLogic({ id: props.id }),
+            hogFunctionConfigurationLogic(props),
             ['touchConfigurationField', 'loadSampleGlobalsSuccess', 'loadSampleGlobals', 'setSampleGlobals'],
         ],
     })),
@@ -54,6 +83,8 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         toggleExpanded: (expanded?: boolean) => ({ expanded }),
         saveGlobals: (name: string, globals: HogFunctionInvocationGlobals) => ({ name, globals }),
         deleteSavedGlobals: (index: number) => ({ index }),
+        setTestResultMode: (mode: 'raw' | 'diff') => ({ mode }),
+        receiveExampleGlobals: (globals: HogFunctionInvocationGlobals | null) => ({ globals }),
     }),
     reducers({
         expanded: [
@@ -70,6 +101,13 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
             },
         ],
 
+        testResultMode: [
+            'diff' as 'raw' | 'diff',
+            {
+                setTestResultMode: (_, { mode }) => mode,
+            },
+        ],
+
         savedGlobals: [
             [] as { name: string; globals: HogFunctionInvocationGlobals }[],
             { persist: true, prefix: `${getCurrentTeamId()}__` },
@@ -81,10 +119,24 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
     }),
     listeners(({ values, actions }) => ({
         loadSampleGlobalsSuccess: () => {
-            actions.setTestInvocationValue('globals', JSON.stringify(values.sampleGlobals, null, 2))
+            actions.receiveExampleGlobals(values.sampleGlobals)
         },
         setSampleGlobals: ({ sampleGlobals }) => {
-            actions.setTestInvocationValue('globals', JSON.stringify(sampleGlobals, null, 2))
+            actions.receiveExampleGlobals(sampleGlobals)
+        },
+
+        receiveExampleGlobals: ({ globals }) => {
+            if (!globals) {
+                return
+            }
+
+            if (values.type === 'transformation') {
+                const event = convertToTransformationEvent(globals.event)
+                // Strip down to just the real values
+                actions.setTestInvocationValue('globals', JSON.stringify(event, null, 2))
+            } else {
+                actions.setTestInvocationValue('globals', JSON.stringify(globals, null, 2))
+            }
         },
     })),
 
@@ -109,43 +161,69 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                     return
                 }
 
-                const globals = tryJsonParse(data.globals)
-                const configuration = sanitizeConfiguration(values.configuration)
+                const parsedData = tryJsonParse(data.globals)
+                const configuration = sanitizeConfiguration(values.configuration) as Record<string, any>
+                configuration.template_id = values.templateId
+
+                // Transformations have a simpler UI just showing the event so we need to map it back to the event
+                const globals =
+                    values.type === 'transformation'
+                        ? {
+                              event: parsedData,
+                          }
+                        : parsedData
 
                 try {
-                    const res = await api.hogFunctions.createTestInvocation(props.id, {
+                    const res = await api.hogFunctions.createTestInvocation(props.id ?? 'new', {
                         globals,
                         mock_async_functions: data.mock_async_functions,
                         configuration,
                     })
 
+                    // Modify the result to match better our globals format
+                    if (values.type === 'transformation' && res.result) {
+                        res.result = convertFromTransformationEvent(res.result)
+                    }
+
                     actions.setTestResult(res)
                 } catch (e) {
-                    lemonToast.error(`An unexpected serror occurred while trying to testing the function. ${e}`)
+                    lemonToast.error(`An unexpected server error occurred while testing the function. ${e}`)
                 }
             },
         },
     })),
 
+    selectors(() => ({
+        sortedTestsResult: [
+            (s) => [s.configuration, s.testResult, s.testInvocation],
+            (
+                configuration,
+                testResult,
+                testInvocation
+            ): {
+                input: string
+                output: string
+                hasDiff: boolean
+            } | null => {
+                if (!testResult || configuration.type !== 'transformation') {
+                    return null
+                }
+
+                const input = JSON.stringify(JSON.parse(testInvocation.globals), null, 2)
+                const output = JSON.stringify(testResult.result, null, 2)
+
+                return {
+                    input,
+                    output,
+                    hasDiff: input !== output,
+                }
+            },
+        ],
+    })),
+
     afterMount(({ actions, values }) => {
-        if (values.type === 'email') {
-            const email = {
-                from: 'me@example.com',
-                to: 'you@example.com',
-                subject: 'Hello',
-                html: 'hello world',
-            }
-            actions.setTestInvocationValue(
-                'globals',
-                JSON.stringify({ email, person: values.exampleInvocationGlobals.person }, null, 2)
-            )
-        } else if (values.type === 'broadcast') {
-            actions.setTestInvocationValue(
-                'globals',
-                JSON.stringify({ person: values.exampleInvocationGlobals.person }, null, 2)
-            )
-        } else {
-            actions.setTestInvocationValue('globals', '{/* Please wait, fetching a real event. */}')
+        if (values.type === 'transformation') {
+            actions.receiveExampleGlobals(values.exampleInvocationGlobals)
         }
     }),
 ])
