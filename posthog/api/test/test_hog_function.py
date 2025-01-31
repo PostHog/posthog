@@ -16,7 +16,7 @@ from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import DEFAULT_STATE, HogFunction
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from posthog.cdp.templates.webhook.template_webhook import template as template_webhook
-from posthog.cdp.templates.slack.template_slack import template as slack_template
+from posthog.cdp.templates.slack.template_slack import template as template_slack
 
 
 EXAMPLE_FULL = {
@@ -84,7 +84,7 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
     def _create_slack_function(self, data: Optional[dict] = None):
         payload = {
             "name": "Slack",
-            "template_id": slack_template.id,
+            "template_id": template_slack.id,
             "type": "destination",
             "inputs": {
                 "slack_workspace": {"value": 1},
@@ -103,8 +103,8 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         response = self._create_slack_function()
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["created_by"]["id"] == self.user.id
-        assert response.json()["hog"] == slack_template.hog
-        assert response.json()["inputs_schema"] == slack_template.inputs_schema
+        assert response.json()["hog"] == template_slack.hog
+        assert response.json()["inputs_schema"] == template_slack.inputs_schema
 
     def test_free_users_cannot_override_hog_or_schema(self):
         response = self._create_slack_function(
@@ -117,8 +117,8 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         )
         new_response = response.json()
         # These did not change
-        assert new_response["hog"] == slack_template.hog
-        assert new_response["inputs_schema"] == slack_template.inputs_schema
+        assert new_response["hog"] == template_slack.hog
+        assert new_response["inputs_schema"] == template_slack.inputs_schema
 
     def test_free_users_cannot_use_without_template(self):
         response = self._create_slack_function({"template_id": None})
