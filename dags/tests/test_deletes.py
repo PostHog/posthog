@@ -77,9 +77,7 @@ def test_full_job(cluster: ClickhouseCluster):
 
     # Run the deletion job
     deletes_job.execute_in_process(
-        run_config={
-            "ops": {"create_pending_deletes_table": {"config": {"timestamp": timestamp.isoformat(), "cleanup": False}}}
-        },
+        run_config={"ops": {"create_pending_deletes_table": {"config": {"timestamp": timestamp.isoformat()}}}},
         resources={"cluster": cluster},
     )
 
