@@ -163,15 +163,10 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         if template_id and template_id.startswith("plugin-"):
             template = create_legacy_plugin_template(template_id)
 
-        # If transformations are disabled, preserve the original hog code for existing transformations
-        if (
-            not is_create
-            and "hog" in attrs
-            and hog_type == "transformation"
-            and not settings.HOG_TRANSFORMATIONS_ENABLED
-            and instance is not None
-        ):
-            attrs["hog"] = instance.hog  # Now we know instance exists
+        # If transformations are disabled, use template code
+        # currently we always use template code for transformations
+        if not settings.HOG_TRANSFORMATIONS_ENABLED and template and hog_type == "transformation":
+            attrs["hog"] = template.hog  # Always use template code when transformations are disabled
 
         if not has_addon:
             # In this case they are only allowed to create or update the function with free templates

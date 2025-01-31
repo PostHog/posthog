@@ -1266,49 +1266,52 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
     @override_settings(HOG_TRANSFORMATIONS_ENABLED=False)
-    def test_can_create_transformation_when_transformations_disabled(self):
-        # Should be able to create a new transformation
+    def test_transformation_always_uses_template_code(self):
+        # Create a transformation with a template
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
             data={
                 "type": "transformation",
                 "name": "Test Function",
                 "description": "Test description",
-                "hog": "return event",
+                "template_id": template_slack.id,  # Using an existing template
+                "hog": "return modified_event",  # This should be ignored
                 "inputs": {},
             },
         )
         assert response.status_code == status.HTTP_201_CREATED
-        assert response.json()["hog"] == "return event"
+        assert response.json()["hog"] == template_slack.hog  # Should use template code
 
-    @override_settings(HOG_TRANSFORMATIONS_ENABLED=False)
-    def test_preserves_original_transformation_code_when_disabled(self):
-        # First create a transformation
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/hog_functions/",
-            data={
-                "type": "transformation",
-                "name": "Test Function",
-                "description": "Test description",
-                "hog": "return event",
-                "inputs": {},
-            },
-        )
-        assert response.status_code == status.HTTP_201_CREATED
         function_id = response.json()["id"]
-        original_code = response.json()["hog"]
 
         # Try to modify the transformation code
         response = self.client.patch(
             f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
             data={
-                "hog": "return modified_event",
-                "name": "Updated Name",  # Should allow other fields to be updated
+                "hog": "return another_event",  # This should be ignored
+                "name": "Updated Name",  # Other fields should update
             },
         )
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["hog"] == original_code  # Code should remain unchanged
+        assert response.json()["hog"] == template_slack.hog  # Should still use template code
         assert response.json()["name"] == "Updated Name"  # Other fields should update
+
+    @override_settings(HOG_TRANSFORMATIONS_ENABLED=True)
+    def test_transformation_uses_template_code_even_when_enabled(self):
+        # Even with transformations enabled, we should still use template code
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "type": "transformation",
+                "name": "Test Function",
+                "description": "Test description",
+                "template_id": template_slack.id,
+                "hog": "return custom_event",  # This should be ignored
+                "inputs": {},
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["hog"] == template_slack.hog  # Should always use template code
 
     def test_list_hog_functions_ordered_by_execution_order_and_created_at(self):
         # Create functions with different execution orders and creation times
