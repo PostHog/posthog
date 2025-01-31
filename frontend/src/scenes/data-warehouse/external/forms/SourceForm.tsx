@@ -30,7 +30,7 @@ const sourceFieldToElement = (
     // a field or two. There is also some divergence in creates vs. updates that make this a bit more complex to handle.
     if (field.type === 'text' && field.name === 'connection_string') {
         if (isUpdateMode) {
-            return <></>
+            return <React.Fragment key={field.name} />
         }
         return (
             <React.Fragment key={field.name}>
@@ -137,13 +137,16 @@ const sourceFieldToElement = (
     if (field.type === 'textarea') {
         return (
             <LemonField key={field.name} name={field.name} label={field.label}>
-                <LemonTextArea
-                    className="ph-ignore-input"
-                    data-attr={field.name}
-                    placeholder={field.placeholder}
-                    minRows={4}
-                    defaultValue={lastValue}
-                />
+                {({ value, onChange }) => (
+                    <LemonTextArea
+                        className="ph-ignore-input"
+                        data-attr={field.name}
+                        placeholder={field.placeholder}
+                        minRows={4}
+                        value={value || ''}
+                        onChange={onChange}
+                    />
+                )}
             </LemonField>
         )
     }
