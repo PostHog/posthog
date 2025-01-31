@@ -126,7 +126,9 @@ async def delete_persons_activity(inputs: DeletePersonsActivityInputs) -> tuple[
         conn = await psycopg.AsyncConnection.connect(settings.DATABASE_URL)
         async with conn:
             async with conn.cursor() as cursor:
-                await logger.ainfo("Deleting batch %d of {batches} (%d rows)", inputs.batch_number, inputs.batch_size)
+                await logger.ainfo(
+                    "Deleting batch %d of %d (%d rows)", inputs.batch_number, inputs.batches, inputs.batch_size
+                )
 
                 await cursor.execute(
                     delete_query_person_distinct_ids,
