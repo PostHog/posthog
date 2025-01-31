@@ -64,6 +64,7 @@ import {
     HogFunctionStatus,
     HogFunctionSubTemplateIdType,
     HogFunctionTemplateType,
+    HogFunctionTestInvocationResult,
     HogFunctionType,
     HogFunctionTypeType,
     InsightModel,
@@ -884,6 +885,10 @@ class ApiRequest {
             return apiRequest.withQueryString('show_progress=true')
         }
         return apiRequest
+    }
+
+    public queryAwaited(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('query_awaited')
     }
 
     // Conversations
@@ -1904,11 +1909,11 @@ const api = {
         async createTestInvocation(
             id: HogFunctionType['id'],
             data: {
-                configuration: Partial<HogFunctionType>
+                configuration: Record<string, any>
                 mock_async_functions: boolean
                 globals: any
             }
-        ): Promise<any> {
+        ): Promise<HogFunctionTestInvocationResult> {
             return await new ApiRequest().hogFunction(id).withAction('invocations').create({ data })
         },
 
@@ -2657,6 +2662,32 @@ const api = {
             : Record<string, any>
     > {
         return await new ApiRequest().query().create({
+            ...options,
+            data: {
+                query,
+                client_query_id: queryId,
+                refresh,
+                filters_override: filtersOverride,
+                variables_override: variablesOverride,
+            },
+        })
+    },
+
+    async queryAwaited<T extends Record<string, any> = QuerySchema>(
+        query: T,
+        options?: ApiMethodOptions,
+        queryId?: string,
+        refresh?: RefreshType,
+        filtersOverride?: DashboardFilter | null,
+        variablesOverride?: Record<string, HogQLVariable> | null
+    ): Promise<
+        T extends { [response: string]: any }
+            ? T['response'] extends infer P | undefined
+                ? P
+                : T['response']
+            : Record<string, any>
+    > {
+        return await new ApiRequest().queryAwaited().create({
             ...options,
             data: {
                 query,

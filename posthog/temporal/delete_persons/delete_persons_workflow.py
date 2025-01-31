@@ -17,7 +17,7 @@ from posthog.temporal.common.logger import get_internal_logger
 SELECT_QUERY = """
     SELECT id
     FROM posthog_person
-    WHERE team_id=%(team_id)s {person_id_filter}
+    WHERE team_id=%(team_id)s {person_ids_filter}
     ORDER BY id ASC
     LIMIT %(limit)s
 """
@@ -52,7 +52,7 @@ class MogrifyDeleteQueriesActivityInputs:
     """Inputs for the `mogrify_delete_queries_activity`."""
 
     team_id: int
-    person_ids: list[str] = dataclasses.field(default_factory=list)
+    person_ids: list[int] = dataclasses.field(default_factory=list)
     batch_size: int = 1000
 
 
@@ -63,7 +63,7 @@ async def mogrify_delete_queries_activity(inputs: MogrifyDeleteQueriesActivityIn
         logger = get_internal_logger()
 
         select_query = SELECT_QUERY.format(
-            person_ids_filter=f"AND id IN ({inputs.person_ids})" if inputs.person_ids else ""
+            person_ids_filter=f"AND id IN {tuple(inputs.person_ids)}" if inputs.person_ids else ""
         )
         delete_query_person_distinct_ids = DELETE_QUERY_PERSON_DISTINCT_IDS.format(select_query=select_query)
         delete_query_person_override = DELETE_QUERY_PERSON_OVERRIDE.format(select_query=select_query)
@@ -103,7 +103,7 @@ class DeletePersonsActivityInputs:
     """Inputs for the `delete_persons_activity`."""
 
     team_id: int
-    person_ids: list[str] = dataclasses.field(default_factory=list)
+    person_ids: list[int] = dataclasses.field(default_factory=list)
     batch_number: int = 1
     batches: int = 1
     batch_size: int = 1000
@@ -116,7 +116,7 @@ async def delete_persons_activity(inputs: DeletePersonsActivityInputs) -> tuple[
         logger = get_internal_logger()
 
         select_query = SELECT_QUERY.format(
-            person_ids_filter=f"AND id IN ({inputs.person_ids})" if inputs.person_ids else ""
+            person_ids_filter=f"AND id IN {tuple(inputs.person_ids)}" if inputs.person_ids else ""
         )
         delete_query_person_distinct_ids = DELETE_QUERY_PERSON_DISTINCT_IDS.format(select_query=select_query)
         delete_query_person_override = DELETE_QUERY_PERSON_OVERRIDE.format(select_query=select_query)
@@ -165,7 +165,7 @@ class DeletePersonsWorkflowInputs:
     """Inputs for the `DeletePersonsWorkflow`."""
 
     team_id: int
-    person_ids: list[str] = dataclasses.field(default_factory=list)
+    person_ids: list[int] = dataclasses.field(default_factory=list)
     batches: int = 1
     batch_size: int = 1000
 

@@ -8,7 +8,7 @@ import { humanFriendlyNumber } from 'lib/utils'
 import posthog from 'posthog-js'
 import { urls } from 'scenes/urls'
 
-import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema'
+import { ExperimentFunnelsQuery, ExperimentTrendsQuery, NodeKind } from '~/queries/schema'
 import {
     FilterLogicalOperator,
     InsightType,
@@ -327,6 +327,12 @@ export function SummaryTable({
                                     },
                                 ],
                             },
+                            date_from: experiment?.start_date,
+                            date_to: experiment?.end_date,
+                            filter_test_accounts:
+                                metric.kind === NodeKind.ExperimentTrendsQuery
+                                    ? metric.count_query.filterTestAccounts
+                                    : metric.funnels_query.filterTestAccounts,
                         }
                         router.actions.push(urls.replay(ReplayTabs.Home, filterGroup))
                         posthog.capture('viewed recordings from experiment', { variant: variantKey })
@@ -340,7 +346,11 @@ export function SummaryTable({
 
     return (
         <div className="mb-4">
-            <LemonTable loading={false} columns={columns} dataSource={tabularExperimentResults(0)} />
+            <LemonTable
+                loading={false}
+                columns={columns}
+                dataSource={tabularExperimentResults(metricIndex, isSecondary)}
+            />
         </div>
     )
 }

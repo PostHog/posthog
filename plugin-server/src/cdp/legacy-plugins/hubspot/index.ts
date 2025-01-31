@@ -2,7 +2,7 @@ import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 
 import { Response } from '~/src/utils/fetch'
 
-import { LegacyPlugin, LegacyPluginMeta } from '../types'
+import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from '../types'
 import metadata from './plugin.json'
 
 const hubspotPropsMap = {
@@ -24,7 +24,7 @@ const hubspotPropsMap = {
     companyWebsite: 'website',
 }
 
-export async function setupPlugin({ config, global, fetch }: LegacyPluginMeta) {
+export async function setupPlugin({ config, global, fetch }: LegacyDestinationPluginMeta) {
     try {
         global.hubspotAccessToken = config.hubspotAccessToken
 
@@ -46,7 +46,7 @@ export async function setupPlugin({ config, global, fetch }: LegacyPluginMeta) {
     }
 }
 
-export async function onEvent(event: ProcessedPluginEvent, meta: LegacyPluginMeta) {
+export async function onEvent(event: ProcessedPluginEvent, meta: LegacyDestinationPluginMeta) {
     const { config, global } = meta
     const triggeringEvents = (config.triggeringEvents || '').split(',')
 
@@ -74,7 +74,7 @@ export async function onEvent(event: ProcessedPluginEvent, meta: LegacyPluginMet
 }
 
 async function createHubspotContact(
-    meta: LegacyPluginMeta,
+    meta: LegacyDestinationPluginMeta,
     email: string,
     properties: Record<string, any>,
     accessToken: string,
@@ -179,7 +179,7 @@ function getEmailFromEvent(event: ProcessedPluginEvent): string | null {
     return null
 }
 
-export const hubspotPlugin: LegacyPlugin = {
+export const hubspotPlugin: LegacyDestinationPlugin = {
     id: 'hubspot',
     metadata: metadata as any,
     setupPlugin,
