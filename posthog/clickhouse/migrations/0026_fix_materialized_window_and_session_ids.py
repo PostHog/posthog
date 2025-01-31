@@ -1,47 +1,52 @@
-from infi.clickhouse_orm import migrations
-
+from posthog.clickhouse.client.connection import NodeRole
+from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.clickhouse.materialized_columns import get_materialized_column_for_property
 from posthog.client import sync_execute
 from posthog.settings import CLICKHOUSE_CLUSTER
+from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 
-def does_column_exist(database, table_name, column_name):
+def does_column_exist(table_name, column_name):
     cols = sync_execute(
         f"""
             SELECT 1
             FROM system.columns
-            WHERE table = '{table_name}' AND name = '{column_name}' AND database = '{database}'
+            WHERE table = '{table_name}' AND name = '{column_name}' AND database = '{CLICKHOUSE_DATABASE}'
         """
     )
     return len(cols) == 1
 
 
-def ensure_only_new_column_exists(database, table_name, old_column_name, new_column_name):
-    if does_column_exist(database, table_name, new_column_name):
+def ensure_only_new_column_exists(table_name, old_column_name, new_column_name, node_role):
+    if does_column_exist(table_name, new_column_name):
         # New column already exists, so just drop the old one
-        sync_execute(
+        return run_sql_with_exceptions(
             f"""
                 ALTER TABLE {table_name}
-                ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+                {"ON CLUSTER '{cluster}'".format(cluster=CLICKHOUSE_CLUSTER) if node_role == NodeRole.WORKER else ""}
                 DROP COLUMN IF EXISTS {old_column_name}
-            """
+            """,
+            node_role=node_role,
         )
     else:
         # New column does not exist, so rename the old one to the new one
-        sync_execute(
+        return run_sql_with_exceptions(
             f"""
                 ALTER TABLE {table_name}
-                ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+                {"ON CLUSTER '{cluster}'".format(cluster=CLICKHOUSE_CLUSTER) if node_role == NodeRole.WORKER else ""}
                 RENAME COLUMN IF EXISTS {old_column_name} TO {new_column_name}
-            """
+            """,
+            node_role=node_role,
         )
 
 
-def materialize_session_and_window_id(database):
+def materialize_session_and_window_id():
     try:
         from ee.clickhouse.materialized_columns.columns import materialize
     except ImportError:
         return
+
+    operations = []
 
     properties = ["$session_id", "$window_id"]
     for property_name in properties:
@@ -75,8 +80,23 @@ def materialize_session_and_window_id(database):
             possible_old_column_names.add(current_materialized_column.name)
 
         for possible_old_column_name in possible_old_column_names:
-            ensure_only_new_column_exists(database, "sharded_events", possible_old_column_name, property_name)
-            ensure_only_new_column_exists(database, "events", possible_old_column_name, property_name)
+            operations.append(
+                ensure_only_new_column_exists(
+                    "sharded_events", possible_old_column_name, property_name, node_role=NodeRole.WORKER
+                )
+            )
+            operations.append(
+                ensure_only_new_column_exists(
+                    "events", possible_old_column_name, property_name, node_role=NodeRole.WORKER
+                )
+            )
+            operations.append(
+                ensure_only_new_column_exists(
+                    "events", possible_old_column_name, property_name, node_role=NodeRole.COORDINATOR
+                )
+            )
+
+    return operations
 
 
-operations = [migrations.RunPython(materialize_session_and_window_id)]
+operations = materialize_session_and_window_id()

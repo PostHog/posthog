@@ -1,3 +1,4 @@
+from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.settings import CLICKHOUSE_CLUSTER
 
@@ -12,3 +13,6 @@ operations = []
 for column_name, property in already_materialized_columns:
     statement = f"ALTER TABLE events ON CLUSTER '{CLICKHOUSE_CLUSTER}' COMMENT COLUMN IF EXISTS {column_name} 'column_materializer::{property}'"
     operations.append(run_sql_with_exceptions(statement))
+
+    statement = f"ALTER TABLE events COMMENT COLUMN IF EXISTS {column_name} 'column_materializer::{property}'"
+    operations.append(run_sql_with_exceptions(statement, node_role=NodeRole.COORDINATOR))

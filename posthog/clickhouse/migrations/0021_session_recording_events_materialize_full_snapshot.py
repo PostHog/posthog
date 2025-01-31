@@ -1,36 +1,36 @@
-from infi.clickhouse_orm import migrations
-
-from posthog.client import sync_execute
+from posthog.clickhouse.client.connection import NodeRole
+from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
+from posthog.session_recordings.sql.session_recording_event_sql import ON_CLUSTER_CLAUSE
 from posthog.settings import CLICKHOUSE_CLUSTER
 
 SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL = (
-    lambda: """
+    lambda on_cluster=True: """
     ALTER TABLE session_recording_events
-    ON CLUSTER '{cluster}'
+    {on_cluster_clause}
     COMMENT COLUMN has_full_snapshot 'column_materializer::has_full_snapshot'
-""".format(cluster=CLICKHOUSE_CLUSTER)
+""".format(on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "")
 )
 
 
-def create_has_full_snapshot_materialized_column(database):
-    sync_execute(
+operations = [
+    run_sql_with_exceptions(
         f"""
         ALTER TABLE sharded_session_recording_events
         ON CLUSTER '{CLICKHOUSE_CLUSTER}'
         ADD COLUMN IF NOT EXISTS
         has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot')
     """
-    )
-    sync_execute(
+    ),
+    run_sql_with_exceptions(
         f"""
         ALTER TABLE session_recording_events
         ON CLUSTER '{CLICKHOUSE_CLUSTER}'
         ADD COLUMN IF NOT EXISTS
         has_full_snapshot Int8
     """
-    )
-
-    sync_execute(SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL())
-
-
-operations = [migrations.RunPython(create_has_full_snapshot_materialized_column)]
+    ),
+    run_sql_with_exceptions(SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL()),
+    run_sql_with_exceptions(
+        SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL(on_cluster=False), node_role=NodeRole.COORDINATOR
+    ),
+]

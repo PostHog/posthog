@@ -1,3 +1,4 @@
+from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.models.group.sql import (
     GROUPS_TABLE_MV_SQL,
@@ -9,4 +10,5 @@ operations = [
     run_sql_with_exceptions(GROUPS_TABLE_SQL()),
     run_sql_with_exceptions(KAFKA_GROUPS_TABLE_SQL()),
     run_sql_with_exceptions(GROUPS_TABLE_MV_SQL),
+    run_sql_with_exceptions(GROUPS_TABLE_SQL(on_cluster=False), node_role=NodeRole.COORDINATOR),
 ]

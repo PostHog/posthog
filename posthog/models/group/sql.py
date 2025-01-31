@@ -4,13 +4,15 @@ from posthog.clickhouse.table_engines import ReplacingMergeTree
 from posthog.kafka_client.topics import KAFKA_GROUPS
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
+ON_CLUSTER_CLAUSE = lambda: f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+
 GROUPS_TABLE = "groups"
 
 DROP_GROUPS_TABLE_SQL = f"DROP TABLE {GROUPS_TABLE} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
 TRUNCATE_GROUPS_TABLE_SQL = f"TRUNCATE TABLE {GROUPS_TABLE} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
 
 GROUPS_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
     group_type_index UInt8,
     group_key VARCHAR,
@@ -22,22 +24,22 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 """
 
 GROUPS_TABLE_ENGINE = lambda: ReplacingMergeTree(GROUPS_TABLE, ver="_timestamp")
-GROUPS_TABLE_SQL = lambda: (
+GROUPS_TABLE_SQL = lambda on_cluster=True: (
     GROUPS_TABLE_BASE_SQL
     + """Order By (team_id, group_type_index, group_key)
 {storage_policy}
 """
 ).format(
     table_name=GROUPS_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
+    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
     engine=GROUPS_TABLE_ENGINE(),
     extra_fields=KAFKA_COLUMNS,
     storage_policy=STORAGE_POLICY(),
 )
 
-KAFKA_GROUPS_TABLE_SQL = lambda: GROUPS_TABLE_BASE_SQL.format(
+KAFKA_GROUPS_TABLE_SQL = lambda on_cluster=True: GROUPS_TABLE_BASE_SQL.format(
     table_name="kafka_" + GROUPS_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
+    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
     engine=kafka_engine(KAFKA_GROUPS),
     extra_fields="",
 )

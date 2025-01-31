@@ -174,7 +174,7 @@ PERSON_DISTINCT_ID2_TABLE = "person_distinct_id2"
 
 # NOTE: This table base SQL is also used for distinct ID overrides!
 PERSON_DISTINCT_ID2_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
     team_id Int64,
     distinct_id VARCHAR,
@@ -186,7 +186,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 """
 
 PERSON_DISTINCT_ID2_TABLE_ENGINE = lambda: ReplacingMergeTree(PERSON_DISTINCT_ID2_TABLE, ver="version")
-PERSON_DISTINCT_ID2_TABLE_SQL = lambda: (
+PERSON_DISTINCT_ID2_TABLE_SQL = lambda on_cluster=True: (
     PERSON_DISTINCT_ID2_TABLE_BASE_SQL
     + """
     ORDER BY (team_id, distinct_id)
@@ -194,7 +194,7 @@ PERSON_DISTINCT_ID2_TABLE_SQL = lambda: (
     """
 ).format(
     table_name=PERSON_DISTINCT_ID2_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
+    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
     engine=PERSON_DISTINCT_ID2_TABLE_ENGINE(),
     extra_fields=f"""
     {KAFKA_COLUMNS}
@@ -203,9 +203,9 @@ PERSON_DISTINCT_ID2_TABLE_SQL = lambda: (
     """,
 )
 
-KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL = lambda: PERSON_DISTINCT_ID2_TABLE_BASE_SQL.format(
+KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL = lambda on_cluster=True: PERSON_DISTINCT_ID2_TABLE_BASE_SQL.format(
     table_name="kafka_" + PERSON_DISTINCT_ID2_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
+    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
     engine=kafka_engine(KAFKA_PERSON_DISTINCT_ID),
     extra_fields="",
 )
@@ -245,7 +245,7 @@ PERSON_DISTINCT_ID_OVERRIDES_TABLE_ENGINE = lambda: ReplacingMergeTree(
     PERSON_DISTINCT_ID_OVERRIDES_TABLE, ver="version"
 )
 
-PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL = lambda: (
+PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL = lambda on_cluster=True: (
     PERSON_DISTINCT_ID_OVERRIDES_TABLE_BASE_SQL
     + """
     ORDER BY (team_id, distinct_id)
@@ -253,7 +253,7 @@ PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL = lambda: (
     """
 ).format(
     table_name=PERSON_DISTINCT_ID_OVERRIDES_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
+    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
     engine=PERSON_DISTINCT_ID_OVERRIDES_TABLE_ENGINE(),
     extra_fields=f"""
     {KAFKA_COLUMNS_WITH_PARTITION}
@@ -261,11 +261,13 @@ PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL = lambda: (
     """,
 )
 
-KAFKA_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL = lambda: PERSON_DISTINCT_ID_OVERRIDES_TABLE_BASE_SQL.format(
-    table_name="kafka_" + PERSON_DISTINCT_ID_OVERRIDES_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
-    engine=kafka_engine(KAFKA_PERSON_DISTINCT_ID, group="clickhouse-person-distinct-id-overrides"),
-    extra_fields="",
+KAFKA_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL = (
+    lambda on_cluster=True: PERSON_DISTINCT_ID_OVERRIDES_TABLE_BASE_SQL.format(
+        table_name="kafka_" + PERSON_DISTINCT_ID_OVERRIDES_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
+        engine=kafka_engine(KAFKA_PERSON_DISTINCT_ID, group="clickhouse-person-distinct-id-overrides"),
+        extra_fields="",
+    )
 )
 
 PERSON_DISTINCT_ID_OVERRIDES_MV_SQL = """
