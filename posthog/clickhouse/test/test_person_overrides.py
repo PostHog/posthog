@@ -115,8 +115,8 @@ def test_person_overrides_dict():
 
     The dictionary should always favor the latest version after every reload.
     """
-    sync_execute(PERSON_OVERRIDES_CREATE_TABLE_SQL)
-    sync_execute(PERSON_OVERRIDES_CREATE_DICTIONARY_SQL)
+    sync_execute(PERSON_OVERRIDES_CREATE_TABLE_SQL())
+    sync_execute(PERSON_OVERRIDES_CREATE_DICTIONARY_SQL())
 
     values: PersonOverrideValues = {
         "team_id": 1,
