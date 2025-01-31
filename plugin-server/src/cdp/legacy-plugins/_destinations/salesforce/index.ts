@@ -3,8 +3,8 @@ import { CacheExtension, Properties, RetryError } from '@posthog/plugin-scaffold
 import type { Response } from 'node-fetch'
 import { URL } from 'url'
 
-import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from '../../../types'
-import metadata from '../plugin.json'
+import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from '../../types'
+import metadata from './plugin.json'
 
 export interface EventSink {
     salesforcePath: string

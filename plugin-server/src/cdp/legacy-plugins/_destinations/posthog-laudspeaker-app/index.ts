@@ -353,6 +353,6 @@ function constructPayload(outPayload: any, inPayload: any, mapping: any, direct 
 export const laudspeakerPlugin: LegacyDestinationPlugin = {
     id: 'posthog-laudspeaker-app',
     metadata: metadata as any,
-    setupPlugin: () => Promise.resolve(),
+    setupPlugin,
     onEvent,
 }

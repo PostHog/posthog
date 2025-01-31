@@ -81,7 +81,7 @@ exports[`CdpCyclotronWorkerPlugins smoke tests should run the plugin: { name: 'l
   },
   {
     "level": "error",
-    "message": "Plugin errored: Cannot read properties of undefined (reading 'headers')",
+    "message": "Plugin errored: Cannot read properties ssof undefined (reading 'headers')",
   },
 ]
 `;

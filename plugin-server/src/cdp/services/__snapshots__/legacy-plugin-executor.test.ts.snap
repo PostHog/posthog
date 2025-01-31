@@ -11,14 +11,6 @@ exports[`LegacyPluginExecutorService smoke tests should run the destination plug
 ]
 `;
 
-exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'hubspot', plugin: [Object] } 1`] = `
-[
-  "Executing plugin hubspot",
-  "Created Hubspot Contact for test@posthog.com",
-  "Execution successful",
-]
-`;
-
 exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'hubspot-plugin', plugin: [Object] } 1`] = `
 [
   "Executing plugin hubspot-plugin",
@@ -66,7 +58,7 @@ exports[`LegacyPluginExecutorService smoke tests should run the destination plug
 exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'posthog-laudspeaker-app', plugin: [Object] } 1`] = `
 [
   "Executing plugin posthog-laudspeaker-app",
-  "Plugin execution failed: Cannot read properties of undefined (reading 'headers')",
+  "Execution successful",
 ]
 `;
 
