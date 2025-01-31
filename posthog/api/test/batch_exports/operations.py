@@ -157,6 +157,16 @@ def get_batch_export_backfill_ok(client: TestClient, team_id: int, batch_export_
     return response.json()
 
 
+def cancel_batch_export_backfill(client: TestClient, team_id: int, batch_export_id: str, backfill_id: str):
+    return client.post(f"/api/projects/{team_id}/batch_exports/{batch_export_id}/backfills/{backfill_id}/cancel")
+
+
+def cancel_batch_export_backfill_ok(client: TestClient, team_id: int, batch_export_id: str, backfill_id: str):
+    response = client.post(f"/api/projects/{team_id}/batch_exports/{batch_export_id}/backfills/{backfill_id}/cancel")
+    assert response.status_code == status.HTTP_200_OK, response.json()
+    return response.json()
+
+
 @async_to_sync
 async def wait_for_workflow_executions(
     temporal: temporalio.client.Client, query: str, timeout: int = 30, sleep: int = 1

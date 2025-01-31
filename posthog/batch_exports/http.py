@@ -31,6 +31,7 @@ from posthog.batch_exports.service import (
     fetch_earliest_backfill_start_at,
     pause_batch_export,
     sync_batch_export,
+    sync_cancel_running_batch_export_backfill,
     unpause_batch_export,
 )
 from posthog.constants import AvailableFeature
@@ -143,7 +144,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
         batch_export_run = self.get_object()
 
         temporal = sync_connect()
-        backfill_id = backfill_export(
+        backfill_workflow_id = backfill_export(
             temporal,
             str(batch_export_run.batch_export.id),
             self.team_id,
@@ -151,7 +152,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
             batch_export_run.data_interval_end,
         )
 
-        return response.Response({"backfill_id": backfill_id})
+        return response.Response({"backfill_id": backfill_workflow_id})
 
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def cancel(self, *args, **kwargs) -> response.Response:
@@ -159,9 +160,14 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
 
         batch_export_run: BatchExportRun = self.get_object()
 
-        temporal = sync_connect()
-        # TODO: check status of run beforehand
-        cancel_running_batch_export_run(temporal, batch_export_run)
+        if (
+            batch_export_run.status == BatchExportRun.Status.RUNNING
+            or batch_export_run.status == BatchExportRun.Status.STARTING
+        ):
+            temporal = sync_connect()
+            cancel_running_batch_export_run(temporal, batch_export_run)
+        else:
+            raise ValidationError(f"Cannot cancel a run that is in '{batch_export_run.status}' status")
 
         return response.Response({"cancelled": True})
 
@@ -471,8 +477,8 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
                 start_at = earliest_backfill_start_at
 
         if start_at is None or end_at is None:
-            backfill_id = backfill_export(temporal, str(batch_export.pk), self.team_id, start_at, end_at)
-            return response.Response({"backfill_id": backfill_id})
+            backfill_workflow_id = backfill_export(temporal, str(batch_export.pk), self.team_id, start_at, end_at)
+            return response.Response({"backfill_id": backfill_workflow_id})
 
         if start_at >= end_at:
             raise ValidationError("The initial backfill datetime 'start_at' happens after 'end_at'")
@@ -483,11 +489,11 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
             )
 
         try:
-            backfill_id = backfill_export(temporal, str(batch_export.pk), self.team_id, start_at, end_at)
+            backfill_workflow_id = backfill_export(temporal, str(batch_export.pk), self.team_id, start_at, end_at)
         except BatchExportWithNoEndNotAllowedError:
             raise ValidationError("Backfilling a BatchExport with no end date is not allowed")
 
-        return response.Response({"backfill_id": backfill_id})
+        return response.Response({"backfill_id": backfill_workflow_id})
 
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def pause(self, request: request.Request, *args, **kwargs) -> response.Response:
@@ -582,3 +588,20 @@ class BatchExportBackfillViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelV
     def safely_get_queryset(self, queryset):
         # TODO: add filters?
         return queryset.filter(batch_export_id=self.kwargs["parent_lookup_batch_export_id"])
+
+    @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
+    def cancel(self, *args, **kwargs) -> response.Response:
+        """Cancel a batch export backfill."""
+
+        batch_export_backfill: BatchExportBackfill = self.get_object()
+
+        if (
+            batch_export_backfill.status == BatchExportBackfill.Status.RUNNING
+            or batch_export_backfill.status == BatchExportBackfill.Status.STARTING
+        ):
+            temporal = sync_connect()
+            sync_cancel_running_batch_export_backfill(temporal, batch_export_backfill)
+        else:
+            raise ValidationError(f"Cannot cancel a backfill that is in '{batch_export_backfill.status}' status")
+
+        return response.Response({"cancelled": True})
