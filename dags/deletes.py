@@ -132,9 +132,9 @@ class PendingPersonEventDeletesTable:
     @property
     def person_event_delete_mutation_runner(self) -> MutationRunner:
         return MutationRunner(
-            "sharded_events",
+            EVENTS_DATA_TABLE(),
             f"""
-            ALTER TABLE {EVENTS_DATA_TABLE()} DELETE WHERE (uuid, event, team_id, person_id, timestamp) IN (
+            DELETE FROM {EVENTS_DATA_TABLE()} WHERE (uuid, event, team_id, person_id, timestamp) IN (
                 SELECT e.uuid, e.event, e.team_id, e.person_id, e.timestamp
                 FROM events e
                 INNER JOIN {self.qualified_name} d
