@@ -3748,6 +3748,7 @@ export type IntegrationKind =
     | 'google-pubsub'
     | 'google-cloud-storage'
     | 'google-ads'
+    | 'linkedin-ads'
     | 'snapchat'
 
 export interface IntegrationType {
@@ -4596,6 +4597,7 @@ export type HogFunctionInputSchemaType = {
     required?: boolean
     default?: any
     secret?: boolean
+    templating?: boolean
     description?: string
     integration?: string
     integration_key?: string
@@ -4839,6 +4841,17 @@ export type GoogleAdsConversionActionType = {
     id: string
     name: string
     resourceName: string
+}
+
+export type LinkedInAdsConversionRuleType = {
+    id: number
+    name: string
+}
+
+export type LinkedInAdsAccountType = {
+    id: number
+    name: string
+    campaigns: string
 }
 
 export type DataColorThemeModel = {
