@@ -318,10 +318,9 @@ class MutationRunner:
 
     def enqueue(self, client: Client) -> Mutation:
         """Enqueue the mutation (or return the existing mutation if it is already running or has run.)"""
-        if task := self.find(client):
-            return task
-
-        created_mutation_log_text_pattern = re.compile(r"^Created mutation with ID (\w+)")
+        # we'd avoid finding existing mutations if we are using the id from the time of submission
+        # if task := self.find(client):
+        #    return task
 
         with capture_logs(client) as logs:
             if self.is_lightweight_delete:
@@ -332,9 +331,10 @@ class MutationRunner:
                     self.parameters,
                 )
 
+        created_mutation_log_text_pattern = re.compile(r"^Created mutation with ID (\w+)")
         for record in logs:
             if match := created_mutation_log_text_pattern.match(record["text"]):
-                return Mutation(self.table, match.groups(0))
+                return Mutation(self.table, match.group(1))
 
         raise Exception("could not find mutation id")
 
