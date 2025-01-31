@@ -310,10 +310,6 @@ def changes_between(
 
         for field in filtered_fields:
             field_name = field.name
-
-            # Use the override name if it exists
-            display_name = field_name_overrides.get(model_type, {}).get(field_name, field_name)
-
             left = safely_get_field_value(previous, field_name)
             right = safely_get_field_value(current, field_name)
 
@@ -335,6 +331,8 @@ def changes_between(
             left_value = "masked" if field_name in masked_fields else left
             right_value = "masked" if field_name in masked_fields else right
 
+            # Use the override name if it exists
+            display_name = field_name_overrides.get(model_type, {}).get(field_name, field_name)
             if left_is_none and right_is_none:
                 pass  # could be {} vs None
             elif left_is_none and not right_is_none:
