@@ -1628,7 +1628,7 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         tabularExperimentResults: [
-            (s) => [s.experiment, s.metricResults, s.getMetricType],
+            (s) => [s.experiment, s.metricResults, s.secondaryMetricResults, s.getMetricType],
             (
                     experiment,
                     metricResults: (
@@ -1636,12 +1636,19 @@ export const experimentLogic = kea<experimentLogicType>([
                         | CachedExperimentTrendsQueryResponse
                         | null
                     )[],
+                    secondaryMetricResults: (
+                        | CachedExperimentFunnelsQueryResponse
+                        | CachedExperimentTrendsQueryResponse
+                        | null
+                    )[],
                     getMetricType
                 ) =>
-                (metricIndex: number = 0): any[] => {
+                (metricIndex: number = 0, isSecondary: boolean = false): any[] => {
                     const tabularResults = []
-                    const metricType = getMetricType(experiment.metrics[metricIndex])
-                    const result = metricResults?.[metricIndex]
+                    const metricType = isSecondary
+                        ? getMetricType(experiment.metrics_secondary[metricIndex])
+                        : getMetricType(experiment.metrics[metricIndex])
+                    const result = isSecondary ? secondaryMetricResults[metricIndex] : metricResults[metricIndex]
 
                     if (result) {
                         for (const variantObj of result.variants) {

@@ -271,6 +271,7 @@ export type HogFunctionInputSchemaType = {
     requires_field?: string
     integration_field?: string
     requiredScopes?: string
+    templating?: boolean
 }
 
 export type HogFunctionTypeType =

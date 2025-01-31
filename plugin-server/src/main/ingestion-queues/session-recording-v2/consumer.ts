@@ -173,12 +173,11 @@ export class SessionRecordingIngester {
     }
 
     private async processMessages(parsedMessages: MessageWithTeam[]) {
-        await this.sessionBatchManager.withBatch(async (batch) => {
-            for (const message of parsedMessages) {
-                this.consume(message, batch)
-            }
-            return Promise.resolve()
-        })
+        const batch = this.sessionBatchManager.getCurrentBatch()
+        for (const message of parsedMessages) {
+            this.consume(message, batch)
+        }
+        return Promise.resolve()
     }
 
     private consume(message: MessageWithTeam, batch: SessionBatchRecorder) {
@@ -301,7 +300,7 @@ export class SessionRecordingIngester {
         return this.assignedTopicPartitions.map((x) => x.partition)
     }
 
-    private async onRevokePartitions(topicPartitions: TopicPartition[]): Promise<void> {
+    private onRevokePartitions(topicPartitions: TopicPartition[]): Promise<void> {
         /**
          * The revoke_partitions indicates that the consumer group has had partitions revoked.
          * As a result, we need to drop all sessions currently managed for the revoked partitions
@@ -309,11 +308,12 @@ export class SessionRecordingIngester {
 
         const revokedPartitions = topicPartitions.map((x) => x.partition)
         if (!revokedPartitions.length) {
-            return
+            return Promise.resolve()
         }
 
         SessionRecordingIngesterMetrics.resetSessionsHandled()
-        await this.sessionBatchManager.discardPartitions(revokedPartitions)
+        this.sessionBatchManager.discardPartitions(revokedPartitions)
+        return Promise.resolve()
     }
 
     private async commitOffsets(offsets: TopicPartitionOffset[]): Promise<void> {

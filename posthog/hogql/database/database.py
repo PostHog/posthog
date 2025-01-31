@@ -373,7 +373,7 @@ def create_hogql_database(
                     def to_printed_clickhouse(self, context):
                         return self.parent_table.to_printed_clickhouse(context)
 
-                s3_table.fields["properties"] = WarehouseProperties()
+                s3_table.fields["properties"] = WarehouseProperties(hidden=True)
 
             warehouse_tables[table.name] = s3_table
 
@@ -743,12 +743,13 @@ def serialize_fields(
         else:
             hogql_value = str(field_key)
 
-        if field_key == "team_id" and table_type == "posthog":
-            pass
-        elif isinstance(field, DatabaseField):
+        if isinstance(field, FieldOrTable):
             if field.hidden:
                 continue
 
+        if field_key == "team_id" and table_type == "posthog":
+            pass
+        elif isinstance(field, DatabaseField):
             if isinstance(field, IntegerDatabaseField):
                 field_output.append(
                     DatabaseSchemaField(
