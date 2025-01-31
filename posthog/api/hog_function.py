@@ -462,57 +462,59 @@ class HogFunctionViewSet(
             raise exceptions.ValidationError("No orders provided")
 
         with transaction.atomic():
-            # First collect all functions to ensure they exist and are valid
-            functions = {}
-            for function_id_str, _ in orders.items():
-                try:
-                    function = HogFunction.objects.get(
-                        id=function_id_str, team=team, type="transformation", deleted=False
-                    )
-                    functions[function_id_str] = function
-                except HogFunction.DoesNotExist:
-                    raise exceptions.ValidationError(f"HogFunction with id {function_id_str} does not exist")
+            # Get all functions in a single query and validate them
+            function_ids = list(orders.keys())
+            functions = {
+                str(f.id): f
+                for f in HogFunction.objects.filter(
+                    id__in=function_ids, team=team, type="transformation", deleted=False
+                )
+            }
+
+            # Validate all functions exist
+            missing_ids = set(function_ids) - set(functions.keys())
+            if missing_ids:
+                raise exceptions.ValidationError(f"HogFunction with id {missing_ids.pop()} does not exist")
 
             # Update orders and create activity logs
             from django.utils import timezone
 
             current_time = timezone.now()
 
-            for function_id_str, function in functions.items():
-                new_order = orders[function_id_str]
+            for function_id, function in functions.items():
+                new_order = orders[function_id]
                 old_order = function.execution_order
 
-                try:
+                if old_order != new_order:
                     function.execution_order = new_order
                     function.updated_at = current_time
+
+                    log_activity(
+                        organization_id=self.organization.id,
+                        team_id=self.team_id,
+                        user=request.user,
+                        item_id=str(function.id),
+                        was_impersonated=is_impersonated_session(request),
+                        scope="HogFunction",
+                        activity="updated",
+                        detail=Detail(
+                            name=function.name,
+                            type="transformation",
+                            changes=[
+                                Change(
+                                    type="transformation",
+                                    action="changed",
+                                    field="priority",
+                                    before=str(old_order),
+                                    after=str(new_order),
+                                )
+                            ],
+                        ),
+                    )
+
                     function.save(update_fields=["execution_order", "updated_at"])
 
-                    if old_order != new_order:
-                        log_activity(
-                            organization_id=self.organization.id,
-                            team_id=self.team_id,
-                            user=request.user,
-                            item_id=str(function.id),
-                            was_impersonated=is_impersonated_session(request),
-                            scope="HogFunction",
-                            activity="updated",
-                            detail=Detail(
-                                name=function.name,
-                                type=function.type or "transformation",
-                                changes=[
-                                    Change(
-                                        type="HogFunction",
-                                        action="changed",
-                                        field="priority",
-                                        before=old_order,
-                                        after=new_order,
-                                    )
-                                ],
-                            ),
-                        )
-                except (ValueError, TypeError):
-                    raise exceptions.ValidationError(f"Invalid order value for function {function_id_str}")
-
+        # Get final ordered list in a single query
         transformations = HogFunction.objects.filter(team=team, type="transformation", deleted=False).order_by(
             "execution_order"
         )
