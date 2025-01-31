@@ -1,7 +1,8 @@
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { CacheExtension, Properties, RetryError } from '@posthog/plugin-scaffold'
-import type { Response } from 'node-fetch'
 import { URL } from 'url'
+
+import type { Response } from '~/src/utils/fetch'
 
 import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from '../../types'
 import metadata from './plugin.json'

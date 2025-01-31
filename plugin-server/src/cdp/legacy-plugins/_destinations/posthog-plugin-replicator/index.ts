@@ -84,7 +84,6 @@ const onEvent = async (
             // TODO: add a timeout signal to make sure we retry if capture is slow, instead of failing the export
         }).then(
             (res) => {
-                console.log('res', res)
                 if (res.ok) {
                     logger.log(`Flushed ${batchDescription} to ${config.host}`)
                 } else if (res.status >= 500) {
