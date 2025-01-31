@@ -51,11 +51,6 @@ def test_current_date(call_node):
     query = "what is the conversion rate from a page view to a next page view in this January?"
     plan = """Sequence:
     1. $pageview
-    - property filter 1
-        - person
-        - name
-        - equals
-        - John
     2. $pageview
     """
     date_range = call_node(query, plan).dateRange
