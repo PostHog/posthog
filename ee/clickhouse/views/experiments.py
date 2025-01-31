@@ -254,10 +254,6 @@ class ExperimentSerializer(serializers.ModelSerializer):
         return value
 
     def validate_existing_feature_flag_for_experiment(self, feature_flag: FeatureFlag):
-        """Validates if a feature flag can be used for an experiment."""
-        if feature_flag.deleted:
-            raise ValidationError("Feature flag must not be deleted.")
-
         if feature_flag.experiment_set.exists():
             raise ValidationError("Feature flag is already associated with an experiment.")
 
@@ -290,7 +286,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
         feature_flag_key = validated_data.pop("get_feature_flag_key")
 
         existing_feature_flag = FeatureFlag.objects.filter(
-            key=feature_flag_key, team_id=self.context["team_id"]
+            key=feature_flag_key, team_id=self.context["team_id"], deleted=False
         ).first()
         if existing_feature_flag:
             self.validate_existing_feature_flag_for_experiment(existing_feature_flag)

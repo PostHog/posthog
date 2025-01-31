@@ -425,10 +425,6 @@ describe('checkFeatureFlagEligibility', () => {
         ensure_experience_continuity: null,
         user_access_level: 'admin',
     }
-    it('throws an error for a deleted feature flag', () => {
-        const featureFlag = { ...baseFeatureFlag, deleted: true }
-        expect(() => featureFlagEligibleForExperiment(featureFlag)).toThrow('Feature flag must not be deleted.')
-    })
     it('throws an error for a remote configuration feature flag', () => {
         const featureFlag = { ...baseFeatureFlag, is_remote_configuration: true }
         expect(() => featureFlagEligibleForExperiment(featureFlag)).toThrow(
