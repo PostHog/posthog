@@ -23,9 +23,9 @@ def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
 @pytest.mark.django_db
 def test_full_job(cluster: ClickhouseCluster):
     timestamp = datetime.now() + timedelta(days=31)
+    hour_delay = 31 * 24
     event_count = 10000
     delete_count = 1000
-    hour_lookback = 24
 
     events = [(i, f"distinct_id_{i}", UUID(int=i), timestamp - timedelta(hours=i)) for i in range(event_count)]
 
@@ -52,7 +52,7 @@ def test_full_job(cluster: ClickhouseCluster):
 
     # Insert some pending deletions
     def insert_pending_deletes() -> None:
-        deletes = [(events[i][0], DeletionType.Person, events[i][1], None) for i in range(delete_count)]
+        deletes = [(events[i][0], DeletionType.Person, events[i][2], None) for i in range(delete_count)]
 
         # insert the deletes into django
         for delete in deletes:
@@ -85,9 +85,19 @@ def test_full_job(cluster: ClickhouseCluster):
 
     # Check postconditions
     final_events = cluster.any_host(get_events_by_person_team).result()
-    assert len(final_events) == event_count - delete_count  # Only events for non-deleted persons remain
-    assert UUID(int=hour_lookback - 1) in final_events  # Person 3 events remain (future deletion)
-    assert UUID(int=delete_count + 1) in final_events  # Person 4 events remain (not marked for deletion)
+    assert len(final_events) == event_count - 256  # Only events for non-deleted persons remain
+
+    # Check that events after the deletion window remain
+    target_uuid = UUID(int=hour_delay - 1)
+    assert any(
+        target_uuid == uuid for _, uuid in final_events.keys()
+    ), f"Expected to find UUID {target_uuid} in remaining events"
+
+    # Check that early events were deleted
+    deleted_uuid = UUID(int=hour_delay + 1)
+    assert not any(
+        deleted_uuid == uuid for _, uuid in final_events.keys()
+    ), f"Expected UUID {deleted_uuid} to be deleted"
 
     # Verify the temporary tables were cleaned up
     table = PendingPersonEventDeletesTable(timestamp=timestamp)

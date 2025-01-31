@@ -320,6 +320,7 @@ def cleanup_delete_assets(
     # Drop the dictionary and table using the table object
 
     if not config.cleanup:
+        config.log.info("Skipping cleanup as cleanup is disabled")
         return True
 
     cluster.any_host(create_pending_deletes_table.drop).result()
