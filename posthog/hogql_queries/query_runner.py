@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from types import UnionType
-from typing import Any, Generic, Optional, TypeGuard, TypeVar, Union, cast
+from typing import Any, Generic, Optional, TypeGuard, TypeVar, Union, cast, get_args
 
 import structlog
 from prometheus_client import Counter
@@ -500,13 +500,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         if not self.is_query_node(query):
             if isinstance(self.query_type, UnionType):
-                for query_type in self.query_type.__args__:
-                    if isinstance(query, query_type):
+                for query_type in get_args(self.query_type):  # type: ignore
+                    try:
                         query = query_type.model_validate(query)
                         break
+                    except ValueError:
+                        continue
+                raise ValueError(f"Query is not of type {self.query_type}")
             else:
                 query = self.query_type.model_validate(query)
-        assert isinstance(query, self.query_type)
+                assert isinstance(query, self.query_type)
         self.query = query
 
     @property
