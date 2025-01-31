@@ -303,6 +303,8 @@ export async function startPluginsServer(
                     INGESTION_CONSUMER_CONSUME_TOPIC: consumerOption.topic,
                     INGESTION_CONSUMER_GROUP_ID: consumerOption.group_id,
                 }
+                piscina = piscina ?? (await makePiscina(serverConfig, hub))
+
                 const consumer = new IngestionConsumer(modifiedHub)
                 await consumer.start()
                 services.push(consumer.service)
@@ -310,6 +312,9 @@ export async function startPluginsServer(
         } else {
             if (capabilities.ingestionV2) {
                 const hub = await setupHub()
+                // NOTE: Piscina is only needed whilst we have legacy plugins running. Once we have all
+                // moved to hog functions we can remove this.
+                piscina = piscina ?? (await makePiscina(serverConfig, hub))
                 const consumer = new IngestionConsumer(hub)
                 await consumer.start()
                 services.push(consumer.service)
