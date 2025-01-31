@@ -61,18 +61,6 @@ export function SelfManagedTable({ table, updateTable }: Props): JSX.Element {
                             name: table.name,
                             url_pattern: table.url_pattern,
                             format: table.format,
-                            ...(table.credential?.access_key || table.credential?.access_secret
-                                ? {
-                                      credential: {
-                                          ...(table.credential.access_key
-                                              ? { access_key: table.credential.access_key }
-                                              : {}),
-                                          ...(table.credential.access_secret
-                                              ? { access_secret: table.credential.access_secret }
-                                              : {}),
-                                      },
-                                  }
-                                : {}),
                         })
                     }
                 />
