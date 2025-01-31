@@ -254,7 +254,8 @@ def create_pending_person_deletions_table(
 
 @op
 def load_pending_person_deletions(
-    context: OpExecutionContext, create_pending_person_deletions_table: PendingPersonEventDeletesTable
+    context: OpExecutionContext,
+    create_pending_person_deletions_table: PendingPersonEventDeletesTable,
 ) -> PendingPersonEventDeletesTable:
     """Query postgres using django ORM to get pending person deletions and insert directly into ClickHouse."""
 
@@ -342,14 +343,14 @@ def create_pending_event_deletes_table(
 def load_pending_event_deletes(
     context: OpExecutionContext,
     create_pending_event_deletes_table: PendingEventDeletesTable,
-    create_pending_person_deletions_table: PendingPersonEventDeletesTable,
+    load_pending_person_deletions: PendingPersonEventDeletesTable,
     cluster: ResourceParam[ClickhouseCluster],
 ) -> PendingEventDeletesTable:
     """Query postgres using django ORM to get pending event deletions and insert directly into ClickHouse."""
 
     # Wait for the table to be fully replicated
     def sync_replica(client: Client):
-        client.execute(f"SYSTEM SYNC REPLICA {create_pending_person_deletions_table.qualified_name} STRICT")
+        client.execute(f"SYSTEM SYNC REPLICA {load_pending_person_deletions.qualified_name} STRICT")
 
     cluster.map_hosts_by_role(sync_replica, NodeRole.WORKER).result()
 
@@ -463,7 +464,7 @@ def deletes_job():
     person_table = create_pending_person_deletions_table()
     event_table = create_pending_event_deletes_table(person_table)
     loaded_person_table = load_pending_person_deletions(person_table)
-    loaded_event_table = load_pending_event_deletes(loaded_person_table)
+    loaded_event_table = load_pending_event_deletes(event_table, loaded_person_table)
     delete_events = delete_person_events(loaded_event_table)
     waited_table = wait_for_delete_mutations(delete_events)
     cleanup_delete_assets(person_table, event_table, waited_table)
