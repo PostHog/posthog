@@ -14,6 +14,7 @@ export const template: HogFunctionTemplate = {
     inputs_schema: [
         {
             key: 'discardIp',
+            templating: false,
             label: 'Discard IP addresses after GeoIP?',
             type: 'choice',
             choices: [
@@ -25,6 +26,7 @@ export const template: HogFunctionTemplate = {
         },
         {
             key: 'discardLibs',
+            templating: false,
             label: 'Discard GeoIP for libraries',
             type: 'string',
             description:

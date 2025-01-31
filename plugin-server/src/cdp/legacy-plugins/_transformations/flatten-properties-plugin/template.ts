@@ -14,6 +14,7 @@ export const template: HogFunctionTemplate = {
     inputs_schema: [
         {
             key: 'separator',
+            templating: false,
             description:
                 "For example, to access the value of 'b' in a: { b: 1 } with separator '__', you can do 'a__b'",
             label: 'Select a separator format for accessing your nested properties',

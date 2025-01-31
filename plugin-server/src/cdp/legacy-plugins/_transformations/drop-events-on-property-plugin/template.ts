@@ -14,6 +14,7 @@ export const template: HogFunctionTemplate = {
     inputs_schema: [
         {
             key: 'property_key',
+            templating: false,
             description:
                 'Which property key to filter on. If you do not specify a value, all events with this key will be dropped.',
             label: 'Property key to filter on',
@@ -22,6 +23,7 @@ export const template: HogFunctionTemplate = {
         },
         {
             key: 'property_values',
+            templating: false,
             description: 'Which value to match to drop events. Split multiple values by comma to filter.',
             label: 'Property value to filter on',
             type: 'string',

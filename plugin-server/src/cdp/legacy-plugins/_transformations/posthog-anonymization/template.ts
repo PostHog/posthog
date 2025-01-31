@@ -13,6 +13,7 @@ export const template: HogFunctionTemplate = {
     inputs_schema: [
         {
             key: 'salt',
+            templating: false,
             label: 'The salt.',
             type: 'string',
             required: true,
@@ -20,6 +21,7 @@ export const template: HogFunctionTemplate = {
         },
         {
             key: 'privateFields',
+            templating: false,
             label: 'The names of fields to be anonymized divided by a colon.',
             type: 'string',
             default: 'distinct_id,name,userid',

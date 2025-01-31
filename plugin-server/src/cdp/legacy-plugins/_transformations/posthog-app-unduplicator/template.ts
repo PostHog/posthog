@@ -13,6 +13,7 @@ export const template: HogFunctionTemplate = {
     inputs_schema: [
         {
             key: 'dedupMode',
+            templating: false,
             label: 'Dedup Mode',
             type: 'choice',
             required: true,
