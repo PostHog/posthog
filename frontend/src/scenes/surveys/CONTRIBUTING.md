@@ -76,3 +76,15 @@ Using reserved ngrok domains is recommended to:
 -   Avoid CORS issues by keeping the same origin
 
 One caveat: **reserved ngrok domains are only available for paid ngrok users.**
+
+## Debugging
+
+### posthog-js logs
+
+We [added some logging on the JS SDK](https://github.com/PostHog/posthog-js/pull/1663) to help debug issues with surveys.
+
+However, those logs are only enabled when posthog-js is set with debug=true.
+
+For customer issues, if you need it, you can add the query parameter `__posthog_debug=true` to force the JS SDK to be loaded with debugging mode.
+
+If you ever need more logs, please create a PR and add them.
