@@ -1,9 +1,6 @@
 import { RetryError } from '@posthog/plugin-scaffold'
-import fetchMock from 'jest-fetch-mock'
 
 import { replicatorPlugin } from '../index'
-
-fetchMock.enableMocks()
 
 const captureHost = 'localhost:8000'
 
@@ -25,14 +22,22 @@ const logger = {
     debug: jest.fn(),
 }
 
-describe('payload contents', () => {
+describe('Replicator: onEvent', () => {
+    const fetchMock = jest.fn()
+
     beforeEach(() => {
-        fetchMock.resetMocks()
+        fetchMock.mockReset()
     })
 
+    const mockResponse = (response: any, status: number = 200) => {
+        fetchMock.mockResolvedValueOnce({
+            status: status,
+            json: () => Promise.resolve(response),
+        })
+    }
     describe('event pre-processing', () => {
         it('should handle a single event', async () => {
-            fetchMock.mockResponses([JSON.stringify({}), { status: 1 }])
+            mockResponse({ message: 'success', attributes_processed: 1 })
             await replicatorPlugin.onEvent(mockEvent, { config, logger, fetch: fetchMock } as any)
 
             expect(fetchMock.mock.calls[0][1]).toEqual({
@@ -55,7 +60,7 @@ describe('payload contents', () => {
         })
 
         it('should skip ignored events', async () => {
-            fetchMock.mockResponses([JSON.stringify({}), { status: 1 }])
+            mockResponse({ message: 'success', attributes_processed: 1 })
             for (const event of mockEventsToIgnore) {
                 await replicatorPlugin.onEvent(event, { config, logger, fetch: fetchMock } as any)
             }
@@ -274,7 +279,7 @@ describe('payload contents', () => {
 
     describe('error management', () => {
         it('succeeds and logs on 200', async () => {
-            fetchMock.mockResponses([JSON.stringify({}), { status: 200 }])
+            mockResponse({})
             await replicatorPlugin.onEvent(mockEvent, {
                 config,
                 fetch: fetchMock,
@@ -284,7 +289,7 @@ describe('payload contents', () => {
         })
 
         it('skips and warns without throwing on 400s', async () => {
-            fetchMock.mockResponses([JSON.stringify({}), { status: 400 }])
+            mockResponse({}, 400)
             await replicatorPlugin.onEvent(mockEvent, {
                 config,
                 fetch: fetchMock,
@@ -294,7 +299,7 @@ describe('payload contents', () => {
         })
 
         it('throws RetryError on 500s', async () => {
-            fetchMock.mockResponses([JSON.stringify({}), { status: 500 }])
+            mockResponse({}, 500)
             await expect(
                 replicatorPlugin.onEvent(mockEvent, {
                     config,
