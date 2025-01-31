@@ -1,4 +1,3 @@
-import { LegacyTransformationPluginMeta } from '../../types'
 import { processEvent } from '.'
 
 const demoEvents = [
