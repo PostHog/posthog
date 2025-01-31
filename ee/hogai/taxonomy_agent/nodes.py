@@ -97,6 +97,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                         "events": self._events_prompt,
                         "agent_scratchpad": self._get_agent_scratchpad(intermediate_steps),
                         "core_memory_instructions": CORE_MEMORY_INSTRUCTIONS,
+                        "project_time": self.project_tz_now,
                     },
                     config,
                 ),
