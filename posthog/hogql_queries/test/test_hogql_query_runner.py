@@ -38,7 +38,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
         return random_uuid
 
-    def _create_runner(self, query: HogQLQuery) -> HogQLQueryRunner:
+    def _create_runner(self, query: HogQLQuery | HogQLASTQuery) -> HogQLQueryRunner:
         return HogQLQueryRunner(team=self.team, query=query)
 
     def setUp(self):
