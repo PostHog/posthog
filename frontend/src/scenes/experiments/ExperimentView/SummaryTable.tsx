@@ -346,7 +346,11 @@ export function SummaryTable({
 
     return (
         <div className="mb-4">
-            <LemonTable loading={false} columns={columns} dataSource={tabularExperimentResults(0)} />
+            <LemonTable
+                loading={false}
+                columns={columns}
+                dataSource={tabularExperimentResults(metricIndex, isSecondary)}
+            />
         </div>
     )
 }
