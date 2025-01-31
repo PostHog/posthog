@@ -92,7 +92,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
     integration_field = serializers.CharField(required=False)
     requiredScopes = serializers.CharField(required=False)
     # Indicates if hog templating should be used for this input
-    hog = serializers.BooleanField(required=False, default=True)
+    templating = serializers.BooleanField(required=False, default=True)
 
     # TODO Validate choices if type=choice
 
@@ -149,7 +149,7 @@ class InputsItemSerializer(serializers.Serializer):
                 raise serializers.ValidationError({"inputs": {name: f"Either 'text' or 'html' is required."}})
 
         try:
-            if value and schema.get("hog"):
+            if value and schema.get("templating"):
                 # If we have a value and hog templating is enabled, we need to transpile the value
                 if item_type in ["string", "dictionary", "json", "email"]:
                     if item_type == "email" and isinstance(value, dict):

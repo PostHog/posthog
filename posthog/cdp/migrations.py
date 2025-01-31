@@ -112,7 +112,6 @@ def migrate_legacy_plugins(dry_run=True, team_ids=None, test_mode=True, kind=str
                     }
                     for choice in schema["choices"]
                 ]
-                input_schema["type"] = "string"
             elif schema["type"] == "attachment":
                 input_schema["secret"] = schema["key"] == "googleCloudKeyJson"
                 input_schema["type"] = "json"
@@ -152,6 +151,7 @@ def migrate_legacy_plugins(dry_run=True, team_ids=None, test_mode=True, kind=str
             "inputs": inputs,
             "inputs_schema": inputs_schema,
             "enabled": True,
+            "hog": "return event",
             "icon_url": icon_url,
         }
 

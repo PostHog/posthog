@@ -58,11 +58,12 @@ function JsonConfigField(props: {
     className?: string
     autoFocus?: boolean
     value?: string
+    templating?: boolean
 }): JSX.Element {
     const { globalsWithInputs } = useValues(hogFunctionConfigurationLogic)
     return (
         <CodeEditorResizeable
-            language="hogJson"
+            language={props.templating ? 'hogJson' : 'json'}
             value={typeof props.value !== 'string' ? JSON.stringify(props.value, null, 2) : props.value}
             onChange={(v) => props.onChange?.(v ?? '')}
             options={{
@@ -75,7 +76,7 @@ function JsonConfigField(props: {
                     verticalScrollbarSize: 0,
                 },
             }}
-            globals={globalsWithInputs}
+            globals={props.templating ? globalsWithInputs : undefined}
         />
     )
 }
@@ -96,8 +97,19 @@ function EmailTemplateField({ schema }: { schema: HogFunctionInputSchemaType }):
     )
 }
 
-function HogFunctionTemplateInput(props: Omit<CodeEditorInlineProps, 'globals'>): JSX.Element {
+function HogFunctionTemplateInput(
+    props: Omit<CodeEditorInlineProps, 'globals'> & {
+        templating: boolean
+        onChange?: (value: string) => void
+        value?: string
+    }
+): JSX.Element {
     const { globalsWithInputs } = useValues(hogFunctionConfigurationLogic)
+
+    if (!props.templating) {
+        return <LemonInput type="text" value={props.value} onChange={props.onChange} />
+    }
+
     return <CodeEditorInline {...props} globals={globalsWithInputs} />
 }
 
@@ -162,6 +174,7 @@ function DictionaryField({ onChange, value }: { onChange?: (value: any) => void;
 }
 
 export function HogFunctionInputRenderer({ value, onChange, schema, disabled }: HogFunctionInputProps): JSX.Element {
+    const templating = schema.templating ?? true
     switch (schema.type) {
         case 'string':
             return (
@@ -170,10 +183,13 @@ export function HogFunctionInputRenderer({ value, onChange, schema, disabled }: 
                     value={value}
                     onChange={disabled ? () => {} : onChange}
                     className="ph-no-capture"
+                    templating={templating}
                 />
             )
         case 'json':
-            return <JsonConfigField value={value} onChange={onChange} className="ph-no-capture" />
+            return (
+                <JsonConfigField value={value} onChange={onChange} className="ph-no-capture" templating={templating} />
+            )
         case 'choice':
             return (
                 <LemonSelect
@@ -186,7 +202,7 @@ export function HogFunctionInputRenderer({ value, onChange, schema, disabled }: 
                 />
             )
         case 'dictionary':
-            return <DictionaryField value={value} onChange={onChange} />
+            return <DictionaryField value={value} onChange={onChange} templating={templating} />
         case 'boolean':
             return <LemonSwitch checked={value} onChange={(checked) => onChange?.(checked)} disabled={disabled} />
         case 'integration':
