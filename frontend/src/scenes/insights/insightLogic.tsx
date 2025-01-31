@@ -212,8 +212,9 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                           result: null,
                           query: null,
                       },
-            setInsight: (_state, { insight }) => ({
+            setInsight: (state, { insight }) => ({
                 ...insight,
+                name: insight.name || state.name,
             }),
             setInsightMetadata: (state, { metadataUpdate }) => ({ ...state, ...metadataUpdate }),
             [dashboardsModel.actionTypes.updateDashboardInsight]: (state, { item, extraDashboardIds }) => {
