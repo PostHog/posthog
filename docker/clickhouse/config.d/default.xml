@@ -18,6 +18,14 @@
                 </replica>
             </shard>
         </posthog_single_shard>
+        <posthog_migrations>
+            <shard>
+                <replica>
+                    <host>localhost</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </posthog_migrations>
     </remote_servers>
 
     <macros>
