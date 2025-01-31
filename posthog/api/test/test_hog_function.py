@@ -1329,11 +1329,62 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "description": "Test description",
                 "template_id": template_slack.id,
                 "hog": "return custom_event",  # This should be ignored
-                "inputs": {},
+                "inputs": {
+                    "slack_workspace": {"value": 1},
+                    "channel": {"value": "#general"},
+                },
             },
         )
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["hog"] == template_slack.hog  # Should always use template code
+
+    def test_transformation_type_gets_execution_order_automatically(self):
+        with patch("posthog.api.hog_function_template.HogFunctionTemplates.template") as mock_template:
+            mock_template.return_value = template_slack
+
+            # Create first transformation function
+            response1 = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "type": "transformation",
+                    "name": "First Transformation",
+                    "template_id": template_slack.id,
+                    "inputs": {
+                        "slack_workspace": {"value": 1},
+                        "channel": {"value": "#general"},
+                    },
+                },
+            )
+            assert response1.status_code == status.HTTP_201_CREATED
+            assert response1.json()["execution_order"] == 1
+
+            # Create second transformation function
+            response2 = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "type": "transformation",
+                    "name": "Second Transformation",
+                    "template_id": template_slack.id,
+                    "inputs": {
+                        "slack_workspace": {"value": 1},
+                        "channel": {"value": "#general"},
+                    },
+                },
+            )
+            assert response2.status_code == status.HTTP_201_CREATED
+            assert response2.json()["execution_order"] == 2
+
+            # Create a non-transformation function - should not get execution_order
+            response3 = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    **EXAMPLE_FULL,  # This is fine for destination type
+                    "type": "destination",
+                    "name": "Destination Function",
+                },
+            )
+            assert response3.status_code == status.HTTP_201_CREATED
+            assert response3.json()["execution_order"] is None
 
     def test_list_hog_functions_ordered_by_execution_order_and_created_at(self):
         # Create functions with different execution orders and creation times
@@ -1389,40 +1440,3 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "Function 3",  # execution_order=2
             "Function 4",  # execution_order=null
         ]
-
-    def test_transformation_type_gets_execution_order_automatically(self):
-        # Create first transformation function
-        response1 = self.client.post(
-            f"/api/projects/{self.team.id}/hog_functions/",
-            data={
-                **EXAMPLE_FULL,
-                "type": "transformation",
-                "name": "First Transformation",
-            },
-        )
-        assert response1.status_code == status.HTTP_201_CREATED
-        assert response1.json()["execution_order"] == 1
-
-        # Create second transformation function
-        response2 = self.client.post(
-            f"/api/projects/{self.team.id}/hog_functions/",
-            data={
-                **EXAMPLE_FULL,
-                "type": "transformation",
-                "name": "Second Transformation",
-            },
-        )
-        assert response2.status_code == status.HTTP_201_CREATED
-        assert response2.json()["execution_order"] == 2
-
-        # Create a non-transformation function - should not get execution_order
-        response3 = self.client.post(
-            f"/api/projects/{self.team.id}/hog_functions/",
-            data={
-                **EXAMPLE_FULL,
-                "type": "destination",
-                "name": "Destination Function",
-            },
-        )
-        assert response3.status_code == status.HTTP_201_CREATED
-        assert response3.json()["execution_order"] is None
