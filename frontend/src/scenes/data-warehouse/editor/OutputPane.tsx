@@ -18,7 +18,6 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
-import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
 import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
 import { Table } from '~/queries/nodes/DataVisualization/Components/Table'
@@ -224,8 +223,7 @@ export function OutputPane(): JSX.Element {
                     />
                 </BindLogic>
             </div>
-            <div className="flex justify-between pr-2 border-t">
-                <div>{response ? <LoadPreviewText /> : <></>}</div>
+            <div className="flex justify-end pr-2 border-t">
                 <ElapsedTime />
             </div>
         </div>
