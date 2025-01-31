@@ -37,7 +37,7 @@ from posthog.models.hog_functions.hog_function import (
 )
 from posthog.models.plugin import TranspilerError
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
-
+from django.conf import settings
 
 logger = structlog.get_logger(__name__)
 
@@ -191,6 +191,16 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 attrs["hog"] = attrs.get("hog") or template.hog
                 attrs["inputs_schema"] = attrs.get("inputs_schema") or template.inputs_schema
                 attrs["inputs"] = attrs.get("inputs") or {}
+
+        if hog_type == "transformation":
+            if not settings.HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED:
+                if not template:
+                    raise serializers.ValidationError(
+                        {"template_id": "Transformation functions must be created from a template."}
+                    )
+                # Currently we do not allow modifying the core transformation templates when transformations are disabled
+                attrs["hog"] = template.hog
+                attrs["inputs_schema"] = template.inputs_schema
 
         # Used for both top level input validation, and mappings input validation
         def validate_input_and_filters(attrs: dict):
