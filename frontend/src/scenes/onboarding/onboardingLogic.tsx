@@ -320,8 +320,10 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 }
             }
 
-            if (activationLogic.values.isReady && values.isFirstProductOnboarding) {
-                sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Activation)
+            const mountedActivationLogic = activationLogic.findMounted()
+
+            if (mountedActivationLogic && mountedActivationLogic.values.isReady && values.isFirstProductOnboarding) {
+                mountedActivationLogic.actions.openSidePanel(SidePanelTab.Activation)
             }
         },
         setAllOnboardingSteps: () => {

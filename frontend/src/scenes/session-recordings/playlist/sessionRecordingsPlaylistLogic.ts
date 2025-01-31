@@ -262,15 +262,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         (props: SessionRecordingPlaylistLogicProps) =>
             `${props.logicKey}-${props.personUUID}-${props.updateSearchParams ? '-with-search' : ''}`
     ),
-
     connect({
         actions: [
             eventUsageLogic,
             ['reportRecordingsListFetched', 'reportRecordingsListFilterAdded'],
             sessionRecordingsListPropertiesLogic,
             ['maybeLoadPropertiesForSessions'],
-            activationLogic,
-            ['markTaskAsCompleted'],
         ],
         values: [
             featureFlagLogic,
@@ -536,7 +533,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 actions.maybeLoadSessionRecordings('older')
             }
 
-            actions.markTaskAsCompleted(ActivationTask.WatchSessionRecording)
+            activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.WatchSessionRecording)
         },
     })),
     selectors({

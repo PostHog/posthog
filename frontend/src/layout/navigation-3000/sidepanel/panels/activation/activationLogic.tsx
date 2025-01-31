@@ -412,7 +412,7 @@ export const activationLogic = kea<activationLogicType>([
                         id: ActivationTask.CreateFirstInsight,
                         title: 'Create your first insight',
                         completed: hasInsights,
-                        canSkip: true,
+                        canSkip: false,
                         section: ActivationSection.ProductAnalytics,
                     },
                     {

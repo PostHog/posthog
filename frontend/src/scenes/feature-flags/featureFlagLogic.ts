@@ -267,8 +267,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['closeSidePanel'],
             teamLogic,
             ['addProductIntent'],
-            activationLogic,
-            ['markTaskAsCompleted'],
         ],
     })),
     actions({
@@ -604,7 +602,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             cachedFlag &&
                             JSON.stringify(cachedFlag?.filters) !== JSON.stringify(values.featureFlag.filters)
                         ) {
-                            actions.markTaskAsCompleted(ActivationTask.UpdateFeatureFlagReleaseConditions)
+                            activationLogic
+                                .findMounted()
+                                ?.actions.markTaskAsCompleted(ActivationTask.UpdateFeatureFlagReleaseConditions)
                         }
 
                         savedFlag = await api.update(
