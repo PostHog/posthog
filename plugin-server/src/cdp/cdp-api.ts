@@ -137,6 +137,7 @@ export class CdpApi {
             const compoundConfiguration: HogFunctionType = {
                 ...(hogFunction ?? {}),
                 ...(configuration ?? {}),
+                team_id: team.id,
             }
 
             await this.hogFunctionManager.enrichWithIntegrations([compoundConfiguration])
