@@ -12,6 +12,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useState } from 'react'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { urls } from 'scenes/urls'
@@ -25,6 +26,8 @@ const ExperimentFormFields = (): JSX.Element => {
         useActions(experimentLogic)
     const { webExperimentsAvailable, unavailableFeatureFlagKeys } = useValues(experimentsLogic)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
+
+    const { reportExperimentFeatureFlagModalOpened, reportExperimentFeatureFlagSelected } = useActions(eventUsageLogic)
 
     const [showFeatureFlagSelector, setShowFeatureFlagSelector] = useState(false)
 
@@ -52,6 +55,7 @@ const ExperimentFormFields = (): JSX.Element => {
                                     type="secondary"
                                     size="xsmall"
                                     onClick={() => {
+                                        reportExperimentFeatureFlagModalOpened()
                                         setShowFeatureFlagSelector(true)
                                     }}
                                 >
@@ -93,6 +97,7 @@ const ExperimentFormFields = (): JSX.Element => {
                     isOpen={showFeatureFlagSelector}
                     onClose={() => setShowFeatureFlagSelector(false)}
                     onSelect={(key) => {
+                        reportExperimentFeatureFlagSelected(key)
                         setExperiment({ feature_flag_key: key })
                         setShowFeatureFlagSelector(false)
                     }}

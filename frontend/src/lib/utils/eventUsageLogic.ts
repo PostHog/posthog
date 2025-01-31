@@ -433,6 +433,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             experimentId,
             metric,
         }),
+        reportExperimentFeatureFlagModalOpened: () => ({}),
+        reportExperimentFeatureFlagSelected: (featureFlagKey: string) => ({ featureFlagKey }),
         // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
@@ -1038,6 +1040,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportExperimentMetricTimeout: ({ experimentId, metric }) => {
             posthog.capture('experiment metric timeout', { experiment_id: experimentId, metric })
+        },
+        reportExperimentFeatureFlagModalOpened: () => {
+            posthog.capture('experiment feature flag modal opened')
+        },
+        reportExperimentFeatureFlagSelected: ({ featureFlagKey }: { featureFlagKey: string }) => {
+            posthog.capture('experiment feature flag selected', { feature_flag_key: featureFlagKey })
         },
         reportPropertyGroupFilterAdded: () => {
             posthog.capture('property group filter added')
