@@ -621,4 +621,3 @@ const processEvent = (event, { global }) => {
 }
 
 exports.processEvent = processEvent
-exports.setupPlugin = setupPlugin

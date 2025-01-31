@@ -9,12 +9,7 @@
             "hint": "For example, to access the value of 'b' in a: { b: 1 } with separator '__', you can do 'a__b'",
             "name": "Select a separator format for accessing your nested properties",
             "type": "choice",
-            "choices": [
-                "__",
-                ".",
-                ">",
-                "/"
-            ],
+            "choices": ["__", ".", ">", "/"],
             "order": 1,
             "default": "__",
             "required": true
