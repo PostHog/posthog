@@ -42,6 +42,7 @@ setup(
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
     package_data={"hogql_parser": ["__init__.pyi", "py.typed"]},
+    packages=["hogql_parser"],
     ext_modules=[module],
     python_requires=">=3.10",
     classifiers=[
