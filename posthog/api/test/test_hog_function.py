@@ -1286,25 +1286,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @override_settings(HOG_TRANSFORMATIONS_ENABLED=False)
     def test_transformation_functions_preserve_template_code_when_disabled(self):
-        # Create a proper mock template class
-        class MockTemplate:
-            id = "test-template"
-            name = "Test Template"
-            type = "transformation"
-            description = "Test template description"
-            status = "free"
-            inputs_schema = []
-            hog = "return event"
-            icon_url = None
-            category = None
-            filters = None
-            masking = None
-            mappings = None
-            mapping_templates = None
-            sub_templates = None
-
         with patch("posthog.api.hog_function_template.HogFunctionTemplates.template") as mock_template:
-            mock_template.return_value = MockTemplate()
+            mock_template.return_value = template_slack  # Use existing template instead of creating mock
 
             # First create with transformations enabled
             with override_settings(HOG_TRANSFORMATIONS_ENABLED=True):
@@ -1313,8 +1296,12 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     data={
                         "name": "Template Transform",
                         "type": "transformation",
-                        "template_id": "test-template",
-                        "hog": "return event",
+                        "template_id": template_slack.id,
+                        "hog": "return modified_event",
+                        "inputs": {
+                            "slack_workspace": {"value": 1},
+                            "channel": {"value": "#general"},
+                        },
                     },
                 )
                 assert response.status_code == status.HTTP_201_CREATED, response.json()
@@ -1324,12 +1311,12 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
                 data={
-                    "hog": "return modified_event",
+                    "hog": "return another_event",
                 },
             )
 
             assert response.status_code == status.HTTP_200_OK
-            assert response.json()["hog"] == "return event"  # Original code preserved
+            assert response.json()["hog"] == template_slack.hog  # Original template code preserved
 
     @override_settings(HOG_TRANSFORMATIONS_ENABLED=True)
     def test_transformation_uses_template_code_even_when_enabled(self):
