@@ -11,7 +11,11 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
-import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '../legacy-plugins'
+import {
+    DEPRECATED_TRANSFORMATION_PLUGINS_BY_ID,
+    DESTINATION_PLUGINS_BY_ID,
+    TRANSFORMATION_PLUGINS_BY_ID,
+} from '../legacy-plugins'
 import { HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { LegacyPluginExecutorService } from './legacy-plugin-executor.service'
 

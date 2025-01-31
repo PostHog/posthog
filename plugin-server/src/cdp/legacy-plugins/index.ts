@@ -27,19 +27,6 @@ export const DESTINATION_PLUGINS_BY_ID = {
     [intercomPlugin.id]: intercomPlugin,
 }
 
-export const TRANSFORMATION_PLUGINS_BY_ID = {
-    [downsamplingPlugin.id]: downsamplingPlugin,
-    [languageUrlSplitterApp.id]: languageUrlSplitterApp,
-    [posthogAppUrlParametersToEventPropertiesPlugin.id]: posthogAppUrlParametersToEventPropertiesPlugin,
-    [posthogFilterOutPlugin.id]: posthogFilterOutPlugin,
-    [posthogUrlNormalizerPlugin.id]: posthogUrlNormalizerPlugin,
-    [propertyFilterPlugin.id]: propertyFilterPlugin,
-    [semverFlattenerPlugin.id]: semverFlattenerPlugin,
-    [taxonomyPlugin.id]: taxonomyPlugin,
-    [timestampParserPlugin.id]: timestampParserPlugin,
-    [userAgentPlugin.id]: userAgentPlugin,
-}
-
 export const DEPRECATED_TRANSFORMATION_PLUGINS_BY_ID = {
     [dropEventsOnPropertyPlugin.id]: dropEventsOnPropertyPlugin,
     [flattenPropertiesPlugin.id]: flattenPropertiesPlugin,
@@ -52,4 +39,18 @@ export const DEPRECATED_TRANSFORMATION_PLUGINS_BY_ID = {
     [posthogNetdataEventProcessingPlugin.id]: posthogNetdataEventProcessingPlugin,
     [phShotgunProcessEventApp.id]: phShotgunProcessEventApp,
     [posthogSnowplowRefererParser.id]: posthogSnowplowRefererParser,
+}
+
+export const TRANSFORMATION_PLUGINS_BY_ID = {
+    ...DEPRECATED_TRANSFORMATION_PLUGINS_BY_ID,
+    [downsamplingPlugin.id]: downsamplingPlugin,
+    [languageUrlSplitterApp.id]: languageUrlSplitterApp,
+    [posthogAppUrlParametersToEventPropertiesPlugin.id]: posthogAppUrlParametersToEventPropertiesPlugin,
+    [posthogFilterOutPlugin.id]: posthogFilterOutPlugin,
+    [posthogUrlNormalizerPlugin.id]: posthogUrlNormalizerPlugin,
+    [propertyFilterPlugin.id]: propertyFilterPlugin,
+    [semverFlattenerPlugin.id]: semverFlattenerPlugin,
+    [taxonomyPlugin.id]: taxonomyPlugin,
+    [timestampParserPlugin.id]: timestampParserPlugin,
+    [userAgentPlugin.id]: userAgentPlugin,
 }
