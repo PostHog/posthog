@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { useMemo } from 'react'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataNode } from '~/queries/schema'
@@ -14,32 +15,42 @@ export function LoadNext({ query }: LoadNextProps): JSX.Element {
     const { canLoadNextData, nextDataLoading, numberOfRows, hasMoreData, dataLimit } = useValues(dataNodeLogic)
     const { loadNextData } = useActions(dataNodeLogic)
 
-    let text = ''
-    // if hogql based viz, show a different text
-    if (isDataVisualizationNode(query) && isHogQLQuery(query.source)) {
-        // No data limit means the user is controlling the pagination
-        if (!dataLimit) {
-            if (numberOfRows && numberOfRows <= DEFAULT_PAGE_SIZE) {
-                text = `Showing ${numberOfRows === 1 ? '' : 'all'} ${numberOfRows === 1 ? 'one' : numberOfRows} ${
-                    numberOfRows === 1 ? 'entry' : 'entries'
-                }`
-            } else {
-                return <></>
+    const text = useMemo(() => {
+        // if hogql based viz, show a different text
+        if (isDataVisualizationNode(query) && isHogQLQuery(query.source)) {
+            // No data limit means the user is controlling the pagination
+            if (!dataLimit) {
+                if (numberOfRows && numberOfRows <= DEFAULT_PAGE_SIZE) {
+                    return `Showing ${numberOfRows === 1 ? '' : 'all'} ${numberOfRows === 1 ? 'one' : numberOfRows} ${
+                        numberOfRows === 1 ? 'entry' : 'entries'
+                    }`
+                }
+                // If the number of rows is greater than the default page size, it's handled by pagination component
+                return ''
             }
-        } else {
-            text = `Default limit of ${dataLimit} rows reached`
+            return `Default limit of ${dataLimit} rows reached`
+        } else if (isHogQLQuery(query) && !canLoadNextData && hasMoreData && dataLimit) {
+            return `Default limit of ${dataLimit} rows reached. Try adding a LIMIT clause to adjust.`
         }
-    } else if (isHogQLQuery(query) && !canLoadNextData && hasMoreData && dataLimit) {
-        text = `Default limit of ${dataLimit} rows reached. Try adding a LIMIT clause to adjust.`
-    } else {
-        text = `Showing ${
+        let result = `Showing ${
             hasMoreData && (numberOfRows ?? 0) > 1 ? 'first ' : canLoadNextData || numberOfRows === 1 ? '' : 'all '
         }${numberOfRows === 1 ? 'one' : numberOfRows} ${numberOfRows === 1 ? 'entry' : 'entries'}`
         if (canLoadNextData) {
-            text += '. Click to load more.'
+            result += '. Click to load more.'
         } else if (hasMoreData) {
-            text += '. Reached the end of results.'
+            result += '. Reached the end of results.'
         }
+        return result
+    }, [query, dataLimit, numberOfRows, canLoadNextData, hasMoreData])
+
+    // pagination component exists
+    if (
+        isDataVisualizationNode(query) &&
+        isHogQLQuery(query.source) &&
+        !dataLimit &&
+        (!numberOfRows || numberOfRows > DEFAULT_PAGE_SIZE)
+    ) {
+        return <></>
     }
 
     return (
