@@ -1,5 +1,6 @@
 import { IconCheckCircle, IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonSelectOptions, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { capitalizeFirstLetter, humanFriendlyCurrency } from 'lib/utils'
@@ -8,13 +9,14 @@ import { getProductIcon } from 'scenes/products/Products'
 
 import { BillingProductV2AddonType } from '~/types'
 
+import { BillingGauge } from './BillingGauge'
 import { billingLogic } from './billingLogic'
 import { BillingProductAddonActions } from './BillingProductAddonActions'
 import { billingProductLogic } from './billingProductLogic'
-import { ProductPricingModal } from './ProductPricingModal'
-import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 import { BillingProductPricingTable } from './BillingProductPricingTable'
-import { BillingGauge } from './BillingGauge'
+import { ProductPricingModal } from './ProductPricingModal'
+import { BillingGaugeItemKind } from './types'
+import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
 export const formatFlatRate = (flatRate: number, unit: string | null): string | ReactNode => {
     if (!unit) {
@@ -32,9 +34,8 @@ export const formatFlatRate = (flatRate: number, unit: string | null): string | 
 export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
     const productRef = useRef<HTMLDivElement | null>(null)
     const { billing } = useValues(billingLogic)
-    const { isPricingModalOpen, currentAndUpgradePlans, surveyID, trialModalOpen, trialLoading, showTierBreakdown, billingGaugeItems } = useValues(
-        billingProductLogic({ product: addon, productRef })
-    )
+    const { isPricingModalOpen, currentAndUpgradePlans, surveyID, trialModalOpen, trialLoading, showTierBreakdown } =
+        useValues(billingProductLogic({ product: addon, productRef }))
     const { toggleIsPricingModalOpen, setTrialModalOpen, activateTrial, setShowTierBreakdown } = useActions(
         billingProductLogic({ product: addon })
     )
@@ -76,7 +77,13 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                             <h4 className="leading-5 mb-1 font-bold">{addon.name}</h4>
                             {addon.inclusion_only ? (
                                 <div className="flex gap-x-2">
-                                    <Tooltip title="Automatically included with your plan. Used based on whether you capture person profiles with your events.">
+                                    <Tooltip
+                                        title={`Automatically included with your plan.${
+                                            addon.type === 'enhanced_persons'
+                                                ? ' Used based on whether you capture person profiles with your events.'
+                                                : ''
+                                        }`}
+                                    >
                                         <LemonTag type="muted">Config option</LemonTag>
                                     </Tooltip>
                                 </div>
@@ -118,7 +125,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
             </div>
 
             {/* Features */}
-            <div className="mt-3 ml-11">
+            <div className={clsx('mt-3', { 'ml-11': addon.type !== 'mobile_replay' })}>
                 {addonFeatures?.length > 2 && (
                     <div>
                         <p className="ml-0 mb-2 max-w-200">Features included:</p>
@@ -145,71 +152,54 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
 
                 {addon.type === 'mobile_replay' && addon.subscribed && (
                     <>
-                        <BillingGauge items={billingGaugeItems} product={addon} />
-                        <LemonButton
-                            icon={
-                                showTierBreakdown ? (
-                                    <IconChevronDown />
-                                ) : (
-                                    <IconChevronRight />
-                                )
-                            }
-                            onClick={() => setShowTierBreakdown(!showTierBreakdown)}
-                        />
-                        {showTierBreakdown && (
-                            <BillingProductPricingTable product={addon} />
-                        )}
-                        <div className="flex justify-end gap-8 flex-wrap items-end shrink-0">
-                            <Tooltip
-                                title={`The current ${
-                                    billing?.discount_percent ? 'discounted ' : ''
-                                }amount you have been billed for this ${
-                                    billing?.billing_period?.interval
-                                } so far. This number updates once daily.`}
-                            >
-                                <div className="flex flex-col items-center">
-                                    <div className="font-bold text-3xl leading-7">
-                                        {humanFriendlyCurrency(
-                                            parseFloat(addon.current_amount_usd || '0') *
-                                                (1 -
-                                                    (billing?.discount_percent
-                                                        ? billing.discount_percent / 100
-                                                        : 0))
-                                        )}
-                                    </div>
-                                    <span className="text-xs text-muted">
-                                        {capitalizeFirstLetter(
-                                            billing?.billing_period?.interval || ''
-                                        )}
-                                        -to-date
-                                    </span>
-                                </div>
-                            </Tooltip>
-                            {addon.tiers && (
+                        <div className="flex w-full items-center gap-x-8">
+                            <LemonButton
+                                icon={showTierBreakdown ? <IconChevronDown /> : <IconChevronRight />}
+                                onClick={() => setShowTierBreakdown(!showTierBreakdown)}
+                            />
+                            <div className="grow">
+                                <BillingGauge
+                                    items={[
+                                        {
+                                            type: BillingGaugeItemKind.FreeTier,
+                                            text: 'Free tier limit',
+                                            value: addon.tiers?.[0]?.up_to || 0,
+                                            top: true,
+                                        },
+                                        {
+                                            type: BillingGaugeItemKind.CurrentUsage,
+                                            text: 'Current',
+                                            value: addon.current_usage || 0,
+                                            top: false,
+                                        },
+                                    ]}
+                                    product={addon}
+                                />
+                            </div>
+                            <div className="flex justify-end gap-8 flex-wrap items-end shrink-0">
                                 <Tooltip
-                                    title={`This is roughly calculated based on your current bill${
-                                        billing?.discount_percent
-                                            ? ', discounts on your account,'
-                                            : ''
-                                    } and the remaining time left in this billing period. This number updates once daily.`}
+                                    title={`The current amount you have been billed for mobile recordings this ${billing?.billing_period?.interval}.`}
                                 >
-                                    <div className="flex flex-col items-center justify-end">
-                                        <div className="font-bold text-muted text-lg leading-5">
+                                    <div className="flex flex-col items-center">
+                                        <div className="font-bold text-3xl leading-7">
                                             {humanFriendlyCurrency(
-                                                parseFloat(
-                                                    addon.projected_amount_usd || '0'
-                                                ) *
+                                                parseFloat(addon.current_amount_usd || '0') *
                                                     (1 -
                                                         (billing?.discount_percent
                                                             ? billing.discount_percent / 100
                                                             : 0))
                                             )}
                                         </div>
-                                        <span className="text-xs text-muted">Projected</span>
+                                        <span className="text-xs text-muted">
+                                            {capitalizeFirstLetter(billing?.billing_period?.interval || '')}
+                                            -to-date
+                                        </span>
                                     </div>
                                 </Tooltip>
-                            )}
+                            </div>
                         </div>
+
+                        {showTierBreakdown && <BillingProductPricingTable product={addon} />}
                     </>
                 )}
             </div>

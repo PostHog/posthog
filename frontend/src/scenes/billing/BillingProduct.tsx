@@ -3,13 +3,12 @@ import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
-import { FEATURE_FLAGS, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
+import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, humanFriendlyCurrency } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useRef } from 'react'
@@ -63,7 +62,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         setBillingProductLoading,
     } = useActions(billingProductLogic({ product, productRef }))
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const { upgradePlan, currentPlan, downgradePlan } = currentAndUpgradePlans
     const additionalFeaturesOnUpgradedPlan = upgradePlan
@@ -260,7 +258,12 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                         <div className="flex flex-col items-center">
                                                             <div className="font-bold text-3xl leading-7">
                                                                 {humanFriendlyCurrency(
-                                                                    parseFloat(product.current_amount_usd || '0') *
+                                                                    parseFloat(
+                                                                        product.type === 'session_replay'
+                                                                            ? product.current_amount_usd_before_addons ||
+                                                                                  '0'
+                                                                            : product.current_amount_usd || '0'
+                                                                    ) *
                                                                         (1 -
                                                                             (billing?.discount_percent
                                                                                 ? billing.discount_percent / 100
@@ -353,19 +356,9 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                 </LemonBanner>
                             )}
                             <div className="gap-y-4 flex flex-col">
-                                {product.addons
-                                    // TODO: enhanced_persons: remove this filter
-                                    .filter((addon) => {
-                                        if (addon.inclusion_only) {
-                                            if (featureFlags[FEATURE_FLAGS.PERSONLESS_EVENTS_NOT_SUPPORTED]) {
-                                                return false
-                                            }
-                                        }
-                                        return true
-                                    })
-                                    .map((addon, i) => {
-                                        return <BillingProductAddon key={i} addon={addon} />
-                                    })}
+                                {product.addons.map((addon, i) => {
+                                    return <BillingProductAddon key={i} addon={addon} />
+                                })}
                             </div>
                         </div>
                     )}

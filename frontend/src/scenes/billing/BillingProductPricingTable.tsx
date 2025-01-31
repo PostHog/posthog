@@ -3,7 +3,12 @@ import { LemonBanner, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { compactNumber } from 'lib/utils'
 
-import { BillingProductV2AddonType, BillingProductV2Type, BillingTableTierRow, ProductPricingTierSubrows } from '~/types'
+import {
+    BillingProductV2AddonType,
+    BillingProductV2Type,
+    BillingTableTierRow,
+    ProductPricingTierSubrows,
+} from '~/types'
 
 import { billingLogic } from './billingLogic'
 import { FeatureFlagUsageNotice, getTierDescription } from './BillingProduct'
@@ -42,17 +47,20 @@ export const BillingProductPricingTable = ({
         { title: 'Projected Total', dataIndex: 'projectedTotal' },
     ]
 
-    const subscribedAddons = product.addons?.filter(
-        (addon) => {
-            if (!addon.tiers || addon.tiers.length === 0) {
-                return false
-            }
-            if (addon.tiers[0].up_to !== product.tiers?.[0]?.up_to) {
-                return false
-            }
-            return addon.subscribed || addon.inclusion_only
-        }
-    )
+    const subscribedAddons =
+        product.type === 'session_replay'
+            ? []
+            : 'addons' in product
+            ? product.addons?.filter((addon: BillingProductV2AddonType) => {
+                  if (!addon.tiers || addon.tiers.length === 0) {
+                      return false
+                  }
+                  if (addon.tiers[0].up_to !== product.tiers?.[0]?.up_to) {
+                      return false
+                  }
+                  return addon.subscribed || addon.inclusion_only
+              })
+            : []
 
     // TODO: SUPPORT NON-TIERED PRODUCT TYPES
     // still use the table, but the data will be different
@@ -110,18 +118,27 @@ export const BillingProductPricingTable = ({
                       }
                       // take the tier.current_amount_usd and add it to the same tier level for all the addons
                       const totalForTier =
-                          parseFloat(tier.current_amount_usd || '') +
-                          (product.addons?.reduce(
-                              (acc, addon) => acc + parseFloat(addon.tiers?.[i]?.current_amount_usd || ''),
-                              0
-                              // if there aren't any addons we get NaN from the above, so we need to default to 0
-                          ) || 0)
+                          product.type === 'session_replay'
+                              ? parseFloat(tier.current_amount_usd || '0')
+                              : parseFloat(tier.current_amount_usd || '') +
+                                ('addons' in product
+                                    ? product.addons?.reduce(
+                                          (acc: number, addon: BillingProductV2AddonType) =>
+                                              acc + parseFloat(addon.tiers?.[i]?.current_amount_usd || ''),
+                                          0
+                                      ) || 0
+                                    : 0)
                       const projectedTotalForTier =
-                          (parseFloat(tier.projected_amount_usd || '') || 0) +
-                          product.addons?.reduce(
-                              (acc, addon) => acc + (parseFloat(addon.tiers?.[i]?.projected_amount_usd || '') || 0),
-                              0
-                          ) || 0
+                          product.type === 'session_replay'
+                              ? parseFloat(tier.projected_amount_usd || '0')
+                              : (parseFloat(tier.projected_amount_usd || '') || 0) +
+                                ('addons' in product
+                                    ? product.addons?.reduce(
+                                          (acc: number, addon: BillingProductV2AddonType) =>
+                                              acc + (parseFloat(addon.tiers?.[i]?.projected_amount_usd || '') || 0),
+                                          0
+                                      ) || 0
+                                    : 0)
 
                       const tierData = {
                           volume: product.tiers // this is silly because we know there are tiers since we check above, but typescript doesn't
@@ -129,7 +146,11 @@ export const BillingProductPricingTable = ({
                               : '',
                           basePrice:
                               tier.unit_amount_usd !== '0'
-                                  ? `$${tier.unit_amount_usd}${subscribedAddons?.length > 0 ? ' + addons' : ''}`
+                                  ? `$${tier.unit_amount_usd}${
+                                        product.type !== 'session_replay' && subscribedAddons?.length > 0
+                                            ? ' + addons'
+                                            : ''
+                                    }`
                                   : 'Free',
                           usage: compactNumber(tier.current_usage),
                           total: `$${totalForTier.toFixed(2) || '0.00'}`,
@@ -144,7 +165,14 @@ export const BillingProductPricingTable = ({
                           volume: 'Total',
                           basePrice: '',
                           usage: '',
-                          total: `$${product.current_amount_usd || '0.00'}`,
+                          total:
+                              product.type === 'session_replay'
+                                  ? `$${
+                                        ('current_amount_usd_before_addons' in product
+                                            ? product.current_amount_usd_before_addons
+                                            : '0.00') || '0.00'
+                                    }`
+                                  : `$${product.current_amount_usd || '0.00'}`,
                           projectedTotal: `$${product.projected_amount_usd || '0.00'}`,
                           subrows: { rows: [], columns: [] },
                       },
@@ -189,7 +217,7 @@ export const BillingProductPricingTable = ({
                             rowExpandable: (row) => !!row.subrows?.rows?.length,
                         }}
                     />
-                    <FeatureFlagUsageNotice product={product} />
+                    <FeatureFlagUsageNotice product={product as BillingProductV2Type} />
                     <LemonBanner type="warning" className="text-sm pt-2">
                         Tier breakdowns are updated once daily and may differ from the gauge above.
                     </LemonBanner>
