@@ -1,3 +1,4 @@
+from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.models.person.sql import KAFKA_PERSONS_TABLE_SQL, PERSONS_TABLE_MV_SQL
 from posthog.settings import CLICKHOUSE_CLUSTER
@@ -10,4 +11,8 @@ operations = [
     ),
     run_sql_with_exceptions(KAFKA_PERSONS_TABLE_SQL()),
     run_sql_with_exceptions(PERSONS_TABLE_MV_SQL),
+    run_sql_with_exceptions(
+        f"ALTER TABLE person ADD COLUMN IF NOT EXISTS distinct_ids Array(VARCHAR)",
+        node_role=NodeRole.COORDINATOR,
+    ),
 ]

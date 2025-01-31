@@ -3,11 +3,13 @@ from posthog.clickhouse.table_engines import ReplacingMergeTree
 from posthog.kafka_client.topics import KAFKA_PLUGIN_LOG_ENTRIES
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
+ON_CLUSTER_CLAUSE = lambda: f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+
 PLUGIN_LOG_ENTRIES_TABLE = "plugin_log_entries"
 PLUGIN_LOG_ENTRIES_TTL_WEEKS = 1
 
 PLUGIN_LOG_ENTRIES_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
     id UUID,
     team_id Int64,
@@ -23,7 +25,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 """
 
 PLUGIN_LOG_ENTRIES_TABLE_ENGINE = lambda: ReplacingMergeTree(PLUGIN_LOG_ENTRIES_TABLE, ver="_timestamp")
-PLUGIN_LOG_ENTRIES_TABLE_SQL = lambda: (
+PLUGIN_LOG_ENTRIES_TABLE_SQL = lambda on_cluster=True: (
     PLUGIN_LOG_ENTRIES_TABLE_BASE_SQL
     + """PARTITION BY toYYYYMMDD(timestamp) ORDER BY (team_id, plugin_id, plugin_config_id, timestamp)
 {ttl_period}
@@ -31,15 +33,15 @@ SETTINGS index_granularity=512
 """
 ).format(
     table_name=PLUGIN_LOG_ENTRIES_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
+    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
     extra_fields=KAFKA_COLUMNS,
     engine=PLUGIN_LOG_ENTRIES_TABLE_ENGINE(),
     ttl_period=ttl_period("timestamp", PLUGIN_LOG_ENTRIES_TTL_WEEKS),
 )
 
-KAFKA_PLUGIN_LOG_ENTRIES_TABLE_SQL = lambda: PLUGIN_LOG_ENTRIES_TABLE_BASE_SQL.format(
+KAFKA_PLUGIN_LOG_ENTRIES_TABLE_SQL = lambda on_cluster=True: PLUGIN_LOG_ENTRIES_TABLE_BASE_SQL.format(
     table_name="kafka_" + PLUGIN_LOG_ENTRIES_TABLE,
-    cluster=CLICKHOUSE_CLUSTER,
+    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
     engine=kafka_engine(topic=KAFKA_PLUGIN_LOG_ENTRIES),
     extra_fields="",
 )

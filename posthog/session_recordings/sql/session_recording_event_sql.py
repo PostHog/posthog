@@ -9,10 +9,12 @@ from posthog.clickhouse.table_engines import (
 )
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS
 
+ON_CLUSTER_CLAUSE = lambda: f"ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+
 SESSION_RECORDING_EVENTS_DATA_TABLE = lambda: "sharded_session_recording_events"
 
 SESSION_RECORDING_EVENTS_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
     uuid UUID,
     timestamp DateTime64(6, 'UTC'),
@@ -80,7 +82,7 @@ SESSION_RECORDING_EVENTS_DATA_TABLE_ENGINE = lambda: ReplacingMergeTree(
     ver="_timestamp",
     replication_scheme=ReplicationScheme.SHARDED,
 )
-SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: (
+SESSION_RECORDING_EVENTS_TABLE_SQL = lambda on_cluster=True: (
     SESSION_RECORDING_EVENTS_TABLE_BASE_SQL
     + """PARTITION BY toYYYYMMDD(timestamp)
 ORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid)
@@ -89,7 +91,7 @@ SETTINGS index_granularity=512
 """
 ).format(
     table_name=SESSION_RECORDING_EVENTS_DATA_TABLE(),
-    cluster=settings.CLICKHOUSE_CLUSTER,
+    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
     materialized_columns=SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMNS,
     extra_fields=f"""
     {KAFKA_COLUMNS}
@@ -99,9 +101,9 @@ SETTINGS index_granularity=512
     ttl_period=ttl_period(),
 )
 
-KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: SESSION_RECORDING_EVENTS_TABLE_BASE_SQL.format(
+KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda on_cluster=True: SESSION_RECORDING_EVENTS_TABLE_BASE_SQL.format(
     table_name="kafka_session_recording_events",
-    cluster=settings.CLICKHOUSE_CLUSTER,
+    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
     engine=kafka_engine(topic=KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS),
     materialized_columns="",
     extra_fields="",
@@ -134,9 +136,9 @@ FROM {database}.kafka_session_recording_events
 # Distributed engine tables are only created if CLICKHOUSE_REPLICATED
 
 # This table is responsible for writing to sharded_session_recording_events based on a sharding key.
-WRITABLE_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: SESSION_RECORDING_EVENTS_TABLE_BASE_SQL.format(
+WRITABLE_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda on_cluster=True: SESSION_RECORDING_EVENTS_TABLE_BASE_SQL.format(
     table_name="writable_session_recording_events",
-    cluster=settings.CLICKHOUSE_CLUSTER,
+    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
     engine=Distributed(
         data_table=SESSION_RECORDING_EVENTS_DATA_TABLE(),
         sharding_key="sipHash64(distinct_id)",
@@ -146,9 +148,9 @@ WRITABLE_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: SESSION_RECORDING_EVENTS_T
 )
 
 # This table is responsible for reading from session_recording_events on a cluster setting
-DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: SESSION_RECORDING_EVENTS_TABLE_BASE_SQL.format(
+DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda on_cluster=True: SESSION_RECORDING_EVENTS_TABLE_BASE_SQL.format(
     table_name="session_recording_events",
-    cluster=settings.CLICKHOUSE_CLUSTER,
+    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
     engine=Distributed(
         data_table=SESSION_RECORDING_EVENTS_DATA_TABLE(),
         sharding_key="sipHash64(distinct_id)",
