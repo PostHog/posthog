@@ -255,9 +255,13 @@ export function SDKInstallNextJSInstructions(): JSX.Element {
             <h3>Initialize</h3>
             <h4>With App router</h4>
             <p>
-                If your Next.js app uses the <Link to="https://nextjs.org/docs/app">app router</Link>, you can integrate
-                PostHog by creating a <code>providers</code> file in your <code>app</code> folder. This is because the{' '}
-                <code>posthog-js</code> library needs to be initialized on the client-side using the Next.js{' '}
+                If your Next.js app uses the{' '}
+                <Link to="https://nextjs.org/docs/app" target="_blank">
+                    app router
+                </Link>
+                , you can integrate PostHog by creating a <code>providers</code> file in your <code>app</code> folder.
+                This is because the <code>posthog-js</code> library needs to be initialized on the client-side using the
+                Next.js{' '}
                 <Link to="https://nextjs.org/docs/getting-started/react-essentials#client-components" target="_blank">
                     <code>'use client'</code> directive
                 </Link>
@@ -265,20 +269,24 @@ export function SDKInstallNextJSInstructions(): JSX.Element {
             </p>
             <NextAppRouterCodeSnippet />
             <p>
-                Afterwards, import the <code>PostHogProvider</code> component in your <code>app/layout.jsx</code>
-                file and wrap your app with it.
+                Afterwards, import the <code>PostHogProvider</code> component in your <code>app/layout.jsx</code> file
+                and wrap your app with it.
             </p>
             <NextAppRouterLayoutSnippet />
             <h4>With Pages router</h4>
             <p>
-                If your Next.js app uses the <Link to="https://nextjs.org/docs/pages">pages router</Link>, you can
-                integrate PostHog at the root of your app (pages/_app.js).
+                If your Next.js app uses the{' '}
+                <Link to="https://nextjs.org/docs/pages" target="_blank">
+                    pages router
+                </Link>
+                , you can integrate PostHog at the root of your app.
             </p>
             <NextPagesRouterCodeSnippet />
             <h3>Capturing pageviews</h3>
             <p>
-                PostHog's $pageview autocapture relies on page load events. Since Next.js acts as a single-page app,
-                this event doesn't trigger on navigation and we need to capture $pageview events manually.
+                PostHog's <code>$pageview</code> autocapture relies on page load events. Since Next.js acts as a
+                single-page app, this event doesn't trigger on navigation and we need to capture <code>$pageview</code>{' '}
+                events manually.
             </p>
             <h4>With App router</h4>
             <p>
