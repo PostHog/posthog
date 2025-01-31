@@ -13,9 +13,9 @@ import { ProductIntentContext } from 'lib/utils/product-intents'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import {
     indexToVariantKeyFeatureFlagPayloads,
+    validateFeatureFlagKey,
     variantKeyToIndexFeatureFlagPayloads,
 } from 'scenes/feature-flags/featureFlagLogic'
-import { validateFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -1049,6 +1049,11 @@ export const experimentLogic = kea<experimentLogicType>([
             const response = await api.get(
                 `api/projects/${values.currentProjectId}/feature_flags/?${toParams({ search: featureFlagKey })}`
             )
+            const existingErrors = {
+                // :KLUDGE: If there is no name error, we don't want to trigger the 'required' error early
+                name: undefined,
+                ...values.experimentErrors,
+            }
             if (response.results.length > 0) {
                 const matchingFlag = response.results.find((flag: FeatureFlagType) => flag.key === featureFlagKey)
                 if (matchingFlag) {
@@ -1062,18 +1067,25 @@ export const experimentLogic = kea<experimentLogicType>([
                     actions.setIsValidExistingFeatureFlag(isValid)
                     if (isValid) {
                         actions.setExperimentManualErrors({
+                            ...existingErrors,
                             feature_flag_key: null,
                         })
                     } else {
                         actions.setExperimentManualErrors({
+                            ...existingErrors,
                             feature_flag_key: 'Existing feature flag is not eligible for experiments.',
                         })
                     }
                     return
                 }
             }
+
             actions.setIsExistingFeatureFlag(false)
             actions.setIsValidExistingFeatureFlag(false)
+            actions.setExperimentManualErrors({
+                ...existingErrors,
+                feature_flag_key: validateFeatureFlagKey(featureFlagKey),
+            })
         },
     })),
     loaders(({ actions, props, values }) => ({
@@ -1862,9 +1874,9 @@ export const experimentLogic = kea<experimentLogicType>([
         experiment: {
             options: { showErrorsOnTouch: true },
             defaults: { ...NEW_EXPERIMENT } as Experiment,
-            errors: ({ name, feature_flag_key, parameters }) => ({
+            errors: ({ name, parameters }) => ({
                 name: !name && 'Please enter a name',
-                feature_flag_key: validateFeatureFlagKey(feature_flag_key),
+                // feature_flag_key is handled asynchronously
                 parameters: {
                     feature_flag_variants: parameters.feature_flag_variants?.map(({ key }) => ({
                         key: !key.match?.(/^([A-z]|[a-z]|[0-9]|-|_)+$/)
