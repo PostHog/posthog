@@ -146,9 +146,7 @@ class PendingEventDeletesTable:
     timestamp: datetime
     team_id: int | None = None
     cluster: str = settings.CLICKHOUSE_CLUSTER
-    pending_person_deletions_qualified_name: str = (
-        f"{settings.CLICKHOUSE_DATABASE}.pending_person_deletes_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    )
+    pending_person_deletions_qualified_name: str = ""
 
     @property
     def timestamp_isoformat(self) -> str:
@@ -210,7 +208,7 @@ class PendingEventDeletesTable:
                 WHERE
                     e.timestamp < d.created_at
                     AND d.delete_verified_at IS NULL
-                    AND d.deletion_type = '1'
+                    AND d.deletion_type = 1
         """
 
     @property
@@ -428,7 +426,7 @@ def cleanup_delete_assets(
     config: DeleteConfig,
     create_pending_person_deletions_table: PendingPersonEventDeletesTable,
     create_pending_event_deletes_table: PendingEventDeletesTable,
-    wait_for_delete_mutations: PendingPersonEventDeletesTable,
+    wait_for_delete_mutations: PendingEventDeletesTable,
 ) -> bool:
     """Clean up temporary tables and mark deletions as verified."""
     # Drop the dictionary and table using the table object
