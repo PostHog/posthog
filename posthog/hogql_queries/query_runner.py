@@ -506,7 +506,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         break
                     except ValueError:
                         continue
-                raise ValueError(f"Query is not of type {self.query_type}")
+                if not self.is_query_node(query):
+                    raise ValueError(f"Query is not of type {self.query_type}")
             else:
                 query = self.query_type.model_validate(query)
                 assert isinstance(query, self.query_type)
