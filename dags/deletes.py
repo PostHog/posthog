@@ -47,6 +47,10 @@ class DeleteConfig(Config):
         default=datetime.now().isoformat(),
         description="The timestamp to delete events up to in ISO format (YYYY-MM-DDTHH:MM:SS.mmmmmm+HH:MM). If not provided, current time will be used.",
     )
+    cleanup: bool = pydantic.Field(
+        default=True,
+        description="If true, the temporary table will be dropped after the job is run.",
+    )
 
     @property
     def parsed_timestamp(self) -> datetime:
@@ -92,11 +96,13 @@ class PendingPersonEventDeletesTable:
             CREATE TABLE IF NOT EXISTS {self.table_name} ON CLUSTER '{self.cluster}'
             (
                 team_id Int64,
-                person_id UUID,
-                created_at DateTime DEFAULT now()
+                deletion_type Int8,
+                key String,
+                created_at DateTime,
+                delete_verified_at Nullable(DateTime)
             )
             ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/{self.table_name}', '{{shard}}-{{replica}}')
-            ORDER BY (team_id, person_id)
+            ORDER BY (team_id, deletion_type, key)
         """
 
     @property
@@ -130,11 +136,14 @@ class PendingPersonEventDeletesTable:
             f"""
             DELETE FROM {EVENTS_DATA_TABLE()} WHERE (uuid, event, team_id, person_id, timestamp) IN (
                 SELECT e.uuid, e.event, e.team_id, e.person_id, e.timestamp
-                FROM events e
+                FROM {settings.CLICKHOUSE_DATABASE}.{EVENTS_DATA_TABLE()} e
                 INNER JOIN {self.qualified_name} d
                 ON e.team_id = d.team_id
-                AND e.person_id = d.person_id
-                AND e.timestamp < d.created_at
+                AND toString(e.person_id) = d.key
+                WHERE
+                    e.timestamp < d.created_at
+                    AND d.delete_verified_at IS NULL
+                    AND d.deletion_type = '1'
             )
             """,
             {},
@@ -174,26 +183,18 @@ def load_pending_person_deletions(
 
     if not create_pending_deletes_table.team_id:
         # Use Django's queryset iterator for memory efficiency
-        pending_deletions = (
-            AsyncDeletion.objects.filter(
-                deletion_type=DeletionType.Person,
-                delete_verified_at__isnull=True,
-                created_at__lte=create_pending_deletes_table.timestamp,
-            )
-            .values("team_id", "key", "created_at")
-            .iterator()
-        )
+        pending_deletions = AsyncDeletion.objects.filter(
+            deletion_type=DeletionType.Person,
+            delete_verified_at__isnull=True,
+            created_at__lte=create_pending_deletes_table.timestamp,
+        ).iterator()
     else:
-        pending_deletions = (
-            AsyncDeletion.objects.filter(
-                deletion_type=DeletionType.Person,
-                team_id=create_pending_deletes_table.team_id,
-                delete_verified_at__isnull=True,
-                created_at__lte=create_pending_deletes_table.timestamp,
-            )
-            .values("team_id", "key", "created_at")
-            .iterator()
-        )
+        pending_deletions = AsyncDeletion.objects.filter(
+            deletion_type=DeletionType.Person,
+            team_id=create_pending_deletes_table.team_id,
+            delete_verified_at__isnull=True,
+            created_at__lte=create_pending_deletes_table.timestamp,
+        ).iterator()
 
     # Process and insert in chunks
     chunk_size = 10000
@@ -210,13 +211,18 @@ def load_pending_person_deletions(
     for deletion in pending_deletions:
         # Rename 'key' to 'person_id' to match our schema
         current_chunk.append(
-            {"team_id": deletion["team_id"], "person_id": deletion["key"], "created_at": deletion["created_at"]}
+            {
+                "team_id": deletion.team_id,
+                "deletion_type": deletion.deletion_type,
+                "key": deletion.key,
+                "created_at": deletion.created_at,
+            }
         )
 
         if len(current_chunk) >= chunk_size:
             client.execute(
                 f"""
-                INSERT INTO {create_pending_deletes_table.table_name} (team_id, person_id, created_at)
+                INSERT INTO {create_pending_deletes_table.table_name} (team_id, deletion_type, key, created_at)
                 VALUES
                 """,
                 current_chunk,
@@ -228,7 +234,7 @@ def load_pending_person_deletions(
     if current_chunk:
         client.execute(
             f"""
-            INSERT INTO {create_pending_deletes_table.qualified_name} (team_id, person_id, created_at)
+            INSERT INTO {create_pending_deletes_table.qualified_name} (team_id, deletion_type, key, created_at)
             VALUES
             """,
             current_chunk,
@@ -306,11 +312,16 @@ def wait_for_delete_mutations(
 @op
 def cleanup_delete_assets(
     cluster: ResourceParam[ClickhouseCluster],
+    config: DeleteConfig,
     create_pending_deletes_table: PendingPersonEventDeletesTable,
     wait_for_delete_mutations: PendingPersonEventDeletesTable,
 ) -> bool:
     """Clean up temporary tables and mark deletions as verified."""
     # Drop the dictionary and table using the table object
+
+    if not config.cleanup:
+        config.log.info("Skipping cleanup as cleanup is disabled")
+        return True
 
     cluster.any_host(create_pending_deletes_table.drop).result()
 

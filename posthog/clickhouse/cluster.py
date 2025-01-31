@@ -250,7 +250,7 @@ class MutationRunner:
         """Find the running mutation task, if one exists."""
 
         if self.is_lightweight_delete:
-            command = self.__convert_lightweight_delete_to_mutation_command(self.command)
+            command = self.__convert_lightweight_delete_to_mutation_command()
         else:
             command = self.command
 
@@ -264,10 +264,10 @@ class MutationRunner:
                 -- only one command per mutation is currently supported, so throw if the mutation contains more than we expect to find
                 -- throwIf always returns 0 if it does not throw, so negation turns this condition into effectively a noop if the test passes
                 AND NOT throwIf(
-                    length(splitByChar('\n', formatQuery($_sql_{id(self)}$ALTER TABLE {settings.CLICKHOUSE_DATABASE}{self.table} {command}$_sql_{id(self)}$)) as lines) != 2,
+                    length(splitByString('UPDATE', replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(formatQuery($_sql_{id(self)}$ALTER TABLE {settings.CLICKHOUSE_DATABASE}{self.table} {command}$_sql_{id(self)}$), '\\s+', ' '), '\\(\\s+', '('), '\\s+\\)', ')')) as lines) != 2,
                     'unexpected number of lines, expected 2 (ALTER TABLE prefix, followed by single command)'
                 )
-                AND command = trim(lines[2])
+                AND command = 'UPDATE ' || trim(lines[2])
                 AND NOT is_killed  -- ok to restart a killed mutation
             ORDER BY create_time DESC
             """,
@@ -309,12 +309,11 @@ class MutationRunner:
 
     @property
     def is_lightweight_delete(self) -> bool:
-        return re.match(r"(?i)^DELETE\s+FROM\s+(?:\w+\.)*\w+\s+WHERE\s+.*", self.command) is not None
+        return re.match(r"(?i)^DELETE\s+FROM\s+.*", self.command.strip()) is not None
 
-    def __convert_lightweight_delete_to_mutation_command(self, command: str) -> str:
-        # converts DELETE FROM table WHERE foo='bar' to UPDATE _row_exists = 0 WHERE foo='bar'
-        match = re.match(r"(?i)^DELETE\s+FROM\s+(?:\w+\.)*\w+\s+WHERE\s+(.*)", command)
+    def __convert_lightweight_delete_to_mutation_command(self) -> str:
+        match = re.match(r"(?i)^DELETE\s+FROM\s+(?:\w+\.)*\w+\s+WHERE\s+", self.command.strip())
         if not match:
-            raise ValueError(f"Invalid DELETE command format: {command}")
-        where_clause = match.group(1)
+            raise ValueError(f"Invalid DELETE command format: {self.command}")
+        where_clause = self.command.strip()[match.end() :]
         return f"UPDATE _row_exists = 0 WHERE {where_clause}"
