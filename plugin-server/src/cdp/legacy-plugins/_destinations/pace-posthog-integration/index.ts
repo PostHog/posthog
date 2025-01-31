@@ -30,6 +30,5 @@ export const onEvent = async (event: ProcessedPluginEvent, { config, fetch }: Pa
 export const pacePlugin: LegacyDestinationPlugin = {
     id: 'pace-posthog-integration',
     metadata: metadata as any,
-    setupPlugin: () => Promise.resolve(),
     onEvent,
 }

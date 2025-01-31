@@ -38,6 +38,5 @@ const onEvent = async (_event: EngagePluginEvent, { config, fetch }: LegacyDesti
 export const engagePlugin: LegacyDestinationPlugin = {
     id: 'posthog-engage-so-plugin',
     metadata: metadata as any,
-    setupPlugin: () => Promise.resolve(),
     onEvent,
 }

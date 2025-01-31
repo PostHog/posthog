@@ -212,6 +212,5 @@ export const onEvent = async (pluginEvent: ProcessedPluginEvent, meta: BrazePlug
 export const brazePlugin: LegacyDestinationPlugin = {
     id: 'posthog-braze-app',
     metadata: metadata as any,
-    setupPlugin: () => Promise.resolve(),
     onEvent,
 }

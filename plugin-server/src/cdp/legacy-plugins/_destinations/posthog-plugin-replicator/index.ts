@@ -118,6 +118,5 @@ const onEvent = async (
 export const replicatorPlugin: LegacyDestinationPlugin = {
     id: 'posthog-plugin-replicator',
     metadata: metadata as any,
-    setupPlugin: () => Promise.resolve(),
     onEvent,
 }
