@@ -210,7 +210,7 @@
         "@babel/preset-env": "^7.22.10",
         "@babel/preset-react": "^7.22.5",
         "@babel/preset-typescript": "^7.22.5",
-        "@cypress/webpack-preprocessor": "^5.17.1",
+        "@cypress/webpack-preprocessor": "^6.0.2",
         "@playwright/test": "1.45.0",
         "@sentry/types": "7.112.1",
         "@storybook/addon-a11y": "^7.6.4",
