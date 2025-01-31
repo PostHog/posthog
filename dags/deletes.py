@@ -1,4 +1,5 @@
 import pydantic
+import time
 from clickhouse_driver.client import Client
 from datetime import datetime
 from dataclasses import dataclass
@@ -13,7 +14,7 @@ from dagster import (
     ConfigurableResource,
 )
 from django.conf import settings
-
+from functools import partial
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
     Mutation,
@@ -51,6 +52,20 @@ class DeleteConfig(Config):
     cleanup: bool = pydantic.Field(
         default=True,
         description="If true, the temporary table will be dropped after the job is run.",
+    )
+    shards: int = pydantic.Field(
+        default=16,
+        description="The number of shards to be used when building the dictionary. Using larger values can speed up the "
+        "creation process. See the ClickHouse documentation for more information.",
+    )
+    max_execution_time: int = pydantic.Field(
+        default=0,
+        description="The maximum amount of time to wait for the dictionary to be loaded before considering the operation "
+        "a failure, or 0 to wait an unlimited amount of time.",
+    )
+    max_memory_usage: int = pydantic.Field(
+        default=0,
+        description="The maximum amount of memory to use for the dictionary, or 0 to use an unlimited amount.",
     )
 
     @property
@@ -93,13 +108,11 @@ class PendingPersonEventDeletesTable:
             CREATE TABLE IF NOT EXISTS {self.qualified_name} ON CLUSTER '{self.cluster}'
             (
                 team_id Int64,
-                deletion_type Int8,
                 key String,
                 created_at DateTime,
-                delete_verified_at Nullable(DateTime)
             )
             ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/{self.table_name}', '{{shard}}-{{replica}}')
-            ORDER BY (team_id, deletion_type, key)
+            ORDER BY (team_id, key)
         """
 
     @property
@@ -138,101 +151,95 @@ class PendingPersonEventDeletesTable:
 
 
 @dataclass
-class PendingEventDeletesTable:
-    """
-    Represents a temporary table storing pending event deletions.
-    """
-
-    timestamp: datetime
-    team_id: int | None = None
-    cluster: str = settings.CLICKHOUSE_CLUSTER
-    pending_person_deletions_qualified_name: str = ""
+class PendingDeletesDictionary:
+    source: PendingPersonEventDeletesTable
 
     @property
-    def timestamp_isoformat(self) -> str:
-        return self.timestamp.isoformat()
-
-    @property
-    def clickhouse_timestamp(self) -> str:
-        return self.timestamp.strftime("%Y%m%d_%H%M%S")
-
-    @property
-    def table_name(self) -> str:
-        return f"pending_event_deletes_{self.clickhouse_timestamp}"
+    def name(self) -> str:
+        return f"{self.source.table_name}_dictionary"
 
     @property
     def qualified_name(self):
-        return f"{settings.CLICKHOUSE_DATABASE}.{self.table_name}"
+        return f"{settings.CLICKHOUSE_DATABASE}.{self.name}"
 
-    @property
-    def create_table_query(self) -> str:
-        return f"""
-            CREATE TABLE IF NOT EXISTS {self.qualified_name} ON CLUSTER '{self.cluster}'
-            (
-                uuid UUID,
-                event String,
+    def create(self, client: Client, shards: int, max_execution_time: int, max_memory_usage: int) -> None:
+        client.execute(
+            f"""
+            CREATE DICTIONARY IF NOT EXISTS {self.qualified_name} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' (
                 team_id Int64,
-                person_id UUID,
-                timestamp DateTime
+                key String,
+                created_at DateTime,
             )
-            ENGINE = ReplacingMergeTree()
-            ORDER BY (team_id, event, person_id, timestamp)
-        """
-
-    @property
-    def drop_table_query(self) -> str:
-        return f"DROP TABLE IF EXISTS {self.qualified_name} ON CLUSTER '{self.cluster}'"
-
-    def create(self, client: Client) -> None:
-        client.execute(self.create_table_query)
-
-    def drop(self, client: Client) -> None:
-        client.execute(self.drop_table_query)
+            PRIMARY KEY team_id, key
+            SOURCE(CLICKHOUSE(DB %(database)s TABLE %(table)s))
+            LAYOUT(COMPLEX_KEY_HASHED(SHARDS {shards}))
+            LIFETIME(0)
+            SETTINGS(max_execution_time={max_execution_time}, max_memory_usage={max_memory_usage})
+            """,
+            {
+                "database": settings.CLICKHOUSE_DATABASE,
+                "table": self.source.table_name,
+            },
+        )
 
     def exists(self, client: Client) -> bool:
-        result = client.execute(
-            f"SELECT count() FROM system.tables WHERE database = %(database)s AND name = %(table_name)s",
-            {"database": settings.CLICKHOUSE_DATABASE, "table_name": self.table_name},
+        results = client.execute(
+            "SELECT count() FROM system.dictionaries WHERE database = %(database)s AND name = %(name)s",
+            {"database": settings.CLICKHOUSE_DATABASE, "name": self.name},
         )
-        return bool(result[0][0]) if result else False
+        [[count]] = results
+        return count > 0
 
-    @property
-    def populate_query(self) -> str:
-        return f"""
-            INSERT INTO {self.qualified_name} (uuid, event, team_id, person_id, timestamp)
-            SELECT e.uuid, e.event, e.team_id, e.person_id, e.timestamp
-                FROM {settings.CLICKHOUSE_DATABASE}.{EVENTS_DATA_TABLE()} e
-                INNER JOIN {self.pending_person_deletions_qualified_name} d
-                ON e.team_id = d.team_id
-                AND toString(e.person_id) = d.key
-                WHERE
-                    e.timestamp < d.created_at
-                    AND d.delete_verified_at IS NULL
-                    AND d.deletion_type = 1
-        """
+    def drop(self, client: Client) -> None:
+        client.execute(f"DROP DICTIONARY IF EXISTS {self.qualified_name} SYNC")
 
-    @property
-    def person_event_delete_mutation_runner(self) -> MutationRunner:
-        return MutationRunner(
-            EVENTS_DATA_TABLE(),
-            f"""
-            DELETE FROM {EVENTS_DATA_TABLE()} WHERE (uuid, event, team_id, person_id, timestamp) IN (
-                SELECT uuid, event, team_id, person_id, timestamp
-                FROM {self.qualified_name}
-            )
-            """,
-            {},
+    def __is_loaded(self, client: Client) -> bool:
+        results = client.execute(
+            "SELECT status, last_exception FROM system.dictionaries WHERE database = %(database)s AND name = %(name)s",
+            {"database": settings.CLICKHOUSE_DATABASE, "name": self.name},
         )
+        if not results:
+            raise Exception("dictionary does not exist")
+        else:
+            [[status, last_exception]] = results
+            if status == "LOADED":
+                return True
+            elif status in {"LOADING", "FAILED_AND_RELOADING", "LOADED_AND_RELOADING"}:
+                return False
+            elif status == "FAILED":
+                raise Exception(f"failed to load: {last_exception}")
+            else:
+                raise Exception(f"unexpected status: {status}")
 
-    def checksum(self, client: Client):
+    def load(self, client: Client):
+        # TODO: this should probably not reload if the dictionary is already loaded
+        client.execute(f"SYSTEM RELOAD DICTIONARY {self.qualified_name}")
+
+        # reload is async, so we need to wait for the dictionary to actually be loaded
+        # TODO: this should probably throw on unexpected reloads
+        while not self.__is_loaded(client):
+            time.sleep(5.0)
+
         results = client.execute(
             f"""
             SELECT groupBitXor(row_checksum) AS table_checksum
-            FROM (SELECT cityHash64(*) AS row_checksum FROM {self.qualified_name} ORDER BY team_id, deletion_type, key, created_at)
+            FROM (SELECT cityHash64(*) AS row_checksum FROM {self.qualified_name} ORDER BY team_id, key)
             """
         )
         [[checksum]] = results
         return checksum
+
+    @property
+    def delete_mutation_runner(self) -> MutationRunner:
+        return MutationRunner(
+            EVENTS_DATA_TABLE(),
+            f"""
+            DELETE FROM {EVENTS_DATA_TABLE()} WHERE
+                isNotNull(dictGetOrNull(%(name)s, 'created_at', (team_id, key)) as created_at)
+                AND timestamp <= created_at
+            """,
+            {"name": self.qualified_name},
+        )
 
 
 @op
@@ -259,18 +266,28 @@ def load_pending_person_deletions(
 
     if not create_pending_person_deletions_table.team_id:
         # Use Django's queryset iterator for memory efficiency
-        pending_deletions = AsyncDeletion.objects.filter(
-            deletion_type=DeletionType.Person,
-            delete_verified_at__isnull=True,
-            created_at__lte=create_pending_person_deletions_table.timestamp,
-        ).iterator()
+        pending_deletions = (
+            AsyncDeletion.objects.filter(
+                deletion_type=DeletionType.Person,
+                delete_verified_at__isnull=True,
+                delete_type=DeletionType.Person,
+                created_at__lte=create_pending_person_deletions_table.timestamp,
+            )
+            .values("team_id", "key", "created_at")
+            .iterator()
+        )
     else:
-        pending_deletions = AsyncDeletion.objects.filter(
-            deletion_type=DeletionType.Person,
-            team_id=create_pending_person_deletions_table.team_id,
-            delete_verified_at__isnull=True,
-            created_at__lte=create_pending_person_deletions_table.timestamp,
-        ).iterator()
+        pending_deletions = (
+            AsyncDeletion.objects.filter(
+                deletion_type=DeletionType.Person,
+                team_id=create_pending_person_deletions_table.team_id,
+                delete_verified_at__isnull=True,
+                delete_type=DeletionType.Person,
+                created_at__lte=create_pending_person_deletions_table.timestamp,
+            )
+            .values("team_id", "key", "created_at")
+            .iterator()
+        )
 
     # Process and insert in chunks
     chunk_size = 10000
@@ -289,7 +306,6 @@ def load_pending_person_deletions(
         current_chunk.append(
             {
                 "team_id": deletion.team_id,
-                "deletion_type": deletion.deletion_type,
                 "key": deletion.key,
                 "created_at": deletion.created_at,
             }
@@ -321,30 +337,12 @@ def load_pending_person_deletions(
 
 
 @op
-def create_pending_event_deletes_table(
-    config: DeleteConfig,
-    create_pending_person_deletions_table: PendingPersonEventDeletesTable,
-    cluster: ResourceParam[ClickhouseCluster],
-) -> PendingEventDeletesTable:
-    """Create a merge tree table in ClickHouse to store pending event deletions."""
-    table = PendingEventDeletesTable(
-        timestamp=create_pending_person_deletions_table.timestamp,
-        cluster=settings.CLICKHOUSE_CLUSTER,
-        pending_person_deletions_qualified_name=create_pending_person_deletions_table.qualified_name,
-    )
-
-    cluster.any_host(table.create).result()
-    return table
-
-
-@op
-def load_pending_event_deletes(
-    context: OpExecutionContext,
-    create_pending_event_deletes_table: PendingEventDeletesTable,
+def create_deletes_dict(
     load_pending_person_deletions: PendingPersonEventDeletesTable,
+    config: DeleteConfig,
     cluster: ResourceParam[ClickhouseCluster],
-) -> PendingEventDeletesTable:
-    """Query postgres using django ORM to get pending event deletions and insert directly into ClickHouse."""
+) -> PendingDeletesDictionary:
+    """Create a dictionary in ClickHouse to store pending event deletions."""
 
     # Wait for the table to be fully replicated
     def sync_replica(client: Client):
@@ -352,28 +350,35 @@ def load_pending_event_deletes(
 
     cluster.map_hosts_by_role(sync_replica, NodeRole.WORKER).result()
 
-    # Load pending event deletions
-    def load_pending_event_deletions(client: Client):
-        client.execute(create_pending_event_deletes_table.populate_query)
+    del_dict = PendingDeletesDictionary(
+        source=load_pending_person_deletions,
+    )
 
-    cluster.map_hosts_by_role(load_pending_event_deletions, NodeRole.WORKER).result()
-
-    return create_pending_event_deletes_table
+    cluster.any_host_by_role(
+        partial(
+            del_dict.create,
+            shards=config.shards,
+            max_execution_time=config.max_execution_time,
+            max_memory_usage=config.max_memory_usage,
+        ),
+        NodeRole.WORKER,
+    ).result()
+    return del_dict
 
 
 @op
 def delete_person_events(
     context: OpExecutionContext,
     cluster: ResourceParam[ClickhouseCluster],
-    load_pending_event_deletions: PendingEventDeletesTable,
-) -> tuple[PendingEventDeletesTable, ShardMutations]:
+    create_deletes_dict: PendingDeletesDictionary,
+) -> tuple[PendingDeletesDictionary, ShardMutations]:
     """Delete events from sharded_events table for persons pending deletion."""
 
     def count_pending_deletes(client: Client) -> int:
         result = client.execute(
             f"""
             SELECT count()
-            FROM {load_pending_event_deletions.qualified_name}
+            FROM {create_deletes_dict.qualified_name}
             """
         )
         return result[0][0] if result else 0
@@ -383,7 +388,7 @@ def delete_person_events(
     all_zero = all(count == 0 for count in count_result.values())
     if all_zero:
         context.add_output_metadata({"events_deleted": MetadataValue.int(0), "message": "No pending deletions found"})
-        return (load_pending_event_deletions, {})
+        return (create_deletes_dict, {})
 
     context.add_output_metadata(
         {
@@ -394,25 +399,23 @@ def delete_person_events(
     shard_mutations = {
         host.shard_num: mutation
         for host, mutation in (
-            cluster.map_one_host_per_shard(load_pending_event_deletions.person_event_delete_mutation_runner.enqueue)
-            .result()
-            .items()
+            cluster.map_one_host_per_shard(create_deletes_dict.delete_mutation_runner.enqueue).result().items()
         )
     }
-    return (load_pending_event_deletions, shard_mutations)
+    return (create_deletes_dict, shard_mutations)
 
 
 @op
 def wait_for_delete_mutations(
     context: OpExecutionContext,
     cluster: ResourceParam[ClickhouseCluster],
-    delete_person_events: tuple[PendingEventDeletesTable, ShardMutations],
-) -> PendingEventDeletesTable:
-    pending_event_deletions, shard_mutations = delete_person_events
+    delete_person_events: tuple[PendingDeletesDictionary, ShardMutations],
+) -> PendingDeletesDictionary:
+    pending_deletes_dict, shard_mutations = delete_person_events
 
     cluster.map_all_hosts_in_shards({shard: mutation.wait for shard, mutation in shard_mutations.items()}).result()
 
-    return pending_event_deletions
+    return pending_deletes_dict
 
 
 @op
@@ -420,8 +423,8 @@ def cleanup_delete_assets(
     cluster: ResourceParam[ClickhouseCluster],
     config: DeleteConfig,
     create_pending_person_deletions_table: PendingPersonEventDeletesTable,
-    create_pending_event_deletes_table: PendingEventDeletesTable,
-    wait_for_delete_mutations: PendingEventDeletesTable,
+    create_deletes_dict: PendingDeletesDictionary,
+    wait_for_delete_mutations: PendingDeletesDictionary,
 ) -> bool:
     """Clean up temporary tables and mark deletions as verified."""
     # Drop the dictionary and table using the table object
@@ -431,7 +434,7 @@ def cleanup_delete_assets(
         return True
 
     cluster.any_host_by_role(create_pending_person_deletions_table.drop, NodeRole.WORKER).result()
-    cluster.any_host_by_role(create_pending_event_deletes_table.drop, NodeRole.WORKER).result()
+    cluster.any_host_by_role(create_deletes_dict.drop, NodeRole.WORKER).result()
 
     # Mark deletions as verified in Django
     if not create_pending_person_deletions_table.team_id:
@@ -455,9 +458,7 @@ def cleanup_delete_assets(
 def deletes_job():
     """Job that handles deletion of person events."""
     person_table = create_pending_person_deletions_table()
-    event_table = create_pending_event_deletes_table(person_table)
-    loaded_person_table = load_pending_person_deletions(person_table)
-    loaded_event_table = load_pending_event_deletes(event_table, loaded_person_table)
-    delete_events = delete_person_events(loaded_event_table)
+    create_deletes_dict_op = create_deletes_dict(person_table)
+    delete_events = delete_person_events(create_deletes_dict_op)
     waited_table = wait_for_delete_mutations(delete_events)
-    cleanup_delete_assets(person_table, event_table, waited_table)
+    cleanup_delete_assets(person_table, create_deletes_dict_op, waited_table)
