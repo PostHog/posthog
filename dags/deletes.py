@@ -125,7 +125,7 @@ class PendingPersonEventDeletesTable:
     @property
     def populate_query(self) -> str:
         return f"""
-            INSERT INTO {self.table_name} (team_id, person_id, created_at)
+            INSERT INTO {self.qualified_name} (team_id, deletion_type, key, created_at)
             VALUES
         """
 
@@ -153,7 +153,7 @@ class PendingPersonEventDeletesTable:
         results = client.execute(
             f"""
             SELECT groupBitXor(row_checksum) AS table_checksum
-            FROM (SELECT cityHash64(*) AS row_checksum FROM {self.qualified_name} ORDER BY team_id, person_id, created_at)
+            FROM (SELECT cityHash64(*) AS row_checksum FROM {self.qualified_name} ORDER BY team_id, deletion_type, key, created_at)
             """
         )
         [[checksum]] = results
@@ -206,10 +206,10 @@ def load_pending_person_deletions(
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
         secure=settings.CLICKHOUSE_SECURE,
+        verify=settings.CLICKHOUSE_VERIFY,
     )
 
     for deletion in pending_deletions:
-        # Rename 'key' to 'person_id' to match our schema
         current_chunk.append(
             {
                 "team_id": deletion.team_id,
@@ -221,10 +221,7 @@ def load_pending_person_deletions(
 
         if len(current_chunk) >= chunk_size:
             client.execute(
-                f"""
-                INSERT INTO {create_pending_deletes_table.table_name} (team_id, deletion_type, key, created_at)
-                VALUES
-                """,
+                create_pending_deletes_table.populate_query,
                 current_chunk,
             )
             total_rows += len(current_chunk)
@@ -233,10 +230,7 @@ def load_pending_person_deletions(
     # Insert any remaining records
     if current_chunk:
         client.execute(
-            f"""
-            INSERT INTO {create_pending_deletes_table.qualified_name} (team_id, deletion_type, key, created_at)
-            VALUES
-            """,
+            create_pending_deletes_table.populate_query,
             current_chunk,
         )
         total_rows += len(current_chunk)
