@@ -52,7 +52,7 @@ class MogrifyDeleteQueriesActivityInputs:
     """Inputs for the `mogrify_delete_queries_activity`."""
 
     team_id: int
-    person_ids: list[str] = dataclasses.field(default_factory=list)
+    person_ids: list[int] = dataclasses.field(default_factory=list)
     batch_size: int = 1000
 
 
@@ -103,7 +103,7 @@ class DeletePersonsActivityInputs:
     """Inputs for the `delete_persons_activity`."""
 
     team_id: int
-    person_ids: list[str] = dataclasses.field(default_factory=list)
+    person_ids: list[int] = dataclasses.field(default_factory=list)
     batch_number: int = 1
     batches: int = 1
     batch_size: int = 1000
@@ -165,7 +165,7 @@ class DeletePersonsWorkflowInputs:
     """Inputs for the `DeletePersonsWorkflow`."""
 
     team_id: int
-    person_ids: list[str] = dataclasses.field(default_factory=list)
+    person_ids: list[int] = dataclasses.field(default_factory=list)
     batches: int = 1
     batch_size: int = 1000
 
