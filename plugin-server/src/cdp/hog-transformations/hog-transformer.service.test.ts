@@ -429,8 +429,16 @@ describe('HogTransformer', () => {
                 {
                   "event": null,
                   "messagePromises": [
-                    Promise {},
-                    Promise {},
+                    Promise {
+                      Symbol(async_id_symbol): 13875,
+                      Symbol(trigger_async_id_symbol): 13865,
+                      Symbol(kResourceStore): undefined,
+                    },
+                    Promise {
+                      Symbol(async_id_symbol): 13891,
+                      Symbol(trigger_async_id_symbol): 13876,
+                      Symbol(kResourceStore): undefined,
+                    },
                   ],
                 }
             `)
@@ -441,7 +449,7 @@ describe('HogTransformer', () => {
             const result = await hogTransformer.transformEvent(event)
 
             expect(executeSpy).toHaveBeenCalledTimes(1)
-            expect(result).toMatchInlineSnapshot(`
+            expect(result.event).toMatchInlineSnapshot(`
                 {
                   "event": {
                     "distinct_id": "distinct-id",
@@ -453,13 +461,21 @@ describe('HogTransformer', () => {
                       "$ip": "89.160.20.129",
                     },
                     "site_url": "http://localhost",
-                    "team_id": ${teamId},
+                    "team_id": 918643523,
                     "timestamp": "2024-01-01T00:00:00Z",
                     "uuid": "event-id",
                   },
                   "messagePromises": [
-                    Promise {},
-                    Promise {},
+                    Promise {
+                      Symbol(async_id_symbol): 14765,
+                      Symbol(trigger_async_id_symbol): 14755,
+                      Symbol(kResourceStore): undefined,
+                    },
+                    Promise {
+                      Symbol(async_id_symbol): 14781,
+                      Symbol(trigger_async_id_symbol): 14766,
+                      Symbol(kResourceStore): undefined,
+                    },
                   ],
                 }
             `)
