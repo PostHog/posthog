@@ -323,6 +323,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
 
     // HOG Transformations (Alpha feature)
     HOG_TRANSFORMATIONS_ENABLED: boolean
+    HOG_TRANSFORMATIONS_COMPARISON_PERCENTAGE: number | undefined
 
     SESSION_RECORDING_MAX_BATCH_SIZE_KB: number | undefined
     SESSION_RECORDING_MAX_BATCH_AGE_MS: number | undefined
@@ -1315,61 +1316,6 @@ export type AppMetric2Type = {
         | 'inputs_failed'
         | 'fetch'
     count: number
-}
-
-interface TextOperator {
-    operator: 'equals' | 'startsWith' | 'includes'
-    value: string
-}
-
-export interface ModelDetails {
-    matches: string[]
-    searchTerms: string[]
-    info: {
-        releaseDate: string
-        maxTokens?: number
-        description: string
-        tradeOffs: string[]
-        benchmarks: {
-            [key: string]: number
-        }
-        capabilities: string[]
-        strengths: string[]
-        weaknesses: string[]
-        recommendations: string[]
-    }
-}
-
-export type ModelDetailsMap = {
-    [key: string]: ModelDetails
-}
-
-export interface ModelRow {
-    model: TextOperator
-    cost: {
-        prompt_token: number
-        completion_token: number
-    }
-    showInPlayground?: boolean
-    targetUrl?: string
-    dateRange?: {
-        start: string
-        end: string
-    }
-}
-
-export interface ModelRow {
-    model: TextOperator
-    cost: {
-        prompt_token: number
-        completion_token: number
-    }
-    showInPlayground?: boolean
-    targetUrl?: string
-    dateRange?: {
-        start: string
-        end: string
-    }
 }
 
 export interface CookielessConfig {

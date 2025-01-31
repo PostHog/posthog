@@ -201,7 +201,9 @@ export const LineGraph = (): JSX.Element => {
                         if (ctx.chart.options.plugins?.annotation?.annotations) {
                             const annotations = ctx.chart.options.plugins.annotation.annotations as Record<string, any>
                             if (annotations[`line${curIndex}`]) {
-                                annotations[`line${curIndex}`].label.content = `${cur.label}: ${cur.value}`
+                                annotations[`line${curIndex}`].label.content = `${
+                                    cur.label
+                                }: ${cur.value.toLocaleString()}`
                                 // Hide the external tooltip element
                                 const tooltipEl = document.getElementById('InsightTooltipWrapper')
 
