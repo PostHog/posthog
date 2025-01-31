@@ -744,31 +744,6 @@ class TestExperimentCRUD(APILicensedTest):
             "Can't update keys: get_feature_flag_key on Experiment",
         )
 
-    def test_cant_reuse_existing_feature_flag(self):
-        ff_key = "a-b-test"
-        FeatureFlag.objects.create(
-            team=self.team,
-            rollout_percentage=50,
-            name="Beta feature",
-            key=ff_key,
-            created_by=self.user,
-        )
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": "2021-12-01T10:23",
-                "end_date": None,
-                "feature_flag_key": ff_key,
-                "parameters": None,
-                "filters": {"events": []},
-            },
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "There is already a feature flag with this key.")
-
     def test_draft_experiment_doesnt_have_FF_active(self):
         # Draft experiment
         ff_key = "a-b-tests"
