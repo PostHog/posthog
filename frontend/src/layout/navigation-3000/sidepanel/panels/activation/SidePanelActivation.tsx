@@ -85,7 +85,7 @@ export const SidePanelActivation = (): JSX.Element | null => {
     )
 }
 
-export const SidePanelActivationIcon = ({ className }: { className: LemonIconProps['className'] }): JSX.Element => {
+export const SidePanelActivationIcon = ({ className }: { className?: LemonIconProps['className'] }): JSX.Element => {
     const { activeTasks, completionPercent } = useValues(activationLogic)
 
     return (
@@ -105,7 +105,7 @@ const ActivationSectionComponent = ({
     section,
 }: {
     sectionKey: ActivationSection
-    section: any
+    section: (typeof activationLogic.values.sections)[number]
 }): JSX.Element | null => {
     const { activeTasks, completedTasks } = useValues(activationLogic)
     const { toggleSectionOpen, addIntentForSection } = useActions(activationLogic)
@@ -186,7 +186,16 @@ const ActivationTask = ({
     const handleClick = (): void => {
         reportActivationSideBarTaskClicked(id)
         if (url) {
-            window.open(url, '_blank')
+            try {
+                const newWindow = window.open(url, '_blank')
+                if (newWindow === null) {
+                    // Handle popup blocked case
+                    window.location.href = url
+                }
+            } catch (e) {
+                // Fallback to regular navigation
+                window.location.href = url
+            }
         } else {
             runTask(id)
         }

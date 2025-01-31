@@ -95,7 +95,7 @@ export const ACTIVATION_SECTIONS = {
         icon: (
             <IconRewindPlay
                 className="h-5 w-5 text-brand-yellow"
-                color={availableOnboardingProducts.product_analytics.iconColor}
+                color={availableOnboardingProducts.session_replay.iconColor}
             />
         ),
     },
@@ -168,7 +168,7 @@ export const activationLogic = kea<activationLogicType>([
             sidePanelStateLogic,
             ['modalMode'],
             pipelineDestinationsLogic({ types: DESTINATION_TYPES }),
-            ['destinations', 'destinationsLoading'],
+            ['destinations', 'loading'],
         ],
         actions: [
             inviteLogic,
@@ -280,6 +280,7 @@ export const activationLogic = kea<activationLogicType>([
                 s.dataWarehouseSourcesLoading,
                 s.surveysLoading,
                 s.surveysResponsesCountLoading,
+                s.loading,
             ],
             (
                 currentTeam,
@@ -292,7 +293,8 @@ export const activationLogic = kea<activationLogicType>([
                 experimentsLoading,
                 dataWarehouseSourcesLoading,
                 surveysLoading,
-                surveysResponsesCountLoading
+                surveysResponsesCountLoading,
+                loading
             ): boolean => {
                 return (
                     !!currentTeam &&
@@ -305,7 +307,8 @@ export const activationLogic = kea<activationLogicType>([
                     !experimentsLoading &&
                     !dataWarehouseSourcesLoading &&
                     !surveysLoading &&
-                    !surveysResponsesCountLoading
+                    !surveysResponsesCountLoading &&
+                    !loading
                 )
             },
         ],
@@ -510,7 +513,7 @@ export const activationLogic = kea<activationLogicType>([
                         completed: hasSurveyWithResponses,
                         canSkip: false,
                         section: ActivationSection.Surveys,
-                        locked: !hasLaunchedSurvey ? 'Launch a survey first' : undefined,
+                        lockedReason: !hasLaunchedSurvey ? 'Launch a survey first' : undefined,
                     },
                 ].map((task) => ({
                     ...task,

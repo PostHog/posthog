@@ -87,7 +87,7 @@ export function Navbar(): JSX.Element {
                             {visibleTabs.includes(SidePanelTab.Activation) && (
                                 <NavbarButton
                                     identifier="activation-button"
-                                    icon={<SidePanelActivationIcon className="" />}
+                                    icon={<SidePanelActivationIcon />}
                                     title="Quick start"
                                     onClick={() => openSidePanel(SidePanelTab.Activation)}
                                 />
