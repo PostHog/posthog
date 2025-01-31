@@ -65,7 +65,11 @@ import { experimentsLogic } from './experimentsLogic'
 import { holdoutsLogic } from './holdoutsLogic'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
-import { getMinimumDetectableEffect, transformFiltersForWinningVariant } from './utils'
+import {
+    featureFlagEligibleForExperiment,
+    getMinimumDetectableEffect,
+    transformFiltersForWinningVariant,
+} from './utils'
 
 const NEW_EXPERIMENT: Experiment = {
     id: 'new',
@@ -275,6 +279,9 @@ export const experimentLogic = kea<experimentLogicType>([
         setIsCreatingExperimentDashboard: (isCreating: boolean) => ({ isCreating }),
         setUnmodifiedExperiment: (experiment: Experiment) => ({ experiment }),
         restoreUnmodifiedExperiment: true,
+        setIsExistingFeatureFlag: (isExisting: boolean) => ({ isExisting }),
+        setIsValidExistingFeatureFlag: (isValid: boolean) => ({ isValid }),
+        validateFeatureFlag: (featureFlagKey: string) => ({ featureFlagKey }),
     }),
     reducers({
         experiment: [
@@ -580,6 +587,18 @@ export const experimentLogic = kea<experimentLogicType>([
                 setIsCreatingExperimentDashboard: (_, { isCreating }) => isCreating,
             },
         ],
+        isExistingFeatureFlag: [
+            false,
+            {
+                setIsExistingFeatureFlag: (_, { isExisting }) => isExisting,
+            },
+        ],
+        isValidExistingFeatureFlag: [
+            false,
+            {
+                setIsValidExistingFeatureFlag: (_, { isValid }) => isValid,
+            },
+        ],
     }),
     listeners(({ values, actions }) => ({
         createExperiment: async ({ draft }) => {
@@ -786,6 +805,10 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         setExperimentValue: async ({ name, value }, breakpoint) => {
+            if (Array.isArray(name) && name[0] === 'feature_flag_key') {
+                actions.validateFeatureFlag(value)
+            }
+
             await breakpoint(100)
 
             if (name === 'filters') {
@@ -1020,6 +1043,37 @@ export const experimentLogic = kea<experimentLogicType>([
             if (values.unmodifiedExperiment) {
                 actions.setExperiment(structuredClone(values.unmodifiedExperiment))
             }
+        },
+        validateFeatureFlag: async ({ featureFlagKey }: { featureFlagKey: string }, breakpoint) => {
+            await breakpoint(200)
+            const response = await api.get(
+                `api/projects/${values.currentProjectId}/feature_flags/?${toParams({ search: featureFlagKey })}`
+            )
+            if (response.results.length > 0) {
+                const matchingFlag = response.results.find((flag: FeatureFlagType) => flag.key === featureFlagKey)
+                if (matchingFlag) {
+                    let isValid
+                    try {
+                        isValid = featureFlagEligibleForExperiment(matchingFlag)
+                    } catch (error) {
+                        isValid = false
+                    }
+                    actions.setIsExistingFeatureFlag(true)
+                    actions.setIsValidExistingFeatureFlag(isValid)
+                    if (isValid) {
+                        actions.setExperimentManualErrors({
+                            feature_flag_key: null,
+                        })
+                    } else {
+                        actions.setExperimentManualErrors({
+                            feature_flag_key: 'Existing feature flag is not eligible for experiments.',
+                        })
+                    }
+                    return
+                }
+            }
+            actions.setIsExistingFeatureFlag(false)
+            actions.setIsValidExistingFeatureFlag(false)
         },
     })),
     loaders(({ actions, props, values }) => ({
