@@ -502,7 +502,7 @@ class HogFunctionViewSet(
                             type="transformation",
                             changes=[
                                 Change(
-                                    type="transformation",
+                                    type="HogFunction",
                                     action="changed",
                                     field="priority",
                                     before=str(old_order),
