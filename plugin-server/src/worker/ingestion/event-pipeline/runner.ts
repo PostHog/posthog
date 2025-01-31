@@ -234,16 +234,17 @@ export class EventPipelineRunner {
 
         const processedEvent = await this.runStep(pluginsProcessEventStep, [this, postCookielessEvent], event.team_id)
 
-        await this.runStep(
-            compareToHogTransformStep,
-            [
+        // NOTE: We don't use the step process here as we don't want it to interfere with other metrics
+        try {
+            await compareToHogTransformStep(
                 this.hogTransformer,
                 postCookielessEvent,
                 processedEvent,
-                this.hub.HOG_TRANSFORMATIONS_COMPARISON_PERCENTAGE,
-            ],
-            event.team_id
-        )
+                this.hub.HOG_TRANSFORMATIONS_COMPARISON_PERCENTAGE
+            )
+        } catch (error) {
+            status.error('🔔', 'Error comparing to hog transform', { error })
+        }
 
         if (processedEvent == null) {
             // A plugin dropped the event.

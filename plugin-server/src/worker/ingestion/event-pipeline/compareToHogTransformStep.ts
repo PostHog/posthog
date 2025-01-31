@@ -1,10 +1,9 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { Counter } from 'prom-client'
 
-import { cloneObject } from '~/src/utils/utils'
-
 import { HogTransformerService } from '../../../cdp/hog-transformations/hog-transformer.service'
 import { status } from '../../../utils/status'
+import { cloneObject } from '../../../utils/utils'
 
 type Diff = {
     key: string
