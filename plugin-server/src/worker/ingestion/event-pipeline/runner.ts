@@ -12,6 +12,7 @@ import { normalizeProcessPerson } from '../../../utils/event'
 import { status } from '../../../utils/status'
 import { EventsProcessor } from '../process-event'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
+import { compareToHogTransformStep } from './compareToHogTransformStep'
 import { cookielessServerHashStep } from './cookielessServerHashStep'
 import { createEventStep } from './createEventStep'
 import { emitEventStep } from './emitEventStep'
@@ -63,7 +64,7 @@ export class EventPipelineRunner {
         this.hub = hub
         this.originalEvent = event
         this.eventsProcessor = new EventsProcessor(hub)
-        this.hogTransformer = hub.HOG_TRANSFORMATIONS_ENABLED ? hogTransformer : null
+        this.hogTransformer = hogTransformer
     }
 
     isEventDisallowed(event: PipelineEvent): boolean {
@@ -232,6 +233,18 @@ export class EventPipelineRunner {
         }
 
         const processedEvent = await this.runStep(pluginsProcessEventStep, [this, postCookielessEvent], event.team_id)
+
+        await this.runStep(
+            compareToHogTransformStep,
+            [
+                this.hogTransformer,
+                postCookielessEvent,
+                processedEvent,
+                this.hub.HOG_TRANSFORMATIONS_COMPARISON_PERCENTAGE,
+            ],
+            event.team_id
+        )
+
         if (processedEvent == null) {
             // A plugin dropped the event.
             return this.registerLastStep('pluginsProcessEventStep', [postCookielessEvent], kafkaAcks)
@@ -239,7 +252,7 @@ export class EventPipelineRunner {
 
         const { event: transformedEvent, messagePromises } = await this.runStep(
             transformEventStep,
-            [processedEvent, this.hogTransformer],
+            [processedEvent, this.hub.HOG_TRANSFORMATIONS_ENABLED ? this.hogTransformer : null],
             event.team_id
         )
 
