@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyTransformationPlugin, LegacyPluginMeta } from '../../types'
+import { LegacyPluginMeta,LegacyTransformationPlugin } from '../../types'
 import metadata from './plugin.json'
 
 export function processEvent(event: PluginEvent, _: LegacyPluginMeta) {
