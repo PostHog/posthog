@@ -2,10 +2,10 @@ import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 
 import { Response } from '~/src/utils/fetch'
 
-import { LegacyPlugin, LegacyPluginMeta } from '../../types'
+import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from '../../types'
 import metadata from './plugin.json'
 
-export type PatternsMeta = LegacyPluginMeta & {
+export type PatternsMeta = LegacyDestinationPluginMeta & {
     config: {
         webhookUrl: string
         allowedEventTypes: string
@@ -45,8 +45,8 @@ export const onEvent = async (event: ProcessedPluginEvent, { config, global, fet
     }
 }
 
-export const patternsPlugin: LegacyPlugin = {
-    id: 'patterns',
+export const patternsPlugin: LegacyDestinationPlugin = {
+    id: 'posthog-patterns-app',
     metadata: metadata as any,
     setupPlugin: setupPlugin as any,
     onEvent,

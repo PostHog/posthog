@@ -73,23 +73,6 @@ exports[`CdpCyclotronWorkerPlugins smoke tests should run the plugin: { name: 'c
 ]
 `;
 
-exports[`CdpCyclotronWorkerPlugins smoke tests should run the plugin: { name: 'posthog-intercom-plugin', plugin: [Object] } 1`] = `
-[
-  {
-    "level": "debug",
-    "message": "Executing plugin posthog-intercom-plugin",
-  },
-  {
-    "level": "info",
-    "message": "Contact test@posthog.com in Intercom not found",
-  },
-  {
-    "level": "debug",
-    "message": "Execution successful",
-  },
-]
-`;
-
 exports[`CdpCyclotronWorkerPlugins smoke tests should run the plugin: { name: 'laudspeaker', plugin: [Object] } 1`] = `
 [
   {
@@ -108,6 +91,23 @@ exports[`CdpCyclotronWorkerPlugins smoke tests should run the plugin: { name: 'p
   {
     "level": "debug",
     "message": "Executing plugin patterns",
+  },
+  {
+    "level": "debug",
+    "message": "Execution successful",
+  },
+]
+`;
+
+exports[`CdpCyclotronWorkerPlugins smoke tests should run the plugin: { name: 'posthog-intercom-plugin', plugin: [Object] } 1`] = `
+[
+  {
+    "level": "debug",
+    "message": "Executing plugin posthog-intercom-plugin",
+  },
+  {
+    "level": "info",
+    "message": "Contact test@posthog.com in Intercom not found",
   },
   {
     "level": "debug",

@@ -3,7 +3,7 @@ import { CacheExtension, Properties, RetryError } from '@posthog/plugin-scaffold
 import type { Response } from 'node-fetch'
 import { URL } from 'url'
 
-import { LegacyPlugin, LegacyPluginMeta } from '../../../types'
+import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from '../../../types'
 import metadata from '../plugin.json'
 
 export interface EventSink {
@@ -48,7 +48,7 @@ export interface SalesforcePluginConfig {
     eventEndpointMapping: string
 }
 
-export type SalesforceMeta = LegacyPluginMeta & {
+export type SalesforceMeta = LegacyDestinationPluginMeta & {
     cache: CacheExtension
     config: SalesforcePluginConfig
 }
@@ -300,8 +300,8 @@ export function getProperties(
     return mappedProperties
 }
 
-export const salesforcePlugin: LegacyPlugin = {
-    id: 'salesforce',
+export const salesforcePlugin: LegacyDestinationPlugin = {
+    id: 'salesforce-plugin',
     metadata: metadata as any,
     setupPlugin: setupPlugin as any,
     onEvent,

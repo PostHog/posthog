@@ -3,10 +3,10 @@ import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 import { randomBytes } from 'crypto'
 import { PassThrough } from 'stream'
 
-import { LegacyPlugin, LegacyPluginMeta } from '../../types'
+import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from '../../types'
 import metadata from './plugin.json'
 
-type gcsMeta = LegacyPluginMeta & {
+type gcsMeta = LegacyDestinationPluginMeta & {
     global: {
         bucket: Bucket
         eventsToIgnore: Set<string>
@@ -149,8 +149,8 @@ const onEvent = async (event: ProcessedPluginEvent, { global, logger }: gcsMeta)
     }
 }
 
-export const gcsPlugin: LegacyPlugin = {
-    id: 'gcs',
+export const gcsPlugin: LegacyDestinationPlugin = {
+    id: 'posthog-gcs-plugin',
     metadata: metadata as any,
     setupPlugin: setupPlugin as any,
     onEvent,

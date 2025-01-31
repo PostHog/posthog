@@ -1,10 +1,10 @@
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { randomUUID } from 'crypto'
 
-import { LegacyPlugin, LegacyPluginMeta } from '../../types'
+import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from '../../types'
 import metadata from './plugin.json'
 
-type AvoPluginMeta = LegacyPluginMeta & {
+type AvoPluginMeta = LegacyDestinationPluginMeta & {
     global: {
         defaultHeaders: Record<string, string>
         excludeEvents: Set<string>
@@ -45,7 +45,10 @@ export const setupPlugin = ({ config, global }: AvoPluginMeta): Promise<void> =>
     return Promise.resolve()
 }
 
-const onEvent = async (event: ProcessedPluginEvent, { config, global, fetch }: LegacyPluginMeta): Promise<void> => {
+const onEvent = async (
+    event: ProcessedPluginEvent,
+    { config, global, fetch }: LegacyDestinationPluginMeta
+): Promise<void> => {
     const isIncluded = global.includeEvents.length > 0 ? global.includeEvents.has(event.event) : true
     const isExcluded = global.excludeEvents.has(event.event)
 
@@ -131,8 +134,8 @@ const getPropValueType = (propValue: any): string => {
     }
 }
 
-export const avoPlugin: LegacyPlugin = {
-    id: 'avo',
+export const avoPlugin: LegacyDestinationPlugin = {
+    id: 'posthog-avo-plugin',
     metadata: metadata as any,
     setupPlugin: setupPlugin as any,
     onEvent,

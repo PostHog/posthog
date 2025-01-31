@@ -1,13 +1,13 @@
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyPlugin, LegacyPluginMeta } from '../../types'
+import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from '../../types'
 import metadata from './plugin.json'
 
 type EngagePluginEvent = ProcessedPluginEvent & {
     config?: any
 }
 
-const onEvent = async (_event: EngagePluginEvent, { config, fetch }: LegacyPluginMeta): Promise<void> => {
+const onEvent = async (_event: EngagePluginEvent, { config, fetch }: LegacyDestinationPluginMeta): Promise<void> => {
     const event = _event.event
     if (event.startsWith('$')) {
         // only process a specific set of custom events
@@ -35,8 +35,8 @@ const onEvent = async (_event: EngagePluginEvent, { config, fetch }: LegacyPlugi
     })
 }
 
-export const engagePlugin: LegacyPlugin = {
-    id: 'engage',
+export const engagePlugin: LegacyDestinationPlugin = {
+    id: 'posthog-engage-so-plugin',
     metadata: metadata as any,
     setupPlugin: () => Promise.resolve(),
     onEvent,

@@ -1,9 +1,9 @@
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyPlugin, LegacyPluginMeta } from '../../types'
+import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from '../../types'
 import metadata from './plugin.json'
 
-const setupPlugin = async ({ config, global, logger, fetch }: LegacyPluginMeta): Promise<void> => {
+const setupPlugin = async ({ config, global, logger, fetch }: LegacyDestinationPluginMeta): Promise<void> => {
     // With this call we validate the API Key and also we get the list of custom fields, which will be needed
     // to configure the map between PostHog and Sendgrid.
     const fieldsDefResponse = await fetch('https://api.sendgrid.com/v3/marketing/field_definitions', {
@@ -47,7 +47,7 @@ const setupPlugin = async ({ config, global, logger, fetch }: LegacyPluginMeta):
 
 const onEvent = async (
     event: ProcessedPluginEvent,
-    { config, global, logger, fetch }: LegacyPluginMeta
+    { config, global, logger, fetch }: LegacyDestinationPluginMeta
 ): Promise<void> => {
     if (event.event !== '$identify') {
         return
@@ -148,8 +148,8 @@ function parseCustomFieldsMap(customProps: any): any {
     return result
 }
 
-export const sendgridPlugin: LegacyPlugin = {
-    id: 'sendgrid',
+export const sendgridPlugin: LegacyDestinationPlugin = {
+    id: 'sendgrid-plugin',
     metadata: metadata as any,
     setupPlugin: setupPlugin as any,
     onEvent,

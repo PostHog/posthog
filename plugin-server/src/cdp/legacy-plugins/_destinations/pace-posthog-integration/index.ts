@@ -1,9 +1,9 @@
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyPlugin, LegacyPluginMeta } from '../../types'
+import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from '../../types'
 import metadata from './plugin.json'
 
-export type PaceMetaInput = LegacyPluginMeta & {
+export type PaceMetaInput = LegacyDestinationPluginMeta & {
     config: {
         api_key: string
     }
@@ -27,8 +27,8 @@ export const onEvent = async (event: ProcessedPluginEvent, { config, fetch }: Pa
     })
 }
 
-export const pacePlugin: LegacyPlugin = {
-    id: 'pace',
+export const pacePlugin: LegacyDestinationPlugin = {
+    id: 'pace-posthog-integration',
     metadata: metadata as any,
     setupPlugin: () => Promise.resolve(),
     onEvent,

@@ -1,6 +1,6 @@
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyPlugin, LegacyPluginMeta } from '../../types'
+import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from '../../types'
 import metadata from './plugin.json'
 
 const alias = {
@@ -212,7 +212,7 @@ function isValidObject(val: any) {
     return isObject(val) || Array.isArray(val) || typeof val === 'function'
 }
 
-type RudderstackMeta = LegacyPluginMeta & {
+type RudderstackMeta = LegacyDestinationPluginMeta & {
     global: {
         rudderAuthHeader: { headers: { Authorization: string } }
         writeKey: string
@@ -305,8 +305,8 @@ function constructPayload(outPayload: any, inPayload: any, mapping: any, direct 
     })
 }
 
-export const rudderstackPlugin: LegacyPlugin = {
-    id: 'rudderstack',
+export const rudderstackPlugin: LegacyDestinationPlugin = {
+    id: 'rudderstack-posthog-plugin',
     metadata: metadata as any,
     onEvent,
     setupPlugin: setupPlugin as any,

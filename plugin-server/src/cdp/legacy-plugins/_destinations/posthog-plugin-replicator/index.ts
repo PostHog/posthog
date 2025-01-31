@@ -1,6 +1,6 @@
 import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 
-import { LegacyPlugin, LegacyPluginMeta } from '../../types'
+import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from '../../types'
 import metadata from './plugin.json'
 
 export interface ReplicatorMetaInput {
@@ -41,7 +41,10 @@ const reverseAutocaptureEvent = (autocaptureEvent: StrippedEvent) => {
     }
 }
 
-const onEvent = async (event: ProcessedPluginEvent, { config, fetch, logger }: LegacyPluginMeta): Promise<void> => {
+const onEvent = async (
+    event: ProcessedPluginEvent,
+    { config, fetch, logger }: LegacyDestinationPluginMeta
+): Promise<void> => {
     const replication = parseInt(config.replication) || 1
     if (replication > 1) {
         // This is a quick fix to make sure we don't become a spam bot
@@ -112,8 +115,8 @@ const onEvent = async (event: ProcessedPluginEvent, { config, fetch, logger }: L
     }
 }
 
-export const replicatorPlugin: LegacyPlugin = {
-    id: 'replicator',
+export const replicatorPlugin: LegacyDestinationPlugin = {
+    id: 'posthog-plugin-replicator',
     metadata: metadata as any,
     setupPlugin: () => Promise.resolve(),
     onEvent,

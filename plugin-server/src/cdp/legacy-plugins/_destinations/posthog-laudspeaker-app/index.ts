@@ -1,6 +1,6 @@
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyPlugin, LegacyPluginMeta } from '../../types'
+import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from '../../types'
 import metadata from './plugin.json'
 
 const alias = {
@@ -242,7 +242,10 @@ interface LaudspeakerPayload {
     type?: string
 }
 
-const onEvent = async (event: ProcessedPluginEvent, { config, global, fetch }: LegacyPluginMeta): Promise<void> => {
+const onEvent = async (
+    event: ProcessedPluginEvent,
+    { config, global, fetch }: LegacyDestinationPluginMeta
+): Promise<void> => {
     const laudspeakerPayload: LaudspeakerPayload = {}
     // add const value props
     constructPayload(laudspeakerPayload, event, constants, true)
@@ -347,8 +350,8 @@ function constructPayload(outPayload: any, inPayload: any, mapping: any, direct 
     })
 }
 
-export const laudspeakerPlugin: LegacyPlugin = {
-    id: 'laudspeaker',
+export const laudspeakerPlugin: LegacyDestinationPlugin = {
+    id: 'posthog-laudspeaker-app',
     metadata: metadata as any,
     setupPlugin: () => Promise.resolve(),
     onEvent,

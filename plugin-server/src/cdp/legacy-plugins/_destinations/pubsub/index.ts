@@ -2,10 +2,10 @@ import { PubSub, Topic } from '@google-cloud/pubsub'
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { RetryError } from '@posthog/plugin-scaffold'
 
-import { LegacyPlugin, LegacyPluginMeta } from '../../types'
+import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from '../../types'
 import metadata from './plugin.json'
 
-type PubSubMeta = LegacyPluginMeta & {
+type PubSubMeta = LegacyDestinationPluginMeta & {
     global: {
         pubSubClient: PubSub
         pubSubTopic: Topic
@@ -94,8 +94,8 @@ export async function onEvent(fullEvent: ProcessedPluginEvent, { global, config,
     }
 }
 
-export const pubsubPlugin: LegacyPlugin = {
-    id: 'pubsub',
+export const pubsubPlugin: LegacyDestinationPlugin = {
+    id: 'pubsub-plugin',
     metadata: metadata as any,
     setupPlugin: setupPlugin as any,
     onEvent,

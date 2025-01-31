@@ -3,7 +3,7 @@ import crypto from 'crypto'
 
 import { Response } from '~/src/utils/fetch'
 
-import { LegacyPlugin, LegacyPluginMeta } from '../../types'
+import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from '../../types'
 import metadata from './plugin.json'
 
 export type FetchBraze = (
@@ -13,7 +13,7 @@ export type FetchBraze = (
     requestId?: string
 ) => Promise<Record<string, unknown> | null>
 
-export type BrazePluginMeta = LegacyPluginMeta & {
+export type BrazePluginMeta = LegacyDestinationPluginMeta & {
     config: {
         brazeEndpoint: 'US-01' | 'US-02' | 'US-03' | 'US-04' | 'US-05' | 'US-06' | 'US-08' | 'EU-01' | 'EU-02'
         apiKey: string
@@ -209,8 +209,8 @@ export const onEvent = async (pluginEvent: ProcessedPluginEvent, meta: BrazePlug
     meta.logger.log(`🚀 Exported 1 event to Braze in ${elapsedTime} seconds.`)
 }
 
-export const brazePlugin: LegacyPlugin = {
-    id: 'braze',
+export const brazePlugin: LegacyDestinationPlugin = {
+    id: 'posthog-braze-app',
     metadata: metadata as any,
     setupPlugin: () => Promise.resolve(),
     onEvent,
