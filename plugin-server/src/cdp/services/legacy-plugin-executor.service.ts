@@ -100,7 +100,7 @@ export class LegacyPluginExecutorService {
                 throw new Error(`Plugin ${pluginId} is not a transformation`)
             }
 
-            let state = this.pluginState[pluginId]
+            let state = this.pluginState[invocation.hogFunction.id]
 
             if (!state) {
                 // TODO: Modify fetch to be a silent log if it is a test function...
@@ -125,7 +125,7 @@ export class LegacyPluginExecutorService {
                     }
                 }
 
-                state = this.pluginState[pluginId] = {
+                state = this.pluginState[invocation.hogFunction.id] = {
                     setupPromise,
                     meta,
                     errored: false,
