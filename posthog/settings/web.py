@@ -418,4 +418,6 @@ REMOTE_CONFIG_CDN_PURGE_TOKEN = get_from_env("REMOTE_CONFIG_CDN_PURGE_TOKEN", ""
 REMOTE_CONFIG_CDN_PURGE_DOMAINS = get_list(os.getenv("REMOTE_CONFIG_CDN_PURGE_DOMAINS", ""))
 
 # Whether to allow modification of transformation code
-HOG_TRANSFORMATIONS_ENABLED = get_from_env("HOG_TRANSFORMATIONS_ENABLED", False, type_cast=str_to_bool)
+HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED = get_from_env(
+    "HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED", False, type_cast=str_to_bool
+)

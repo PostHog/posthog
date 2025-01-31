@@ -1265,7 +1265,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             }
         )
 
-    @override_settings(HOG_TRANSFORMATIONS_ENABLED=False)
+    @override_settings(HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED=False)
     def test_transformation_functions_require_template_when_disabled(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
@@ -1284,13 +1284,13 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "attr": "template_id",
         }
 
-    @override_settings(HOG_TRANSFORMATIONS_ENABLED=False)
+    @override_settings(HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED=False)
     def test_transformation_functions_preserve_template_code_when_disabled(self):
         with patch("posthog.api.hog_function_template.HogFunctionTemplates.template") as mock_template:
             mock_template.return_value = template_slack  # Use existing template instead of creating mock
 
             # First create with transformations enabled
-            with override_settings(HOG_TRANSFORMATIONS_ENABLED=True):
+            with override_settings(HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED=True):
                 response = self.client.post(
                     f"/api/projects/{self.team.id}/hog_functions/",
                     data={

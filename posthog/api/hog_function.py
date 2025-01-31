@@ -193,7 +193,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 attrs["inputs"] = attrs.get("inputs") or {}
 
         if hog_type == "transformation":
-            if not settings.HOG_TRANSFORMATIONS_ENABLED:
+            if not settings.HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED:
                 if not template:
                     raise serializers.ValidationError(
                         {"template_id": "Transformation functions must be created from a template."}
