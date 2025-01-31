@@ -137,7 +137,10 @@ const ActivationSectionComponent = ({
     return (
         <div className="py-3">
             <button
-                className="flex items-center justify-between cursor-pointer select-none w-full"
+                className={clsx(
+                    'flex items-center justify-between select-none w-full',
+                    section.hasIntent && 'cursor-pointer'
+                )}
                 onClick={section.hasIntent ? handleClick : undefined}
             >
                 <div className="flex items-center gap-2">
