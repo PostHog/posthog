@@ -189,10 +189,6 @@ export function getViewRecordingFilters(
 }
 
 export function featureFlagEligibleForExperiment(featureFlag: FeatureFlagType): true {
-    if (featureFlag.deleted) {
-        throw new Error('Feature flag must not be deleted.')
-    }
-
     if (featureFlag.experiment_set && featureFlag.experiment_set.length > 0) {
         throw new Error('Feature flag is already associated with an experiment.')
     }
