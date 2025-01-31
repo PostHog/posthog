@@ -34,6 +34,7 @@ from rest_framework.decorators import action
 from posthog.rbac.migrations.rbac_team_migration import rbac_team_access_control_migration
 from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_flag_role_access_migration
 from sentry_sdk import capture_exception
+from drf_spectacular.utils import extend_schema
 
 
 class PremiumMultiorganizationPermissions(permissions.BasePermission):
@@ -268,6 +269,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return super().update(request, *args, **kwargs)
 
+    @extend_schema(exclude=True)
     @action(detail=True, methods=["post"])
     def migrate_access_control(self, request: Request, **kwargs) -> Response:
         organization = Organization.objects.get(id=kwargs["id"])
