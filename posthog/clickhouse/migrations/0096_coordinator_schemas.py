@@ -20,6 +20,7 @@ from posthog.models.person.sql import (
     PERSONS_DISTINCT_ID_TABLE_SQL,
     PERSONS_TABLE_SQL,
 )
+from posthog.models.person_overrides.sql import PERSON_OVERRIDES_CREATE_TABLE_SQL
 from posthog.models.raw_sessions.sql import DISTRIBUTED_RAW_SESSIONS_TABLE_SQL
 from posthog.models.sessions.sql import DISTRIBUTED_SESSIONS_TABLE_SQL
 from posthog.session_recordings.sql.session_recording_event_sql import DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL
@@ -40,6 +41,7 @@ operations = [
     run_sql_with_exceptions(LOG_ENTRIES_TABLE_SQL(on_cluster=False), node_role=NodeRole.COORDINATOR),
     run_sql_with_exceptions(DISTRIBUTED_PERFORMANCE_EVENTS_TABLE_SQL(on_cluster=False), node_role=NodeRole.COORDINATOR),
     run_sql_with_exceptions(PERSONS_TABLE_SQL(on_cluster=False), node_role=NodeRole.COORDINATOR),
+    run_sql_with_exceptions(PERSON_OVERRIDES_CREATE_TABLE_SQL(on_cluster=False), node_role=NodeRole.COORDINATOR),
     run_sql_with_exceptions(PERSONS_DISTINCT_ID_TABLE_SQL(on_cluster=False), node_role=NodeRole.COORDINATOR),
     run_sql_with_exceptions(PERSON_DISTINCT_ID2_TABLE_SQL(on_cluster=False), node_role=NodeRole.COORDINATOR),
     run_sql_with_exceptions(PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL(on_cluster=False), node_role=NodeRole.COORDINATOR),

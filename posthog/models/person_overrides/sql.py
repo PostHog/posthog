@@ -20,9 +20,12 @@ from posthog.settings.data_stores import (
     KAFKA_HOSTS,
 )
 
-PERSON_OVERRIDES_CREATE_TABLE_SQL = f"""
+ON_CLUSTER_CLAUSE = lambda: f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+
+PERSON_OVERRIDES_CREATE_TABLE_SQL = (
+    lambda on_cluster=True: f"""
     CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides`
-    ON CLUSTER '{CLICKHOUSE_CLUSTER}' (
+    {ON_CLUSTER_CLAUSE() if on_cluster else ""} (
         team_id INT NOT NULL,
 
         -- When we merge two people `old_person_id` and `override_person_id`, we
@@ -86,6 +89,7 @@ PERSON_OVERRIDES_CREATE_TABLE_SQL = f"""
     -- ensure that we are always querying the latest version of the mapping.
     ORDER BY (team_id, old_person_id)
 """
+)
 
 # An abstraction over Kafka that allows us to consume, via a ClickHouse
 # Materialized View from a Kafka topic and insert the messages into the
