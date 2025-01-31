@@ -102,6 +102,8 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
             r"\$sent_at",
             # privacy-related
             r"\$ip",
+            # feature flags and experiments
+            r"\$feature\/",
             # flatten-properties-plugin
             "__",
             # other metadata

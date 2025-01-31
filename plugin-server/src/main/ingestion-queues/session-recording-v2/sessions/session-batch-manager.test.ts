@@ -1,4 +1,5 @@
 import { KafkaOffsetManager } from '../kafka/offset-manager'
+import { SessionBatchFileWriter } from './session-batch-file-writer'
 import { SessionBatchManager } from './session-batch-manager'
 import { SessionBatchRecorder } from './session-batch-recorder'
 
@@ -10,6 +11,7 @@ describe('SessionBatchManager', () => {
     let executionOrder: number[]
     let currentBatch: jest.Mocked<SessionBatchRecorder>
     let mockOffsetManager: jest.Mocked<KafkaOffsetManager>
+    let mockWriter: jest.Mocked<SessionBatchFileWriter>
 
     const createMockBatch = (): jest.Mocked<SessionBatchRecorder> =>
         ({
@@ -33,10 +35,15 @@ describe('SessionBatchManager', () => {
             discardPartition: jest.fn(),
         } as unknown as jest.Mocked<KafkaOffsetManager>
 
+        mockWriter = {
+            open: jest.fn(),
+        } as unknown as jest.Mocked<SessionBatchFileWriter>
+
         manager = new SessionBatchManager({
             maxBatchSizeBytes: 100,
             maxBatchAgeMs: 1000,
             offsetManager: mockOffsetManager,
+            writer: mockWriter,
         })
         executionOrder = []
     })
@@ -147,22 +154,6 @@ describe('SessionBatchManager', () => {
         expect(results).toEqual([1, 2, 3])
     })
 
-    it('should create new batch on flush', async () => {
-        let firstBatch: SessionBatchRecorder | null = null
-
-        await manager.withBatch(async (batch) => {
-            firstBatch = batch
-            return Promise.resolve()
-        })
-
-        await manager.flush()
-
-        await manager.withBatch(async (batch) => {
-            expect(batch).not.toBe(firstBatch)
-            return Promise.resolve()
-        })
-    })
-
     it('should create new batch with correct params on flush', async () => {
         let firstBatch: SessionBatchRecorder | null = null
         await manager.withBatch(async (batch) => {
@@ -174,7 +165,7 @@ describe('SessionBatchManager', () => {
         await manager.flush()
 
         expect(firstBatch!.flush).toHaveBeenCalled()
-        expect(SessionBatchRecorder).toHaveBeenCalledWith(mockOffsetManager)
+        expect(SessionBatchRecorder).toHaveBeenCalledWith(mockOffsetManager, mockWriter)
 
         await manager.withBatch(async (batch) => {
             expect(batch).not.toBe(firstBatch)
@@ -342,6 +333,12 @@ describe('SessionBatchManager', () => {
 
             await manager.discardPartitions([])
             expect(currentBatch!.discardPartition).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('constructor', () => {
+        it('should create a new batch recorder with the writer', () => {
+            expect(SessionBatchRecorder).toHaveBeenCalledWith(mockOffsetManager, mockWriter)
         })
     })
 })

@@ -8,6 +8,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
+import { LoadNext } from '../../DataNode/LoadNext'
 import { renderColumn } from '../../DataTable/renderColumn'
 import { renderColumnMeta } from '../../DataTable/renderColumnMeta'
 import { convertTableValue, dataVisualizationLogic, TableDataCell } from '../dataVisualizationLogic'
@@ -119,6 +120,7 @@ export const Table = (props: TableProps): JSX.Element => {
                     <InsightEmptyState heading="There are no matching rows for this query" detail="" />
                 )
             }
+            footer={tabularData.length > 0 ? <LoadNext query={props.query} /> : null}
             rowClassName="DataVizRow"
         />
     )
