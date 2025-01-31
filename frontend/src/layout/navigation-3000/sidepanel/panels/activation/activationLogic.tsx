@@ -81,7 +81,7 @@ export enum ActivationSection {
     Surveys = 'surveys',
 }
 
-export const ACTIVATION_SECTIONS: Record<ActivationSection, { title: string; icon: JSX.Element }> = {
+export const ACTIVATION_SECTIONS = {
     [ActivationSection.QuickStart]: {
         title: 'Get Started',
         icon: <IconFeatures className="h-5 w-5 text-accent-primary" />,
@@ -361,6 +361,7 @@ export const activationLogic = kea<activationLogicType>([
         ],
         hasHiddenSections: [(s) => [s.sections], (sections) => sections.filter((s) => !s.hasIntent).length > 0],
         tasks: [
+            // @ts-expect-error There's a bug in kea typegen that causes this error
             (s) => [
                 s.currentTeam,
                 s.hasReverseProxy,
