@@ -295,6 +295,11 @@ class AISustainedRateThrottle(UserRateThrottle):
     rate = "40/day"
 
 
+class TeamBasedRateThrottle(PersonalApiKeyRateThrottle):
+    scope = "pth"
+    rate = "480/minute"
+
+
 class HogQLQueryThrottle(PersonalApiKeyRateThrottle):
     # Lower rate limit for HogQL queries
     scope = "query"
