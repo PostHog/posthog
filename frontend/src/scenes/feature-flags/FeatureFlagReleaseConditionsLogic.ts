@@ -81,7 +81,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     }
                     const groups = [
                         ...(state?.groups || []),
-                        { properties: [], rollout_percentage: undefined, variant: null },
+                        { properties: [], rollout_percentage: 100, variant: null },
                     ]
                     return { ...state, groups }
                 },
