@@ -1266,34 +1266,32 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
     @override_settings(HOG_TRANSFORMATIONS_ENABLED=False)
-    def test_transformation_always_uses_template_code(self):
-        # Create a transformation with a template
+    def test_cannot_modify_transformation_code_when_disabled(self):
+        # First create a transformation
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
             data={
                 "type": "transformation",
                 "name": "Test Function",
                 "description": "Test description",
-                "template_id": template_slack.id,  # Using an existing template
-                "hog": "return modified_event",  # This should be ignored
+                "hog": "return original_event",
                 "inputs": {},
             },
         )
         assert response.status_code == status.HTTP_201_CREATED
-        assert response.json()["hog"] == template_slack.hog  # Should use template code
-
-        function_id = response.json()["id"]
+        original_code = response.json()["hog"]
 
         # Try to modify the transformation code
+        function_id = response.json()["id"]
         response = self.client.patch(
             f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
             data={
-                "hog": "return another_event",  # This should be ignored
-                "name": "Updated Name",  # Other fields should update
+                "hog": "return modified_event",  # Should be ignored
+                "name": "Updated Name",  # Should be allowed to change
             },
         )
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["hog"] == template_slack.hog  # Should still use template code
+        assert response.json()["hog"] == original_code  # Code should not change
         assert response.json()["name"] == "Updated Name"  # Other fields should update
 
     @override_settings(HOG_TRANSFORMATIONS_ENABLED=True)
