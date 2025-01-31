@@ -49,7 +49,8 @@ const ExperimentFormFields = (): JSX.Element => {
                         help={
                             <div className="flex items-center space-x-2">
                                 <span>
-                                    Each experiment is backed by a feature flag. You'll use this key in your&nbsp;code.
+                                    Each experiment is backed by a feature flag. Create a new one, or choose an existing
+                                    feature flag with multiple variants.
                                 </span>
                                 <LemonButton
                                     type="secondary"
@@ -362,7 +363,7 @@ const SelectExistingFeatureFlagModal = ({
     return (
         <LemonModal isOpen={isOpen} onClose={onClose} title="Choose an existing feature flag">
             <div className="space-y-2">
-                <div className="text-muted mb-2">
+                <div className="text-muted mb-2 max-w-xl">
                     Select an existing feature flag to use with this experiment. The feature flag must use multiple
                     variants with <code>'control'</code> as the first, and not be associated with an existing
                     experiment.
@@ -376,7 +377,7 @@ const SelectExistingFeatureFlagModal = ({
                             dataIndex: 'key',
                             sorter: (a, b) => (a.key || '').localeCompare(b.key || ''),
                             render: (key, flag) => (
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center">
                                     <div className="font-semibold">{key}</div>
                                     <Link
                                         to={urls.featureFlag(flag.id as number)}
