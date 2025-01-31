@@ -1,6 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { LegacyTransformationPlugin, LegacyTransformationPluginMeta } from '../../types'
+import metadata from './plugin.json'
 
 function processEvent(event: PluginEvent, _meta: LegacyTransformationPluginMeta) {
     if (event.properties && event['timestamp'] && !isNaN(event['timestamp'] as any)) {
@@ -19,5 +20,6 @@ function processEvent(event: PluginEvent, _meta: LegacyTransformationPluginMeta)
 
 export const timestampParserPlugin: LegacyTransformationPlugin = {
     id: 'timestamp-parser-plugin',
+    metadata,
     processEvent,
 }

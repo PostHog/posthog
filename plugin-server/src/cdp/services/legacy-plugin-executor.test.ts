@@ -117,6 +117,9 @@ describe('LegacyPluginExecutorService', () => {
                     "useEuropeanDataStorage": "No",
                   },
                   "fetch": [Function],
+                  "geoip": {
+                    "locate": [Function],
+                  },
                   "global": {},
                   "logger": {
                     "debug": [Function],

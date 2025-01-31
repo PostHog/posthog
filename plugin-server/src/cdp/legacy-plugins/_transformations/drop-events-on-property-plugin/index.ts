@@ -3,6 +3,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { LegacyTransformationPlugin, LegacyTransformationPluginMeta } from '../../types'
+import metadata from './plugin.json'
 
 // Processes each event, optionally transforming it
 export function processEvent(event: PluginEvent, { config }: LegacyTransformationPluginMeta) {
@@ -22,5 +23,6 @@ export function processEvent(event: PluginEvent, { config }: LegacyTransformatio
 
 export const dropEventsOnPropertyPlugin: LegacyTransformationPlugin = {
     id: 'drop-events-on-property-plugin',
+    metadata,
     processEvent,
 }

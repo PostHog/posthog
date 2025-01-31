@@ -2,6 +2,8 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { URL } from 'url'
 
 import { LegacyTransformationPlugin, LegacyTransformationPluginMeta } from '../../types'
+import metadata from './plugin.json'
+
 // Processes each event, optionally transforming it
 
 const extractUtmFromUrl = (urlString: string, utm: string) => {
@@ -42,5 +44,6 @@ export function processEvent(event: PluginEvent, _: LegacyTransformationPluginMe
 
 export const pluginStonlyUtmExtractor: LegacyTransformationPlugin = {
     id: 'plugin-stonly-utm-extractor',
+    metadata,
     processEvent,
 }

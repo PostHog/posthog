@@ -2,6 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { URLSearchParams } from 'url'
 
 import { LegacyTransformationPlugin, LegacyTransformationPluginMeta } from '../../types'
+import metadata from './plugin.json'
 
 export type PluginConfig = {
     ignoreCase: 'true' | 'false'
@@ -86,6 +87,7 @@ export const processEvent = (event: PluginEvent, meta: LocalMeta): PluginEvent =
 
 export const posthogAppUrlParametersToEventPropertiesPlugin: LegacyTransformationPlugin = {
     id: 'posthog-app-url-parameters-to-event-properties',
+    metadata,
     processEvent,
     setupPlugin: setupPlugin as any,
 }

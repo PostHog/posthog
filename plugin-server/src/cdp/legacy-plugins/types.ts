@@ -27,12 +27,14 @@ export type LegacyDestinationPluginMeta = LegacyTransformationPluginMeta & {
 
 export type LegacyDestinationPlugin = {
     id: string
+    metadata: any
     onEvent(event: ProcessedPluginEvent, meta: LegacyDestinationPluginMeta): Promise<void>
     setupPlugin?: (meta: LegacyDestinationPluginMeta) => Promise<void>
 }
 
 export type LegacyTransformationPlugin = {
     id: string
+    metadata: any
     processEvent(event: PluginEvent, meta: LegacyTransformationPluginMeta): PluginEvent | undefined | null
     setupPlugin?: (meta: LegacyTransformationPluginMeta) => void
 }
