@@ -5,7 +5,7 @@ export function ResizeHandle1D({ orientation }: { orientation: 'horizontal' | 'v
     return (
         <div className={clsx('handle', orientation)}>
             <svg fill="none" height="24" viewBox="0 0 16 24" width="16" xmlns="http://www.w3.org/2000/svg">
-                <rect fill="var(--surface-primary)" height="23" rx="3.5" width="15" x=".5" y=".5" />
+                <rect fill="var(--bg-surface-primary)" height="23" rx="3.5" width="15" x=".5" y=".5" />
                 <g fill="var(--accent-primary)">
                     <rect height="2" rx=".25" width="2" x="5" y="5" />
                     <rect height="2" rx=".25" width="2" x="9" y="5" />
@@ -27,7 +27,7 @@ export function ResizeHandle2D(): JSX.Element {
     return (
         <div className="handle corner">
             <svg fill="none" height="18" viewBox="0 0 18 18" width="18" xmlns="http://www.w3.org/2000/svg">
-                <rect fill="var(--surface-primary)" height="17" rx="3.5" width="17" x=".5" y=".5" />
+                <rect fill="var(--bg-surface-primary)" height="17" rx="3.5" width="17" x=".5" y=".5" />
                 <g fill="var(--accent-primary)">
                     <rect height="2" rx=".25" width="2" x="8" y="8" />
                     <rect height="2" rx=".25" width="2" x="8" y="12" />

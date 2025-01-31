@@ -345,8 +345,8 @@ function QueryTab({ model, active, onClear, onClick }: QueryTabProps): JSX.Eleme
         <button
             onClick={() => onClick?.(model)}
             className={clsx(
-                'space-y-px rounded-t p-1 flex flex-row items-center gap-1 hover:bg-[var(--surface-primary)] cursor-pointer',
-                active ? 'bg-[var(--surface-primary)] border' : 'bg-primary',
+                'space-y-px rounded-t p-1 flex flex-row items-center gap-1 hover:bg-[var(--bg-surface-primary)] cursor-pointer',
+                active ? 'bg-[var(--bg-surface-primary)] border' : 'bg-primary',
                 onClear ? 'pl-3 pr-2' : 'px-4'
             )}
         >

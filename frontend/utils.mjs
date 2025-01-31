@@ -31,12 +31,6 @@ export function copyPublicFolder(srcDir, destDir) {
     })
 }
 
-/** Update the file's modified and accessed times to now. */
-async function touchFile(file) {
-    const now = new Date()
-    await fs.utimes(file, now, now)
-}
-
 export function copyIndexHtml(
     absWorkingDir = '.',
     from = 'src/index.html',
@@ -363,8 +357,6 @@ export async function buildOrWatch(config) {
     }
 
     if (isDev) {
-        const tailwindConfigJsPath = path.resolve(absWorkingDir, '../tailwind.config.js')
-
         chokidar
             .watch(
                 [
@@ -373,7 +365,6 @@ export async function buildOrWatch(config) {
                     path.resolve(absWorkingDir, '../common'),
                     path.resolve(absWorkingDir, '../products/*/manifest.json'),
                     path.resolve(absWorkingDir, '../products/*/frontend/**/*'),
-                    tailwindConfigJsPath,
                 ],
                 {
                     ignored: /.*(Type|\.test\.stories)\.[tj]sx?$/,
@@ -390,12 +381,7 @@ export async function buildOrWatch(config) {
                     gatherProductManifests()
                 }
 
-                if (inputFiles.has(filePath) || filePath === tailwindConfigJsPath) {
-                    if (filePath.match(/\.tsx?$/) || filePath === tailwindConfigJsPath) {
-                        // For changed TS/TSX files, we need to initiate a Tailwind JIT rescan
-                        // in case any new utility classes are used. `touch`ing `utilities.scss` achieves this.
-                        await touchFile(path.resolve(absWorkingDir, 'src/styles/utilities.scss'))
-                    }
+                if (inputFiles.has(filePath)) {
                     void debouncedBuild()
                 }
             })

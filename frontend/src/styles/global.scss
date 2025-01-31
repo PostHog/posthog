@@ -174,23 +174,23 @@ $xxl: 1600px;
     // Surfaces
     // Above backgrounds, smaller areas: Cards, Tables, stuff that stands out
     // //////////////////////////////////////////////////////////
-    --surface-primary: light-dark(
+    --bg-surface-primary: light-dark(
         var(--color-white),
         var(--primitive-neutral-cool-850)
     ); /* Most prominent surface (Cards, tables, etc.) */
 
-    --surface-secondary: light-dark(
+    --bg-surface-secondary: light-dark(
         var(--primitive-3000-100),
         var(--primitive-neutral-cool-900)
     ); /* Second most prominent surface (Toolbars) */
 
-    --surface-tertiary: light-dark(
+    --bg-surface-tertiary: light-dark(
         var(--primitive-3000-150),
         var(--primitive-neutral-cool-950)
     ); /* Most prominent surface (Cards, tables, etc.) */
 
-    --surface-tooltip: light-dark(var(--primitive-neutral-cool-850), var(--primitive-neutral-100));
-    --surface-popover: light-dark(var(--color-white), var(--primitive-neutral-cool-850));
+    --bg-surface-tooltip: light-dark(var(--primitive-neutral-cool-850), var(--primitive-neutral-100));
+    --bg-surface-popover: light-dark(var(--color-white), var(--primitive-neutral-cool-850));
 
     // Content (text, icons)
     // //////////////////////////////////////////////////////////
@@ -206,20 +206,25 @@ $xxl: 1600px;
     --bg-fill-tertiary: light-dark(var(--primitive-3000-50), var(--primitive-neutral-cool-800));
     --bg-fill-info-secondary: light-dark(
         var(--color-blue-100),
-        var(--primitive-neutral-cool-950)
+        var(--color-blue-950)
     ); /* promonent bg for info blocks */
 
     --bg-fill-input: light-dark(var(--color-white), var(--primitive-neutral-cool-850));
     --bg-fill-info-tertiary: light-dark(var(--color-blue-50), var(--color-blue-950)); /* subtle bg for info blocks */
     --bg-fill-warning-secondary: light-dark(
-        var(--color-orange-100),
-        var(--color-orange-950)
+        var(--color-yellow-100),
+        var(--color-yellow-950)
     ); /* prominent bg for warning blocks */
 
     --bg-fill-warning-tertiary: light-dark(
-        var(--color-orange-50),
-        --alpha(var(--color-orange-950) / 50%)
+        var(--color-yellow-50),
+        --alpha(var(--color-yellow-950) / 50%)
     ); /* subtle bg for warning blocks */
+
+    --bg-fill-warning-highlight: light-dark(
+        --alpha(var(--color-yellow-500) / 10%),
+        --alpha(var(--color-yellow-950) / 50%)
+    ); /* highlight bg for warning blocks */
 
     --bg-fill-error-secondary: light-dark(
         var(--color-red-100),
@@ -231,6 +236,11 @@ $xxl: 1600px;
         --alpha(var(--color-red-950) / 50%)
     ); /* subtle bg for error blocks */
 
+    --bg-fill-error-highlight: light-dark(
+        --alpha(var(--color-red-500) / 10%),
+        --alpha(var(--color-red-950) / 50%)
+    ); /* highlight bg for error blocks */
+
     --bg-fill-success-secondary: light-dark(
         var(--color-green-100),
         var(--color-green-950)
@@ -241,16 +251,23 @@ $xxl: 1600px;
         --alpha(var(--color-green-950) / 50%)
     ); /* subtle bg for success blocks */
 
+    --bg-fill-primary-highlight: light-dark(
+        --alpha(var(--color-primary-500) / 10%),
+        --alpha(var(--color-primary-950) / 50%)
+    ); /* highlight bg for primary blocks */
+
     // Content on fills
     // Texts which are on colourful fills, ensures contrast
     // //////////////////////////////////////////////////////////
-    --text-on-bg-fill-input: var(--text-primary);
     --text-warning-on-bg-fill: light-dark(
-        var(--color-orange-800),
-        var(--color-orange-50)
+        var(--color-yellow-800),
+        var(--color-yellow-50)
     ); /* On-fill text for warning */
 
+    --text-info-on-bg-fill: light-dark(var(--color-blue-800), var(--color-blue-50)); /* On-fill text for info */
+
     --text-error-on-bg-fill: light-dark(var(--color-red-800), var(--color-red-50)); /* On-fill text for error */
+
     --text-success-on-bg-fill: light-dark(var(--color-green-800), var(--color-green-50)); /* On-fill text for success */
 
     // Borders
@@ -258,7 +275,7 @@ $xxl: 1600px;
     // //////////////////////////////////////////////////////////
     --border-primary: light-dark(var(--primitive-3000-200), var(--primitive-neutral-cool-800));
     --border-info: light-dark(var(--color-blue-400), var(--color-blue-900));
-    --border-warning: light-dark(var(--color-orange-400), var(--color-orange-900)); /* Border for warning */
+    --border-warning: light-dark(var(--color-yellow-400), var(--color-yellow-900)); /* Border for warning */
     --border-error: light-dark(var(--color-red-400), var(--color-red-900)); /* Border for error */
     --border-success: light-dark(var(--color-green-400), var(--color-green-900)); /* Border for success */
 
@@ -455,6 +472,7 @@ $xxl: 1600px;
     --z-annotation-popover: 100;
     --z-drawer: 900;
     --z-notifications-popover: 800; // below the TZ aware popover but over the main-nav
+    --z-resizer: 755;
     --z-main-nav: 750;
     --z-lemon-sidebar: 700;
     --z-lemon-activation-sidebar: 650;
@@ -468,7 +486,7 @@ $xxl: 1600px;
     // which attaches these variables to :root
     // which means they aren't available in the toolbar
     --toastify-color-dark: var(--accent-3000-dark);
-    --toastify-color-light: var(--surface-primary);
+    --toastify-color-light: var(--bg-surface-primary);
     --toastify-color-info: var(--color-blue-500);
     --toastify-color-success: var(--success);
     --toastify-color-warning: var(--warning);
@@ -477,7 +495,7 @@ $xxl: 1600px;
     --toastify-color-progress-success: var(--toastify-color-success);
     --toastify-color-progress-warning: var(--toastify-color-warning);
     --toastify-color-progress-error: var(--toastify-color-error);
-    --toastify-toast-background: var(--surface-primary);
+    --toastify-toast-background: var(--bg-surface-primary);
     --toastify-toast-width: 26rem;
     --toastify-toast-min-height: 3.5rem;
     --toastify-toast-max-height: 16rem;
@@ -534,11 +552,11 @@ $xxl: 1600px;
     --border-3000: light-dark(var(--border-3000-light), var(--border-3000-dark));
     --border-light-opaque: light-dark(#eee, #1e2028);
     --border-bold-3000: light-dark(var(--border-bold-3000-light), var(--border-bold-3000-dark));
-    --glass-bg-3000: light-dark(var(--surface-tertiary), var(--primitive-neutral-cool-950));
+    --glass-bg-3000: light-dark(var(--bg-surface-tertiary), var(--primitive-neutral-cool-950));
     --glass-border-3000: light-dark(var(--glass-border-3000-light), var(--glass-border-3000-dark));
 
-    // --bg-light: light-dark(#fff, var(--surface-primary));
-    --bg-light: var(--surface-primary);
+    // --bg-light: light-dark(#fff, var(--bg-surface-primary));
+    --bg-light: var(--bg-surface-primary);
     --bg-table: light-dark(#f9faf7, #232429);
 
     // --link: light-dark(var(--link-3000-light), var(--link-3000-dark));
@@ -643,13 +661,13 @@ $xxl: 1600px;
 
     // Surfaces
     // //////////////////////////////////////////////////////////
-    --background-color-surface-primary: var(--surface-primary);
-    --background-color-surface-secondary: var(--surface-secondary);
-    --background-color-surface-tertiary: var(--surface-tertiary);
-    --background-color-surface-tooltip: var(--surface-tooltip);
-    --background-color-surface-popover: var(--surface-popover);
+    --background-color-surface-primary: var(--bg-surface-primary);
+    --background-color-surface-secondary: var(--bg-surface-secondary);
+    --background-color-surface-tertiary: var(--bg-surface-tertiary);
+    --background-color-surface-tooltip: var(--bg-surface-tooltip);
+    --background-color-surface-popover: var(--bg-surface-popover);
 
-    // Content (text, icons)
+    // Fills
     // //////////////////////////////////////////////////////////
     --background-color-fill-primary: var(--bg-fill-primary);
     --background-color-fill-secondary: var(--bg-fill-secondary);
@@ -658,10 +676,13 @@ $xxl: 1600px;
     --background-color-fill-info-tertiary: var(--bg-fill-info-tertiary);
     --background-color-fill-warning-secondary: var(--bg-fill-warning-secondary);
     --background-color-fill-warning-tertiary: var(--bg-fill-warning-tertiary);
+    --background-color-fill-warning-highlight: var(--bg-fill-warning-highlight);
     --background-color-fill-error-secondary: var(--bg-fill-error-secondary);
     --background-color-fill-error-tertiary: var(--bg-fill-error-tertiary);
+    --background-color-fill-error-highlight: var(--bg-fill-error-highlight);
     --background-color-fill-success-secondary: var(--bg-fill-success-secondary);
     --background-color-fill-success-tertiary: var(--bg-fill-success-tertiary);
+    --background-color-fill-success-highlight: var(--bg-fill-success-highlight);
 
     // Borders
     // //////////////////////////////////////////////////////////
@@ -688,6 +709,7 @@ $xxl: 1600px;
     --text-color-primary: var(--text-primary);
     --text-color-primary-inverse: var(--text-primary-inverse);
     --text-color-secondary: var(--text-secondary);
+    --text-color-info-on-bg-fill: var(--text-info-on-bg-fill);
     --text-color-warning-on-bg-fill: var(--text-warning-on-bg-fill);
     --text-color-error-on-bg-fill: var(--text-error-on-bg-fill);
     --text-color-success-on-bg-fill: var(--text-success-on-bg-fill);
@@ -773,7 +795,7 @@ $xxl: 1600px;
     // --color-primary-3000: var(--primary-3000);
     // --color-secondary-3000: var(--secondary-3000);
     // --color-secondary-3000-hover: var(--secondary-3000-hover);
-    // --color-accent-3000: var(--surface-primary);
+    // --color-accent-3000: var(--bg-surface-primary);
     // --color-bg-3000: var(--bg-primary);
     // --color-primary-highlight: var(--primary-highlight);
     // --color-primary-alt-highlight: var(--primary-alt-highlight);
@@ -945,7 +967,7 @@ $xxl: 1600px;
     --color-mark: var(--mark);
     --color-white: var(--white);
 
-    // --color-bg-light: var(--surface-primary);
+    // --color-bg-light: var(--bg-surface-primary);
     --color-side: var(--side);
     --color-mid: var(--mid);
     --color-border: var(--border);
@@ -969,14 +991,14 @@ $xxl: 1600px;
     --color-primary-3000-active: var(--accent-primary-active);
     --color-secondary-3000: var(--secondary-3000);
     --color-secondary-3000-hover: var(--secondary-3000-hover);
-    --color-accent-3000: var(--surface-primary);
+    --color-accent-3000: var(--bg-surface-primary);
     --color-bg-3000: var(--bg-primary);
     --color-border-3000: var(--border-primary);
     --color-border-light-opaque: var(--border-light-opaque);
     --color-border-bold-3000: var(--border-bold-3000);
     --color-glass-bg-3000: var(--glass-bg-3000);
     --color-glass-border-3000: var(--border-primary);
-    --color-bg-light: var(--surface-primary);
+    --color-bg-light: var(--bg-surface-primary);
     --color-bg-table: var(--bg-table);
 
     // --color-link: var(--link);
@@ -1107,7 +1129,7 @@ $xxl: 1600px;
             }
 
             ::-webkit-scrollbar-track {
-                background: var(--surface-primary);
+                background: var(--bg-surface-primary);
             }
 
             ::-webkit-scrollbar-thumb {
@@ -1357,7 +1379,7 @@ $xxl: 1600px;
             height: 23px;
             font-size: unset;
             color: var(--primary-alt);
-            background-color: var(--surface-primary);
+            background-color: var(--bg-surface-primary);
             border-color: var(--border);
         }
     }

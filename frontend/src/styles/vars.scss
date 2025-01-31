@@ -129,7 +129,7 @@ $xxl: 1600px;
 //     'primary-3000': var(--accent-primary),
 //     'secondary-3000': var(--secondary-3000),
 //     'secondary-3000-hover': var(--secondary-3000-hover),
-//     'accent-3000': var(--surface-primary),
+//     'accent-3000': var(--bg-surface-primary),
 //     'bg-3000': var(--bg-3000),
 //     'primary-highlight': var(--primary-highlight),
 //     'primary-alt-highlight': var(--primary-alt-highlight),
@@ -229,7 +229,7 @@ $xxl: 1600px;
 //     // which attaches these variables to :root
 //     // which means they aren't available in the toolbar
 //     --toastify-color-dark: var(--accent-3000-dark);
-//     --toastify-color-light: var(--surface-primary);
+//     --toastify-color-light: var(--bg-surface-primary);
 //     --toastify-color-info: var(--accent-primary);
 //     --toastify-color-success: var(--success);
 //     --toastify-color-warning: var(--warning);
@@ -238,7 +238,7 @@ $xxl: 1600px;
 //     --toastify-color-progress-success: var(--toastify-color-success);
 //     --toastify-color-progress-warning: var(--toastify-color-warning);
 //     --toastify-color-progress-error: var(--toastify-color-error);
-//     --toastify-toast-background: var(--surface-primary);
+//     --toastify-toast-background: var(--bg-surface-primary);
 //     --toastify-toast-width: 26rem;
 //     --toastify-toast-min-height: 3.5rem;
 //     --toastify-toast-max-height: 16rem;
@@ -302,7 +302,7 @@ $xxl: 1600px;
 //     --border-bold-3000: var(--border-bold-3000-light);
 
 //     // --glass-bg-3000: var(--glass-bg-3000-light);
-//     --glass-bg-3000: var(--surface-tertiary); // var(--glass-bg-3000-light);
+//     --glass-bg-3000: var(--bg-surface-tertiary); // var(--glass-bg-3000-light);
 //     --glass-border-3000: var(--glass-border-3000-light);
 //     --bg-light: #fff;
 //     --bg-table: #f9faf7;
@@ -344,7 +344,7 @@ $xxl: 1600px;
 //     // --glass-bg-3000: var(--glass-bg-3000-dark);
 //     --glass-bg-3000: var(--surface-quaternary);
 //     --glass-border-3000: var(--glass-border-3000-dark);
-//     --bg-light: var(--surface-primary);
+//     --bg-light: var(--bg-surface-primary);
 //     --bg-table: #232429;
 //     --brand-key: #fff; // In dark mode the black in PostHog's logo is replaced with white for proper contrast
 //     --link: var(--link-3000-dark);

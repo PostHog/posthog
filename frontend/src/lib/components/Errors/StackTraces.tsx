@@ -153,7 +153,7 @@ function FrameContextLine({
     highlight?: boolean
 }): JSX.Element {
     return (
-        <div className={highlight ? 'bg-surface-primary' : 'bg-surface-primary'}>
+        <div className={highlight ? 'bg-fill-error-highlight' : 'bg-surface-primary'}>
             {lines
                 .sort((l) => l.number)
                 .map(({ number, line }) => (

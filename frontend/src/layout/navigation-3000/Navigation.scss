@@ -97,7 +97,7 @@
         flex-direction: column;
         justify-content: space-between;
         overflow-y: auto;
-        background: var(--surface-secondary);
+        background: var(--bg-surface-secondary);
 
         .LemonButton__chrome {
             --lemon-button-padding-horizontal: 0.25rem !important;
@@ -180,7 +180,7 @@
     border-right: min(1px, var(--sidebar-width)) solid transparent;
 
     [theme='dark'] & {
-        --sidebar-background: var(--surface-primary);
+        --sidebar-background: var(--bg-surface-primary);
     }
 
     &.Sidebar3000--resizing {
@@ -341,7 +341,7 @@
     --accordion-arrow-size: 1rem;
     --accordion-row-height: 32px;
     --accordion-inset-expandable: 1.25rem;
-    --accordion-header-background: var(--surface-primary);
+    --accordion-header-background: var(--bg-surface-primary);
     --accordion-inset: 0rem;
 
     display: flex;
@@ -409,7 +409,7 @@
 .SidebarListItemAccordion {
     --accordion-arrow-size: 1rem;
     --accordion-inset-expandable: 1.25rem;
-    --accordion-header-background: var(--surface-primary);
+    --accordion-header-background: var(--bg-surface-primary);
     --accordion-inset: 0rem;
 
     display: flex;
@@ -625,7 +625,7 @@
     justify-content: center;
 
     // Pseudo-elements don't work on inputs, so we use a wrapper div
-    background: var(--surface-primary);
+    background: var(--bg-surface-primary);
 
     input {
         width: 100%;

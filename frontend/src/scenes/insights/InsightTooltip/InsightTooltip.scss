@@ -10,7 +10,7 @@
     overflow: hidden;
     font-size: 0.8125rem;
     pointer-events: none;
-    background: var(--surface-primary);
+    background: var(--bg-surface-primary);
     border: 1px solid var(--border-primary);
     border-radius: var(--radius);
     box-shadow: var(--shadow-elevation-3000);
@@ -81,7 +81,7 @@
         font-size: 0.75rem;
         color: var(--text-secondary);
         text-align: center;
-        background-color: var(--surface-primary);
+        background-color: var(--bg-surface-primary);
 
         .table-subtext-truncated {
             margin-bottom: 4px;

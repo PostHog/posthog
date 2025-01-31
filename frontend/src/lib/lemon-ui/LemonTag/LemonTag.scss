@@ -32,7 +32,7 @@
 
     &.LemonTag--option {
         color: var(--accent-primary);
-        background-color: var(--surface-primary);
+        background-color: var(--bg-surface-primary);
     }
 
     &.LemonTag--highlight {
@@ -73,7 +73,7 @@
 
     &.LemonTag--muted {
         color: var(--text-secondary);
-        background-color: var(--surface-primary);
+        background-color: var(--bg-surface-primary);
     }
 
     &.LemonTag--none {

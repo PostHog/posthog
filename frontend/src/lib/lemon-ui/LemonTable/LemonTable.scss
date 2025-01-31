@@ -1,7 +1,7 @@
 .LemonTable {
     --row-base-height: auto;
     --row-horizontal-padding: 1rem;
-    --lemon-table-background-color: var(--surface-primary);
+    --lemon-table-background-color: var(--bg-surface-primary);
 
     position: relative;
     flex: 1;
@@ -16,7 +16,7 @@
     .Insight &,
     .InsightCard__viz & {
         // Special override for scenes where the table is primarily next to insights
-        --lemon-table-background-color: var(--surface-primary);
+        --lemon-table-background-color: var(--bg-surface-primary);
     }
 
     .WebAnalyticsDashboard &,

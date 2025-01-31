@@ -23,7 +23,7 @@
 }
 
 .LemonCollapsePanel__header {
-    background: var(--surface-primary);
+    background: var(--bg-surface-primary);
     border-radius: 0 !important;
 
     &.LemonButton:active {
@@ -32,7 +32,7 @@
 
     &--disabled:hover {
         cursor: default;
-        background-color: var(--surface-primary) !important;
+        background-color: var(--bg-surface-primary) !important;
     }
 }
 
