@@ -102,7 +102,7 @@ export const Table = (props: TableProps): JSX.Element => {
             dataSource={tabularData}
             columns={tableColumns}
             loading={responseLoading}
-            pagination={{ pageSize: 100 }}
+            pagination={{ pageSize: 2000 }}
             emptyState={
                 responseError ? (
                     <InsightErrorState
