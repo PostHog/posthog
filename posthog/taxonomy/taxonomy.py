@@ -188,6 +188,22 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI Generation (LLM)",
             "description": "A call to an LLM model. Contains the input prompt, output, model used and costs.",
         },
+        "$ai_metric": {
+            "label": "AI Metric (LLM)",
+            "description": "An evaluation metric for a trace of a generative AI model (LLM). Contains the trace ID, metric name, and metric value.",
+        },
+        "$ai_feedback": {
+            "label": "AI Feedback (LLM)",
+            "description": "User-provided feedback for a trace of a generative AI model (LLM).",
+        },
+        "$ai_trace": {
+            "label": "AI Trace (LLM)",
+            "description": "A generative AI trace. Usually a trace tracks a single user interaction and contains one or more AI generation calls",
+        },
+        "$ai_span": {
+            "label": "AI Span (LLM)",
+            "description": "A generative AI span. Usually a span tracks a unit of work for a trace of generative AI models (LLMs)",
+        },
         "Application Opened": {
             "label": "Application Opened",
             "description": "When a user opens the mobile app either for the first time or from the foreground.",
@@ -1353,6 +1369,31 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI Trace ID (LLM)",
             "description": "The trace ID of the request made to the LLM API. Used to group together multiple generations into a single trace",
             "examples": ["c9222e05-8708-41b8-98ea-d4a21849e761"],
+        },
+        "$ai_metric_name": {
+            "label": "AI Metric Name (LLM)",
+            "description": "The name assigned to the metric used to evaluate the LLM trace",
+            "examples": ["rating", "accuracy"],
+        },
+        "$ai_metric_value": {
+            "label": "AI Metric Value (LLM)",
+            "description": "The value assigned to the metric used to evaluate the LLM trace",
+            "examples": ["negative", "95"],
+        },
+        "$ai_feedback_text": {
+            "label": "AI Feedback Text (LLM)",
+            "description": "The text provided by the user for feedback on the LLM trace",
+            "examples": ['"The response was helpful, but it did not use the provided context."'],
+        },
+        "$ai_parent_id": {
+            "label": "AI Parent ID (LLM)",
+            "description": "The parent span ID of a span or generation, used to group a trace into a tree view",
+            "examples": ["bdf42359-9364-4db7-8958-c001f28c9255"],
+        },
+        "$ai_span_id": {
+            "label": "AI Span ID (LLM)",
+            "description": "The unique identifier for a LLM trace, generation, or span.",
+            "examples": ["bdf42359-9364-4db7-8958-c001f28c9255"],
         },
     },
     "numerical_event_properties": {},

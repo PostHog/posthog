@@ -92,7 +92,7 @@ INSTALLED_APPS = [
 
 
 MIDDLEWARE = [
-    "posthog.middleware.PrometheusBeforeMiddlewareWithTeamIds",
+    "django_prometheus.middleware.PrometheusBeforeMiddleware",
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     "posthog.middleware.per_request_logging_context_middleware",
     "django_structlog.middlewares.RequestMiddleware",
@@ -122,7 +122,7 @@ MIDDLEWARE = [
     "axes.middleware.AxesMiddleware",
     "posthog.middleware.AutoProjectMiddleware",
     "posthog.middleware.CHQueries",
-    "posthog.middleware.PrometheusAfterMiddlewareWithTeamIds",
+    "django_prometheus.middleware.PrometheusAfterMiddleware",
     "posthog.middleware.PostHogTokenCookieMiddleware",
 ]
 
@@ -250,6 +250,13 @@ STATICFILES_DIRS = [
     os.path.join(BASE_DIR, "posthog/year_in_posthog/images"),
 ]
 STATICFILES_STORAGE = "whitenoise.storage.ManifestStaticFilesStorage"
+
+
+def static_varies_origin(headers, path, url):
+    headers["Vary"] = "Accept-Encoding, Origin"
+
+
+WHITENOISE_ADD_HEADERS_FUNCTION = static_varies_origin
 
 AUTH_USER_MODEL = "posthog.User"
 

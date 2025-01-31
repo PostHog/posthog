@@ -1936,3 +1936,7 @@ export function debounce<F extends (...args: Parameters<F>) => ReturnType<F>>(
         timeout = setTimeout(() => func(...args), waitFor)
     }
 }
+
+export function interleaveArray<T1, T2>(arr: T1[], separator: T2): (T1 | T2)[] {
+    return arr.flatMap((item, index, _arr) => (_arr.length - 1 !== index ? [item, separator] : [item]))
+}

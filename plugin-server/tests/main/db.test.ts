@@ -4,7 +4,7 @@ import { Pool } from 'pg'
 import { defaultConfig } from '../../src/config/config'
 import { Hub, Person, PropertyOperator, PropertyUpdateOperation, RawAction, Team } from '../../src/types'
 import { DB } from '../../src/utils/db/db'
-import { DependencyUnavailableError } from '../../src/utils/db/error'
+import { DependencyUnavailableError, RedisOperationError } from '../../src/utils/db/error'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresRouter, PostgresUse } from '../../src/utils/db/postgres'
 import { generateKafkaPersonUpdateMessage } from '../../src/utils/db/utils'
@@ -903,6 +903,61 @@ describe('DB', () => {
     })
 
     describe('redis', () => {
+        describe('instrumentRedisQuery', () => {
+            const otherErrorType = new Error('other error type')
+
+            it('should only throw Redis errors for operations', async () => {
+                hub.redisPool.acquire = jest.fn().mockImplementation(() => ({
+                    get: jest.fn().mockImplementation(() => {
+                        throw otherErrorType
+                    }),
+                }))
+                hub.redisPool.release = jest.fn()
+                await expect(hub.db.redisGet('testKey', 'testDefaultValue', 'testTag')).rejects.toBeInstanceOf(
+                    RedisOperationError
+                )
+            })
+            it('should only throw Redis errors for pool acquire', async () => {
+                hub.redisPool.acquire = jest.fn().mockImplementation(() => {
+                    throw otherErrorType
+                })
+                hub.redisPool.release = jest.fn()
+                await expect(hub.db.redisGet('testKey', 'testDefaultValue', 'testTag')).rejects.toBeInstanceOf(
+                    RedisOperationError
+                )
+            })
+
+            it('should only throw Redis errors for pool release', async () => {
+                hub.redisPool.acquire = jest.fn().mockImplementation(() => ({
+                    get: jest.fn().mockImplementation(() => {
+                        return 'testValue'
+                    }),
+                }))
+                hub.redisPool.release = jest.fn().mockImplementation(() => {
+                    throw otherErrorType
+                })
+                await expect(hub.db.redisGet('testKey', 'testDefaultValue', 'testTag')).rejects.toBeInstanceOf(
+                    RedisOperationError
+                )
+            })
+        })
+
+        describe('get', () => {
+            const defaultValue = 'testDefaultValue'
+            const value = 'testValue'
+            const key = 'testKey'
+            const tag = 'testTag'
+            it('should get a value that was previously set', async () => {
+                await hub.db.redisSet(key, value, tag)
+                const result = await hub.db.redisGet(key, defaultValue, tag)
+                expect(result).toEqual(value)
+            })
+            it('should return the default value if there is no value already set', async () => {
+                const result = await hub.db.redisGet(key, defaultValue, tag)
+                expect(result).toEqual(defaultValue)
+            })
+        })
+
         describe('buffer operations', () => {
             it('writes and reads buffers', async () => {
                 const buffer = Buffer.from('test')

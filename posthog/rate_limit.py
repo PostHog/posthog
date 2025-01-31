@@ -314,6 +314,11 @@ class UserAuthenticationThrottle(UserOrEmailRateThrottle):
         # only throttle non-GET requests
         if request.method == "GET":
             return True
+
+        # only throttle if attempting to change current password
+        if "current_password" not in request.data:
+            return True
+
         return super().allow_request(request, view)
 
 

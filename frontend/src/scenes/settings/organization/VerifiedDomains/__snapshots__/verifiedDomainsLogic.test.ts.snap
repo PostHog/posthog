@@ -39,6 +39,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
     "teams": [
       {
         "access_control": true,
+        "access_control_version": "v1",
         "anonymize_ips": false,
         "api_token": "default-team-api-token",
         "app_urls": [
@@ -96,6 +97,9 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "recording_domains": [
           "https://recordings.posthog.com/",
         ],
+        "revenue_tracking_config": {
+          "events": [],
+        },
         "session_recording_linked_flag": null,
         "session_recording_minimum_duration_milliseconds": null,
         "session_recording_network_payload_capture_config": {

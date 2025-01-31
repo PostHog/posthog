@@ -1,25 +1,17 @@
 import datetime as dt
 from abc import ABC, abstractmethod
 from collections import defaultdict
+from collections.abc import Callable, Generator, Iterable
+from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum, auto
 from itertools import chain
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Generic,
-    Literal,
-    Optional,
-    TypeVar,
-)
-from collections.abc import Callable, Iterable
-from urllib.parse import urlparse, parse_qs
-from uuid import UUID
+from typing import TYPE_CHECKING, Any, Generic, Literal, Optional, TypeVar
+from urllib.parse import parse_qs, urlparse
+from uuid import UUID, uuid4
 
 import tiktoken
-
-from posthog.models.utils import uuid7
 
 if TYPE_CHECKING:
     from posthog.demo.matrix.matrix import Cluster, Matrix
@@ -28,10 +20,8 @@ llm_encoding = tiktoken.encoding_for_model("gpt-4o")
 
 # Refer to https://github.com/PostHog/posthog-ai-costs-app/tree/main/src/ai-cost-data for missing models
 LLM_COSTS_BY_MODEL = {
-    "gpt-4o": {
-        "prompt_token": 0.000005,
-        "completion_token": 0.000015,
-    },
+    "gpt-4o": {"prompt_token": 2.5 / 1e6, "completion_token": 10 / 1e6},
+    "gpt-4o-mini": {"prompt_token": 0.15 / 1e6, "completion_token": 0.6 / 1e6},
 }
 
 SP = TypeVar("SP", bound="SimPerson")
@@ -206,10 +196,42 @@ class SimServerClient(SimClient):
                     ]
                 },
                 "$ai_latency": latency,
-                "$ai_trace_id": trace_id or str(uuid7()),
+                "$ai_trace_id": trace_id or str(uuid4()),
             },
             distinct_id=distinct_id,
         )
+
+    @contextmanager
+    def trace_ai(
+        self,
+        *,
+        distinct_id: str,
+        input_state: Any,
+        trace_id: Optional[str] = None,
+    ) -> Generator[tuple[str, Callable], None, None]:
+        """Capture an AI generation event."""
+        trace_id = trace_id or str(uuid4())
+        output_state = None
+
+        def set_trace_output(output: Any):
+            nonlocal output_state
+            if output_state is not None:
+                raise ValueError("Output already set for this trace")
+            output_state = output
+
+        try:
+            yield trace_id, set_trace_output
+        finally:
+            self.capture(
+                "$ai_trace",
+                {
+                    "$ai_input_state": input_state,
+                    "$ai_output_state": output_state,
+                    "$ai_span_name": "SpikeChain",
+                    "$ai_trace_id": trace_id,
+                },
+                distinct_id=distinct_id,
+            )
 
 
 class SimBrowserClient(SimClient):

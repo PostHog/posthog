@@ -1,4 +1,7 @@
 # serializer version: 1
+# name: TestDatabaseCheckForDecide.test_decide_doesnt_error_out_when_database_is_down_and_database_check_isnt_cached
+  'SELECT 1'
+# ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down
   '''
   SELECT "posthog_user"."id",
@@ -269,6 +272,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -562,6 +566,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -577,6 +582,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -591,7 +597,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -655,6 +662,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -991,7 +999,8 @@
          "posthog_featureflag"."performed_rollback",
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics"
+         "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
@@ -1227,6 +1236,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -1385,7 +1395,8 @@
          "posthog_featureflag"."performed_rollback",
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics"
+         "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
@@ -1602,6 +1613,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -1617,6 +1629,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -1631,7 +1644,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -1679,6 +1693,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -1850,47 +1865,6 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecide.test_flag_with_behavioural_cohorts.22
-  '''
-  SELECT "posthog_cohort"."id",
-         "posthog_cohort"."name",
-         "posthog_cohort"."description",
-         "posthog_cohort"."team_id",
-         "posthog_cohort"."deleted",
-         "posthog_cohort"."filters",
-         "posthog_cohort"."query",
-         "posthog_cohort"."version",
-         "posthog_cohort"."pending_version",
-         "posthog_cohort"."count",
-         "posthog_cohort"."created_by_id",
-         "posthog_cohort"."created_at",
-         "posthog_cohort"."is_calculating",
-         "posthog_cohort"."last_calculation",
-         "posthog_cohort"."errors_calculating",
-         "posthog_cohort"."last_error_at",
-         "posthog_cohort"."is_static",
-         "posthog_cohort"."groups"
-  FROM "posthog_cohort"
-  WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."team_id" = 99999)
-  '''
-# ---
-# name: TestDecide.test_flag_with_behavioural_cohorts.23
-  '''
-  SELECT "posthog_group"."id",
-         "posthog_group"."team_id",
-         "posthog_group"."group_key",
-         "posthog_group"."group_type_index",
-         "posthog_group"."group_properties",
-         "posthog_group"."created_at",
-         "posthog_group"."properties_last_updated_at",
-         "posthog_group"."properties_last_operation",
-         "posthog_group"."version"
-  FROM "posthog_group"
-  WHERE "posthog_group"."team_id" = 99999
-  LIMIT 21
-  '''
-# ---
 # name: TestDecide.test_flag_with_behavioural_cohorts.3
   '''
   SELECT "posthog_team"."id",
@@ -2021,6 +1995,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -2036,6 +2011,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -2050,7 +2026,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -2098,6 +2075,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -2306,6 +2284,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -2464,7 +2443,8 @@
          "posthog_featureflag"."performed_rollback",
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics"
+         "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
@@ -2681,6 +2661,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -2696,6 +2677,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -2710,7 +2692,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -2758,6 +2741,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -2921,43 +2905,6 @@
          AND "posthog_person"."team_id" = 99999)
   '''
 # ---
-# name: TestDecide.test_flag_with_regular_cohorts.22
-  '''
-  SELECT "posthog_cohort"."id",
-         "posthog_cohort"."name",
-         "posthog_cohort"."description",
-         "posthog_cohort"."team_id",
-         "posthog_cohort"."deleted",
-         "posthog_cohort"."filters",
-         "posthog_cohort"."query",
-         "posthog_cohort"."version",
-         "posthog_cohort"."pending_version",
-         "posthog_cohort"."count",
-         "posthog_cohort"."created_by_id",
-         "posthog_cohort"."created_at",
-         "posthog_cohort"."is_calculating",
-         "posthog_cohort"."last_calculation",
-         "posthog_cohort"."errors_calculating",
-         "posthog_cohort"."last_error_at",
-         "posthog_cohort"."is_static",
-         "posthog_cohort"."groups"
-  FROM "posthog_cohort"
-  WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."team_id" = 99999)
-  '''
-# ---
-# name: TestDecide.test_flag_with_regular_cohorts.23
-  '''
-  SELECT (("posthog_person"."properties" -> '$some_prop_1') = '"something_1"'::jsonb
-          AND "posthog_person"."properties" ? '$some_prop_1'
-          AND NOT (("posthog_person"."properties" -> '$some_prop_1') = 'null'::jsonb)) AS "flag_X_condition_0"
-  FROM "posthog_person"
-  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
-  WHERE ("posthog_persondistinctid"."distinct_id" = 'another_id'
-         AND "posthog_persondistinctid"."team_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
-  '''
-# ---
 # name: TestDecide.test_flag_with_regular_cohorts.3
   '''
   SELECT "posthog_team"."id",
@@ -3088,6 +3035,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -3103,6 +3051,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -3117,7 +3066,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -3165,6 +3115,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -3434,7 +3385,8 @@
          "posthog_featureflag"."performed_rollback",
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics"
+         "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
@@ -3480,6 +3432,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -3767,6 +3720,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -3782,6 +3736,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -3796,7 +3751,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -3860,6 +3816,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -3985,38 +3942,6 @@
          AND "posthog_pluginconfig"."team_id" = 99999)
   '''
 # ---
-# name: TestDecide.test_web_app_queries.22
-  '''
-  SELECT "posthog_pluginconfig"."id",
-         "posthog_pluginconfig"."web_token",
-         "posthog_pluginsourcefile"."updated_at",
-         "posthog_plugin"."updated_at",
-         "posthog_pluginconfig"."updated_at"
-  FROM "posthog_pluginconfig"
-  INNER JOIN "posthog_plugin" ON ("posthog_pluginconfig"."plugin_id" = "posthog_plugin"."id")
-  INNER JOIN "posthog_pluginsourcefile" ON ("posthog_plugin"."id" = "posthog_pluginsourcefile"."plugin_id")
-  WHERE ("posthog_pluginconfig"."enabled"
-         AND "posthog_pluginsourcefile"."filename" = 'site.ts'
-         AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
-         AND "posthog_pluginconfig"."team_id" = 99999)
-  '''
-# ---
-# name: TestDecide.test_web_app_queries.23
-  '''
-  SELECT "posthog_pluginconfig"."id",
-         "posthog_pluginconfig"."web_token",
-         "posthog_pluginsourcefile"."updated_at",
-         "posthog_plugin"."updated_at",
-         "posthog_pluginconfig"."updated_at"
-  FROM "posthog_pluginconfig"
-  INNER JOIN "posthog_plugin" ON ("posthog_pluginconfig"."plugin_id" = "posthog_plugin"."id")
-  INNER JOIN "posthog_pluginsourcefile" ON ("posthog_plugin"."id" = "posthog_pluginsourcefile"."plugin_id")
-  WHERE ("posthog_pluginconfig"."enabled"
-         AND "posthog_pluginsourcefile"."filename" = 'site.ts'
-         AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
-         AND "posthog_pluginconfig"."team_id" = 99999)
-  '''
-# ---
 # name: TestDecide.test_web_app_queries.3
   '''
   SELECT "posthog_hogfunction"."id",
@@ -4040,6 +3965,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -4324,6 +4250,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -4339,6 +4266,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -4353,7 +4281,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -4648,6 +4577,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -4941,6 +4871,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -4956,6 +4887,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -4970,7 +4902,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -5034,6 +4967,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -5496,6 +5430,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -5511,6 +5446,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -5525,7 +5461,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -5589,6 +5526,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -5716,7 +5654,8 @@
          "posthog_featureflag"."performed_rollback",
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics"
+         "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
@@ -5865,6 +5804,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -5880,6 +5820,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -5894,7 +5835,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -5958,6 +5900,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -6030,36 +5973,6 @@
   INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_hogfunction"."deleted"
          AND "posthog_hogfunction"."enabled"
-         AND "posthog_hogfunction"."team_id" = 99999
-         AND "posthog_hogfunction"."type" IN ('site_destination',
-                                              'site_app'))
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.48
-  '''
-  SELECT "posthog_hogfunction"."id",
-         "posthog_hogfunction"."team_id",
-         "posthog_hogfunction"."name",
-         "posthog_hogfunction"."description",
-         "posthog_hogfunction"."created_at",
-         "posthog_hogfunction"."created_by_id",
-         "posthog_hogfunction"."deleted",
-         "posthog_hogfunction"."updated_at",
-         "posthog_hogfunction"."enabled",
-         "posthog_hogfunction"."type",
-         "posthog_hogfunction"."icon_url",
-         "posthog_hogfunction"."hog",
-         "posthog_hogfunction"."bytecode",
-         "posthog_hogfunction"."transpiled",
-         "posthog_hogfunction"."inputs_schema",
-         "posthog_hogfunction"."inputs",
-         "posthog_hogfunction"."encrypted_inputs",
-         "posthog_hogfunction"."filters",
-         "posthog_hogfunction"."mappings",
-         "posthog_hogfunction"."masking",
-         "posthog_hogfunction"."template_id"
-  FROM "posthog_hogfunction"
-  WHERE ("posthog_hogfunction"."enabled"
          AND "posthog_hogfunction"."team_id" = 99999
          AND "posthog_hogfunction"."type" IN ('site_destination',
                                               'site_app'))
@@ -6244,6 +6157,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -6402,7 +6316,8 @@
          "posthog_featureflag"."performed_rollback",
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics"
+         "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
@@ -6619,6 +6534,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -6634,6 +6550,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -6648,7 +6565,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -6696,6 +6614,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -6927,6 +6846,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -6942,6 +6862,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -6956,7 +6877,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -7004,6 +6926,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -7264,6 +7187,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -7279,6 +7203,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -7293,7 +7218,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -7416,6 +7342,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -7534,108 +7461,6 @@
   LIMIT 21
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.34
-  '''
-  SELECT "posthog_hogfunction"."id",
-         "posthog_hogfunction"."team_id",
-         "posthog_hogfunction"."name",
-         "posthog_hogfunction"."description",
-         "posthog_hogfunction"."created_at",
-         "posthog_hogfunction"."created_by_id",
-         "posthog_hogfunction"."deleted",
-         "posthog_hogfunction"."updated_at",
-         "posthog_hogfunction"."enabled",
-         "posthog_hogfunction"."type",
-         "posthog_hogfunction"."icon_url",
-         "posthog_hogfunction"."hog",
-         "posthog_hogfunction"."bytecode",
-         "posthog_hogfunction"."transpiled",
-         "posthog_hogfunction"."inputs_schema",
-         "posthog_hogfunction"."inputs",
-         "posthog_hogfunction"."encrypted_inputs",
-         "posthog_hogfunction"."filters",
-         "posthog_hogfunction"."mappings",
-         "posthog_hogfunction"."masking",
-         "posthog_hogfunction"."template_id"
-  FROM "posthog_hogfunction"
-  WHERE ("posthog_hogfunction"."enabled"
-         AND "posthog_hogfunction"."team_id" = 99999
-         AND "posthog_hogfunction"."type" IN ('site_destination',
-                                              'site_app'))
-  LIMIT 21
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.35
-  '''
-  SELECT "posthog_hogfunction"."id",
-         "posthog_hogfunction"."team_id",
-         "posthog_hogfunction"."name",
-         "posthog_hogfunction"."description",
-         "posthog_hogfunction"."created_at",
-         "posthog_hogfunction"."created_by_id",
-         "posthog_hogfunction"."deleted",
-         "posthog_hogfunction"."updated_at",
-         "posthog_hogfunction"."enabled",
-         "posthog_hogfunction"."type",
-         "posthog_hogfunction"."icon_url",
-         "posthog_hogfunction"."hog",
-         "posthog_hogfunction"."bytecode",
-         "posthog_hogfunction"."transpiled",
-         "posthog_hogfunction"."inputs_schema",
-         "posthog_hogfunction"."inputs",
-         "posthog_hogfunction"."encrypted_inputs",
-         "posthog_hogfunction"."filters",
-         "posthog_hogfunction"."mappings",
-         "posthog_hogfunction"."masking",
-         "posthog_hogfunction"."template_id"
-  FROM "posthog_hogfunction"
-  WHERE ("posthog_hogfunction"."enabled"
-         AND "posthog_hogfunction"."team_id" = 99999
-         AND "posthog_hogfunction"."type" IN ('site_destination',
-                                              'site_app'))
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.36
-  '''
-  SELECT "posthog_cohort"."id",
-         "posthog_cohort"."name",
-         "posthog_cohort"."description",
-         "posthog_cohort"."team_id",
-         "posthog_cohort"."deleted",
-         "posthog_cohort"."filters",
-         "posthog_cohort"."query",
-         "posthog_cohort"."version",
-         "posthog_cohort"."pending_version",
-         "posthog_cohort"."count",
-         "posthog_cohort"."created_by_id",
-         "posthog_cohort"."created_at",
-         "posthog_cohort"."is_calculating",
-         "posthog_cohort"."last_calculation",
-         "posthog_cohort"."errors_calculating",
-         "posthog_cohort"."last_error_at",
-         "posthog_cohort"."is_static",
-         "posthog_cohort"."groups"
-  FROM "posthog_cohort"
-  WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."team_id" = 99999)
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.37
-  '''
-  SELECT "posthog_group"."id",
-         "posthog_group"."team_id",
-         "posthog_group"."group_key",
-         "posthog_group"."group_type_index",
-         "posthog_group"."group_properties",
-         "posthog_group"."created_at",
-         "posthog_group"."properties_last_updated_at",
-         "posthog_group"."properties_last_operation",
-         "posthog_group"."version"
-  FROM "posthog_group"
-  WHERE "posthog_group"."team_id" = 99999
-  LIMIT 21
-  '''
-# ---
 # name: TestDecideRemoteConfig.test_flag_with_behavioural_cohorts.4
   '''
   SELECT COUNT(*) AS "__count"
@@ -7691,6 +7516,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -7706,6 +7532,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -7720,7 +7547,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -7768,6 +7596,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -7976,6 +7805,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -8134,7 +7964,8 @@
          "posthog_featureflag"."performed_rollback",
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics"
+         "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
@@ -8351,6 +8182,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -8366,6 +8198,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -8380,7 +8213,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -8428,6 +8262,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -8659,6 +8494,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -8674,6 +8510,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -8688,7 +8525,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -8736,6 +8574,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -8992,6 +8831,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -9007,6 +8847,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -9021,7 +8862,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -9144,6 +8986,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -9258,104 +9101,6 @@
          AND "posthog_person"."team_id" = 99999)
   '''
 # ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.34
-  '''
-  SELECT "posthog_hogfunction"."id",
-         "posthog_hogfunction"."team_id",
-         "posthog_hogfunction"."name",
-         "posthog_hogfunction"."description",
-         "posthog_hogfunction"."created_at",
-         "posthog_hogfunction"."created_by_id",
-         "posthog_hogfunction"."deleted",
-         "posthog_hogfunction"."updated_at",
-         "posthog_hogfunction"."enabled",
-         "posthog_hogfunction"."type",
-         "posthog_hogfunction"."icon_url",
-         "posthog_hogfunction"."hog",
-         "posthog_hogfunction"."bytecode",
-         "posthog_hogfunction"."transpiled",
-         "posthog_hogfunction"."inputs_schema",
-         "posthog_hogfunction"."inputs",
-         "posthog_hogfunction"."encrypted_inputs",
-         "posthog_hogfunction"."filters",
-         "posthog_hogfunction"."mappings",
-         "posthog_hogfunction"."masking",
-         "posthog_hogfunction"."template_id"
-  FROM "posthog_hogfunction"
-  WHERE ("posthog_hogfunction"."enabled"
-         AND "posthog_hogfunction"."team_id" = 99999
-         AND "posthog_hogfunction"."type" IN ('site_destination',
-                                              'site_app'))
-  LIMIT 21
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.35
-  '''
-  SELECT "posthog_hogfunction"."id",
-         "posthog_hogfunction"."team_id",
-         "posthog_hogfunction"."name",
-         "posthog_hogfunction"."description",
-         "posthog_hogfunction"."created_at",
-         "posthog_hogfunction"."created_by_id",
-         "posthog_hogfunction"."deleted",
-         "posthog_hogfunction"."updated_at",
-         "posthog_hogfunction"."enabled",
-         "posthog_hogfunction"."type",
-         "posthog_hogfunction"."icon_url",
-         "posthog_hogfunction"."hog",
-         "posthog_hogfunction"."bytecode",
-         "posthog_hogfunction"."transpiled",
-         "posthog_hogfunction"."inputs_schema",
-         "posthog_hogfunction"."inputs",
-         "posthog_hogfunction"."encrypted_inputs",
-         "posthog_hogfunction"."filters",
-         "posthog_hogfunction"."mappings",
-         "posthog_hogfunction"."masking",
-         "posthog_hogfunction"."template_id"
-  FROM "posthog_hogfunction"
-  WHERE ("posthog_hogfunction"."enabled"
-         AND "posthog_hogfunction"."team_id" = 99999
-         AND "posthog_hogfunction"."type" IN ('site_destination',
-                                              'site_app'))
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.36
-  '''
-  SELECT "posthog_cohort"."id",
-         "posthog_cohort"."name",
-         "posthog_cohort"."description",
-         "posthog_cohort"."team_id",
-         "posthog_cohort"."deleted",
-         "posthog_cohort"."filters",
-         "posthog_cohort"."query",
-         "posthog_cohort"."version",
-         "posthog_cohort"."pending_version",
-         "posthog_cohort"."count",
-         "posthog_cohort"."created_by_id",
-         "posthog_cohort"."created_at",
-         "posthog_cohort"."is_calculating",
-         "posthog_cohort"."last_calculation",
-         "posthog_cohort"."errors_calculating",
-         "posthog_cohort"."last_error_at",
-         "posthog_cohort"."is_static",
-         "posthog_cohort"."groups"
-  FROM "posthog_cohort"
-  WHERE (NOT "posthog_cohort"."deleted"
-         AND "posthog_cohort"."team_id" = 99999)
-  '''
-# ---
-# name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.37
-  '''
-  SELECT (("posthog_person"."properties" -> '$some_prop_1') = '"something_1"'::jsonb
-          AND "posthog_person"."properties" ? '$some_prop_1'
-          AND NOT (("posthog_person"."properties" -> '$some_prop_1') = 'null'::jsonb)) AS "flag_X_condition_0"
-  FROM "posthog_person"
-  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
-  WHERE ("posthog_persondistinctid"."distinct_id" = 'another_id'
-         AND "posthog_persondistinctid"."team_id" = 99999
-         AND "posthog_person"."team_id" = 99999)
-  '''
-# ---
 # name: TestDecideRemoteConfig.test_flag_with_regular_cohorts.4
   '''
   SELECT COUNT(*) AS "__count"
@@ -9411,6 +9156,7 @@
          "posthog_featureflag"."ensure_experience_continuity",
          "posthog_featureflag"."usage_dashboard_id",
          "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
          T4."id",
          T4."key",
          T4."name",
@@ -9426,6 +9172,7 @@
          T4."ensure_experience_continuity",
          T4."usage_dashboard_id",
          T4."has_enriched_analytics",
+         T4."is_remote_configuration",
          T5."id",
          T5."key",
          T5."name",
@@ -9440,7 +9187,8 @@
          T5."performed_rollback",
          T5."ensure_experience_continuity",
          T5."usage_dashboard_id",
-         T5."has_enriched_analytics"
+         T5."has_enriched_analytics",
+         T5."is_remote_configuration"
   FROM "posthog_survey"
   LEFT OUTER JOIN "posthog_featureflag" ON ("posthog_survey"."linked_flag_id" = "posthog_featureflag"."id")
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
@@ -9488,6 +9236,7 @@
          "posthog_hogfunction"."mappings",
          "posthog_hogfunction"."masking",
          "posthog_hogfunction"."template_id",
+         "posthog_hogfunction"."execution_order",
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",

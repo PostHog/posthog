@@ -252,37 +252,41 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
     @cached_property
     def team(self) -> Team:
         if team_from_token := self._get_team_from_request():
-            return team_from_token
-
-        if self._is_project_view:
-            return Team.objects.get(
+            team = team_from_token
+        elif self._is_project_view:
+            team = Team.objects.get(
                 id=self.project_id  # KLUDGE: This is just for the period of transition to project environments
             )
-
-        if self.param_derived_from_user_current_team == "team_id":
+        elif self.param_derived_from_user_current_team == "team_id":
             user = cast(User, self.request.user)
+            assert user.team is not None
             team = user.team
-            assert team is not None
-            return team
-        try:
-            return Team.objects.get(id=self.team_id)
-        except Team.DoesNotExist:
-            raise NotFound(
-                detail="Project not found."  # TODO: "Environment" instead of "Project" when project environments are rolled out
-            )
+        else:
+            try:
+                team = Team.objects.get(id=self.team_id)
+            except Team.DoesNotExist:
+                raise NotFound(
+                    detail="Project not found."  # TODO: "Environment" instead of "Project" when project environments are rolled out
+                )
+
+        tag_queries(team_id=team.pk)
+        return team
 
     @cached_property
     def project_id(self) -> int:
         if team_from_token := self._get_team_from_request():
-            return team_from_token.project_id
+            project_id = team_from_token.project_id
 
-        if self.param_derived_from_user_current_team == "project_id":
+        elif self.param_derived_from_user_current_team == "project_id":
             user = cast(User, self.request.user)
             team = user.team
             assert team is not None
-            return team.project_id
+            project_id = team.project_id
+        else:
+            project_id = self.parents_query_dict["project_id"]
 
-        return self.parents_query_dict["project_id"]
+        tag_queries(team_id=project_id)
+        return project_id
 
     @cached_property
     def project(self) -> Project:
