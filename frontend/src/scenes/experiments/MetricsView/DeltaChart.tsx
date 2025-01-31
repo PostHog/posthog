@@ -466,7 +466,7 @@ export function DeltaChart({
                                             {variant.key === 'control' ? (
                                                 // Control variant - dashed violin
                                                 <path
-                                                    d={generateViolinPath(x1, x2, y, BAR_HEIGHT, [])}
+                                                    d={generateViolinPath(x1, x2, y, BAR_HEIGHT)}
                                                     fill={COLORS.BAR_CONTROL}
                                                     stroke={COLORS.BOUNDARY_LINES}
                                                     strokeWidth={1}
@@ -512,7 +512,7 @@ export function DeltaChart({
                                                         </linearGradient>
                                                     </defs>
                                                     <path
-                                                        d={generateViolinPath(x1, x2, y, BAR_HEIGHT, [])}
+                                                        d={generateViolinPath(x1, x2, y, BAR_HEIGHT)}
                                                         fill={`url(#gradient-${metricIndex}-${variant.key})`}
                                                     />
                                                 </>
