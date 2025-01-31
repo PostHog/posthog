@@ -1,5 +1,5 @@
 const { getMeta, resetMeta } = require('@posthog/plugin-scaffold/test/utils')
-const { composeWebhook } = require('../index')
+const { engagePlugin } = require('../index')
 const config = {
     publicKey: 'ENGAGE_PUBLIC_KEY',
     secret: 'ENGAGE_SEECRET',
@@ -31,7 +31,7 @@ test('composeWebhook to send the correct data for $identify event (user)', async
         },
     }
 
-    const response = await composeWebhook(event, getMeta())
+    const response = await engagePlugin.onEvent(event, getMeta())
     expect(response).toEqual(
         expect.objectContaining({
             url: 'https://api.engage.so/posthog',
@@ -60,7 +60,7 @@ test('composeWebhook to send the correct data for $identify event (group)', asyn
         },
     }
 
-    const response = await composeWebhook(event, getMeta())
+    const response = await engagePlugin.onEvent(event, getMeta())
     expect(response).toEqual(
         expect.objectContaining({
             url: 'https://api.engage.so/posthog',
@@ -90,7 +90,7 @@ test('composeWebhook to send the correct data to track user event', async () => 
         },
     }
 
-    const response = await composeWebhook(event, getMeta())
+    const response = await engagePlugin.onEvent(event, getMeta())
     expect(response).toEqual(
         expect.objectContaining({
             url: 'https://api.engage.so/posthog',
@@ -119,7 +119,7 @@ test('composeWebhook to send the correct data to track group event', async () =>
         },
     }
 
-    const response = await composeWebhook(event, getMeta())
+    const response = await engagePlugin.onEvent(event, getMeta())
     expect(response).toEqual(
         expect.objectContaining({
             url: 'https://api.engage.so/posthog',
@@ -161,6 +161,6 @@ test('composeWebhook should not track non-custom events besides $identify and $g
         },
     }
 
-    const response = await composeWebhook(event, getMeta())
+    const response = await engagePlugin.onEvent(event, getMeta())
     expect(response).toBe(null)
 })

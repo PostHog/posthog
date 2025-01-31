@@ -1,5 +1,7 @@
-import { Plugin, ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
-import fetch from 'node-fetch'
+import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
+
+import { LegacyPlugin, LegacyPluginMeta } from '../types'
+import metadata from './plugin.json'
 
 export interface ReplicatorMetaInput {
     config: {
@@ -39,80 +41,80 @@ const reverseAutocaptureEvent = (autocaptureEvent: StrippedEvent) => {
     }
 }
 
-const plugin: Plugin<ReplicatorMetaInput> = {
-    onEvent: async (event, { config }) => {
-        const replication = parseInt(config.replication) || 1
-        if (replication > 1) {
-            // This is a quick fix to make sure we don't become a spam bot
-            throw Error('Replication factor > 1 is not allowed')
-        }
+const onEvent = async (event: ProcessedPluginEvent, { config, fetch, logger }: LegacyPluginMeta): Promise<void> => {
+    const replication = parseInt(config.replication) || 1
+    if (replication > 1) {
+        // This is a quick fix to make sure we don't become a spam bot
+        throw Error('Replication factor > 1 is not allowed')
+    }
 
-        const eventsToIgnore = new Set(
-            config.events_to_ignore && config.events_to_ignore.trim() !== ''
-                ? config.events_to_ignore.split(',').map((event) => event.trim())
-                : null
-        )
-        if (eventsToIgnore.has(event.event)) {
-            return
-        }
+    const eventsToIgnore = new Set(
+        config.events_to_ignore && config.events_to_ignore.trim() !== ''
+            ? config.events_to_ignore.split(',').map((event: string) => event.trim())
+            : null
+    )
+    if (eventsToIgnore.has(event.event)) {
+        return
+    }
 
-        const { team_id, person: _, ...sendableEvent } = { ...event, token: config.project_api_key }
+    const { team_id, person: _, ...sendableEvent } = { ...event, token: config.project_api_key }
 
-        if (config.disable_geoip === 'Yes') {
-            sendableEvent.properties.$geoip_disable = true
-        }
+    if (config.disable_geoip === 'Yes') {
+        sendableEvent.properties.$geoip_disable = true
+    }
 
-        const finalSendableEvent =
-            sendableEvent.event === '$autocapture' ? reverseAutocaptureEvent(sendableEvent) : sendableEvent
+    const finalSendableEvent =
+        sendableEvent.event === '$autocapture' ? reverseAutocaptureEvent(sendableEvent) : sendableEvent
 
-        const batch = []
-        for (let i = 0; i < replication; i++) {
-            batch.push(finalSendableEvent)
-        }
+    const batch = []
+    for (let i = 0; i < replication; i++) {
+        batch.push(finalSendableEvent)
+    }
 
-        if (batch.length > 0) {
-            const batchDescription = `${batch.length} event${batch.length > 1 ? 's' : ''}`
+    if (batch.length > 0) {
+        const batchDescription = `${batch.length} event${batch.length > 1 ? 's' : ''}`
 
-            await fetch(`https://${config.host.replace(/\/$/, '')}/e`, {
-                method: 'POST',
-                body: JSON.stringify(batch),
-                headers: { 'Content-Type': 'application/json' },
-                // TODO: add a timeout signal to make sure we retry if capture is slow, instead of failing the export
-            }).then(
-                (res) => {
-                    if (res.ok) {
-                        console.log(`Flushed ${batchDescription} to ${config.host}`)
-                    } else if (res.status >= 500) {
-                        // Server error, retry the batch later
-                        console.error(
-                            `Failed to submit ${batchDescription} to ${config.host} due to server error: ${res.status} ${res.statusText}`
-                        )
-                        throw new RetryError(`Server error: ${res.status} ${res.statusText}`)
-                    } else {
-                        // node-fetch handles 300s internaly, so we're left with 400s here: skip the batch and move forward
-                        // We might have old events in ClickHouse that don't pass new stricter checks, don't fail the whole export if that happens
-                        console.warn(
-                            `Skipping ${batchDescription}, rejected by ${config.host}: ${res.status} ${res.statusText}`
-                        )
-                    }
-                },
-                (err) => {
-                    if (err.name === 'AbortError' || err.name === 'FetchError') {
-                        // Network / timeout error, retry the batch later
-                        // See https://github.com/node-fetch/node-fetch/blob/2.x/ERROR-HANDLING.md
-                        console.error(
-                            `Failed to submit ${batchDescription} to ${config.host} due to network error`,
-                            err
-                        )
-                        throw new RetryError(`Target is unreachable: ${(err as Error).message}`)
-                    }
-                    // Other errors are rethrown to stop the export
-                    console.error(`Failed to submit ${batchDescription} to ${config.host} due to unexpected error`, err)
-                    throw err
+        await fetch(`https://${config.host.replace(/\/$/, '')}/e`, {
+            method: 'POST',
+            body: JSON.stringify(batch),
+            headers: { 'Content-Type': 'application/json' },
+            // TODO: add a timeout signal to make sure we retry if capture is slow, instead of failing the export
+        }).then(
+            (res) => {
+                if (res.ok) {
+                    logger.log(`Flushed ${batchDescription} to ${config.host}`)
+                } else if (res.status >= 500) {
+                    // Server error, retry the batch later
+                    logger.error(
+                        `Failed to submit ${batchDescription} to ${config.host} due to server error: ${res.status} ${res.statusText}`
+                    )
+                    throw new RetryError(`Server error: ${res.status} ${res.statusText}`)
+                } else {
+                    // node-fetch handles 300s internaly, so we're left with 400s here: skip the batch and move forward
+                    // We might have old events in ClickHouse that don't pass new stricter checks, don't fail the whole export if that happens
+                    logger.warn(
+                        `Skipping ${batchDescription}, rejected by ${config.host}: ${res.status} ${res.statusText}`
+                    )
                 }
-            )
-        }
-    },
+            },
+            (err) => {
+                if (err.name === 'AbortError' || err.name === 'FetchError') {
+                    // Network / timeout error, retry the batch later
+                    // See https://github.com/node-fetch/node-fetch/blob/2.x/ERROR-HANDLING.md
+                    logger.error(`Failed to submit ${batchDescription} to ${config.host} due to network error`, err)
+                    throw new RetryError(`Target is unreachable: ${(err as Error).message}`)
+                }
+                // Other errors are rethrown to stop the export
+                logger.error(`Failed to submit ${batchDescription} to ${config.host} due to unexpected error`, err)
+                throw err
+            }
+        )
+    }
 }
 
-module.exports = plugin
+export const replicatorPlugin: LegacyPlugin = {
+    id: 'replicator',
+    metadata: metadata as any,
+    setupPlugin: () => Promise.resolve(),
+    onEvent,
+}

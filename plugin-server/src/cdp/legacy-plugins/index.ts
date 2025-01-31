@@ -7,6 +7,7 @@ import { engagePlugin } from './posthog-engage-so'
 import { gcsPlugin } from './posthog-gcs'
 import { laudspeakerPlugin } from './posthog-laudspeaker-app'
 import { patternsPlugin } from './posthog-patterns-app'
+import { replicatorPlugin } from './posthog-plugin-replicator'
 import { pubsubPlugin } from './pubsub'
 import { rudderstackPlugin } from './rudderstack-posthog'
 import { salesforcePlugin } from './salesforce/src'
@@ -26,4 +27,5 @@ export const PLUGINS_BY_ID = {
     [gcsPlugin.id]: gcsPlugin,
     [salesforcePlugin.id]: salesforcePlugin,
     [laudspeakerPlugin.id]: laudspeakerPlugin,
+    [replicatorPlugin.id]: replicatorPlugin,
 }
