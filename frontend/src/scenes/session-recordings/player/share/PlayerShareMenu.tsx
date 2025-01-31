@@ -47,7 +47,7 @@ export function PlayerShareMenu({ iconsOnly }: { iconsOnly: boolean }): JSX.Elem
             buttonSize="xsmall"
         >
             <LemonButton size="xsmall" icon={<IconShare />}>
-                <>{iconsOnly ? '' : 'Share'}</>
+                {iconsOnly ? '' : 'Share'}
             </LemonButton>
         </LemonMenu>
     )
