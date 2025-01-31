@@ -12,6 +12,7 @@ export const template: HogFunctionTemplate = {
     inputs_schema: [
         {
             key: 'properties',
+            templating: false,
             label: 'Properties to filter out',
             type: 'string',
             description: 'A comma-separated list of properties to filter out (e.g. $ip, $current_url)',
