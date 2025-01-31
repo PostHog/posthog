@@ -1266,7 +1266,23 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
     @override_settings(HOG_TRANSFORMATIONS_ENABLED=False)
-    def test_cannot_modify_transformation_code_when_disabled(self):
+    def test_can_create_transformation_when_transformations_disabled(self):
+        # Should be able to create a new transformation
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "type": "transformation",
+                "name": "Test Function",
+                "description": "Test description",
+                "hog": "return event",
+                "inputs": {},
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["hog"] == "return event"
+
+    @override_settings(HOG_TRANSFORMATIONS_ENABLED=False)
+    def test_preserves_original_transformation_code_when_disabled(self):
         # First create a transformation
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
@@ -1274,52 +1290,25 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "type": "transformation",
                 "name": "Test Function",
                 "description": "Test description",
-                "hog": "",
+                "hog": "return event",
                 "inputs": {},
             },
         )
         assert response.status_code == status.HTTP_201_CREATED
         function_id = response.json()["id"]
+        original_code = response.json()["hog"]
 
         # Try to modify the transformation code
         response = self.client.patch(
             f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
             data={
-                "hog": "return event",
-            },
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {
-            "type": "validation_error",
-            "code": "invalid_input",
-            "detail": {"hog": "Modifying transformation code is currently disabled."},
-        }
-
-    @override_settings(HOG_TRANSFORMATIONS_ENABLED=False)
-    def test_can_modify_destination_code_when_transformations_disabled(self):
-        # Create a destination function
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/hog_functions/",
-            data={
-                "type": "destination",
-                "name": "Test Function",
-                "description": "Test description",
-                "hog": "",
-                "inputs": {},
-            },
-        )
-        assert response.status_code == status.HTTP_201_CREATED
-        function_id = response.json()["id"]
-
-        # Should be able to modify destination code even when transformations are disabled
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
-            data={
-                "hog": "return event",
+                "hog": "return modified_event",
+                "name": "Updated Name",  # Should allow other fields to be updated
             },
         )
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["hog"] == "return event"
+        assert response.json()["hog"] == original_code  # Code should remain unchanged
+        assert response.json()["name"] == "Updated Name"  # Other fields should update
 
     def test_list_hog_functions_ordered_by_execution_order_and_created_at(self):
         # Create functions with different execution orders and creation times
