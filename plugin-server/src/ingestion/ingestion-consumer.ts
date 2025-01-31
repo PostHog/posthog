@@ -143,8 +143,22 @@ export class IngestionConsumer {
     }
 
     public async handleKafkaBatch(messages: Message[]) {
-        const parsedMessages = await this.parseKafkaBatch(messages)
-        await this.processBatch(parsedMessages)
+        const parsedMessages = await this.runInstrumented('parseKafkaMessages', () => this.parseKafkaBatch(messages))
+
+        await this.runInstrumented('processBatch', async () => {
+            await Promise.all(
+                Object.values(parsedMessages).map(async (x) => {
+                    return await this.runInstrumented('processEventsForDistinctId', () =>
+                        this.processEventsForDistinctId(x)
+                    )
+                })
+            )
+        })
+
+        status.debug('🔁', `Waiting for promises`, { promises: this.promises.size })
+        await this.runInstrumented('awaitScheduledWork', () => Promise.all(this.promises))
+        status.debug('🔁', `Processed batch`)
+
         for (const message of messages) {
             if (message.timestamp) {
                 latestOffsetTimestampGauge
@@ -152,16 +166,6 @@ export class IngestionConsumer {
                     .set(message.timestamp)
             }
         }
-    }
-
-    public async processBatch(groupedIncomingEvents: IncomingEventsByDistinctId): Promise<void> {
-        await Promise.all(Object.values(groupedIncomingEvents).map(this.processEventsForDistinctId))
-
-        status.debug('🔁', `Waiting for promises`, {
-            promises: this.promises.size,
-        })
-        await this.runInstrumented('awaitScheduledWork', () => Promise.all(this.promises))
-        status.debug('🔁', `Processed batch`)
     }
 
     private async processEventsForDistinctId(incomingEvents: IncomingEvent[]): Promise<void> {
@@ -225,54 +229,52 @@ export class IngestionConsumer {
     }
 
     private parseKafkaBatch(messages: Message[]): Promise<IncomingEventsByDistinctId> {
-        return this.runInstrumented('parseKafkaMessages', () => {
-            const batches: IncomingEventsByDistinctId = {}
+        const batches: IncomingEventsByDistinctId = {}
 
-            for (const message of messages) {
-                let distinctId: string | undefined
-                let token: string | undefined
+        for (const message of messages) {
+            let distinctId: string | undefined
+            let token: string | undefined
 
-                // Parse the headers so we can early exit if found and should be dropped
-                message.headers?.forEach((header) => {
-                    if (header.key === 'distinct_id') {
-                        distinctId = header.value.toString()
-                    }
-                    if (header.key === 'token') {
-                        token = header.value.toString()
-                    }
-                })
-
-                if (this.shouldDropEvent(token, distinctId)) {
-                    this.logDroppedEvent(token, distinctId)
-                    continue
+            // Parse the headers so we can early exit if found and should be dropped
+            message.headers?.forEach((header) => {
+                if (header.key === 'distinct_id') {
+                    distinctId = header.value.toString()
                 }
-
-                // Parse the message payload into the event object
-                const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
-                const combinedEvent: PipelineEvent = { ...JSON.parse(dataStr), ...rawEvent }
-                const event: PipelineEvent = normalizeEvent({
-                    ...combinedEvent,
-                })
-
-                // In case the headers were not set we check the parsed message now
-                if (this.shouldDropEvent(combinedEvent.token, combinedEvent.distinct_id)) {
-                    this.logDroppedEvent(combinedEvent.token, combinedEvent.distinct_id)
-                    continue
+                if (header.key === 'token') {
+                    token = header.value.toString()
                 }
+            })
 
-                const eventKey = `${event.token}:${event.distinct_id}`
-
-                // We collect the events grouped by token and distinct_id so that we can process batches in parallel whilst keeping the order of events
-                // for a given distinct_id
-                if (!batches[eventKey]) {
-                    batches[eventKey] = []
-                }
-
-                batches[eventKey].push({ message, event })
+            if (this.shouldDropEvent(token, distinctId)) {
+                this.logDroppedEvent(token, distinctId)
+                continue
             }
 
-            return Promise.resolve(batches)
-        })
+            // Parse the message payload into the event object
+            const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
+            const combinedEvent: PipelineEvent = { ...JSON.parse(dataStr), ...rawEvent }
+            const event: PipelineEvent = normalizeEvent({
+                ...combinedEvent,
+            })
+
+            // In case the headers were not set we check the parsed message now
+            if (this.shouldDropEvent(combinedEvent.token, combinedEvent.distinct_id)) {
+                this.logDroppedEvent(combinedEvent.token, combinedEvent.distinct_id)
+                continue
+            }
+
+            const eventKey = `${event.token}:${event.distinct_id}`
+
+            // We collect the events grouped by token and distinct_id so that we can process batches in parallel whilst keeping the order of events
+            // for a given distinct_id
+            if (!batches[eventKey]) {
+                batches[eventKey] = []
+            }
+
+            batches[eventKey].push({ message, event })
+        }
+
+        return Promise.resolve(batches)
     }
 
     private async startKafkaConsumer(options: {
