@@ -41,6 +41,8 @@ setup(
     maintainer_email="hey@posthog.com",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
+    packages=["hogql_parser-stubs"],
+    include_package_data=True,
     ext_modules=[module],
     python_requires=">=3.10",
     classifiers=[

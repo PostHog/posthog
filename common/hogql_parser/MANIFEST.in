@@ -1,2 +1,0 @@
-include *.pyi
-include py.typed
