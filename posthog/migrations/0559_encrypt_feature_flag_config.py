@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0556_add_execution_order_to_hog_functions"),
+        ("posthog", "0558_alter_integration_kind"),
     ]
 
     operations = [
