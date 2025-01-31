@@ -150,7 +150,7 @@ async def delete_persons_activity(inputs: DeletePersonsActivityInputs) -> tuple[
                     delete_query_person,
                     {"team_id": inputs.team_id, "limit": inputs.batch_size, "person_ids": inputs.person_ids},
                 )
-                await logger.info("Deleted %d persons", cursor.rowcount)
+                await logger.ainfo("Deleted %d persons", cursor.rowcount)
 
                 should_continue = True
                 if cursor.rowcount < inputs.batch_size:
