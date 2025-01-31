@@ -113,7 +113,15 @@ function HogFunctionTemplateInput(
     return <CodeEditorInline {...props} globals={globalsWithInputs} />
 }
 
-function DictionaryField({ onChange, value }: { onChange?: (value: any) => void; value: any }): JSX.Element {
+function DictionaryField({
+    onChange,
+    value,
+    templating,
+}: {
+    onChange?: (value: any) => void
+    value: any
+    templating: boolean
+}): JSX.Element {
     const [entries, setEntries] = useState<[string, string][]>(Object.entries(value ?? {}))
 
     useEffect(() => {
@@ -146,6 +154,7 @@ function DictionaryField({ onChange, value }: { onChange?: (value: any) => void;
                             newEntries[index] = [newEntries[index][0], val ?? '']
                             setEntries(newEntries)
                         }}
+                        templating={templating}
                     />
 
                     <LemonButton
