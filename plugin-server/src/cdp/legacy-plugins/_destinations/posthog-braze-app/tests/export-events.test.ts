@@ -13,6 +13,7 @@ describe('Braze: export-events', () => {
         fetchMock.mockResolvedValueOnce({
             status: status,
             json: () => Promise.resolve(response),
+            ok: status >= 200 && status < 300,
         })
     }
 

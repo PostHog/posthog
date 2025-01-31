@@ -24,20 +24,23 @@ const logger = {
 
 describe('Replicator: onEvent', () => {
     const fetchMock = jest.fn()
+    const mockResponse = (response: any, status: number = 200) => {
+        fetchMock.mockResolvedValue({
+            status: status,
+            json: () => Promise.resolve(response),
+            ok: status >= 200 && status < 300,
+            statusText: status >= 400 ? 'Bad Request' : 'OK',
+        })
+    }
 
     beforeEach(() => {
         fetchMock.mockReset()
+        mockResponse({})
     })
 
-    const mockResponse = (response: any, status: number = 200) => {
-        fetchMock.mockResolvedValueOnce({
-            status: status,
-            json: () => Promise.resolve(response),
-        })
-    }
     describe('event pre-processing', () => {
         it('should handle a single event', async () => {
-            mockResponse({ message: 'success', attributes_processed: 1 })
+            mockResponse({})
             await replicatorPlugin.onEvent(mockEvent, { config, logger, fetch: fetchMock } as any)
 
             expect(fetchMock.mock.calls[0][1]).toEqual({
@@ -60,7 +63,7 @@ describe('Replicator: onEvent', () => {
         })
 
         it('should skip ignored events', async () => {
-            mockResponse({ message: 'success', attributes_processed: 1 })
+            mockResponse({})
             for (const event of mockEventsToIgnore) {
                 await replicatorPlugin.onEvent(event, { config, logger, fetch: fetchMock } as any)
             }
@@ -279,7 +282,7 @@ describe('Replicator: onEvent', () => {
 
     describe('error management', () => {
         it('succeeds and logs on 200', async () => {
-            mockResponse({})
+            mockResponse({}, 200)
             await replicatorPlugin.onEvent(mockEvent, {
                 config,
                 fetch: fetchMock,
@@ -308,7 +311,7 @@ describe('Replicator: onEvent', () => {
                 } as any)
             ).rejects.toThrow(RetryError)
             expect(logger.error).toHaveBeenCalledWith(
-                'Failed to submit 1 event to localhost:8000 due to server error: 500 Internal Server Error'
+                'Failed to submit 1 event to localhost:8000 due to server error: 500 Bad Request'
             )
         })
     })

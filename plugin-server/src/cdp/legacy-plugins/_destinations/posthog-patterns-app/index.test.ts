@@ -9,14 +9,12 @@ describe('Patterns: onEvent', () => {
 
     beforeEach(() => {
         fetchMock.mockReset()
-    })
 
-    const mockResponse = (response: any, status: number = 200) => {
-        fetchMock.mockResolvedValueOnce({
-            status: status,
-            json: () => Promise.resolve(response),
+        fetchMock.mockResolvedValue({
+            status: 200,
+            json: () => Promise.resolve({}),
         })
-    }
+    })
 
     test('onEvent called for event', async () => {
         const meta = {
