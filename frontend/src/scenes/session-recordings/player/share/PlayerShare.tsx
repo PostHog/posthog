@@ -1,6 +1,5 @@
 import { IconCopy, IconExternal } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
-import { captureException } from '@sentry/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
@@ -8,6 +7,7 @@ import { SharingModalContent } from 'lib/components/Sharing/SharingModal'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import posthog from 'posthog-js'
 
 import { playerShareLogic, PlayerShareLogicProps } from './playerShareLogic'
 
@@ -75,7 +75,9 @@ function PrivateLink(props: PlayerShareLogicProps): JSX.Element {
                 fullWidth
                 center
                 sideIcon={<IconCopy />}
-                onClick={() => void copyToClipboard(privateLinkUrl, privateLinkUrl).then(captureException)}
+                onClick={() =>
+                    void copyToClipboard(privateLinkUrl, privateLinkUrl).catch((e) => posthog.captureException(e))
+                }
                 title={privateLinkUrl}
                 disabledReason={privateLinkFormHasErrors ? 'Fix all errors before continuing' : undefined}
             >
