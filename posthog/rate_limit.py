@@ -12,6 +12,7 @@ from statshog.defaults.django import statsd
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.metrics import LABEL_PATH, LABEL_TEAM_ID
 from posthog.models.instance_setting import get_instance_setting
+from posthog.models.team.team import Team
 from posthog.settings.utils import get_list
 from token_bucket import Limiter, MemoryStorage
 from posthog.models.personal_api_key import hash_key_value
@@ -83,21 +84,40 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         except KeyError:
             return None
 
+    def load_team_rate_limit(self, team_id):
+        # try loading from cache
+        rate_limit_cache_key = 'team_ratelimit_%(scope)s_%(ident)s' % {"scope": self.scope, "ident": team_id}
+        cached_rate_limit = self.cache.get(rate_limit_cache_key, None)
+        if cached_rate_limit is not None:
+            self.rate = cached_rate_limit
+        else:
+            team = Team.objects.get(id=team_id)
+            if team is None or team.api_query_rate_limit is None:
+                return
+            self.rate = team.api_query_rate_limit
+            self.cache.set(cached_rate_limit, self.rate)
+
+        self.num_requests, self.duration = self.parse_rate(self.rate)
+
     def allow_request(self, request, view):
         if not is_rate_limit_enabled(round(time.time() / 60)):
             return True
 
         # Only rate limit authenticated requests made with a personal API key
-        personal_api_key = PersonalAPIKeyAuthentication.find_key_with_source(request)
-        if request.user.is_authenticated and personal_api_key is None:
-            return True
+        # personal_api_key = PersonalAPIKeyAuthentication.find_key_with_source(request)
+        # if request.user.is_authenticated and personal_api_key is None:
+        #     return True
 
         try:
+            team_id = self.safely_get_team_id_from_view(view)
+            if team_id is None:
+                self.load_team_rate_limit(team_id)
+                print("load team rate limit", self.num_requests, self.duration)
+
             request_would_be_allowed = super().allow_request(request, view)
             if request_would_be_allowed:
                 return True
 
-            team_id = self.safely_get_team_id_from_view(view)
             path = getattr(request, "path", None)
             if path:
                 path = path_by_team_pattern.sub("/api/projects/TEAM_ID/", path)
@@ -296,6 +316,9 @@ class AISustainedRateThrottle(UserRateThrottle):
 
 
 class TeamBasedRateThrottle(PersonalApiKeyRateThrottle):
+    cache_format = 'team_rate_%(scope)s_%(ident)s'
+    scope = None
+
     scope = "pth"
     rate = "480/minute"
 
