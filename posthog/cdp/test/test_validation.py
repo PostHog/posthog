@@ -298,7 +298,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         # This should ignore X since it's not defined.
         # So no error, but A has no real dependencies that matter.
         inputs_schema = [
-            {"key": "A", "type": "string", "required": True, "hog": False},
+            {"key": "A", "type": "string", "required": True, "templating": False},
         ]
         inputs = {
             "A": {"value": "{inputs.X} + A"},

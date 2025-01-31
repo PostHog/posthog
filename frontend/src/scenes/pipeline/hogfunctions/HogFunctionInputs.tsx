@@ -126,7 +126,7 @@ function DictionaryField({ onChange, value }: { onChange?: (value: any) => void;
                     />
 
                     <HogFunctionTemplateInput
-                        className="flex-2 overflow-hidden"
+                        className="overflow-hidden flex-2"
                         value={val}
                         language="hogTemplate"
                         onChange={(val) => {
@@ -230,7 +230,7 @@ function HogFunctionInputSchemaControls({
 
     return (
         <div className="flex flex-col gap-2">
-            <div className="flex-1 flex items-center gap-2 flex-wrap">
+            <div className="flex flex-wrap items-center flex-1 gap-2">
                 <LemonSelect
                     size="small"
                     options={typeList.map((type) => ({
@@ -263,7 +263,7 @@ function HogFunctionInputSchemaControls({
                     Done
                 </LemonButton>
             </div>
-            <div className="flex-1 flex gap-2 flex-wrap">
+            <div className="flex flex-wrap flex-1 gap-2">
                 <LemonField.Pure label="Display label">
                     <LemonInput
                         className="min-w-60"
@@ -371,7 +371,8 @@ export function HogFunctionInputWithSchema({
         }
     }, [showSource])
 
-    const supportsTemplating = ['string', 'json', 'dictionary', 'email'].includes(schema.type)
+    const supportsTemplating =
+        ['string', 'json', 'dictionary', 'email'].includes(schema.type) && schema.templating !== false
     const supportsSecrets = 'type' in configuration // no secrets for mapping inputs
 
     return (
@@ -422,7 +423,7 @@ export function HogFunctionInputWithSchema({
                                             to="https://posthog.com/docs/cdp/destinations/customizing-destinations#customizing-payload"
                                             sideIcon={<IconInfo />}
                                             noPadding
-                                            className=" opacity-0 group-hover:opacity-100 p-1 transition-opacity"
+                                            className="p-1 transition-opacity opacity-0 group-hover:opacity-100"
                                         >
                                             Supports templating
                                         </LemonButton>
@@ -437,8 +438,8 @@ export function HogFunctionInputWithSchema({
                                     )}
                                 </div>
                                 {value?.secret ? (
-                                    <div className="border border-dashed rounded p-1 flex gap-2 items-center">
-                                        <span className="flex-1 text-muted-alt italic p-1">
+                                    <div className="flex items-center gap-2 p-1 border border-dashed rounded">
+                                        <span className="flex-1 p-1 italic text-muted-alt">
                                             This value is secret and is not displayed here.
                                         </span>
                                         <LemonButton
@@ -463,7 +464,7 @@ export function HogFunctionInputWithSchema({
                     }}
                 </LemonField>
             ) : (
-                <div className="border rounded p-2 border-dashed space-y-4">
+                <div className="p-2 space-y-4 border border-dashed rounded">
                     <HogFunctionInputSchemaControls
                         value={schema}
                         onChange={onSchemaChange}

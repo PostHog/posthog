@@ -1,4 +1,5 @@
 import json
+from typing import Any
 from posthog.api.hog_function import HogFunctionSerializer
 from posthog.constants import AvailableFeature
 from posthog.models.hog_functions.hog_function import HogFunction
@@ -94,7 +95,7 @@ def migrate_legacy_plugins(dry_run=True, team_ids=None, test_mode=True, kind=str
                 "label": schema.get("name", schema["key"]),
                 "secret": schema.get("secret", False),
                 "required": schema.get("required", False),
-                "hog": False,
+                "templating": False,
             }
 
             if schema.get("default"):
@@ -113,8 +114,8 @@ def migrate_legacy_plugins(dry_run=True, team_ids=None, test_mode=True, kind=str
                 ]
                 input_schema["type"] = "string"
             elif schema["type"] == "attachment":
-                input_schema["secret"] = True
-                input_schema["type"] = "string"
+                input_schema["secret"] = schema["key"] == "googleCloudKeyJson"
+                input_schema["type"] = "json"
 
             inputs_schema.append(input_schema)
 
@@ -126,8 +127,14 @@ def migrate_legacy_plugins(dry_run=True, team_ids=None, test_mode=True, kind=str
             attachments = PluginAttachment.objects.filter(plugin_config_id=plugin_config["id"])
 
             for attachment in attachments:
-                print("Attachment", attachment.key, attachment.parse_contents())  # noqa: T201
-                inputs[attachment.key] = {"value": attachment.parse_contents()}
+                contents: Any = attachment.parse_contents()
+                try:
+                    contents = json.loads(contents)
+                except Exception as e:
+                    print("Error parsing attachment", attachment.key, e)  # noqa: T201
+
+                if contents:
+                    inputs[attachment.key] = {"value": contents}
 
         team = teams_by_id[plugin_config["team_id"]]
         serializer_context = {"team": team, "get_team": (lambda t=team: t)}
