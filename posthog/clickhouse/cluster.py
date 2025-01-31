@@ -19,7 +19,7 @@ from clickhouse_driver import Client
 from clickhouse_pool import ChPool
 
 from posthog import settings
-from posthog.clickhouse.client.connection import _make_ch_pool, default_client
+from posthog.clickhouse.client.connection import NodeRole, _make_ch_pool, default_client
 from posthog.settings import CLICKHOUSE_PER_TEAM_SETTINGS
 
 K = TypeVar("K")
@@ -62,15 +62,18 @@ class FuturesMap(dict[K, Future[V]]):
 
 class ConnectionInfo(NamedTuple):
     address: str
+    port: int | None
 
     def make_pool(self, client_settings: Mapping[str, str] | None = None) -> ChPool:
-        return _make_ch_pool(host=self.address, settings=client_settings)
+        return _make_ch_pool(host=self.address, port=self.port, settings=client_settings)
 
 
 class HostInfo(NamedTuple):
     connection_info: ConnectionInfo
     shard_num: int | None
     replica_num: int | None
+    host_cluster_type: str | None
+    host_cluster_role: str | None
 
 
 T = TypeVar("T")
@@ -83,25 +86,42 @@ class ClickhouseCluster:
         extra_hosts: Sequence[ConnectionInfo] | None = None,
         logger: logging.Logger | None = None,
         client_settings: Mapping[str, str] | None = None,
+        cluster: str | None = None,
     ) -> None:
         if logger is None:
             logger = logging.getLogger(__name__)
 
         self.__hosts = [
-            HostInfo(ConnectionInfo(host_address), shard_num, replica_num)
-            for (host_address, shard_num, replica_num) in bootstrap_client.execute(
+            HostInfo(ConnectionInfo(host_address, port), shard_num, replica_num, host_cluster_type, host_cluster_role)
+            for (
+                host_address,
+                port,
+                shard_num,
+                replica_num,
+                host_cluster_type,
+                host_cluster_role,
+            ) in bootstrap_client.execute(
                 """
-                SELECT host_address, shard_num, replica_num
-                FROM system.clusters
-                WHERE name = %(name)s
+                SELECT host_address, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
+                FROM clusterAllReplicas(%(name)s, system.clusters)
+                WHERE name = %(name)s and is_local
                 ORDER BY shard_num, replica_num
                 """,
-                {"name": settings.CLICKHOUSE_CLUSTER},
+                {"name": cluster or settings.CLICKHOUSE_CLUSTER},
             )
         ]
         if extra_hosts is not None:
             self.__hosts.extend(
-                [HostInfo(connection_info, shard_num=None, replica_num=None) for connection_info in extra_hosts]
+                [
+                    HostInfo(
+                        connection_info,
+                        shard_num=None,
+                        replica_num=None,
+                        host_cluster_type=None,
+                        host_cluster_role=None,
+                    )
+                    for connection_info in extra_hosts
+                ]
             )
         self.__pools: dict[HostInfo, ChPool] = {}
         self.__logger = logger
@@ -142,8 +162,28 @@ class ClickhouseCluster:
         The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
         default limit of the executor.
         """
+        return self.map_hosts_by_role(fn, NodeRole.ALL, concurrency)
+
+    def map_hosts_by_role(
+        self,
+        fn: Callable[[Client], T],
+        node_role: NodeRole,
+        concurrency: int | None = None,
+    ) -> FuturesMap[HostInfo, T]:
+        """
+        Execute the callable once for each host in the cluster with the given node role.
+
+        The number of concurrent queries can limited with the ``concurrency`` parameter, or set to ``None`` to use the
+        default limit of the executor.
+        """
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
-            return FuturesMap({host: executor.submit(self.__get_task_function(host, fn)) for host in self.__hosts})
+            return FuturesMap(
+                {
+                    host: executor.submit(self.__get_task_function(host, fn))
+                    for host in self.__hosts
+                    if host.host_cluster_role == node_role.value.lower() or node_role == NodeRole.ALL
+                }
+            )
 
     def map_all_hosts_in_shard(
         self, shard_num: int, fn: Callable[[Client], T], concurrency: int | None = None
@@ -209,13 +249,15 @@ class ClickhouseCluster:
 
 
 def get_cluster(
-    logger: logging.Logger | None = None, client_settings: Mapping[str, str] | None = None
+    logger: logging.Logger | None = None, client_settings: Mapping[str, str] | None = None, cluster: str | None = None
 ) -> ClickhouseCluster:
     extra_hosts = []
     for host_config in map(copy, CLICKHOUSE_PER_TEAM_SETTINGS.values()):
-        extra_hosts.append(ConnectionInfo(host_config.pop("host")))
+        extra_hosts.append(ConnectionInfo(host_config.pop("host"), None))
         assert len(host_config) == 0, f"unexpected values: {host_config!r}"
-    return ClickhouseCluster(default_client(), extra_hosts=extra_hosts, logger=logger, client_settings=client_settings)
+    return ClickhouseCluster(
+        default_client(), extra_hosts=extra_hosts, logger=logger, client_settings=client_settings, cluster=cluster
+    )
 
 
 @dataclass
@@ -250,7 +292,7 @@ class MutationRunner:
         """Find the running mutation task, if one exists."""
 
         if self.is_lightweight_delete:
-            command = self.__convert_lightweight_delete_to_mutation_command(self.command)
+            command = self.__convert_lightweight_delete_to_mutation_command()
         else:
             command = self.command
 
@@ -264,10 +306,10 @@ class MutationRunner:
                 -- only one command per mutation is currently supported, so throw if the mutation contains more than we expect to find
                 -- throwIf always returns 0 if it does not throw, so negation turns this condition into effectively a noop if the test passes
                 AND NOT throwIf(
-                    length(splitByChar('\n', formatQuery($_sql_{id(self)}$ALTER TABLE {settings.CLICKHOUSE_DATABASE}{self.table} {command}$_sql_{id(self)}$)) as lines) != 2,
+                    length(splitByString('UPDATE', replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(formatQuery($_sql_{id(self)}$ALTER TABLE {settings.CLICKHOUSE_DATABASE}{self.table} {command}$_sql_{id(self)}$), '\\s+', ' '), '\\(\\s+', '('), '\\s+\\)', ')')) as lines) != 2,
                     'unexpected number of lines, expected 2 (ALTER TABLE prefix, followed by single command)'
                 )
-                AND command = trim(lines[2])
+                AND command = 'UPDATE ' || trim(lines[2])
                 AND NOT is_killed  -- ok to restart a killed mutation
             ORDER BY create_time DESC
             """,
@@ -309,12 +351,11 @@ class MutationRunner:
 
     @property
     def is_lightweight_delete(self) -> bool:
-        return re.match(r"(?i)^DELETE\s+FROM\s+(?:\w+\.)*\w+\s+WHERE\s+.*", self.command) is not None
+        return re.match(r"(?i)^DELETE\s+FROM\s+.*", self.command.strip()) is not None
 
-    def __convert_lightweight_delete_to_mutation_command(self, command: str) -> str:
-        # converts DELETE FROM table WHERE foo='bar' to UPDATE _row_exists = 0 WHERE foo='bar'
-        match = re.match(r"(?i)^DELETE\s+FROM\s+(?:\w+\.)*\w+\s+WHERE\s+(.*)", command)
+    def __convert_lightweight_delete_to_mutation_command(self) -> str:
+        match = re.match(r"(?i)^DELETE\s+FROM\s+(?:\w+\.)*\w+\s+WHERE\s+", self.command.strip())
         if not match:
-            raise ValueError(f"Invalid DELETE command format: {command}")
-        where_clause = match.group(1)
+            raise ValueError(f"Invalid DELETE command format: {self.command}")
+        where_clause = self.command.strip()[match.end() :]
         return f"UPDATE _row_exists = 0 WHERE {where_clause}"

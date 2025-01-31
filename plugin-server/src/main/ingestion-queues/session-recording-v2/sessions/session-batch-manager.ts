@@ -1,6 +1,5 @@
 import { status } from '../../../../utils/status'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
-import { PromiseQueue } from './promise-queue'
 import { SessionBatchFileWriter } from './session-batch-file-writer'
 import { SessionBatchRecorder } from './session-batch-recorder'
 
@@ -51,7 +50,6 @@ export interface SessionBatchManagerConfig {
  */
 export class SessionBatchManager {
     private currentBatch: SessionBatchRecorder
-    private queue: PromiseQueue<void>
     private readonly maxBatchSizeBytes: number
     private readonly maxBatchAgeMs: number
     private readonly offsetManager: KafkaOffsetManager
@@ -64,16 +62,14 @@ export class SessionBatchManager {
         this.offsetManager = config.offsetManager
         this.writer = config.writer
         this.currentBatch = new SessionBatchRecorder(this.offsetManager, this.writer)
-        this.queue = new PromiseQueue()
         this.lastFlushTime = Date.now()
     }
 
     /**
-     * Provides the current batch through a callback
+     * Returns the current batch
      */
-    public async withBatch(callback: (batch: SessionBatchRecorder) => Promise<void>): Promise<void> {
-        status.debug('🔁', 'session_batch_manager_processing_batch')
-        return this.queue.add(() => callback(this.currentBatch))
+    public getCurrentBatch(): SessionBatchRecorder {
+        return this.currentBatch
     }
 
     /**
@@ -81,9 +77,9 @@ export class SessionBatchManager {
      */
     public async flush(): Promise<void> {
         status.info('🔁', 'session_batch_manager_flushing', { batchSize: this.currentBatch.size })
-        return this.queue.add(async () => {
-            await this.rotateBatch()
-        })
+        await this.currentBatch.flush()
+        this.currentBatch = new SessionBatchRecorder(this.offsetManager, this.writer)
+        this.lastFlushTime = Date.now()
     }
 
     /**
@@ -97,23 +93,10 @@ export class SessionBatchManager {
         return batchSize >= this.maxBatchSizeBytes || batchAge >= this.maxBatchAgeMs
     }
 
-    /**
-     * Discards sessions from specified partitions in the current batch
-     * Used when Kafka partitions are revoked during consumer group rebalancing
-     */
-    public async discardPartitions(partitions: number[]): Promise<void> {
+    public discardPartitions(partitions: number[]): void {
         status.info('🔁', 'session_batch_manager_discarding_partitions', { partitions })
-        return this.queue.add(async () => {
-            for (const partition of partitions) {
-                this.currentBatch.discardPartition(partition)
-            }
-            return Promise.resolve()
-        })
-    }
-
-    private async rotateBatch(): Promise<void> {
-        await this.currentBatch.flush()
-        this.currentBatch = new SessionBatchRecorder(this.offsetManager, this.writer)
-        this.lastFlushTime = Date.now()
+        for (const partition of partitions) {
+            this.currentBatch.discardPartition(partition)
+        }
     }
 }
