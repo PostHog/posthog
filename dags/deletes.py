@@ -18,6 +18,7 @@ from posthog.clickhouse.cluster import (
     ClickhouseCluster,
     Mutation,
     MutationRunner,
+    NodeRole,
     get_cluster,
 )
 from posthog.models.event.sql import EVENTS_DATA_TABLE
@@ -256,7 +257,7 @@ def delete_person_events(
     def sync_replica(client: Client):
         client.execute(f"SYSTEM SYNC REPLICA {load_pending_person_deletions.qualified_name} STRICT")
 
-    cluster.map_all_hosts(sync_replica).result()
+    cluster.map_hosts_by_role(sync_replica, NodeRole.WORKER).result()
 
     def count_pending_deletes(client: Client) -> int:
         result = client.execute(
@@ -267,7 +268,7 @@ def delete_person_events(
         )
         return result[0][0] if result else 0
 
-    count_result = cluster.any_host(count_pending_deletes).result()
+    count_result = cluster.any_host_by_role(count_pending_deletes, NodeRole.WORKER).result()
 
     if count_result == 0:
         context.add_output_metadata({"events_deleted": MetadataValue.int(0), "message": "No pending deletions found"})
