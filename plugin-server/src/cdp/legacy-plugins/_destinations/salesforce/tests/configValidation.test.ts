@@ -1,4 +1,4 @@
-import { SalesforceMeta, SalesforcePluginConfig, verifyConfig } from '.'
+import { SalesforceMeta, SalesforcePluginConfig, verifyConfig } from '../index'
 
 describe('config validation', () => {
     let config: SalesforcePluginConfig

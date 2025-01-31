@@ -1,6 +1,6 @@
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
-import { SalesforceMeta, SalesforcePluginConfig, shouldSendEvent } from '.'
+import { SalesforceMeta, SalesforcePluginConfig, shouldSendEvent } from '../index'
 
 describe('onEvent', () => {
     let config: SalesforcePluginConfig

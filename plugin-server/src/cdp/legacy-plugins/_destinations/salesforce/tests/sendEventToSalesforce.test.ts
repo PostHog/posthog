@@ -1,6 +1,6 @@
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
-import { SalesforceMeta, SalesforcePluginConfig, sendEventToSalesforce } from '.'
+import { SalesforceMeta, SalesforcePluginConfig, sendEventToSalesforce } from '../index'
 
 const mockFetch = jest.fn()
 

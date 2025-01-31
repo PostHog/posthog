@@ -8,7 +8,7 @@ import {
     SalesforcePluginConfig,
     sendEventToSalesforce,
     verifyConfig,
-} from '.'
+} from '../index'
 
 const mockFetch = jest.fn()
 
