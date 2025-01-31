@@ -112,54 +112,44 @@ export function DatawarehouseTableForm({ onUpdate }: Props): JSX.Element {
                         />
                     )}
                 </LemonField>
-                {!onUpdate && (
-                    <>
-                        <LemonField
-                            name={['credential', 'access_key']}
-                            label={ProviderMappings[provider].accessKeyLabel}
-                        >
-                            {({ value = '', onChange }) => (
-                                <LemonInput
-                                    data-attr="access-key"
-                                    className="ph-ignore-input"
-                                    placeholder={ProviderMappings[provider].accessKeyPlaceholder}
-                                    autoComplete="off"
-                                    autoCapitalize="off"
-                                    autoCorrect="off"
-                                    spellCheck={false}
-                                    value={value}
-                                    onChange={onChange}
-                                />
-                            )}
-                        </LemonField>
-                        <LemonField
-                            name={['credential', 'access_secret']}
-                            label={ProviderMappings[provider].accessSecretLabel}
-                        >
-                            {({ value = '', onChange }) => (
-                                <LemonInput
-                                    data-attr="access-secret"
-                                    className="ph-ignore-input"
-                                    type="password"
-                                    placeholder="eg: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
-                                    autoComplete="off"
-                                    autoCapitalize="off"
-                                    autoCorrect="off"
-                                    spellCheck={false}
-                                    value={value}
-                                    onChange={onChange}
-                                />
-                            )}
-                        </LemonField>
-                        {provider === 'google-cloud' && (
-                            <div className="text-muted text-xs">
-                                We use HMAC keys to access your Google Cloud Storage. Find more about generating them{' '}
-                                <Link to="https://cloud.google.com/storage/docs/authentication/hmackeys" target="_new">
-                                    here
-                                </Link>
-                            </div>
-                        )}
-                    </>
+                <LemonField name={['credential', 'access_key']} label={ProviderMappings[provider].accessKeyLabel}>
+                    {({ value = '', onChange }) => (
+                        <LemonInput
+                            data-attr="access-key"
+                            className="ph-ignore-input"
+                            placeholder={ProviderMappings[provider].accessKeyPlaceholder}
+                            autoComplete="off"
+                            autoCapitalize="off"
+                            autoCorrect="off"
+                            spellCheck={false}
+                            value={value}
+                            onChange={onChange}
+                        />
+                    )}
+                </LemonField>
+                <LemonField name={['credential', 'access_secret']} label={ProviderMappings[provider].accessSecretLabel}>
+                    {({ value = '', onChange }) => (
+                        <LemonInput
+                            data-attr="access-secret"
+                            className="ph-ignore-input"
+                            type="password"
+                            placeholder="eg: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+                            autoComplete="off"
+                            autoCapitalize="off"
+                            autoCorrect="off"
+                            spellCheck={false}
+                            value={value}
+                            onChange={onChange}
+                        />
+                    )}
+                </LemonField>
+                {provider === 'google-cloud' && (
+                    <div className="text-muted text-xs">
+                        We use HMAC keys to access your Google Cloud Storage. Find more about generating them{' '}
+                        <Link to="https://cloud.google.com/storage/docs/authentication/hmackeys" target="_new">
+                            here
+                        </Link>
+                    </div>
                 )}
                 {!!onUpdate && (
                     <div className="flex justify-end">
