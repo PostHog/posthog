@@ -90,6 +90,6 @@ export async function compareToHogTransformStep(
             counterHogTransformationDiff.inc({ outcome: 'same' })
         }
     } catch (error) {
-        status.error('Error occured when comparing plugin event to hog transform', error)
+        status.error('Error occurred when comparing plugin event to hog transform', error)
     }
 }
