@@ -5,14 +5,12 @@ from uuid import uuid4
 
 from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
-from django.utils import timezone
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
-from langchain_openai import ChatOpenAI
 from rest_framework.exceptions import APIException
 from sentry_sdk import capture_exception
 
-from ee.hogai.summarizer.prompts import SUMMARIZER_INSTRUCTION_PROMPT, SUMMARIZER_SYSTEM_PROMPT
+from ee.hogai.query_executor.prompts import QUERY_RESULTS_PROMPT
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
 from posthog.api.services.query import process_query_dict
@@ -20,11 +18,11 @@ from posthog.clickhouse.client.execute_async import get_query_status
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.schema import AssistantMessage, FailureMessage, HumanMessage, VisualizationMessage
+from posthog.schema import AssistantMessage, FailureMessage, VisualizationMessage
 
 
-class SummarizerNode(AssistantNode):
-    name = AssistantNodeName.SUMMARIZER
+class QueryExecutorNode(AssistantNode):
+    name = AssistantNodeName.QUERY_EXECUTOR
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         viz_message = state.messages[-1]
@@ -36,7 +34,7 @@ class SummarizerNode(AssistantNode):
         try:
             results_response = process_query_dict(  # type: ignore
                 self._team,  # TODO: Add user
-                viz_message.answer.model_dump(mode="json"),  # We need mode="json" so that
+                viz_message.answer.model_dump(mode="json"),
                 # Celery doesn't run in tests, so there we use force_blocking instead
                 # This does mean that the waiting logic is not tested
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
@@ -74,41 +72,23 @@ class SummarizerNode(AssistantNode):
                 messages=[FailureMessage(content="There was an unknown error running this query.", id=str(uuid4()))]
             )
 
-        summarization_prompt = ChatPromptTemplate(self._construct_messages(state), template_format="mustache")
-
-        chain = summarization_prompt | self._model
-
-        utc_now = timezone.now().astimezone(datetime.UTC)
+        utc_now = datetime.datetime.now(datetime.UTC)
         project_now = utc_now.astimezone(self._team.timezone_info)
 
-        message = chain.invoke(
-            {
-                "query_kind": viz_message.answer.kind,
-                "core_memory": self.core_memory_text,
-                "results": json.dumps(results_response["results"], cls=DjangoJSONEncoder),
-                "utc_datetime_display": utc_now.strftime("%Y-%m-%d %H:%M:%S"),
-                "project_datetime_display": project_now.strftime("%Y-%m-%d %H:%M:%S"),
-                "project_timezone": self._team.timezone_info.tzname(utc_now),
-            },
-            config,
+        return PartialAssistantState(
+            messages=[
+                AssistantMessage(
+                    content=ChatPromptTemplate.from_messages(
+                        messages=[("assistant", QUERY_RESULTS_PROMPT)],
+                        template_format="mustache",
+                    ).format(
+                        query=viz_message.answer.model_dump_json(exclude_unset=True, exclude_none=True),
+                        results=json.dumps(results_response["results"], cls=DjangoJSONEncoder),
+                        utc_datetime_display=utc_now.strftime("%Y-%m-%d %H:%M:%S"),
+                        project_datetime_display=project_now.strftime("%Y-%m-%d %H:%M:%S"),
+                        project_timezone=self._team.timezone_info.tzname(utc_now),
+                    ),
+                    id=str(uuid4()),
+                )
+            ]
         )
-
-        return PartialAssistantState(messages=[AssistantMessage(content=str(message.content), id=str(uuid4()))])
-
-    @property
-    def _model(self):
-        return ChatOpenAI(
-            model="gpt-4o", temperature=0.5, streaming=True, stream_usage=True
-        )  # Slightly higher temp than earlier steps
-
-    def _construct_messages(self, state: AssistantState) -> list[tuple[str, str]]:
-        conversation: list[tuple[str, str]] = [("system", SUMMARIZER_SYSTEM_PROMPT)]
-
-        for message in state.messages:
-            if isinstance(message, HumanMessage):
-                conversation.append(("human", message.content))
-            elif isinstance(message, AssistantMessage):
-                conversation.append(("assistant", message.content))
-
-        conversation.append(("human", SUMMARIZER_INSTRUCTION_PROMPT))
-        return conversation

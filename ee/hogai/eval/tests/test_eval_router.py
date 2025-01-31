@@ -13,8 +13,8 @@ from posthog.schema import HumanMessage, RouterMessage
 def call_node(team, runnable_config) -> Callable[[str | list], str]:
     graph: CompiledStateGraph = (
         AssistantGraph(team)
-        .add_edge(AssistantNodeName.START, AssistantNodeName.ROUTER)
-        .add_router(path_map={"trends": AssistantNodeName.END, "funnel": AssistantNodeName.END})
+        .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+        .add_root(path_map={"trends": AssistantNodeName.END, "funnel": AssistantNodeName.END})
         .compile()
     )
 

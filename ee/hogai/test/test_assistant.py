@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from ee.hogai.funnels.nodes import FunnelsSchemaGeneratorOutput
 from ee.hogai.memory import prompts as memory_prompts
-from ee.hogai.router.nodes import RouterOutput
+from ee.hogai.root.nodes import RouterOutput
 from ee.hogai.trends.nodes import TrendsSchemaGeneratorOutput
 from ee.models.assistant import Conversation, CoreMemory
 from posthog.schema import (
@@ -106,8 +106,8 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         output = self._run_assistant_graph(
             AssistantGraph(self.team)
             .add_edge(AssistantNodeName.START, AssistantNodeName.TRENDS_PLANNER)
-            .add_trends_planner(AssistantNodeName.SUMMARIZER)
-            .add_summarizer(AssistantNodeName.END)
+            .add_trends_planner(AssistantNodeName.QUERY_EXECUTOR)
+            .add_query_executor(AssistantNodeName.END)
             .compile(),
             conversation=self.conversation,
         )
@@ -374,9 +374,9 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     def test_new_conversation_handles_serialized_conversation(self):
         graph = (
             AssistantGraph(self.team)
-            .add_node(AssistantNodeName.ROUTER, lambda _: {"messages": [AssistantMessage(content="Hello")]})
-            .add_edge(AssistantNodeName.START, AssistantNodeName.ROUTER)
-            .add_edge(AssistantNodeName.ROUTER, AssistantNodeName.END)
+            .add_node(AssistantNodeName.ROOT, lambda _: {"messages": [AssistantMessage(content="Hello")]})
+            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+            .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
             .compile()
         )
         output = self._run_assistant_graph(
@@ -400,9 +400,9 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     async def test_async_stream(self):
         graph = (
             AssistantGraph(self.team)
-            .add_node(AssistantNodeName.ROUTER, lambda _: {"messages": [AssistantMessage(content="bar")]})
-            .add_edge(AssistantNodeName.START, AssistantNodeName.ROUTER)
-            .add_edge(AssistantNodeName.ROUTER, AssistantNodeName.END)
+            .add_node(AssistantNodeName.ROOT, lambda _: {"messages": [AssistantMessage(content="bar")]})
+            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+            .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
             .compile()
         )
         assistant = Assistant(self.team, self.conversation, HumanMessage(content="foo"))
@@ -423,9 +423,9 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
         graph = (
             AssistantGraph(self.team)
-            .add_node(AssistantNodeName.ROUTER, node_handler)
-            .add_edge(AssistantNodeName.START, AssistantNodeName.ROUTER)
-            .add_edge(AssistantNodeName.ROUTER, AssistantNodeName.END)
+            .add_node(AssistantNodeName.ROOT, node_handler)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+            .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
             .compile()
         )
         assistant = Assistant(self.team, self.conversation, HumanMessage(content="foo"))

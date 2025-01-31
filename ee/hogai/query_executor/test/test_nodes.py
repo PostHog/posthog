@@ -7,8 +7,8 @@ from langchain_core.messages import (
 from langchain_core.runnables import RunnableLambda
 from rest_framework.exceptions import ValidationError
 
-from ee.hogai.summarizer.nodes import SummarizerNode
-from ee.hogai.summarizer.prompts import SUMMARIZER_INSTRUCTION_PROMPT, SUMMARIZER_SYSTEM_PROMPT
+from ee.hogai.query_executor.nodes import QueryExecutorNode
+from ee.hogai.query_executor.prompts import QUERY_RESULTS_PROMPT, SUMMARIZER_SYSTEM_PROMPT
 from ee.hogai.utils.types import AssistantState
 from posthog.api.services.query import process_query_dict
 from posthog.schema import (
@@ -26,8 +26,8 @@ class TestSummarizerNode(ClickhouseTestMixin, APIBaseTest):
 
     @patch("ee.hogai.summarizer.nodes.process_query_dict", side_effect=process_query_dict)
     def test_node_runs(self, mock_process_query_dict):
-        node = SummarizerNode(self.team)
-        with patch.object(SummarizerNode, "_model") as generator_model_mock:
+        node = QueryExecutorNode(self.team)
+        with patch.object(QueryExecutorNode, "_model") as generator_model_mock:
             generator_model_mock.return_value = RunnableLambda(
                 lambda _: LangchainHumanMessage(content="The results indicate foobar.")
             )
@@ -58,8 +58,8 @@ class TestSummarizerNode(ClickhouseTestMixin, APIBaseTest):
         side_effect=ValueError("You have not glibbled the glorp before running this."),
     )
     def test_node_handles_internal_error(self, mock_process_query_dict):
-        node = SummarizerNode(self.team)
-        with patch.object(SummarizerNode, "_model") as generator_model_mock:
+        node = QueryExecutorNode(self.team)
+        with patch.object(QueryExecutorNode, "_model") as generator_model_mock:
             generator_model_mock.return_value = RunnableLambda(
                 lambda _: LangchainHumanMessage(content="The results indicate foobar.")
             )
@@ -92,8 +92,8 @@ class TestSummarizerNode(ClickhouseTestMixin, APIBaseTest):
         ),
     )
     def test_node_handles_exposed_error(self, mock_process_query_dict):
-        node = SummarizerNode(self.team)
-        with patch.object(SummarizerNode, "_model") as generator_model_mock:
+        node = QueryExecutorNode(self.team)
+        with patch.object(QueryExecutorNode, "_model") as generator_model_mock:
             generator_model_mock.return_value = RunnableLambda(
                 lambda _: LangchainHumanMessage(content="The results indicate foobar.")
             )
@@ -123,7 +123,7 @@ class TestSummarizerNode(ClickhouseTestMixin, APIBaseTest):
             self.assertIsNotNone(msg.id)
 
     def test_node_requires_a_viz_message_in_state(self):
-        node = SummarizerNode(self.team)
+        node = QueryExecutorNode(self.team)
 
         with self.assertRaisesMessage(
             ValueError, "Can only run summarization with a visualization message as the last one in the state"
@@ -140,7 +140,7 @@ class TestSummarizerNode(ClickhouseTestMixin, APIBaseTest):
             )
 
     def test_node_requires_viz_message_in_state_to_have_query(self):
-        node = SummarizerNode(self.team)
+        node = QueryExecutorNode(self.team)
 
         with self.assertRaisesMessage(ValueError, "Did not found query in the visualization message"):
             node.run(
@@ -155,7 +155,7 @@ class TestSummarizerNode(ClickhouseTestMixin, APIBaseTest):
             )
 
     def test_agent_reconstructs_conversation(self):
-        node = SummarizerNode(self.team)
+        node = QueryExecutorNode(self.team)
 
         history = node._construct_messages(
             AssistantState(
@@ -176,6 +176,6 @@ class TestSummarizerNode(ClickhouseTestMixin, APIBaseTest):
             [
                 ("system", SUMMARIZER_SYSTEM_PROMPT),
                 ("human", "What's the trends in signups?"),
-                ("human", SUMMARIZER_INSTRUCTION_PROMPT),
+                ("human", QUERY_RESULTS_PROMPT),
             ],
         )
