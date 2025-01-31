@@ -27,7 +27,10 @@ struct KafkaContext {
 impl rdkafka::ClientContext for KafkaContext {
     fn stats(&self, stats: rdkafka::Statistics) {
         // Signal liveness, as the main rdkafka loop is running and calling us
-        self.liveness.report_healthy_blocking();
+        // If rx_bytes is zero we've had no communication from the brokers so are probably not healthy
+        if stats.rx_bytes > 0 {
+            self.liveness.report_healthy_blocking();
+        }
 
         // Update exported metrics
         gauge!("capture_kafka_callback_queue_depth",).set(stats.replyq as f64);
@@ -209,6 +212,7 @@ impl KafkaSink {
         let data_type = metadata.data_type;
         let event_key = event.key();
         let session_id = metadata.session_id.clone();
+        let distinct_id = event.distinct_id.clone();
 
         drop(event); // Events can be EXTREMELY memory hungry
 
@@ -255,10 +259,17 @@ impl KafkaSink {
             partition: None,
             key: partition_key,
             timestamp: None,
-            headers: Some(OwnedHeaders::new().insert(Header {
-                key: "token",
-                value: Some(&token),
-            })),
+            headers: Some(
+                OwnedHeaders::new()
+                    .insert(Header {
+                        key: "token",
+                        value: Some(&token),
+                    })
+                    .insert(Header {
+                        key: "distinct_id",
+                        value: Some(&distinct_id),
+                    }),
+            ),
         }) {
             Ok(ack) => Ok(ack),
             Err((e, _)) => match e.rdkafka_error_code() {
@@ -413,14 +424,16 @@ mod tests {
         // We test different cases in a single test to amortize the startup cost of the producer.
 
         let (cluster, sink) = start_on_mocked_sink(Some(3000000)).await;
+        let distinct_id = "test_distinct_id_123".to_string();
         let event: CapturedEvent = CapturedEvent {
             uuid: uuid_v7(),
-            distinct_id: "id1".to_string(),
+            distinct_id: distinct_id.clone(),
             ip: "".to_string(),
             data: "".to_string(),
             now: "".to_string(),
             sent_at: None,
             token: "token1".to_string(),
+            is_cookieless_mode: false,
         };
 
         let metadata = ProcessedEventMetadata {
@@ -462,6 +475,7 @@ mod tests {
             now: "".to_string(),
             sent_at: None,
             token: "token1".to_string(),
+            is_cookieless_mode: false,
         };
 
         let big_event = ProcessedEvent {
@@ -489,6 +503,7 @@ mod tests {
                 now: "".to_string(),
                 sent_at: None,
                 token: "token1".to_string(),
+                is_cookieless_mode: false,
             },
             metadata: metadata.clone(),
         };

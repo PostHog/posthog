@@ -4,7 +4,8 @@ import { useActions, useValues } from 'kea'
 import { ExperimentFunnelsQuery } from '~/queries/schema'
 import { Experiment, InsightType } from '~/types'
 
-import { experimentLogic, getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../experimentLogic'
+import { experimentLogic } from '../experimentLogic'
+import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../utils'
 import { FunnelsMetricForm } from './FunnelsMetricForm'
 import { TrendsMetricForm } from './TrendsMetricForm'
 

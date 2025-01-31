@@ -525,6 +525,11 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
 
+        templateId: [
+            (s) => [s.template, s.hogFunction],
+            (template, hogFunction) => template?.id || hogFunction?.template?.id,
+        ],
+
         loading: [
             (s) => [s.hogFunctionLoading, s.templateLoading],
             (hogFunctionLoading, templateLoading) => hogFunctionLoading || templateLoading,

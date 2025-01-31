@@ -154,6 +154,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     has_group_types = serializers.SerializerMethodField()
     live_events_token = serializers.SerializerMethodField()
     product_intents = serializers.SerializerMethodField()
+    access_control_version = serializers.SerializerMethodField()
 
     class Meta:
         model = Team
@@ -219,6 +220,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "capture_dead_clicks",
             "user_access_level",
             "default_data_theme",
+            "revenue_tracking_config",
+            "access_control_version",
         )
         read_only_fields = (
             "id",
@@ -235,6 +238,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "person_on_events_querying_enabled",
             "live_events_token",
             "user_access_level",
+            "access_control_version",
         )
 
     def to_representation(self, instance):
@@ -249,6 +253,12 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
         # TODO: Map from user_access_controls
         return self.user_permissions.team(team).effective_membership_level
+
+    def get_access_control_version(self, team: Team) -> str:
+        # If they have a private project (team/environment) then assume they are using the old access control
+        if bool(team.access_control):
+            return "v1"
+        return "v2"
 
     def get_has_group_types(self, team: Team) -> bool:
         return GroupTypeMapping.objects.filter(project_id=team.project_id).exists()
@@ -628,9 +638,13 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         current_url = request.headers.get("Referer")
         session_id = request.headers.get("X-Posthog-Session-Id")
         should_report_product_intent = False
+        metadata = request.data.get("metadata", {})
 
         if not product_type:
             return response.Response({"error": "product_type is required"}, status=400)
+
+        if not isinstance(metadata, dict):
+            return response.Response({"error": "'metadata' must be a dictionary"}, status=400)
 
         product_intent, created = ProductIntent.objects.get_or_create(team=team, product_type=product_type)
 
@@ -653,6 +667,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                 user,
                 "user showed product intent",
                 {
+                    **metadata,
                     "product_key": product_type,
                     "$set_once": {"first_onboarding_product_selected": product_type},
                     "$current_url": current_url,

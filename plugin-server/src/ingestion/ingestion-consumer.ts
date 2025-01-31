@@ -2,6 +2,7 @@ import * as Sentry from '@sentry/node'
 import { Message, MessageHeader } from 'node-rdkafka'
 import { Histogram } from 'prom-client'
 
+import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../kafka/config'
 import { KafkaProducerWrapper } from '../kafka/producer'
@@ -61,6 +62,7 @@ export class IngestionConsumer {
     protected heartbeat = () => {}
     protected promises: Set<Promise<any>> = new Set()
     protected kafkaProducer?: KafkaProducerWrapper
+    public hogTransformer: HogTransformerService
 
     private overflowRateLimiter: MemoryRateLimiter
     private ingestionWarningLimiter: MemoryRateLimiter
@@ -83,6 +85,7 @@ export class IngestionConsumer {
         )
 
         this.ingestionWarningLimiter = new MemoryRateLimiter(1, 1.0 / 3600)
+        this.hogTransformer = new HogTransformerService(hub)
     }
 
     public get service(): PluginServerService {
@@ -105,6 +108,7 @@ export class IngestionConsumer {
                 groupId: this.groupId,
                 handleBatch: async (messages) => this.handleKafkaBatch(messages),
             }),
+            this.hogTransformer.start(),
         ])
     }
 
@@ -117,7 +121,8 @@ export class IngestionConsumer {
         await this.batchConsumer?.stop()
         status.info('🔁', `${this.name} - stopping kafka producer`)
         await this.kafkaProducer?.disconnect()
-
+        status.info('🔁', `${this.name} - stopping hog transformer`)
+        await this.hogTransformer.stop()
         status.info('👍', `${this.name} - stopped!`)
     }
 
@@ -187,6 +192,7 @@ export class IngestionConsumer {
                         event,
                     })
 
+                    // This contains the Kafka producer ACKs & message promises, to avoid blocking after every message.
                     result.ackPromises?.forEach((promise) => {
                         void this.scheduleWork(
                             promise.catch(async (error) => {
@@ -209,7 +215,7 @@ export class IngestionConsumer {
 
     private async runEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
         return await retryIfRetriable(async () => {
-            const runner = new EventPipelineRunner(this.hub, event)
+            const runner = new EventPipelineRunner(this.hub, event, this.hogTransformer)
             return await runner.runEventPipeline(event)
         })
     }
