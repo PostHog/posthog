@@ -53,7 +53,7 @@ export const setupPlugin = async (meta: PubSubMeta): Promise<void> => {
     }
 }
 
-export async function onEvent(fullEvent: ProcessedPluginEvent, { global, config }: PubSubMeta) {
+export async function onEvent(fullEvent: ProcessedPluginEvent, { global, config, logger }: PubSubMeta) {
     if (!global.pubSubClient) {
         throw new Error('No PubSub client initialized!')
     }
@@ -89,7 +89,7 @@ export async function onEvent(fullEvent: ProcessedPluginEvent, { global, config 
             return messageId
         })
     } catch (error) {
-        console.error(`Error publishing ${fullEvent.uuid} to ${config.topicId}: `, error)
+        logger.error(`Error publishing ${fullEvent.uuid} to ${config.topicId}: `, error)
         throw new RetryError(`Error publishing to Pub/Sub! ${JSON.stringify(error.errors)}`)
     }
 }
