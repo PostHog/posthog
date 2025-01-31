@@ -87,4 +87,6 @@ However, those logs are only enabled when posthog-js is set with debug=true.
 
 For customer issues, if you need it, you can add the query parameter `__posthog_debug=true` to force the JS SDK to be loaded with debugging mode.
 
+Example: `https://posthog.com/?__posthog_debug=true`
+
 If you ever need more logs, please create a PR and add them.
