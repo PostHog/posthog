@@ -18,23 +18,23 @@ from posthog.clickhouse.table_engines import (
 )
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 
+ON_CLUSTER_CLAUSE = lambda: f"ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+
 EVENTS_DATA_TABLE = lambda: "sharded_events"
 WRITABLE_EVENTS_DATA_TABLE = lambda: "writable_events"
 EVENTS_RECENT_DATA_TABLE = lambda: "events_recent"
-TRUNCATE_EVENTS_TABLE_SQL = (
-    lambda: f"TRUNCATE TABLE IF EXISTS {EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
-)
+TRUNCATE_EVENTS_TABLE_SQL = lambda: f"TRUNCATE TABLE IF EXISTS {EVENTS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
 TRUNCATE_EVENTS_RECENT_TABLE_SQL = (
-    lambda: f"TRUNCATE TABLE IF EXISTS {EVENTS_RECENT_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+    lambda: f"TRUNCATE TABLE IF EXISTS {EVENTS_RECENT_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
 )
-DROP_EVENTS_TABLE_SQL = lambda: f"DROP TABLE IF EXISTS {EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
-DROP_DISTRIBUTED_EVENTS_TABLE_SQL = f"DROP TABLE IF EXISTS events ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+DROP_EVENTS_TABLE_SQL = lambda: f"DROP TABLE IF EXISTS {EVENTS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
+DROP_DISTRIBUTED_EVENTS_TABLE_SQL = f"DROP TABLE IF EXISTS events {ON_CLUSTER_CLAUSE()}"
 
 INSERTED_AT_COLUMN = ", inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64()"
 INSERTED_AT_NOT_NULLABLE_COLUMN = ", inserted_at DateTime64(6, 'UTC') DEFAULT NOW64()"
 
 EVENTS_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
     uuid UUID,
     event VARCHAR,
@@ -113,7 +113,7 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
 """
 ).format(
     table_name=EVENTS_DATA_TABLE(),
-    cluster=settings.CLICKHOUSE_CLUSTER,
+    on_cluster_clause=ON_CLUSTER_CLAUSE(),
     engine=EVENTS_DATA_TABLE_ENGINE(),
     extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN,
     materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
@@ -147,7 +147,7 @@ KAFKA_EVENTS_TABLE_JSON_SQL = lambda: (
 """
 ).format(
     table_name="kafka_events_json",
-    cluster=settings.CLICKHOUSE_CLUSTER,
+    on_cluster_clause=ON_CLUSTER_CLAUSE(),
     engine=kafka_engine(topic=KAFKA_EVENTS_JSON),
     extra_fields="",
     materialized_columns="",
@@ -199,7 +199,7 @@ KAFKA_EVENTS_RECENT_TABLE_JSON_SQL = lambda: (
 """
 ).format(
     table_name="kafka_events_recent_json",
-    cluster=settings.CLICKHOUSE_CLUSTER,
+    on_cluster_clause=ON_CLUSTER_CLAUSE(),
     engine=kafka_engine(topic=KAFKA_EVENTS_JSON, group="group1_recent"),
     extra_fields="",
     materialized_columns="",
@@ -254,7 +254,7 @@ TTL toDateTime(inserted_at) + INTERVAL 7 DAY
 """
 ).format(
     table_name=EVENTS_RECENT_DATA_TABLE(),
-    cluster=settings.CLICKHOUSE_CLUSTER,
+    on_cluster_clause=ON_CLUSTER_CLAUSE(),
     engine=ReplacingMergeTree(EVENTS_RECENT_DATA_TABLE(), ver="_timestamp"),
     extra_fields=KAFKA_COLUMNS_WITH_PARTITION + INSERTED_AT_NOT_NULLABLE_COLUMN + f", {KAFKA_TIMESTAMP_MS_COLUMN}",
     materialized_columns="",
@@ -264,7 +264,7 @@ TTL toDateTime(inserted_at) + INTERVAL 7 DAY
 
 DISTRIBUTED_EVENTS_RECENT_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
     table_name="distributed_events_recent",
-    cluster=settings.CLICKHOUSE_CLUSTER,
+    on_cluster_clause=ON_CLUSTER_CLAUSE(),
     engine=Distributed(
         data_table=EVENTS_RECENT_DATA_TABLE(),
         sharding_key="sipHash64(distinct_id)",
@@ -280,7 +280,7 @@ DISTRIBUTED_EVENTS_RECENT_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
 # This table is responsible for writing to sharded_events based on a sharding key.
 WRITABLE_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
     table_name="writable_events",
-    cluster=settings.CLICKHOUSE_CLUSTER,
+    on_cluster_clause=ON_CLUSTER_CLAUSE(),
     engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
     extra_fields=KAFKA_COLUMNS,
     materialized_columns="",
@@ -288,9 +288,9 @@ WRITABLE_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
 )
 
 # This table is responsible for reading from events on a cluster setting
-DISTRIBUTED_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
+DISTRIBUTED_EVENTS_TABLE_SQL = lambda on_cluster=True: EVENTS_TABLE_BASE_SQL.format(
     table_name="events",
-    cluster=settings.CLICKHOUSE_CLUSTER,
+    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
     engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
     extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN,
     materialized_columns=EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS,
