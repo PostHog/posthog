@@ -261,16 +261,19 @@ class Cohort(models.Model):
                 fn()
                 return
 
-            try:
-                fn()
-            except Exception:
-                logger.exception(
-                    "cohort_hogql_calculation_failed",
-                    id=self.pk,
-                    current_version=self.version,
-                    new_version=pending_version,
-                    exc_info=True,
-                )
+            # Jan 29 2025 - Temporarily commented out because of celery load issues
+            return
+
+            # try:
+            #     fn()
+            # except Exception:
+            #     logger.exception(
+            #         "cohort_hogql_calculation_failed",
+            #         id=self.pk,
+            #         current_version=self.version,
+            #         new_version=pending_version,
+            #         exc_info=True,
+            #     )
 
     def insert_users_by_list(self, items: list[str], *, team_id: Optional[int] = None) -> None:
         """

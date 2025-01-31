@@ -47,7 +47,7 @@ import type {
     RecordingOrder,
     RecordingsQuery,
 } from './queries/schema'
-import { NodeKind } from './queries/schema/schema-general'
+import { NodeKind, RevenueTrackingConfig } from './queries/schema/schema-general'
 
 // Type alias for number to be reflected as integer in json-schema.
 /** @asType integer */
@@ -493,6 +493,7 @@ export interface TeamBasicType extends WithAccessControl {
     timezone: string
     /** Whether the project is private. */
     access_control: boolean
+    access_control_version: 'v1' | 'v2'
 }
 
 export interface CorrelationConfigType {
@@ -1885,6 +1886,7 @@ export interface DashboardBasicType extends WithAccessControl {
     restriction_level: DashboardRestrictionLevel
     effective_restriction_level: DashboardRestrictionLevel
     effective_privilege_level: DashboardPrivilegeLevel
+    access_control_version: 'v1' | 'v2'
     tags?: string[]
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
@@ -2956,9 +2958,9 @@ export interface MultivariateFlagOptions {
 
 export interface FeatureFlagFilters {
     groups: FeatureFlagGroupType[]
-    multivariate: MultivariateFlagOptions | null
+    multivariate?: MultivariateFlagOptions | null
     aggregation_group_type_index?: integer | null
-    payloads: Record<string, JsonType>
+    payloads?: Record<string, JsonType>
     super_groups?: FeatureFlagGroupType[]
 }
 
@@ -4247,7 +4249,10 @@ export type BatchExportServiceSnowflake = {
         database: string
         warehouse: string
         user: string
-        password: string
+        authentication_type: 'password' | 'keypair'
+        password: string | null
+        private_key: string | null
+        private_key_passphrase: string | null
         schema: string
         table_name: string
         role: string | null
@@ -4335,6 +4340,7 @@ export type BatchExportConfiguration = {
     end_at: string | null
     paused: boolean
     model: string
+    filters: AnyPropertyFilter[]
     latest_runs?: BatchExportRun[]
 }
 
@@ -4775,6 +4781,13 @@ export type HogFunctionInvocationGlobals = {
     >
 }
 
+export type HogFunctionTestInvocationResult = {
+    status: 'success' | 'error'
+    logs: LogEntry[]
+    result: any
+    errors?: string[]
+}
+
 export type AppMetricsV2Response = {
     labels: string[]
     series: {
@@ -4846,15 +4859,6 @@ export enum CookielessServerHashMode {
     Disabled = 0,
     Stateless = 1,
     Stateful = 2,
-}
-
-export interface RevenueTrackingEventItem {
-    eventName: string
-    revenueProperty: string
-}
-
-export interface RevenueTrackingConfig {
-    events: RevenueTrackingEventItem[]
 }
 
 /**
