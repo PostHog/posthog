@@ -13,13 +13,15 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import posthog from 'posthog-js'
-import React from 'react'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { featureFlagsLogic, type FeatureFlagsResult } from 'scenes/feature-flags/featureFlagsLogic'
-import { availableOnboardingProducts } from 'scenes/onboarding/onboardingLogic'
+import { availableOnboardingProducts } from 'scenes/onboarding/utils'
 import { membersLogic } from 'scenes/organization/membersLogic'
+import { DESTINATION_TYPES } from 'scenes/pipeline/destinations/constants'
+import { pipelineDestinationsLogic } from 'scenes/pipeline/destinations/destinationsLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
@@ -86,73 +88,39 @@ export const ACTIVATION_SECTIONS: Record<ActivationSection, { title: string; ico
     },
     [ActivationSection.ProductAnalytics]: {
         title: 'Product analytics',
-        icon: <IconGraph className="h-5 w-5" color={availableOnboardingProducts?.product_analytics.iconColor} />,
+        icon: <IconGraph className="h-5 w-5" color={availableOnboardingProducts.product_analytics.iconColor} />,
     },
     [ActivationSection.SessionReplay]: {
         title: 'Session replay',
         icon: (
             <IconRewindPlay
                 className="h-5 w-5 text-brand-yellow"
-                color={availableOnboardingProducts?.product_analytics.iconColor}
+                color={availableOnboardingProducts.product_analytics.iconColor}
             />
         ),
     },
     [ActivationSection.FeatureFlags]: {
         title: 'Feature flags',
         icon: (
-            <IconToggle
-                className="h-5 w-5 text-seagreen"
-                color={availableOnboardingProducts?.feature_flags.iconColor}
-            />
+            <IconToggle className="h-5 w-5 text-seagreen" color={availableOnboardingProducts.feature_flags.iconColor} />
         ),
     },
     [ActivationSection.Experiments]: {
         title: 'Experiments',
         icon: (
-            <IconTestTube className="h-5 w-5 text-purple" color={availableOnboardingProducts?.experiments.iconColor} />
+            <IconTestTube className="h-5 w-5 text-purple" color={availableOnboardingProducts.experiments.iconColor} />
         ),
     },
     [ActivationSection.DataWarehouse]: {
         title: 'Data warehouse',
         icon: (
-            <IconDatabase
-                className="h-5 w-5 text-lilac"
-                color={availableOnboardingProducts?.data_warehouse.iconColor}
-            />
+            <IconDatabase className="h-5 w-5 text-lilac" color={availableOnboardingProducts.data_warehouse.iconColor} />
         ),
     },
     [ActivationSection.Surveys]: {
         title: 'Surveys',
-        icon: <IconMessage className="h-5 w-5 text-salmon" color={availableOnboardingProducts?.surveys.iconColor} />,
+        icon: <IconMessage className="h-5 w-5 text-salmon" color={availableOnboardingProducts.surveys.iconColor} />,
     },
-}
-
-function IngestFirstEventContent(): JSX.Element {
-    return <>Ingest your first event to get started with PostHog</>
-}
-
-function InviteTeamMemberContent(): JSX.Element {
-    return <>Everyone in your organization can benefit from PostHog</>
-}
-
-function CreateFirstInsightContent(): JSX.Element {
-    return <>Make sense of your data by creating an insight</>
-}
-
-function CreateFirstDashboardContent(): JSX.Element {
-    return <>Collect your insights in a dashboard</>
-}
-
-function SetupSessionRecordingsContent(): JSX.Element {
-    return <>See how your users are using your product</>
-}
-
-function TrackCustomEventsContent(): JSX.Element {
-    return <>Add custom ddd events to get more insights into your product</>
-}
-
-function SetUpReverseProxyContent(): JSX.Element {
-    return <>Proxy your domain traffic to avoid tracking blockers</>
 }
 
 /** 3b) "ActivationTaskType" now has "title" and "content" (ReactNode),
@@ -162,7 +130,6 @@ export type ActivationTaskType = {
     id: ActivationTask
     section: ActivationSection
     title: string
-    content: React.ReactNode
     completed: boolean
     canSkip: boolean
     skipped: boolean
@@ -183,45 +150,45 @@ export const activationLogic = kea<activationLogicType>([
             membersLogic,
             ['memberCount'],
             inviteLogic,
-            ['invites'],
+            ['invites', 'invitesLoading'],
             savedInsightsLogic,
-            ['insights'],
+            ['insights', 'insightsLoading'],
             dashboardsModel,
-            ['rawDashboards'],
+            ['rawDashboards', 'dashboardsLoading'],
             reverseProxyCheckerLogic,
             ['hasReverseProxy'],
             featureFlagsLogic,
-            ['featureFlags'],
+            ['featureFlags', 'featureFlagsLoading'],
             experimentsLogic,
-            ['experiments'],
+            ['experiments', 'experimentsLoading'],
             dataWarehouseSettingsLogic,
-            ['dataWarehouseSources'],
+            ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
             surveysLogic,
-            ['surveys', 'surveysResponsesCount'],
+            ['surveys', 'surveysResponsesCount', 'surveysLoading', 'surveysResponsesCountLoading'],
             sidePanelStateLogic,
             ['modalMode'],
+            pipelineDestinationsLogic({ types: DESTINATION_TYPES }),
+            ['destinations', 'destinationsLoading'],
         ],
         actions: [
             inviteLogic,
-            ['showInviteModal', 'loadInvitesSuccess', 'loadInvitesFailure', 'loadInvites'],
+            ['showInviteModal', 'loadInvites'],
             sidePanelStateLogic,
             ['openSidePanel'],
             savedInsightsLogic,
-            ['loadInsights', 'loadInsightsSuccess', 'loadInsightsFailure'],
-            dashboardsModel,
-            ['loadDashboardsSuccess', 'loadDashboardsFailure'],
+            ['loadInsights'],
             featureFlagsLogic,
-            ['loadFeatureFlags', 'loadFeatureFlagsSuccess', 'loadFeatureFlagsFailure'],
+            ['loadFeatureFlags'],
             experimentsLogic,
-            ['loadExperiments', 'loadExperimentsSuccess', 'loadExperimentsFailure'],
+            ['loadExperiments'],
             dataWarehouseSettingsLogic,
-            ['loadSources', 'loadSourcesSuccess', 'loadSourcesFailure'],
+            ['loadSources'],
             sidePanelSettingsLogic,
             ['openSettingsPanel'],
             sidePanelStateLogic,
             ['closeSidePanel'],
             teamLogic,
-            ['addProductIntent'],
+            ['addProductIntent', 'loadCurrentTeamSuccess'],
         ],
     })),
     actions({
@@ -231,9 +198,10 @@ export const activationLogic = kea<activationLogicType>([
         markTaskAsCompleted: (id: ActivationTask) => ({ id }),
         addSkippedTask: (teamId: TeamBasicType['id'], taskId: ActivationTask) => ({ teamId, taskId }),
         addCompletedTask: (teamId: TeamBasicType['id'], taskId: ActivationTask) => ({ teamId, taskId }),
-        toggleSectionOpen: (section: ActivationSection) => ({ section }),
-        toggleShowOtherSections: () => ({}),
+        toggleShowHiddenSections: () => ({}),
         addIntentForSection: (section: ActivationSection) => ({ section }),
+        toggleSectionOpen: (section: ActivationSection) => ({ section }),
+        setOpenSections: (teamId: TeamBasicType['id'], sections: ActivationSection[]) => ({ teamId, sections }),
     }),
     reducers(() => ({
         skippedTasks: [
@@ -255,66 +223,22 @@ export const activationLogic = kea<activationLogicType>([
                 },
             },
         ],
-        areInvitesLoaded: [
-            false,
-            {
-                loadInvitesSuccess: () => true,
-                loadInvitesFailure: () => false,
-            },
-        ],
-        areDashboardsLoaded: [
-            false,
-            {
-                loadDashboardsSuccess: () => true,
-                loadDashboardsFailure: () => false,
-            },
-        ],
-        areCustomEventsLoaded: [
-            false,
-            {
-                loadCustomEventsSuccess: () => true,
-                loadCustomEventsFailure: () => false,
-            },
-        ],
-        areInsightsLoaded: [
-            false,
-            {
-                loadInsightsSuccess: () => true,
-                loadInsightsFailure: () => false,
-            },
-        ],
-        areFeatureFlagsLoaded: [
-            false,
-            {
-                loadFeatureFlagsSuccess: () => true,
-                loadFeatureFlagsFailure: () => false,
-            },
-        ],
-        areExperimentsLoaded: [
-            false,
-            {
-                loadExperimentsSuccess: () => true,
-                loadExperimentsFailure: () => false,
-            },
-        ],
-        areSourcesLoaded: [
-            false,
-            {
-                loadSourcesSuccess: () => true,
-                loadSourcesFailure: () => false,
-            },
-        ],
         openSections: [
-            [] as ActivationSection[],
+            {} as Record<string, ActivationSection[]>,
+            { persist: true, prefix: CACHE_PREFIX },
             {
-                toggleSectionOpen: (state, { section }) =>
-                    state.includes(section) ? state.filter((s) => s !== section) : [...state, section],
+                setOpenSections: (state, { teamId, sections }) => {
+                    return {
+                        ...state,
+                        [teamId]: sections,
+                    }
+                },
             },
         ],
-        showOtherSections: [
+        showHiddenSections: [
             false,
             {
-                toggleShowOtherSections: (state) => !state,
+                toggleShowHiddenSections: (state) => !state,
             },
         ],
     })),
@@ -347,35 +271,41 @@ export const activationLogic = kea<activationLogicType>([
             (s) => [
                 s.currentTeam,
                 s.memberCount,
-                s.areInvitesLoaded,
-                s.areDashboardsLoaded,
-                s.areCustomEventsLoaded,
-                s.areInsightsLoaded,
-                s.areFeatureFlagsLoaded,
-                s.areExperimentsLoaded,
-                s.areSourcesLoaded,
+                s.invitesLoading,
+                s.dashboardsLoading,
+                s.customEventsCountLoading,
+                s.insightsLoading,
+                s.featureFlagsLoading,
+                s.experimentsLoading,
+                s.dataWarehouseSourcesLoading,
+                s.surveysLoading,
+                s.surveysResponsesCountLoading,
             ],
             (
                 currentTeam,
                 memberCount,
-                areInvitesLoaded,
-                areDashboardsLoaded,
-                areCustomEventsLoaded,
-                areInsightsLoaded,
-                areFeatureFlagsLoaded,
-                areExperimentsLoaded,
-                areSourcesLoaded
+                invitesLoading,
+                dashboardsLoading,
+                customEventsCountLoading,
+                insightsLoading,
+                featureFlagsLoading,
+                experimentsLoading,
+                dataWarehouseSourcesLoading,
+                surveysLoading,
+                surveysResponsesCountLoading
             ): boolean => {
                 return (
                     !!currentTeam &&
-                    areCustomEventsLoaded &&
-                    areInsightsLoaded &&
                     !!memberCount &&
-                    areInvitesLoaded &&
-                    areDashboardsLoaded &&
-                    areFeatureFlagsLoaded &&
-                    areExperimentsLoaded &&
-                    areSourcesLoaded
+                    !invitesLoading &&
+                    !dashboardsLoading &&
+                    !customEventsCountLoading &&
+                    !insightsLoading &&
+                    !featureFlagsLoading &&
+                    !experimentsLoading &&
+                    !dataWarehouseSourcesLoading &&
+                    !surveysLoading &&
+                    !surveysResponsesCountLoading
                 )
             },
         ],
@@ -419,11 +349,17 @@ export const activationLogic = kea<activationLogicType>([
                     (key) => currentTeam?.has_completed_onboarding_for?.[key] === true
                 ),
         ],
+        hasConnectedDestination: [(s) => [s.destinations], (destinations) => (destinations ?? []).length > 0],
         currentTeamTasksMarkedAsCompleted: [
             (s) => [s.tasksMarkedAsCompleted, s.currentTeam],
             (tasksMarkedAsCompleted, currentTeam) =>
                 currentTeam?.id ? tasksMarkedAsCompleted[currentTeam?.id] ?? [] : [],
         ],
+        currentTeamOpenSections: [
+            (s) => [s.openSections, s.currentTeam],
+            (openSections, currentTeam) => (currentTeam?.id ? openSections[currentTeam?.id] ?? [] : []),
+        ],
+        hasHiddenSections: [(s) => [s.sections], (sections) => sections.filter((s) => !s.hasIntent).length > 0],
         tasks: [
             (s) => [
                 s.currentTeam,
@@ -439,6 +375,7 @@ export const activationLogic = kea<activationLogicType>([
                 s.hasCustomEvents,
                 s.currentTeamTasksMarkedAsCompleted,
                 s.currentTeamSkippedTasks,
+                s.hasConnectedDestination,
             ],
             (
                 currentTeam,
@@ -453,13 +390,13 @@ export const activationLogic = kea<activationLogicType>([
                 hasInvitesOrMembers,
                 hasCustomEvents,
                 currentTeamTasksMarkedAsCompleted,
-                currentTeamSkippedTasks
+                currentTeamSkippedTasks,
+                hasConnectedDestination
             ) => {
                 const tasks: ActivationTaskType[] = [
                     {
                         id: ActivationTask.IngestFirstEvent,
                         title: 'Ingest your first event',
-                        content: <IngestFirstEventContent />,
                         canSkip: false,
                         section: ActivationSection.QuickStart,
                         completed: currentTeam?.ingested_event ?? false,
@@ -467,7 +404,6 @@ export const activationLogic = kea<activationLogicType>([
                     {
                         id: ActivationTask.InviteTeamMember,
                         title: 'Invite a team member',
-                        content: <InviteTeamMemberContent />,
                         completed: hasInvitesOrMembers,
                         canSkip: true,
                         section: ActivationSection.QuickStart,
@@ -475,7 +411,6 @@ export const activationLogic = kea<activationLogicType>([
                     {
                         id: ActivationTask.CreateFirstInsight,
                         title: 'Create your first insight',
-                        content: <CreateFirstInsightContent />,
                         completed: hasInsights,
                         canSkip: true,
                         section: ActivationSection.ProductAnalytics,
@@ -483,7 +418,6 @@ export const activationLogic = kea<activationLogicType>([
                     {
                         id: ActivationTask.CreateFirstDashboard,
                         title: 'Create your first dashboard',
-                        content: <CreateFirstDashboardContent />,
                         completed: hasCreatedDashboard,
                         canSkip: false,
                         section: ActivationSection.ProductAnalytics,
@@ -493,7 +427,6 @@ export const activationLogic = kea<activationLogicType>([
                         id: ActivationTask.TrackCustomEvents,
                         title: 'Track custom events',
                         completed: hasCustomEvents,
-                        content: <TrackCustomEventsContent />,
                         canSkip: true,
                         section: ActivationSection.ProductAnalytics,
                         url: 'https://posthog.com/tutorials/event-tracking-guide#setting-up-custom-events',
@@ -501,7 +434,6 @@ export const activationLogic = kea<activationLogicType>([
                     {
                         id: ActivationTask.SetUpReverseProxy,
                         title: 'Set up a reverse proxy',
-                        content: <SetUpReverseProxyContent />,
                         completed: hasReverseProxy || false,
                         canSkip: true,
                         section: ActivationSection.QuickStart,
@@ -512,14 +444,12 @@ export const activationLogic = kea<activationLogicType>([
                         id: ActivationTask.SetupSessionRecordings,
                         title: 'Set up session recordings',
                         completed: currentTeam?.session_recording_opt_in ?? false,
-                        content: <SetupSessionRecordingsContent />,
                         canSkip: false,
                         section: ActivationSection.SessionReplay,
                     },
                     {
                         id: ActivationTask.WatchSessionRecording,
                         title: 'Watch a session recording',
-                        content: <SetupSessionRecordingsContent />,
                         canSkip: false,
                         section: ActivationSection.SessionReplay,
                         lockedReason: !currentTeam?.session_recording_opt_in
@@ -532,14 +462,12 @@ export const activationLogic = kea<activationLogicType>([
                         section: ActivationSection.FeatureFlags,
                         title: 'Create a feature flag',
                         completed: hasCreatedIndependentFeatureFlag,
-                        content: <SetupSessionRecordingsContent />,
                         canSkip: false,
                     },
                     {
                         id: ActivationTask.UpdateFeatureFlagReleaseConditions,
                         section: ActivationSection.FeatureFlags,
                         title: 'Update release conditions',
-                        content: <SetupSessionRecordingsContent />,
                         canSkip: false,
                         lockedReason: !hasCreatedIndependentFeatureFlag ? 'Create a feature flag first' : undefined,
                     },
@@ -549,7 +477,6 @@ export const activationLogic = kea<activationLogicType>([
                         section: ActivationSection.Experiments,
                         title: 'Launch an experiment',
                         completed: hasLaunchedExperiment,
-                        content: <SetupSessionRecordingsContent />,
                         canSkip: false,
                     },
                     // Data Pipelines
@@ -557,15 +484,13 @@ export const activationLogic = kea<activationLogicType>([
                         id: ActivationTask.ConnectSource,
                         title: 'Connect external data source',
                         completed: hasSources,
-                        content: <SetupSessionRecordingsContent />,
                         canSkip: false,
                         section: ActivationSection.DataWarehouse,
                     },
                     {
                         id: ActivationTask.ConnectDestination,
                         title: 'Send data to a destination',
-                        completed: hasSources,
-                        content: <SetupSessionRecordingsContent />,
+                        completed: hasConnectedDestination,
                         canSkip: true,
                         section: ActivationSection.DataWarehouse,
                         lockedReason: !currentTeam?.ingested_event ? 'Ingest your first event first' : undefined,
@@ -575,14 +500,12 @@ export const activationLogic = kea<activationLogicType>([
                         id: ActivationTask.LaunchSurvey,
                         title: 'Launch a survey',
                         completed: hasLaunchedSurvey,
-                        content: <SetupSessionRecordingsContent />,
                         canSkip: false,
                         section: ActivationSection.Surveys,
                     },
                     {
                         id: ActivationTask.CollectSurveyResponses,
                         title: 'Collect survey responses',
-                        content: <SetupSessionRecordingsContent />,
                         completed: hasSurveyWithResponses,
                         canSkip: false,
                         section: ActivationSection.Surveys,
@@ -618,13 +541,13 @@ export const activationLogic = kea<activationLogicType>([
             },
         ],
         sections: [
-            (s) => [s.productsWithIntent, s.openSections],
-            (productsWithIntent, openSections) => {
+            (s) => [s.productsWithIntent, s.currentTeamOpenSections, s.isReady],
+            (productsWithIntent, currentTeamOpenSections) => {
                 return Object.entries(ACTIVATION_SECTIONS).map(([sectionKey, section]) => {
                     return {
                         ...section,
                         key: sectionKey as ActivationSection,
-                        open: openSections.includes(sectionKey as ActivationSection),
+                        open: currentTeamOpenSections.includes(sectionKey as ActivationSection),
                         hasIntent:
                             ['quick_start', 'product_analytics'].includes(sectionKey) ||
                             productsWithIntent?.includes(sectionKey as ProductKey),
@@ -712,20 +635,34 @@ export const activationLogic = kea<activationLogicType>([
                 actions.addCompletedTask(values.currentTeam.id, id)
             }
         },
-        toggleSectionOpen: (section: ActivationSection) => {
-            actions.setSections(values.sections.map((s) => ({ ...s, open: s.key === section ? !s.open : s.open })))
+        addIntentForSection: ({ section }) => {
+            const productKey = Object.values(ProductKey).find((key) => String(key) === String(section))
+
+            if (productKey) {
+                actions.addProductIntent({
+                    product_type: productKey,
+                    intent_context: ProductIntentContext.QUICK_START_PRODUCT_SELECTED,
+                })
+            }
         },
-        addIntentForSection: (section: ActivationSection) => {
-            if (section instanceof ProductKey) {
-                actions.addProductIntent(section)
+        loadCurrentTeamSuccess: () => {
+            if (values.currentTeamOpenSections.length === 0 && values.currentTeam?.id) {
+                const sectionsWithIntent = values.sections.filter((s) => s.hasIntent).map((s) => s.key)
+                actions.setOpenSections(values.currentTeam.id, sectionsWithIntent)
+            }
+        },
+        toggleSectionOpen: ({ section }) => {
+            if (values.currentTeam?.id) {
+                const openSections = values.currentTeamOpenSections.includes(section)
+                    ? values.currentTeamOpenSections.filter((s) => s !== section)
+                    : [...values.currentTeamOpenSections, section]
+                actions.setOpenSections(values.currentTeam.id, openSections)
             }
         },
     })),
     events(({ actions }) => ({
         afterMount: () => {
             actions.loadCustomEvents()
-            actions.loadInsights()
-            actions.loadInvites()
         },
     })),
     permanentlyMount(),

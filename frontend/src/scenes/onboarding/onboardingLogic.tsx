@@ -1,6 +1,5 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -12,17 +11,11 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
-import {
-    AvailableOnboardingProducts,
-    BillingProductV2AddonType,
-    Breadcrumb,
-    OnboardingProduct,
-    ProductKey,
-    ReplayTabs,
-    SidePanelTab,
-} from '~/types'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { BillingProductV2AddonType, Breadcrumb, OnboardingProduct, ProductKey, ReplayTabs, SidePanelTab } from '~/types'
 
 import type { onboardingLogicType } from './onboardingLogicType'
+import { availableOnboardingProducts } from './utils'
 
 export interface OnboardingLogicProps {
     productKey: ProductKey | null
@@ -43,61 +36,6 @@ export enum OnboardingStepKey {
 }
 
 export const breadcrumbExcludeSteps = [OnboardingStepKey.DASHBOARD_TEMPLATE_CONFIGURE]
-
-export const availableOnboardingProducts: AvailableOnboardingProducts = {
-    [ProductKey.PRODUCT_ANALYTICS]: {
-        name: 'Product Analytics',
-        icon: 'IconGraph',
-        iconColor: 'rgb(47 128 250)',
-        url: urls.insights(),
-        scene: Scene.SavedInsights,
-    },
-    [ProductKey.WEB_ANALYTICS]: {
-        name: 'Web Analytics',
-        icon: 'IconPieChart',
-        iconColor: 'rgb(54 196 111)',
-        url: urls.webAnalytics(),
-        scene: Scene.WebAnalytics,
-    },
-    [ProductKey.DATA_WAREHOUSE]: {
-        name: 'Data Warehouse',
-        icon: 'IconDatabase',
-        iconColor: 'rgb(133 103 255)',
-        breadcrumbsName: 'Data Warehouse',
-        url: urls.dataWarehouse(),
-        scene: Scene.DataWarehouse,
-    },
-    [ProductKey.SESSION_REPLAY]: {
-        name: 'Session Replay',
-        icon: 'IconRewindPlay',
-        iconColor: 'rgb(247 165 1)',
-        url: urls.replay(),
-        scene: Scene.Replay,
-    },
-    [ProductKey.FEATURE_FLAGS]: {
-        name: 'Feature Flags',
-        breadcrumbsName: 'Feature Flags',
-        icon: 'IconToggle',
-        iconColor: 'rgb(48 171 198)',
-        url: urls.featureFlags(),
-        scene: Scene.FeatureFlags,
-    },
-    [ProductKey.EXPERIMENTS]: {
-        name: 'Experiments',
-        breadcrumbsName: 'Experiments',
-        icon: 'IconTestTube',
-        iconColor: 'rgb(182 42 217)',
-        url: urls.experiments(),
-        scene: Scene.Experiments,
-    },
-    [ProductKey.SURVEYS]: {
-        name: 'Surveys',
-        icon: 'IconMessage',
-        iconColor: 'rgb(243 84 84)',
-        url: urls.surveys(),
-        scene: Scene.Surveys,
-    },
-}
 
 export const stepKeyToTitle = (stepKey?: OnboardingStepKey): undefined | string => {
     return (
@@ -145,17 +83,13 @@ export const onboardingLogic = kea<onboardingLogicType>([
             ['isCloudOrDev'],
             replayLandingPageLogic,
             ['replayLandingPage'],
-            activationLogic,
-            ['isReady'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
         actions: [
             billingLogic,
             ['loadBillingSuccess'],
             teamLogic,
             ['updateCurrentTeam', 'updateCurrentTeamSuccess', 'recordProductIntentOnboardingComplete'],
-            activationLogic,
+            sidePanelStateLogic,
             ['openSidePanel'],
         ],
     }),
@@ -386,12 +320,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 }
             }
 
-            if (
-                values.isReady &&
-                values.isFirstProductOnboarding &&
-                featureFlagLogic.values.featureFlags['OPEN_QUICK_START_AFTER_ONBOARDING']
-            ) {
-                actions.openSidePanel(SidePanelTab.Activation)
+            if (activationLogic.values.isReady && values.isFirstProductOnboarding) {
+                sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Activation)
             }
         },
         setAllOnboardingSteps: () => {

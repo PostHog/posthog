@@ -1,4 +1,4 @@
-import { IconCheckCircle, IconChevronRight, IconCollapse, IconExpand, IconLock } from '@posthog/icons'
+import { IconCheckCircle, IconChevronRight, IconCollapse, IconExpand, IconLock, IconPlus } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -17,8 +17,8 @@ import {
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 
 export const SidePanelActivation = (): JSX.Element | null => {
-    const { completionPercent, sections, isReady, showOtherSections } = useValues(activationLogic)
-    const { toggleShowOtherSections } = useActions(activationLogic)
+    const { completionPercent, sections, isReady, showHiddenSections, hasHiddenSections } = useValues(activationLogic)
+    const { toggleShowHiddenSections } = useActions(activationLogic)
 
     if (!isReady) {
         return null
@@ -55,26 +55,31 @@ export const SidePanelActivation = (): JSX.Element | null => {
                             </div>
                         ))}
                 </div>
-                {/* other products collapsed into an accordian with a + button */}
-                <div className="w-full">
-                    <button
-                        className="px-4 py-2 flex items-center justify-between w-full"
-                        onClick={() => toggleShowOtherSections(!showOtherSections)}
-                    >
-                        <h4 className="font-semibold text-[16px]">All products</h4>
-                        {showOtherSections ? <IconCollapse className="h-5 w-5" /> : <IconExpand className="h-5 w-5" />}
-                    </button>
-                    <div className="divide-y divide-muted-alt">
-                        {showOtherSections &&
-                            sections
-                                .filter((section) => !section.hasIntent)
-                                .map((section) => (
-                                    <div className="px-4" key={section.key}>
-                                        <ActivationSectionComponent sectionKey={section.key} section={section} />
-                                    </div>
-                                ))}
+                {hasHiddenSections && (
+                    <div className="w-full">
+                        <button
+                            className="px-4 py-2 flex items-center justify-between w-full"
+                            onClick={() => toggleShowHiddenSections()}
+                        >
+                            <h4 className="font-semibold text-[16px]">All products</h4>
+                            {showHiddenSections ? (
+                                <IconCollapse className="h-5 w-5" />
+                            ) : (
+                                <IconExpand className="h-5 w-5" />
+                            )}
+                        </button>
+                        <div className="divide-y divide-muted-alt">
+                            {showHiddenSections &&
+                                sections
+                                    .filter((section) => !section.hasIntent)
+                                    .map((section) => (
+                                        <div className="px-4" key={section.key}>
+                                            <ActivationSectionComponent sectionKey={section.key} section={section} />
+                                        </div>
+                                    ))}
+                        </div>
                     </div>
-                </div>
+                )}
             </div>
         </>
     )
@@ -103,12 +108,27 @@ const ActivationSectionComponent = ({
     section: any
 }): JSX.Element | null => {
     const { activeTasks, completedTasks } = useValues(activationLogic)
-    const { toggleSectionOpen } = useActions(activationLogic)
+    const { toggleSectionOpen, addIntentForSection } = useActions(activationLogic)
 
     const tasks = [...activeTasks, ...completedTasks].filter((task) => task.section === sectionKey)
 
     if (tasks.length === 0) {
         return null
+    }
+
+    const handleClick = (): void => {
+        if (section.hasIntent) {
+            toggleSectionOpen(sectionKey)
+        }
+    }
+
+    const handleAddProduct = (): void => {
+        if (!section.hasIntent) {
+            addIntentForSection(sectionKey)
+        }
+        if (!section.open) {
+            toggleSectionOpen(sectionKey)
+        }
     }
 
     const itemsCompleted = tasks.filter((task) => task.completed).length
@@ -118,20 +138,26 @@ const ActivationSectionComponent = ({
         <div className="py-3">
             <button
                 className="flex items-center justify-between cursor-pointer select-none w-full"
-                onClick={() => toggleSectionOpen(sectionKey)}
+                onClick={section.hasIntent ? handleClick : undefined}
             >
                 <div className="flex items-center gap-2">
                     {section.icon}
                     <h4 className="m-0 font-semibold text-[16px]">{section.title}</h4>
                 </div>
                 <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-alt font-medium">
-                        {itemsCompleted} of {totalItems} complete
-                    </span>
-                    <IconChevronRight className={clsx('h-4 w-4', section.open && 'rotate-90')} />
+                    {section.hasIntent && (
+                        <span className="text-sm text-muted-alt font-medium">
+                            {itemsCompleted} of {totalItems} complete
+                        </span>
+                    )}
+                    {section.hasIntent ? (
+                        <IconChevronRight className={clsx('h-4 w-4', section.open && 'rotate-90')} />
+                    ) : (
+                        <IconPlus onClick={handleAddProduct} className="h-4 w-4" />
+                    )}
                 </div>
             </button>
-            {section.open && (
+            {section.hasIntent && section.open && (
                 <ul className="space-y-2 mt-2">
                     {tasks.map((task: ActivationTaskType) => (
                         <ActivationTask key={task.id} {...task} />

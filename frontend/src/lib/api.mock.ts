@@ -97,6 +97,9 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     revenue_tracking_config: { events: [] },
     flags_persistence_default: false,
     access_control_version: 'v1',
+    has_completed_onboarding_for: {
+        product_analytics: true,
+    },
 }
 
 export const MOCK_DEFAULT_PROJECT: ProjectType = {

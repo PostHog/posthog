@@ -27,6 +27,11 @@ const meta: Meta = {
             get: {
                 '/api/projects/:team_id/dashboard_templates/': {},
                 '/api/projects/:id/integrations': { results: [] },
+                '/api/organizations/@current/pipeline_destinations/': { results: [] },
+                '/api/projects/:id/pipeline_destination_configs/': { results: [] },
+                '/api/projects/:id/batch_exports/': { results: [] },
+                '/api/projects/:id/surveys/': { results: [] },
+                '/api/projects/:id/surveys/responses_count/': { results: [] },
             },
             post: {
                 '/api/environments/:team_id/query': {},

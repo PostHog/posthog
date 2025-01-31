@@ -282,6 +282,11 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 return enabledFirst
             },
         ],
+        destinationsLoading: [
+            (s) => [s.pluginsLoading, s.pluginConfigsLoading, s.batchExportConfigsLoading, s.hogFunctionsLoading],
+            (pluginsLoading, pluginConfigsLoading, batchExportConfigsLoading, hogFunctionsLoading) =>
+                pluginsLoading || pluginConfigsLoading || batchExportConfigsLoading || hogFunctionsLoading,
+        ],
         destinationsFuse: [
             (s) => [s.destinations],
             (destinations): Fuse => {
