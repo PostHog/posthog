@@ -238,7 +238,7 @@ export const FEATURE_FLAGS = {
     WEB_VITALS_TOOLBAR: 'web-vitals-toolbar', // owner: @rafaeelaudibert #team-web-analytics
     WEB_REVENUE_TRACKING: 'web-revenue-tracking', // owner: @robbie-c #team-web-analytics
     LLM_OBSERVABILITY: 'llm-observability', // owner: #team-ai-product-manager
-    ONBOARDING_SESSION_REPLAY_SEPERATE_STEP: 'onboarding-session-replay-separate-step', // owner: @joshsny #team-growth
+    ONBOARDING_SESSION_REPLAY_SEPARATE_STEP: 'onboarding-session-replay-separate-step', // owner: @joshsny #team-growth
     EXPERIMENT_INTERVAL_TIMESERIES: 'experiments-interval-timeseries', // owner: @jurajmajerik #team-experiments
     WEB_ANALYTICS_IMPROVED_PATH_CLEANING: 'web-analytics-improved-path-cleaning', // owner: @rafaeelaudibert #team-web-analytics
 } as const
