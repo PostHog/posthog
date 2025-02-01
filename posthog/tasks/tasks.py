@@ -565,11 +565,11 @@ def monitoring_check_clickhouse_schema_drift() -> None:
     check_clickhouse_schema_drift()
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
+@shared_task(ignore_result=True)
 def calculate_cohort(parallel_count: int) -> None:
-    from posthog.tasks.calculate_cohort import calculate_cohorts
+    from posthog.tasks.calculate_cohort import enqueue_cohorts_to_calculate
 
-    calculate_cohorts(parallel_count)
+    enqueue_cohorts_to_calculate(parallel_count)
 
 
 class Polling:
