@@ -62,10 +62,9 @@ class FuturesMap(dict[K, Future[V]]):
 
 class ConnectionInfo(NamedTuple):
     address: str
-    port: int | None
 
     def make_pool(self, client_settings: Mapping[str, str] | None = None) -> ChPool:
-        return _make_ch_pool(host=self.address, port=self.port, settings=client_settings)
+        return _make_ch_pool(host=self.address, settings=client_settings)
 
 
 class HostInfo(NamedTuple):
@@ -92,17 +91,16 @@ class ClickhouseCluster:
             logger = logging.getLogger(__name__)
 
         self.__hosts = [
-            HostInfo(ConnectionInfo(host_address, port), shard_num, replica_num, host_cluster_type, host_cluster_role)
+            HostInfo(ConnectionInfo(host_address), shard_num, replica_num, host_cluster_type, host_cluster_role)
             for (
                 host_address,
-                port,
                 shard_num,
                 replica_num,
                 host_cluster_type,
                 host_cluster_role,
             ) in bootstrap_client.execute(
                 """
-                SELECT host_address, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
+                SELECT host_address, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
                 FROM clusterAllReplicas(%(name)s, system.clusters)
                 WHERE name = %(name)s and is_local
                 ORDER BY shard_num, replica_num
