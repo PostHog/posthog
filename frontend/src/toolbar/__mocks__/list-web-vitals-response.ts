@@ -120,10 +120,10 @@ export const listWebVitalsAPIResponse = {
             },
         },
         {
-            data: [0.08894871146988209, 0.08894871146988209],
+            data: [0.45, 0.45],
             labels: ['19-Jan-2025', '26-Jan-2025'],
             days: ['2025-01-19', '2025-01-26'],
-            count: 0.08894871146988209,
+            count: 0.45,
             label: '$web_vitals',
             filter: {
                 insight: 'TRENDS',
@@ -166,10 +166,10 @@ export const listWebVitalsAPIResponse = {
             },
         },
         {
-            data: [1108.1, 1108.1],
+            data: [1808.1, 1808.1],
             labels: ['19-Jan-2025', '26-Jan-2025'],
             days: ['2025-01-19', '2025-01-26'],
-            count: 1108.1,
+            count: 1808.1,
             label: '$web_vitals',
             filter: {
                 insight: 'TRENDS',
