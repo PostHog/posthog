@@ -298,7 +298,7 @@ class MutationRunner:
     table: str
     command: str  # the part after ALTER TABLE prefix, i.e. UPDATE, DELETE, MATERIALIZE, etc.
     parameters: Mapping[str, Any]
-    settings: Mapping[str, Any]
+    settings: Mapping[str, Any] = {}
 
     def find(self, client: Client) -> Mutation | None:
         """Find the running mutation task, if one exists."""
