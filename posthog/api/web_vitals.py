@@ -73,6 +73,7 @@ class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
         )
 
         result = query_runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
-        assert result is not None
+        if result is None:
+            return Response({"error": "Failed to calculate web vitals"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         return Response(result.model_dump(mode="json"), status=status.HTTP_200_OK)
