@@ -19,9 +19,7 @@ const typeTestCases: { type: InsightType; selector: string }[] = [
 
 typeTestCases.forEach(({ type, selector }) => {
     test(`can navigate to ${type} insight from saved insights page`, async ({ page }) => {
-        const insightQuery = page.waitForRequest((req) => {
-            return !!(req.url().match(/api\/environments\/\d+\/query/) && req.method() === 'POST')
-        })
+
         await new InsightPage(page).goToNew(type)
         await insightQuery
         await expect(page.locator('.LemonTabs__tab--active')).toHaveText(type, {ignoreCase: true})

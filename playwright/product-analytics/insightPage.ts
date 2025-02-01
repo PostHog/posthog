@@ -59,7 +59,13 @@ export class InsightPage {
     async goToNew(insightType?: InsightType): Promise<InsightPage> {
         await this.page.goto(urls.savedInsights())
         await this.page.getByTestId('saved-insights-new-insight-dropdown').click()
+
+        const insightQuery = this.page.waitForRequest((req) => {
+            return !!(req.url().match(/api\/environments\/\d+\/query/) && req.method() === 'POST')
+        })
         await this.page.locator(`[data-attr-insight-type="${insightType || 'TRENDS'}"]`).click()
+        await insightQuery
+
         await this.page.waitForSelector('.LemonTabs__tab--active')
         return this
     }
