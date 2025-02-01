@@ -143,6 +143,14 @@
         --toolbar-width-expanded: 334px;
     }
 
+    &--with-web-vitals {
+        --toolbar-width-expanded: 334px;
+    }
+
+    &--with-experiments-and-web-vitals {
+        --toolbar-width-expanded: 376px;
+    }
+
     &--minimized {
         width: var(--toolbar-width-minimized); // Account for border
 
