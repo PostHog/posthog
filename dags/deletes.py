@@ -67,6 +67,10 @@ class DeleteConfig(Config):
         default=0,
         description="The maximum amount of memory to use for the dictionary, or 0 to use an unlimited amount.",
     )
+    lightweight_deletes_sync: int = pydantic.Field(
+        default=0,
+        description="0 is async. 1 is local sync. 2 is cluster sync.",
+    )
 
     @property
     def parsed_timestamp(self) -> datetime:
@@ -153,6 +157,7 @@ class PendingPersonEventDeletesTable:
 @dataclass
 class PendingDeletesDictionary:
     source: PendingPersonEventDeletesTable
+    lightweight_deletes_sync: int = 0
 
     @property
     def name(self) -> str:
@@ -241,6 +246,7 @@ class PendingDeletesDictionary:
                 timestamp <= dictGet('{self.qualified_name}', 'created_at', (team_id, person_id))
             """,
             {},
+            settings={"mutations_sync": self.lightweight_deletes_sync},
         )
 
 
@@ -344,6 +350,7 @@ def create_deletes_dict(
 
     del_dict = PendingDeletesDictionary(
         source=load_pending_person_deletions,
+        lightweight_deletes_sync=config.lightweight_deletes_sync,
     )
 
     cluster.any_host_by_role(

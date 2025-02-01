@@ -78,7 +78,13 @@ def test_full_job(cluster: ClickhouseCluster):
 
     # Run the deletion job
     deletes_job.execute_in_process(
-        run_config={"ops": {"create_pending_person_deletions_table": {"config": {"timestamp": timestamp.isoformat()}}}},
+        run_config={
+            "ops": {
+                "create_pending_person_deletions_table": {
+                    "config": {"timestamp": timestamp.isoformat(), "lightweight_deletes_sync": 1}
+                }
+            }
+        },
         resources={"cluster": cluster},
     )
 
