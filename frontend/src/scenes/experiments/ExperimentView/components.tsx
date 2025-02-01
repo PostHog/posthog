@@ -94,7 +94,7 @@ export function VariantTag({
                 }}
             />
             <span
-                className={`ml-2 font-semibold truncate ${muted ? 'text-[var(--text-secondary-3000)]' : ''}`}
+                className={`ml-2 font-semibold truncate ${muted ? 'text-[var(--text-tertiary)]' : ''}`}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={fontSize ? { fontSize: `${fontSize}px` } : undefined}
             >

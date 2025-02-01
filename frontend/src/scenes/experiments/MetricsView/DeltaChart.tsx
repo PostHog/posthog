@@ -145,7 +145,7 @@ export function DeltaChart({
 
     const { isDarkModeOn } = useValues(themeLogic)
     const COLORS = {
-        TICK_TEXT_COLOR: 'var(--text-secondary-3000)',
+        TICK_TEXT_COLOR: 'var(--text-tertiary)',
         BOUNDARY_LINES: 'var(--border-primary)',
         ZERO_LINE: 'var(--border-bold)',
         BAR_NEGATIVE: isDarkModeOn ? '#c32f45' : '#f84257',

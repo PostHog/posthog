@@ -48,7 +48,7 @@ export function InsightEmptyState({
     return (
         <div className="insight-empty-state">
             <div className="empty-state-inner">
-                <IconArchive className="text-5xl mb-2 text-secondary-3000" />
+                <IconArchive className="text-5xl mb-2 text-tertiary" />
                 <h2 className="text-xl leading-tight">{heading}</h2>
                 <p className="text-sm text-center text-balance">{detail}</p>
             </div>

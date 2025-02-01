@@ -277,7 +277,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                             <div className="flex flex-col items-center justify-self-center text-center">
                                 {loadedEventCorrelationsTableOnce ? (
                                     <div className="flex flex-col items-center justify-center space-y-1 min-h-24">
-                                        <IconArchive className="text-secondary-3000-hover text-2xl" />
+                                        <IconArchive className="text-tertiary-hover text-2xl" />
                                         <div>No correlated events found.</div>
                                     </div>
                                 ) : (

@@ -176,7 +176,7 @@
             > td {
                 padding-top: 0.3125rem;
                 padding-bottom: 0.3125rem;
-                color: var(--text-secondary-3000);
+                color: var(--text-tertiary);
 
                 // Cancel the vertical margin for CodeSnippet actions
                 // This is annoyingly specific, but really needed for CodeSnippet to look good in expanded table rows
@@ -257,7 +257,7 @@
     cursor: default;
 
     .LemonTable__header-content {
-        color: var(--text-secondary-3000);
+        color: var(--text-tertiary);
     }
 
     &.LemonTable__header--actionable {
@@ -266,14 +266,14 @@
         &:hover {
             &:not(:has(.LemonTable__header--no-hover:hover)) {
                 .LemonTable__header-content {
-                    color: var(--text-3000);
+                    color: var(--text-primary);
                 }
             }
         }
 
         &:active {
             .LemonTable__header-content {
-                color: var(--text-3000);
+                color: var(--text-primary);
             }
         }
     }
