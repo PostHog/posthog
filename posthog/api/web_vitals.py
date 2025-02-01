@@ -72,9 +72,7 @@ class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             team=self.team,
         )
 
-        # TODO: Change to RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
-        # This is only the best one while developing and testing locally
-        result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        result = query_runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
         assert result is not None
 
         return Response(result.model_dump(mode="json"), status=status.HTTP_200_OK)
