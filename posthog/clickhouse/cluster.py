@@ -90,6 +90,16 @@ class ClickhouseCluster:
         if logger is None:
             logger = logging.getLogger(__name__)
 
+        cluster_hosts = bootstrap_client.execute(
+            """
+                SELECT host_address, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
+                FROM clusterAllReplicas(%(name)s, system.clusters)
+                WHERE name = %(name)s and is_local
+                ORDER BY shard_num, replica_num
+                """,
+            {"name": cluster or settings.CLICKHOUSE_CLUSTER},
+        )
+
         self.__hosts = [
             HostInfo(ConnectionInfo(host_address), shard_num, replica_num, host_cluster_type, host_cluster_role)
             for (
@@ -98,17 +108,10 @@ class ClickhouseCluster:
                 replica_num,
                 host_cluster_type,
                 host_cluster_role,
-            ) in bootstrap_client.execute(
-                """
-                SELECT host_address, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
-                FROM clusterAllReplicas(%(name)s, system.clusters)
-                WHERE name = %(name)s and is_local
-                ORDER BY shard_num, replica_num
-                """,
-                {"name": cluster or settings.CLICKHOUSE_CLUSTER},
-            )
+            ) in cluster_hosts
         ]
-        if extra_hosts is not None:
+
+        if extra_hosts is not None and len(extra_hosts) > 0:
             self.__hosts.extend(
                 [
                     HostInfo(
