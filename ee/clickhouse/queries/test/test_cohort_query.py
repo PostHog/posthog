@@ -3375,7 +3375,7 @@ class TestCohortNegationValidation(BaseTest):
         _create_person(
             team_id=self.team.pk,
             distinct_ids=["p3"],
-            properties={"name": "test2", "email": "test@posthog.com", "createdDate": "2024-10-11"},
+            properties={"name": "test2", "email": "test@posthog.com", "createdDate": "2022-10-11"},
         )
 
         cohort = Cohort.objects.create(
@@ -3414,3 +3414,4 @@ class TestCohortNegationValidation(BaseTest):
         )
 
         res, q, params = execute(filter, self.team)
+        assert 1 == len(res)
