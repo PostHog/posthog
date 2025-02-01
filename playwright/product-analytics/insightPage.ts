@@ -60,6 +60,7 @@ export class InsightPage {
         await this.page.goto(urls.savedInsights())
         await this.page.getByTestId('saved-insights-new-insight-dropdown').click()
         await this.page.locator(`[data-attr-insight-type="${insightType || 'TRENDS'}"]`).click()
+        await this.page.waitForSelector('.LemonTabs__tab--active')
         return this
     }
 

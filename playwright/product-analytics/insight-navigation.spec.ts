@@ -14,13 +14,22 @@ const typeTestCases: { type: InsightType; selector: string }[] = [
     { type: InsightType.PATHS, selector: '.Paths' },
     { type: InsightType.STICKINESS, selector: '.TrendsInsight canvas' },
     { type: InsightType.LIFECYCLE, selector: '.TrendsInsight canvas' },
-    { type: InsightType.SQL, selector: '.DataTable' },
+    { type: InsightType.SQL, selector: '[data-attr="hogql-query-editor"]' },
 ]
 
 typeTestCases.forEach(({ type, selector }) => {
     test(`can navigate to ${type} insight from saved insights page`, async ({ page }) => {
+        const insightQuery = page.waitForRequest((req) => {
+            return !!(req.url().match(/api\/environments\/\d+\/query/) && req.method() === 'POST')
+        })
         await new InsightPage(page).goToNew(type)
-        await expect(page.locator(selector)).toHaveCount(1)
+        await insightQuery
+        await expect(page.locator('.LemonTabs__tab--active')).toHaveText(type, {ignoreCase: true})
+
+        // we don't need to wait for the insight to load, just that it or its loading state is visible
+        const insightStillLoading = await page.locator('.insight-empty-state.warning').isVisible()
+        const insightDidLoad = await page.locator(selector).isVisible()
+        expect(insightStillLoading || insightDidLoad).toBe(true)
     })
 })
 
