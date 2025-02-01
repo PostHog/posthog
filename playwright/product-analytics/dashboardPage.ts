@@ -33,7 +33,7 @@ export class DashboardPage {
         await callback()
     }
 
-    async editName(dashboardName: string = randomString('insight')): Promise<void> {
+    async editName(dashboardName: string = randomString('dashboard')): Promise<void> {
         await this.topBarName.getByRole('button').click()
         await this.topBarName.getByRole('textbox').fill(dashboardName)
         await this.topBarName.getByRole('button').getByText('Save').click()
