@@ -66,7 +66,7 @@ export default defineConfig({
                         '--disable-features=PaintHolding',
                         '--disable-partial-raster',
                         '--disable-skia-runtime-opt',
-                        '--in-process-gpu',
+                        '--disable-gpu',
                         '--use-gl=swiftshader',
                         '--force-color-profile=srgb',
                     ],
