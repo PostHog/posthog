@@ -197,8 +197,9 @@ class HogQLCohortQuery:
             events_query.properties = typed_properties
 
         events_query_runner = EventsQueryRunner(team=self.team, query=events_query)
-        return parse_select(
-            "select person_id as id from {event_query}", {"event_query": events_query_runner.to_query()}
+        return cast(
+            ast.SelectQuery,
+            parse_select("select person_id as id from {event_query}", {"event_query": events_query_runner.to_query()}),
         )
 
     def get_performed_event_sequence(self, prop: Property) -> ast.SelectQuery:
