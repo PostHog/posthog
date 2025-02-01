@@ -204,8 +204,13 @@ export function SemanticColors(): JSX.Element {
         },
         {
             tailwindClass: 'text-secondary',
-            description: 'a more subtle secondary text color',
+            description: 'a more subtle text color',
             name: '--text-secondary',
+        },
+        {
+            tailwindClass: 'text-tertiary',
+            description: 'most subtle text color',
+            name: '--text-tertiary',
         },
         // {
         //     tailwindClass: 'text-accent-primary',
@@ -272,7 +277,7 @@ export function SemanticColors(): JSX.Element {
     ]
     const backgroundColors: RenderColorConfig[] = [
         {
-            tailwindClass: 'text-primary',
+            tailwindClass: 'bg-primary',
             description: 'the main background color',
             name: '--bg-primary',
         },

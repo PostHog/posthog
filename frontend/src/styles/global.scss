@@ -197,6 +197,7 @@ $xxl: 1600px;
     --text-primary: light-dark(var(--primitive-neutral-950), var(--primitive-neutral-100));
     --text-primary-inverse: light-dark(var(--primitive-neutral-100), var(--primitive-neutral-950));
     --text-secondary: light-dark(var(--primitive-neutral-750), var(--primitive-neutral-350));
+    --text-tertiary: light-dark(var(--primitive-neutral-600), var(--primitive-neutral-400));
 
     // Fills
     // Small colourful areas: banners, pills, buttons, etc.
@@ -265,9 +266,7 @@ $xxl: 1600px;
     ); /* On-fill text for warning */
 
     --text-info-on-bg-fill: light-dark(var(--color-blue-800), var(--color-blue-50)); /* On-fill text for info */
-
     --text-error-on-bg-fill: light-dark(var(--color-red-800), var(--color-red-50)); /* On-fill text for error */
-
     --text-success-on-bg-fill: light-dark(var(--color-green-800), var(--color-green-50)); /* On-fill text for success */
 
     // Borders
@@ -647,6 +646,10 @@ $xxl: 1600px;
     // //////////////////////////////////////////////////////////
     --shadow: var(--shadow-elevation-3000);
 
+    // Font size
+    // //////////////////////////////////////////////////////////
+    --text-xxs: 0.625rem;
+
     // Backgrounds
     // //////////////////////////////////////////////////////////
     --background-color-accent-primary: var(--accent-primary);
@@ -709,6 +712,7 @@ $xxl: 1600px;
     --text-color-primary: var(--text-primary);
     --text-color-primary-inverse: var(--text-primary-inverse);
     --text-color-secondary: var(--text-secondary);
+    --text-color-tertiary: var(--text-tertiary);
     --text-color-info-on-bg-fill: var(--text-info-on-bg-fill);
     --text-color-warning-on-bg-fill: var(--text-warning-on-bg-fill);
     --text-color-error-on-bg-fill: var(--text-error-on-bg-fill);
