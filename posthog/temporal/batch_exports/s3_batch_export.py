@@ -251,7 +251,7 @@ class S3MultiPartUpload:
         aws_secret_access_key: str | None = None,
         endpoint_url: str | None = None,
     ):
-        self._session = aioboto3.Session()
+        self._session: None | aioboto3.Session = None
         self.region_name = region_name
         self.aws_access_key_id = aws_access_key_id
         self.aws_secret_access_key = aws_secret_access_key
@@ -288,12 +288,19 @@ class S3MultiPartUpload:
             return False
         return True
 
+    async def get_session(self) -> aioboto3.Session:
+        """Return the current part number."""
+        if self._session is None:
+            self._session = await asyncio.to_thread(aioboto3.Session)
+        return self._session
+
     @contextlib.asynccontextmanager
     async def s3_client(self):
         """Asynchronously yield an S3 client."""
+        session = await self.get_session()
 
         try:
-            async with self._session.client(
+            async with session.client(
                 "s3",
                 region_name=self.region_name,
                 aws_access_key_id=self.aws_access_key_id,
@@ -684,7 +691,7 @@ def initialize_upload(inputs: S3InsertInputs, file_number: int) -> S3MultiPartUp
 
 
 async def upload_manifest_file(inputs: S3InsertInputs, files_uploaded: list[str], manifest_key: str):
-    session = aioboto3.Session()
+    session = await asyncio.to_thread(aioboto3.Session)
     async with session.client(
         "s3",
         region_name=inputs.region,

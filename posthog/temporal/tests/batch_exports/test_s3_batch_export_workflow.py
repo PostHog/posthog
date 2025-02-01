@@ -5,11 +5,13 @@ import functools
 import io
 import json
 import os
+import typing
 import uuid
 from dataclasses import asdict
 from unittest import mock
 
 import aioboto3
+import blockbuster
 import botocore.exceptions
 import pytest
 import pytest_asyncio
@@ -58,6 +60,24 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 TEST_ROOT_BUCKET = "test-batch-exports"
 SESSION = aioboto3.Session()
 create_test_client = functools.partial(SESSION.client, endpoint_url=settings.OBJECT_STORAGE_ENDPOINT)
+
+
+@contextlib.contextmanager
+def bb() -> typing.Iterator[blockbuster.BlockBuster]:
+    with blockbuster.blockbuster_ctx() as bb:
+        bb.functions["os.stat"].can_block_in("botocore/loaders.py", {"_potential_locations"})
+        bb.functions["os.stat"].can_block_in("botocore/loaders.py", {"_load_file"})
+        bb.functions["io.BufferedReader.read"].can_block_in("botocore/loaders.py", {"_load_file"})
+        bb.functions["os.listdir"].can_block_in("botocore/loaders.py", {"list_available_services"})
+        bb.functions["os.stat"].can_block_in("botocore/loaders.py", {"list_available_services"})
+        bb.functions["os.listdir"].can_block_in("botocore/loaders.py", {"list_api_versions"})
+        bb.functions["os.stat"].can_block_in("botocore/loaders.py", {"exists"})
+        bb.functions["io.BufferedReader.read"].can_block_in("botocore/utils.py", {"_calculate_md5_from_file"})
+        bb.functions["io.BufferedReader.read"].can_block_in("botocore/auth.py", {"payload"})
+        bb.functions["os.stat"].can_block_in("aiobotocore/endpoint.py", {"_send"})
+        bb.functions["os.stat"].can_block_in("botocore/configloader.py", {"raw_config_parse"})
+
+        yield bb
 
 
 async def check_valid_credentials() -> bool:
@@ -328,6 +348,7 @@ TEST_S3_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
         ],
     ),
     BatchExportModel(name="persons", schema=None),
+    BatchExportModel(name="sessions", schema=None),
     {
         "fields": [
             {"expression": "event", "alias": "my_event_name"},
@@ -372,7 +393,11 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
     Once we have these events, we pass them to the assert_clickhouse_records_in_s3 function to check
     that they appear in the expected S3 bucket and key.
     """
-    if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
+    if (
+        isinstance(model, BatchExportModel)
+        and (model.name == "persons" or model.name == "sessions")
+        and exclude_events is not None
+    ):
         pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
     prefix = str(uuid.uuid4())
@@ -401,8 +426,9 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
         batch_export_model=batch_export_model,
     )
 
-    with override_settings(
-        BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2
+    with (
+        override_settings(BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2),
+        bb(),
     ):  # 5MB, the minimum for Multipart uploads
         records_exported = await activity_environment.run(insert_into_s3_activity, insert_inputs)
 

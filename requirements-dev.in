@@ -11,6 +11,7 @@
 
 -c requirements.txt
 
+blockbuster>=1.5.5,<1.6
 ruff~=0.8.1
 mypy~=1.11.1
 mypy-baseline~=0.7.0

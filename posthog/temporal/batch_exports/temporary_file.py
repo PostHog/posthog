@@ -745,7 +745,7 @@ class ParquetBatchExportWriter(BatchExportWriter):
     async def close_temporary_file(self):
         """Ensure underlying Parquet writer is closed before flushing and closing temporary file."""
         if self._parquet_writer is not None:
-            self._parquet_writer.writer.close()
+            await asyncio.to_thread(self._parquet_writer.writer.close)
             self._parquet_writer = None
 
         await super().close_temporary_file()
