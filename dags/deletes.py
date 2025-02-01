@@ -176,7 +176,7 @@ class PendingDeletesDictionary:
                 created_at DateTime,
             )
             PRIMARY KEY team_id, key
-            SOURCE(CLICKHOUSE(DB %(database)s TABLE %(table)s))
+            SOURCE(CLICKHOUSE(DB %(database)s TABLE %(table)s PASSWORD %(password)s))
             LAYOUT(COMPLEX_KEY_HASHED(SHARDS {shards}))
             LIFETIME(0)
             SETTINGS(max_execution_time={max_execution_time}, max_memory_usage={max_memory_usage})
@@ -184,6 +184,7 @@ class PendingDeletesDictionary:
             {
                 "database": settings.CLICKHOUSE_DATABASE,
                 "table": self.source.table_name,
+                "password": settings.CLICKHOUSE_PASSWORD,
             },
         )
 
