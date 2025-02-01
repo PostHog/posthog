@@ -32,8 +32,9 @@ class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "dateRange": {"date_from": "-7d", "explicitDate": False},
                 "filterTestAccounts": False,
                 "interval": "week",
-                # TODO: Needs to merge with my other PR (@rafaaudibert) and use the path-cleaned event in here
-                "properties": [{"type": "event", "key": "$pathname", "operator": "exact", "value": [pathname]}],
+                "properties": [
+                    {"type": "event", "key": "$pathname", "operator": "is_cleaned_path_exact", "value": [pathname]}
+                ],
                 "series": [
                     {
                         "event": "$web_vitals",
