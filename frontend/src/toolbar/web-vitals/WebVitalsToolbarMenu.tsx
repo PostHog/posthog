@@ -1,6 +1,7 @@
 import { Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { inStorybookTestRunner } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import {
@@ -118,7 +119,7 @@ const MetricCard = ({ metric, value }: { metric: WebVitalsMetric; value: number 
             </DottedTooltip>
             <span className={clsx('text-sm', `text-${color}`)}>
                 {' '}
-                {value === undefined ? <Spinner speed="2s" /> : value === null ? 'N/A' : `${valueWithUnit}${unit}`}
+                {value === undefined ? <WebVitalsToolbarSpinner /> : value === null ? 'N/A' : `${valueWithUnit}${unit}`}
             </span>
         </div>
     )
@@ -130,4 +131,13 @@ const DottedTooltip = ({ children, title }: { children: React.ReactNode; title: 
             <span className="text-sm font-bold border-b border-dotted border-primary cursor-help">{children}</span>
         </Tooltip>
     )
+}
+
+const WebVitalsToolbarSpinner = (): JSX.Element => {
+    // Avoid showing a spinner in Storybook Test Runner, because tests won't ever finish waiting for them to disappear
+    if (inStorybookTestRunner()) {
+        return <></>
+    }
+
+    return <Spinner speed="2s" />
 }
