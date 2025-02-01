@@ -438,10 +438,6 @@ def cleanup_delete_assets(
         config.log.info("Skipping cleanup as cleanup is disabled")
         return True
 
-    # Must drop dict first
-    cluster.any_host_by_role(create_deletes_dict.drop, NodeRole.WORKER).result()
-    cluster.any_host_by_role(create_pending_person_deletions_table.drop, NodeRole.WORKER).result()
-
     # Mark deletions as verified in Django
     if not create_pending_person_deletions_table.team_id:
         AsyncDeletion.objects.filter(
@@ -456,6 +452,10 @@ def cleanup_delete_assets(
             delete_verified_at__isnull=True,
             created_at__lte=create_pending_person_deletions_table.timestamp,
         ).update(delete_verified_at=datetime.now())
+
+    # Must drop dict first
+    cluster.any_host_by_role(create_deletes_dict.drop, NodeRole.WORKER).result()
+    cluster.any_host_by_role(create_pending_person_deletions_table.drop, NodeRole.WORKER).result()
 
     return True
 

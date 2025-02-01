@@ -98,6 +98,9 @@ def test_full_job(cluster: ClickhouseCluster):
         deleted_uuid == uuid for _, uuid in final_events.keys()
     ), f"Expected UUID {deleted_uuid} to be deleted"
 
+    # Verify that the deletions have been marked verified
+    assert all(deletion.delete_verified_at is not None for deletion in AsyncDeletion.objects.all())
+
     # Verify the temporary tables were cleaned up
     table = PendingPersonEventDeletesTable(timestamp=timestamp)
     assert not any(cluster.map_all_hosts(table.exists).result().values())
