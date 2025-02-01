@@ -19,9 +19,7 @@ const typeTestCases: { type: InsightType; selector: string }[] = [
 
 typeTestCases.forEach(({ type, selector }) => {
     test(`can navigate to ${type} insight from saved insights page`, async ({ page }) => {
-
         await new InsightPage(page).goToNew(type)
-        await insightQuery
         await expect(page.locator('.LemonTabs__tab--active')).toHaveText(type, {ignoreCase: true})
 
         // we don't need to wait for the insight to load, just that it or its loading state is visible
