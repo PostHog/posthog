@@ -191,7 +191,9 @@ class PendingDeletesDictionary:
         return count > 0
 
     def drop(self, client: Client) -> None:
-        client.execute(f"DROP DICTIONARY IF EXISTS {self.qualified_name} SYNC")
+        client.execute(
+            f"DROP DICTIONARY IF EXISTS {self.qualified_name} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' SYNC"
+        )
 
     def __is_loaded(self, client: Client) -> bool:
         results = client.execute(
@@ -253,7 +255,7 @@ def create_pending_person_deletions_table(
         team_id=config.team_id,
         cluster=settings.CLICKHOUSE_CLUSTER,
     )
-    cluster.any_host(table.create).result()
+    cluster.any_host_by_role(table.create, NodeRole.WORKER).result()
     return table
 
 
@@ -362,7 +364,7 @@ def load_and_verify_deletes_dictionary(
     dictionary: PendingDeletesDictionary,
 ) -> PendingDeletesDictionary:
     """Load the dictionary data on all hosts in the cluster, and ensure all hosts have identical data."""
-    checksums = cluster.map_all_hosts(dictionary.load, concurrency=1).result()
+    checksums = cluster.map_hosts_by_role(dictionary.load, NodeRole.WORKER, concurrency=1).result()
     assert len(set(checksums.values())) == 1
     return dictionary
 
