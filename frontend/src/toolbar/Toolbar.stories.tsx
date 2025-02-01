@@ -73,6 +73,8 @@ const BasicTemplate: StoryFn<ToolbarStoryProps> = (props) => {
                 supportedCompression: ['gzip', 'gzip-js', 'lz64'],
                 featureFlags: {
                     'web-experiments': true,
+                    'web-vitals': true,
+                    'web-vitals-toolbar': true,
                 },
                 sessionRecording: {
                     endpoint: '/s/',
