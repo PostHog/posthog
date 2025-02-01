@@ -986,7 +986,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             host = request.data.get("host", None)
             port = request.data.get("port", None)
-            database = request.data.get("dbname", None)
+            database = request.data.get("database", None)
 
             user = request.data.get("user", None)
             password = request.data.get("password", None)
