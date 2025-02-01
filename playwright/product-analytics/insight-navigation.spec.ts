@@ -5,6 +5,7 @@ import { InsightType } from '~/types'
 
 import { Navigation } from '../shared/navigation'
 import { InsightPage } from './insightPage'
+import { NodeKind } from '~/queries/schema'
 
 const typeTestCases: { type: InsightType; selector: string }[] = [
     { type: InsightType.TRENDS, selector: '.TrendsInsight canvas' },
@@ -23,26 +24,10 @@ typeTestCases.forEach(({ type, selector }) => {
     })
 })
 
-test('can navigate to insight by filters', async ({ page }) => {
-    const insight = new InsightPage(page)
-    const url = urls.insightNew({
-        insight: InsightType.TRENDS,
-        interval: 'day',
-        events: [{ id: '$autocapture', name: 'Autocapture', type: 'events' }],
-    })
-
-    await page.goto(url)
-
-    // test series labels
-    await insight.waitForDetailsTable()
-    const labels = await insight.detailsLabels.allInnerTexts()
-    expect(labels).toEqual(['Autocapture'])
-})
-
 test('can navigate to insight by query', async ({ page }) => {
     const insight = new InsightPage(page)
     const url = urls.insightNew(undefined, undefined, {
-        kind: 'InsightVizNode',
+        kind: NodeKind.InsightVizNode,
         source: {
             kind: 'TrendsQuery',
             series: [

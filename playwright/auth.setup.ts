@@ -1,7 +1,10 @@
 import { test as setup } from '@playwright/test'
 import { urls } from 'scenes/urls'
+import {mkdirSync} from "node:fs";
+import { dirname, resolve } from 'node:path'
 
-const authFile = 'playwright/.auth/user.json'
+const authFile = resolve('playwright/.auth/user.json')
+mkdirSync(dirname(authFile), { recursive: true })
 
 setup('authenticate', async ({ page }) => {
     // perform authentication steps
