@@ -104,7 +104,7 @@ export function ToolbarInfoMenu(): JSX.Element | null {
 
     const showWebVitalsFlag = useToolbarFeatureFlag('web-vitals')
     const showWebVitalsToolbarFlag = useToolbarFeatureFlag('web-vitals-toolbar')
-    const showWebVitals = showWebVitalsFlag && showWebVitalsToolbarFlag
+    const showWebVitals = inStorybook() || inStorybookTestRunner() || (showWebVitalsFlag && showWebVitalsToolbarFlag)
 
     const content = minimized ? null : visibleMenu === 'flags' ? (
         <FlagsToolbarMenu />
