@@ -149,6 +149,7 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                         )
                         for name, chain in {
                             **join_to_add.fields_accessed,
+                            "event": ["event"],
                             "timestamp": ["timestamp"],
                             "distinct_id": ["distinct_id"],
                             "properties": ["properties"],
