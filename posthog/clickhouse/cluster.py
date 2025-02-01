@@ -12,7 +12,7 @@ from concurrent.futures import (
     as_completed,
 )
 from copy import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal, NamedTuple, TypeVar
 
 from clickhouse_driver import Client
@@ -298,7 +298,7 @@ class MutationRunner:
     table: str
     command: str  # the part after ALTER TABLE prefix, i.e. UPDATE, DELETE, MATERIALIZE, etc.
     parameters: Mapping[str, Any]
-    settings: Mapping[str, Any] = {}
+    settings: Mapping[str, Any] = field(default_factory=dict)
 
     def find(self, client: Client) -> Mutation | None:
         """Find the running mutation task, if one exists."""
