@@ -2,7 +2,6 @@ import './SharingModal.scss'
 
 import { IconCollapse, IconExpand, IconInfo, IconLock } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonModal, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
-import { captureException } from '@sentry/react'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
@@ -15,7 +14,8 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { useEffect, useState } from 'react'
+import posthog from 'posthog-js'
+import { ReactNode, useEffect, useState } from 'react'
 import { DashboardCollaboration } from 'scenes/dashboard/DashboardCollaborators'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { urls } from 'scenes/urls'
@@ -38,6 +38,10 @@ export interface SharingModalBaseProps {
     title?: string
     previewIframe?: boolean
     additionalParams?: Record<string, any>
+    /**
+     * When generating a link to a recording, this form can be used to allow the user to specify a timestamp
+     */
+    recordingLinkTimeForm?: ReactNode
 }
 
 export interface SharingModalProps extends SharingModalBaseProps {
@@ -53,6 +57,7 @@ export function SharingModalContent({
     recordingId,
     additionalParams,
     previewIframe = false,
+    recordingLinkTimeForm = undefined,
 }: SharingModalBaseProps): JSX.Element {
     const logicProps = {
         dashboardId,
@@ -132,8 +137,8 @@ export function SharingModalContent({
                                             // TRICKY: there's a chance this was sending useless errors to Sentry
                                             // even when it succeeded, so we're explicitly ignoring the promise success
                                             // and naming the error when reported to Sentry - @pauldambra
-                                            copyToClipboard(shareLink, 'link').catch((e) =>
-                                                captureException(
+                                            copyToClipboard(shareLink, shareLink).catch((e) =>
+                                                posthog.captureException(
                                                     new Error('unexpected sharing modal clipboard error: ' + e.message)
                                                 )
                                             )
@@ -144,6 +149,7 @@ export function SharingModalContent({
                                     >
                                         Copy public link
                                     </LemonButton>
+                                    {recordingLinkTimeForm}
                                     <TitleWithIcon
                                         icon={
                                             <Tooltip

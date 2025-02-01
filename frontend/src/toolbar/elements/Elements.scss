@@ -1,5 +1,15 @@
-#posthog-toolbar-elements,
-#posthog-infowindow-container {
-    color: #333;
-    pointer-events: none;
-}
+@import '../../styles/global';
+
+// #posthog-toolbar-elements,
+// #posthog-infowindow-container {
+//     color: var(--text-primary);
+
+//     &[theme='dark'] {
+//         @include dark-mode-3000-variables;
+//     }
+
+//     @include common-variables;
+
+//     // default to light theme
+//     @include light-mode-3000-variables;
+// }

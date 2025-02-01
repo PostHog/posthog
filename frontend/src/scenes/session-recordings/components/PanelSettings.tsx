@@ -36,10 +36,12 @@ export function SettingsBar({
     return (
         <div
             className={clsx(
-                ['bottom', 'all'].includes(border) && 'border-b',
-                ['top', 'all'].includes(border) && 'border-t',
                 'flex flex-row w-full overflow-hidden font-light text-xs bg-primary items-center',
-                className
+                className,
+                {
+                    'border-b': ['bottom', 'all'].includes(border),
+                    'border-t': ['top', 'all'].includes(border),
+                }
             )}
         >
             {children}

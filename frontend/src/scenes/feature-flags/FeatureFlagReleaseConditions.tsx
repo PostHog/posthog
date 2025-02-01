@@ -24,13 +24,66 @@ import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { AnyPropertyFilter, FeatureFlagGroupType } from '~/types'
+import { AnyPropertyFilter, FeatureFlagGroupType, PropertyOperator } from '~/types'
 
 import { featureFlagLogic } from './featureFlagLogic'
 import {
     featureFlagReleaseConditionsLogic,
     FeatureFlagReleaseConditionsLogicProps,
 } from './FeatureFlagReleaseConditionsLogic'
+
+function PropertyValueComponent({
+    property,
+    cohortsById,
+}: {
+    property: AnyPropertyFilter
+    cohortsById: Record<string, any>
+}): JSX.Element {
+    if (property.type === 'cohort') {
+        return (
+            <LemonButton
+                type="secondary"
+                size="xsmall"
+                to={urls.cohort(property.value)}
+                sideIcon={<IconOpenInNew />}
+                targetBlank
+            >
+                {(property.value && cohortsById[property.value]?.name) || `ID ${property.value}`}
+            </LemonButton>
+        )
+    }
+
+    if (property.value === PropertyOperator.IsNotSet || property.value === PropertyOperator.IsSet) {
+        return <></>
+    }
+    const propertyValues = Array.isArray(property.value) ? property.value : [property.value]
+
+    return (
+        <>
+            {propertyValues.map((val, idx) => (
+                <LemonSnack key={idx}>
+                    {val}
+                    <span>
+                        {isPropertyFilterWithOperator(property) &&
+                        ['is_date_before', 'is_date_after'].includes(property.operator) &&
+                        dateStringToComponents(String(val)) // check it's a relative date
+                            ? ` ( ${dateFilterToText(
+                                  String(val),
+                                  undefined,
+                                  '',
+                                  [],
+                                  false,
+                                  String(val).slice(-1) === 'h' ? 'MMMM D, YYYY HH:mm:ss' : 'MMMM D, YYYY',
+                                  true
+                              )}{' '}
+                                                            )`
+                            : ''}
+                    </span>
+                </LemonSnack>
+            ))}
+        </>
+    )
+}
 
 export function FeatureFlagReleaseConditions({
     id,
@@ -187,46 +240,7 @@ export function FeatureFlagReleaseConditions({
                                         <span>{allOperatorsToHumanName(property.operator)} </span>
                                     ) : null}
 
-                                    {property.type === 'cohort' ? (
-                                        <LemonButton
-                                            type="secondary"
-                                            size="xsmall"
-                                            to={urls.cohort(property.value)}
-                                            sideIcon={<IconOpenInNew />}
-                                            targetBlank
-                                        >
-                                            {(property.value && cohortsById[property.value]?.name) ||
-                                                `ID ${property.value}`}
-                                        </LemonButton>
-                                    ) : (
-                                        [...(Array.isArray(property.value) ? property.value : [property.value])].map(
-                                            (val, idx) => (
-                                                <LemonSnack key={idx}>
-                                                    {val}
-                                                    <span>
-                                                        {isPropertyFilterWithOperator(property) &&
-                                                        ['is_date_before', 'is_date_after'].includes(
-                                                            property.operator
-                                                        ) &&
-                                                        dateStringToComponents(String(val)) // check it's a relative date
-                                                            ? ` ( ${dateFilterToText(
-                                                                  String(val),
-                                                                  undefined,
-                                                                  '',
-                                                                  [],
-                                                                  false,
-                                                                  String(val).slice(-1) === 'h'
-                                                                      ? 'MMMM D, YYYY HH:mm:ss'
-                                                                      : 'MMMM D, YYYY',
-                                                                  true
-                                                              )}{' '}
-                                                            )`
-                                                            : ''}
-                                                    </span>
-                                                </LemonSnack>
-                                            )
-                                        )
-                                    )}
+                                    <PropertyValueComponent property={property} cohortsById={cohortsById} />
                                 </div>
                             ))}
                         </>

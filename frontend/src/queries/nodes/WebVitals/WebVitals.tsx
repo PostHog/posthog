@@ -62,7 +62,6 @@ export function WebVitals(props: {
                     value={INP}
                     isActive={webVitalsTab === 'INP'}
                     setTab={() => setWebVitalsTab('INP')}
-                    inSeconds
                 />
                 <WebVitalsTab
                     metric="LCP"
@@ -70,7 +69,6 @@ export function WebVitals(props: {
                     value={LCP}
                     isActive={webVitalsTab === 'LCP'}
                     setTab={() => setWebVitalsTab('LCP')}
-                    inSeconds
                 />
                 <WebVitalsTab
                     metric="FCP"
@@ -78,7 +76,6 @@ export function WebVitals(props: {
                     value={FCP}
                     isActive={webVitalsTab === 'FCP'}
                     setTab={() => setWebVitalsTab('FCP')}
-                    inSeconds
                 />
                 <WebVitalsTab
                     metric="CLS"
