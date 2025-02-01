@@ -88,7 +88,7 @@ const MetricCards = ({ metrics, label }: { metrics: WebVitalsMetrics; label: Rea
 }
 
 const MetricCard = ({ metric, value }: { metric: WebVitalsMetric; value: number | null | undefined }): JSX.Element => {
-    const { value: valueWithUnit, unit = '' } = getValueWithUnit(value ?? 0, metric !== 'CLS')
+    const { value: valueWithUnit, unit = '' } = getValueWithUnit(value ?? 0, metric)
 
     const color = getThresholdColor(value ?? 0, metric)
 
