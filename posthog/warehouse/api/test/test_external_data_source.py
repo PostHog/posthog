@@ -487,7 +487,7 @@ class TestExternalDataSource(APIBaseTest):
                 "source_type": "Postgres",
                 "host": settings.PG_HOST,
                 "port": int(settings.PG_PORT),
-                "dbname": settings.PG_DATABASE,
+                "database": settings.PG_DATABASE,
                 "user": settings.PG_USER,
                 "password": settings.PG_PASSWORD,
                 "schema": "public",
