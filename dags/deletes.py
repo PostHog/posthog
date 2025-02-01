@@ -135,7 +135,7 @@ class PendingPersonEventDeletesTable:
     @property
     def populate_query(self) -> str:
         return f"""
-            INSERT INTO {self.qualified_name} (team_id, deletion_type, key, created_at)
+            INSERT INTO {self.qualified_name} (team_id, key, created_at)
             VALUES
         """
 
@@ -235,10 +235,10 @@ class PendingDeletesDictionary:
             EVENTS_DATA_TABLE(),
             f"""
             DELETE FROM {EVENTS_DATA_TABLE()} WHERE
-                isNotNull(dictGetOrNull(%(name)s, 'created_at', (team_id, key)) as created_at)
-                AND timestamp <= created_at
+                dictHas('{self.qualified_name}', (team_id, person_id)) AND
+                timestamp <= dictGet('{self.qualified_name}', 'created_at', (team_id, person_id))
             """,
-            {"name": self.qualified_name},
+            {},
         )
 
 
@@ -266,28 +266,18 @@ def load_pending_person_deletions(
 
     if not create_pending_person_deletions_table.team_id:
         # Use Django's queryset iterator for memory efficiency
-        pending_deletions = (
-            AsyncDeletion.objects.filter(
-                deletion_type=DeletionType.Person,
-                delete_verified_at__isnull=True,
-                delete_type=DeletionType.Person,
-                created_at__lte=create_pending_person_deletions_table.timestamp,
-            )
-            .values("team_id", "key", "created_at")
-            .iterator()
-        )
+        pending_deletions = AsyncDeletion.objects.filter(
+            deletion_type=DeletionType.Person,
+            delete_verified_at__isnull=True,
+            created_at__lte=create_pending_person_deletions_table.timestamp,
+        ).iterator()
     else:
-        pending_deletions = (
-            AsyncDeletion.objects.filter(
-                deletion_type=DeletionType.Person,
-                team_id=create_pending_person_deletions_table.team_id,
-                delete_verified_at__isnull=True,
-                delete_type=DeletionType.Person,
-                created_at__lte=create_pending_person_deletions_table.timestamp,
-            )
-            .values("team_id", "key", "created_at")
-            .iterator()
-        )
+        pending_deletions = AsyncDeletion.objects.filter(
+            deletion_type=DeletionType.Person,
+            team_id=create_pending_person_deletions_table.team_id,
+            delete_verified_at__isnull=True,
+            created_at__lte=create_pending_person_deletions_table.timestamp,
+        ).iterator()
 
     # Process and insert in chunks
     chunk_size = 10000
@@ -367,10 +357,21 @@ def create_deletes_dict(
 
 
 @op
+def load_and_verify_deletes_dictionary(
+    cluster: ResourceParam[ClickhouseCluster],
+    dictionary: PendingDeletesDictionary,
+) -> PendingDeletesDictionary:
+    """Load the dictionary data on all hosts in the cluster, and ensure all hosts have identical data."""
+    checksums = cluster.map_all_hosts(dictionary.load, concurrency=1).result()
+    assert len(set(checksums.values())) == 1
+    return dictionary
+
+
+@op
 def delete_person_events(
     context: OpExecutionContext,
     cluster: ResourceParam[ClickhouseCluster],
-    create_deletes_dict: PendingDeletesDictionary,
+    load_and_verify_deletes_dictionary: PendingDeletesDictionary,
 ) -> tuple[PendingDeletesDictionary, ShardMutations]:
     """Delete events from sharded_events table for persons pending deletion."""
 
@@ -378,7 +379,7 @@ def delete_person_events(
         result = client.execute(
             f"""
             SELECT count()
-            FROM {create_deletes_dict.qualified_name}
+            FROM {load_and_verify_deletes_dictionary.qualified_name}
             """
         )
         return result[0][0] if result else 0
@@ -388,7 +389,7 @@ def delete_person_events(
     all_zero = all(count == 0 for count in count_result.values())
     if all_zero:
         context.add_output_metadata({"events_deleted": MetadataValue.int(0), "message": "No pending deletions found"})
-        return (create_deletes_dict, {})
+        return (load_and_verify_deletes_dictionary, {})
 
     context.add_output_metadata(
         {
@@ -399,10 +400,12 @@ def delete_person_events(
     shard_mutations = {
         host.shard_num: mutation
         for host, mutation in (
-            cluster.map_one_host_per_shard(create_deletes_dict.delete_mutation_runner.enqueue).result().items()
+            cluster.map_one_host_per_shard(load_and_verify_deletes_dictionary.delete_mutation_runner.enqueue)
+            .result()
+            .items()
         )
     }
-    return (create_deletes_dict, shard_mutations)
+    return (load_and_verify_deletes_dictionary, shard_mutations)
 
 
 @op
@@ -433,8 +436,9 @@ def cleanup_delete_assets(
         config.log.info("Skipping cleanup as cleanup is disabled")
         return True
 
-    cluster.any_host_by_role(create_pending_person_deletions_table.drop, NodeRole.WORKER).result()
+    # Must drop dict first
     cluster.any_host_by_role(create_deletes_dict.drop, NodeRole.WORKER).result()
+    cluster.any_host_by_role(create_pending_person_deletions_table.drop, NodeRole.WORKER).result()
 
     # Mark deletions as verified in Django
     if not create_pending_person_deletions_table.team_id:
@@ -458,7 +462,9 @@ def cleanup_delete_assets(
 def deletes_job():
     """Job that handles deletion of person events."""
     person_table = create_pending_person_deletions_table()
-    create_deletes_dict_op = create_deletes_dict(person_table)
-    delete_events = delete_person_events(create_deletes_dict_op)
-    waited_table = wait_for_delete_mutations(delete_events)
-    cleanup_delete_assets(person_table, create_deletes_dict_op, waited_table)
+    loaded_person_table = load_pending_person_deletions(person_table)
+    create_deletes_dict_op = create_deletes_dict(loaded_person_table)
+    load_dict = load_and_verify_deletes_dictionary(create_deletes_dict_op)
+    delete_events = delete_person_events(load_dict)
+    waited_mutation = wait_for_delete_mutations(delete_events)
+    cleanup_delete_assets(person_table, create_deletes_dict_op, waited_mutation)

@@ -10,7 +10,7 @@ from django.conf import settings
 from dags.deletes import (
     deletes_job,
     PendingPersonEventDeletesTable,
-    PendingEventDeletesTable,
+    PendingDeletesDictionary,
 )
 from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
@@ -99,7 +99,7 @@ def test_full_job(cluster: ClickhouseCluster):
     ), f"Expected UUID {deleted_uuid} to be deleted"
 
     # Verify the temporary tables were cleaned up
-    person_table = PendingPersonEventDeletesTable(timestamp=timestamp)
-    assert not any(cluster.map_all_hosts(person_table.exists).result().values())
-    event_table = PendingEventDeletesTable(timestamp=timestamp)
-    assert not any(cluster.map_all_hosts(event_table.exists).result().values())
+    table = PendingPersonEventDeletesTable(timestamp=timestamp)
+    assert not any(cluster.map_all_hosts(table.exists).result().values())
+    deletes_dict = PendingDeletesDictionary(source=table)
+    assert not any(cluster.map_all_hosts(deletes_dict.exists).result().values())
