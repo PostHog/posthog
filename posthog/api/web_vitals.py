@@ -8,7 +8,7 @@ from drf_spectacular.types import OpenApiTypes
 from posthog.hogql_queries.query_runner import get_query_runner, ExecutionMode
 
 
-class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     scope_object = "web_vitals"
 
     """
