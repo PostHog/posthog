@@ -26,8 +26,6 @@ const primtiveColorMap: Map<string, number[]> = new Map([
     ['primitive-neutral-cool', steps],
 
     // Tailwind colors
-    ['color-gray', steps],
-    ['color-zinc', steps],
     ['color-red', steps],
     ['color-orange', steps],
     ['color-amber', steps],
