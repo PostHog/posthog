@@ -6228,7 +6228,10 @@ class HogQLQuery(BaseModel):
         default=None, description="Constant values that can be referenced with the {placeholder} syntax in the query"
     )
     variables: Optional[dict[str, HogQLVariable]] = Field(
-        default=None, description="Variables to be subsituted into the query"
+        default=None, description="Variables to be substituted into the query"
+    )
+    name: Optional[str] = Field(
+        default=None, alias="name", max_length=64, description="Client provided name of the query."
     )
 
 
