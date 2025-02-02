@@ -8039,8 +8039,13 @@
                     "additionalProperties": {
                         "$ref": "#/definitions/HogQLVariable"
                     },
-                    "description": "Variables to be subsituted into the query",
+                    "description": "Variables to be substituted into the query",
                     "type": "object"
+                },
+                "name": {
+                    "description": "Client provided name of the query",
+                    "type": "string",
+                    "maxLength": 64
                 }
             },
             "required": ["kind", "query"],
