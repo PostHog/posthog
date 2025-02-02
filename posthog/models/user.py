@@ -21,6 +21,10 @@ from .team import Team
 from .utils import UUIDClassicModel, generate_random_token, sane_repr
 from django.conf import settings
 
+import structlog
+
+logger = structlog.get_logger(__name__)
+
 
 class Notifications(TypedDict, total=False):
     plugin_disabled: bool
@@ -54,7 +58,8 @@ def is_on_blocklist(email: str) -> bool:
         if "@" not in email:
             return False
         email_domain = email.split("@")[-1]
-        return any(email_domain in blocked_domain for blocked_domain in settings.EMAIL_DOMAIN_BLOCKLIST)
+        email_domain_blocklist = getattr(settings, "EMAIL_DOMAIN_BLOCKLIST", [])
+        return any(email_domain in blocked_domain for blocked_domain in email_domain_blocklist)
     except Exception as e:
         posthoganalytics.capture_exception(
             e, distinct_id=email, properties={"current_blocklist": settings.EMAIL_DOMAIN_BLOCKLIST}
@@ -77,6 +82,7 @@ class UserManager(BaseUserManager):
         if email is None:
             raise ValueError("Email must be provided!")
         if is_on_blocklist(email):
+            logger.warn("Attempted registration with blocked email", extra={"email": email})
             raise ValueError("Email domain cannot be registered")
 
         email = self.normalize_email(email)
@@ -100,6 +106,7 @@ class UserManager(BaseUserManager):
         **user_fields,
     ) -> tuple["Organization", "Team", "User"]:
         if is_on_blocklist(email):
+            logger.warn("Attempted registraion with blocked email", extra={"email": email})
             raise ValueError("Email domain cannot be registered")
 
         """Instead of doing the legwork of creating a user from scratch, delegate the details with bootstrap."""

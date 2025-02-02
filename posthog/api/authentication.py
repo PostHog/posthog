@@ -21,7 +21,7 @@ from django.views.decorators.csrf import csrf_protect
 from django_otp import login as otp_login
 from loginas.utils import is_impersonated_session, restore_original_login
 from rest_framework import mixins, permissions, serializers, status, viewsets
-from rest_framework.exceptions import APIException
+from rest_framework.exceptions import APIException, AuthenticationFailed
 from rest_framework.request import Request
 from rest_framework.response import Response
 from sentry_sdk import capture_exception
@@ -38,9 +38,14 @@ from posthog.api.email_verification import EmailVerifier, is_email_verification_
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
 from posthog.models import OrganizationDomain, User
+from posthog.models.user import is_on_blocklist
 from posthog.rate_limit import UserPasswordResetThrottle
 from posthog.tasks.email import send_password_reset
 from posthog.utils import get_instance_available_sso_providers
+
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 
 @receiver(user_logged_in)
@@ -126,6 +131,10 @@ class LoginSerializer(serializers.Serializer):
         return True
 
     def create(self, validated_data: dict[str, str]) -> Any:
+        if is_on_blocklist(validated_data["email"]):
+            logger.warn("Attempted login with blocked email", extra={"email": validated_data["email"]})
+            raise AuthenticationFailed()
+
         # Check SSO enforcement (which happens at the domain level)
         sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(validated_data["email"])
         if sso_enforcement:
