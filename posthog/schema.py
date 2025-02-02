@@ -6232,6 +6232,9 @@ class HogQLQuery(BaseModel):
     variables: Optional[dict[str, HogQLVariable]] = Field(
         default=None, description="Variables to be substituted into the query"
     )
+    name: Optional[str] = Field(
+        default=None, alias="name", max_length=64, description="Client provided name of the query."
+    )
 
 
 class InsightActorsQueryOptionsResponse(BaseModel):
@@ -7810,9 +7813,6 @@ class QueryRequest(BaseModel):
     async_: Optional[bool] = Field(default=None, alias="async")
     client_query_id: Optional[str] = Field(
         default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
-    )
-    name: Optional[str] = Field(
-        default=None, alias="name", max_length=64, description="Client provided name of the query."
     )
     filters_override: Optional[DashboardFilter] = None
     query: Union[
