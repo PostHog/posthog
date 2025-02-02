@@ -58,7 +58,7 @@ def is_on_blocklist(email: str) -> bool:
         if "@" not in email:
             return False
         email_domain = email.split("@")[-1]
-        email_domain_blocklist = getattr(settings, "EMAIL_DOMAIN_BLOCKLIST", [])
+        email_domain_blocklist = settings.EMAIL_DOMAIN_BLOCKLIST or []
         return any(
             email_domain.endswith("." + blocked_domain.lower()) or email_domain == blocked_domain.lower()
             for blocked_domain in email_domain_blocklist
