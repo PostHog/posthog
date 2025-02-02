@@ -61,6 +61,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         if self.action == "draft_sql":
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
         if query := self.request.data.get("query"):
+            # raise Exception("TEST EXCEPTION")
             if isinstance(query, dict) and query.get("kind") == "HogQLQuery":
                 return [HogQLQueryThrottle()]
         return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]

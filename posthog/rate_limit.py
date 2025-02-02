@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import re
 import time
 from functools import lru_cache
@@ -16,7 +17,6 @@ from posthog.models.team.team import Team
 from posthog.settings.utils import get_list
 from token_bucket import Limiter, MemoryStorage
 from posthog.models.personal_api_key import hash_key_value
-
 
 RATE_LIMIT_EXCEEDED_COUNTER = Counter(
     "rate_limit_exceeded_total",
@@ -69,6 +69,8 @@ def is_decide_rate_limit_enabled() -> bool:
 path_by_team_pattern = re.compile(r"/api/projects/(\d+)/")
 path_by_org_pattern = re.compile(r"/api/organizations/(.+)/")
 
+logger = logging.getLogger("django")
+
 
 class PersonalApiKeyRateThrottle(SimpleRateThrottle):
     @staticmethod
@@ -85,17 +87,27 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
             return None
 
     def load_team_rate_limit(self, team_id):
+        logger.info("Loading team rate limit", extra={"team_id": team_id})
+
         # try loading from cache
-        rate_limit_cache_key = 'team_ratelimit_%(scope)s_%(ident)s' % {"scope": self.scope, "ident": team_id}
+        rate_limit_cache_key = f"team_ratelimit_{self.scope}_{team_id}"
         cached_rate_limit = self.cache.get(rate_limit_cache_key, None)
         if cached_rate_limit is not None:
+            logger.info(
+                "use cached rate limit",
+                extra={"rate_limit_cache_key": rate_limit_cache_key, "rate_limit": cached_rate_limit},
+            )
             self.rate = cached_rate_limit
         else:
             team = Team.objects.get(id=team_id)
-            if team is None or team.api_query_rate_limit is None:
+            if not team or not team.api_query_rate_limit:
+                logger.info("No custom rate limit available", extra={"team_id": team_id})
                 return
             self.rate = team.api_query_rate_limit
             self.cache.set(cached_rate_limit, self.rate)
+            logger.info(
+                "set custom rate limit", extra={"rate_limit_cache_key": rate_limit_cache_key, "rate_limit": self.rate}
+            )
 
         self.num_requests, self.duration = self.parse_rate(self.rate)
 
@@ -104,15 +116,14 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
             return True
 
         # Only rate limit authenticated requests made with a personal API key
-        # personal_api_key = PersonalAPIKeyAuthentication.find_key_with_source(request)
-        # if request.user.is_authenticated and personal_api_key is None:
-        #     return True
+        personal_api_key = PersonalAPIKeyAuthentication.find_key_with_source(request)
+        if request.user.is_authenticated and personal_api_key is None:
+            return True
 
         try:
             team_id = self.safely_get_team_id_from_view(view)
-            if team_id is None:
+            if team_id is not None and self.scope == HogQLQueryThrottle.scope:
                 self.load_team_rate_limit(team_id)
-                print("load team rate limit", self.num_requests, self.duration)
 
             request_would_be_allowed = super().allow_request(request, view)
             if request_would_be_allowed:
@@ -313,14 +324,6 @@ class AISustainedRateThrottle(UserRateThrottle):
     # Intended to block slower but sustained bursts of requests, per user
     scope = "ai_sustained"
     rate = "40/day"
-
-
-class TeamBasedRateThrottle(PersonalApiKeyRateThrottle):
-    cache_format = 'team_rate_%(scope)s_%(ident)s'
-    scope = None
-
-    scope = "pth"
-    rate = "480/minute"
 
 
 class HogQLQueryThrottle(PersonalApiKeyRateThrottle):
