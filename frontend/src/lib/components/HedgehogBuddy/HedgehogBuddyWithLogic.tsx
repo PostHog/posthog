@@ -1,7 +1,8 @@
 import './HedgehogBuddy.scss'
 
+import { HedgeHogMode } from '@posthog/hedgehog-mode'
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -12,14 +13,30 @@ export function HedgehogBuddyWithLogic(): JSX.Element {
     const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
     const { patchHedgehogConfig } = useActions(hedgehogBuddyLogic)
     const { user } = useValues(userLogic)
-
     const { members } = useValues(membersLogic)
     const { ensureAllMembersLoaded } = useActions(membersLogic)
+    const [game, setGame] = useState<HedgeHogMode | null>(null)
+
+    const onRef = async (ref: HTMLDivElement | null): Promise<void> => {
+        if (ref) {
+            const hedgeHogMode = new HedgeHogMode({
+                assetsUrl: '/static/hedgehog-mode/',
+                platformSelector: '.border',
+            })
+            try {
+                await hedgeHogMode.render(ref)
+                setGame(hedgeHogMode)
+            } catch (e) {
+                console.error('Error rendering hedgehog mode', e)
+            }
+        }
+    }
 
     useEffect(() => ensureAllMembersLoaded(), [hedgehogConfig.enabled])
 
     return hedgehogConfig.enabled ? (
         <>
+            <div id="game" className="fixed inset-0 z-20" ref={(r) => void onRef(r)} />
             <MyHedgehogBuddy onClose={() => patchHedgehogConfig({ enabled: false })} />
 
             {hedgehogConfig.party_mode_enabled
