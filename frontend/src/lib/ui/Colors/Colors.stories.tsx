@@ -283,7 +283,7 @@ export function SemanticColors(): JSX.Element {
     const surfaceColors: RenderColorConfig[] = [
         {
             tailwindClass: 'bg-surface-primary',
-            description: 'the most prominent area on the screen (after tooltip',
+            description: 'the most prominent area on the screen (after tooltip)',
             name: '--bg-surface-primary',
         },
         {
