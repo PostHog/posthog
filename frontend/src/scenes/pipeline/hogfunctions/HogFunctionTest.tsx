@@ -88,7 +88,7 @@ export function HogFunctionTest(): JSX.Element {
             <div
                 className={clsx(
                     'border rounded p-3 space-y-2',
-                    expanded ? 'bg-surface-primary min-h-120' : 'bg-surface-primary'
+                    expanded ? 'bg-surface-secondary min-h-120' : 'bg-surface-primary'
                 )}
             >
                 <div className="flex items-center justify-end gap-2">
