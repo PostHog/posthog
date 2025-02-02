@@ -100,7 +100,6 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             # Here in query endpoint we always want to calculate if the cache is stale
             execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
 
-        # kw = {"query": request.data["query"]}
         tag_queries(query=request.data["query"])
         try:
             result = process_query_model(
