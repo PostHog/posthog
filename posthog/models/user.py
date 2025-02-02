@@ -59,7 +59,10 @@ def is_on_blocklist(email: str) -> bool:
             return False
         email_domain = email.split("@")[-1]
         email_domain_blocklist = getattr(settings, "EMAIL_DOMAIN_BLOCKLIST", [])
-        return any(email_domain in blocked_domain for blocked_domain in email_domain_blocklist)
+        return any(
+            email_domain.endswith("." + blocked_domain.lower()) or email_domain == blocked_domain.lower()
+            for blocked_domain in email_domain_blocklist
+        )
     except Exception as e:
         posthoganalytics.capture_exception(
             e, distinct_id=email, properties={"current_blocklist": settings.EMAIL_DOMAIN_BLOCKLIST}
