@@ -704,6 +704,7 @@ export enum PropertyOperator {
     Maximum = 'max',
     In = 'in',
     NotIn = 'not_in',
+    IsCleanedPathExact = 'is_cleaned_path_exact',
 }
 
 export enum SavedInsightsTabs {

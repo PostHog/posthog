@@ -1006,6 +1006,7 @@ export enum PropertyOperator {
     IsNotSet = 'is_not_set',
     IsDateBefore = 'is_date_before',
     IsDateAfter = 'is_date_after',
+    IsCleanedPathExact = 'is_cleaned_path_exact',
 }
 
 /** Sync with posthog/frontend/src/types.ts */
