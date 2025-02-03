@@ -33,7 +33,7 @@ describe('LegacyPluginExecutorService', () => {
     beforeEach(async () => {
         hub = await createHub()
         await resetTestDatabase()
-        service = new LegacyPluginExecutorService()
+        service = new LegacyPluginExecutorService(hub)
         team = await getFirstTeam(hub)
 
         fn = createHogFunction({
@@ -115,12 +115,10 @@ describe('LegacyPluginExecutorService', () => {
                     "email": "test@posthog.com",
                   },
                   "fetch": [Function],
-                  "global": {
-                    "authorizationHeader": "Basic MTIzNDU2Nzg5MDpjaW8tdG9rZW4=",
-                    "eventNames": [],
-                    "eventsConfig": "1",
-                    "identifyByEmail": false,
+                  "geoip": {
+                    "locate": [Function],
                   },
+                  "global": {},
                   "logger": {
                     "debug": [Function],
                     "error": [Function],
