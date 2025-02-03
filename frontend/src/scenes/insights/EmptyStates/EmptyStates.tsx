@@ -11,7 +11,7 @@ import { IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { humanFriendlyNumber, humanizeBytes } from 'lib/utils'
+import { humanFriendlyNumber, humanizeBytes, inStorybook, inStorybookTestRunner } from 'lib/utils'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -111,7 +111,7 @@ function QueryDebuggerButton({ query }: { query?: Record<string, any> | null }):
     )
 }
 
-const LOADING_MESSAGES = [
+export const LOADING_MESSAGES = [
     'Crunching through hogloads of data…',
     'Teaching hedgehogs to count…',
     'Waking up the hibernating data hogs…',
@@ -136,7 +136,7 @@ export function StatelessInsightLoadingState({
     const [secondsElapsed, setSecondsElapsed] = useState(0)
 
     const [loadingMessageIndex, setLoadingMessageIndex] = useState(() =>
-        Math.floor(Math.random() * LOADING_MESSAGES.length)
+        inStorybook() || inStorybookTestRunner() ? 0 : Math.floor(Math.random() * LOADING_MESSAGES.length)
     )
     const [isLoadingMessageVisible, setIsLoadingMessageVisible] = useState(true)
 
@@ -167,6 +167,11 @@ export function StatelessInsightLoadingState({
     useEffect(() => {
         const TOGGLE_INTERVAL = 3000
         const FADE_OUT_DURATION = 300
+
+        // Don't toggle loading messages in storybook, will make tests flaky if so
+        if (inStorybook() || inStorybookTestRunner()) {
+            return
+        }
 
         const interval = setInterval(() => {
             setIsLoadingMessageVisible(false)
@@ -323,9 +328,19 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
 
 export function InsightValidationError({ detail, query }: { detail: string; query?: Record<string, any> | null }): JSX.Element {
     return (
-        <div data-attr="insight-empty-state" className="insights-empty-state rounded p-4 m-2 h-full w-full">
-            <h2 className="text-xl leading-tight mb-6" data-attr="insight-loading-too-long">
-                <IconErrorOutline className="text-xl shrink-0 mr-2" />
+        <div
+            data-attr="insight-empty-state"
+            className="insights-empty-state flex flex-col items-center justify-center gap-2 rounded p-4 m-2 h-full w-full"
+        >
+            <IconWarning className="text-5xl shrink-0" />
+
+            <h2
+                data-attr="insight-loading-too-long"
+                className="text-xl leading-tight"
+                // TODO: Use an actual `text-warning` color once @adamleithp changes are live
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ color: 'var(--warning)' }}
+            >
                 There is a problem with this query
                 {/* Note that this phrasing above signals the issue is not intermittent, */}
                 {/* but rather that it's something with the definition of the query itself */}
@@ -368,13 +383,18 @@ export function InsightErrorState({ excludeDetail, title, query, queryId }: Insi
     return (
         <div
             data-attr="insight-empty-state"
-            className="insights-empty-state flex flex-col items-center justify-center rounded p-4 m-2 h-full w-full"
+            className="insights-empty-state flex flex-col items-center gap-2 justify-center rounded p-4 m-2 h-full w-full"
         >
-            <h2 className="text-xl leading-tight mb-6" data-attr="insight-loading-too-long">
-                <IconErrorOutline className="text-xl shrink-0 mr-2" />
-                <span className="text-accent-primary">
-                    {title || <span>There was a problem completing this query</span>}
-                </span>
+            <IconErrorOutline className="text-5xl shrink-0" />
+
+            <h2
+                className="text-xl leading-tight mb-6"
+                // TODO: Use an actual `text-danger` color once @adamleithp changes are live
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ color: 'var(--danger)' }}
+                data-attr="insight-loading-too-long"
+            >
+                {title || <span>There was a problem completing this query</span>}
                 {/* Note that this default phrasing above signals the issue is intermittent, */}
                 {/* and that perhaps the query will complete on retry */}
             </h2>
@@ -424,7 +444,7 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
 
     return (
         <div data-attr="insight-empty-state" className="flex flex-col flex-1 items-center justify-center m-2">
-            <div className="text-2xl text-muted mb-2">
+            <div className="text-5xl text-muted mb-2">
                 <IconPlusSquare />
             </div>
             <h2 className="text-xl leading-tight font-medium">Add another step!</h2>
