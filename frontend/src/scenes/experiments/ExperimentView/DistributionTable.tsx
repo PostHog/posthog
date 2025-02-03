@@ -34,6 +34,10 @@ export function DistributionModal({ experimentId }: { experimentId: Experiment['
             return
         }
 
+        if (isNaN(value)) {
+            value = 0
+        }
+
         const updatedVariants = featureFlag.filters.multivariate.variants.map((variant, i) =>
             i === index ? { ...variant, rollout_percentage: value } : variant
         )
