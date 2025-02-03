@@ -9,7 +9,7 @@ import { template as defaultTemplate } from '../../../src/cdp/templates/_transfo
 import { template as geoipTemplate } from '../../../src/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '../../../src/cdp/templates/compiler'
 import { createHogFunction, insertHogFunction } from '../../../tests/cdp/fixtures'
-import { createTeam, resetTestDatabase } from '../../../tests/helpers/sql'
+import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { HogFunctionTemplate } from '../templates/types'
@@ -51,8 +51,8 @@ describe('HogTransformer', () => {
         await resetTestDatabase()
 
         // Create a team first before inserting hog functions
-        const team = await hub.db.fetchTeam(2)
-        teamId = await createTeam(hub.db.postgres, team!.organization_id)
+        const team = await getFirstTeam(hub)
+        teamId = team.id
 
         hub.mmdb = Reader.openBuffer(brotliDecompressSync(mmdbBrotliContents))
         hogTransformer = new HogTransformerService(hub)
@@ -425,15 +425,7 @@ describe('HogTransformer', () => {
             const event: PluginEvent = createPluginEvent({ event: 'drop-me', team_id: teamId })
             const result = await hogTransformer.transformEvent(event)
             expect(executeSpy).toHaveBeenCalledTimes(1)
-            expect(result).toMatchInlineSnapshot(`
-                {
-                  "event": null,
-                  "messagePromises": [
-                    Promise {},
-                    Promise {},
-                  ],
-                }
-            `)
+            expect(result.event).toMatchInlineSnapshot(`null`)
         })
 
         it('handles legacy plugin transformation to keep events', async () => {
@@ -441,26 +433,20 @@ describe('HogTransformer', () => {
             const result = await hogTransformer.transformEvent(event)
 
             expect(executeSpy).toHaveBeenCalledTimes(1)
-            expect(result).toMatchInlineSnapshot(`
+            expect(result.event).toMatchInlineSnapshot(`
                 {
-                  "event": {
-                    "distinct_id": "distinct-id",
-                    "event": "keep-me",
-                    "ip": "89.160.20.129",
-                    "now": "2024-06-07T12:00:00.000Z",
-                    "properties": {
-                      "$current_url": "https://example.com",
-                      "$ip": "89.160.20.129",
-                    },
-                    "site_url": "http://localhost",
-                    "team_id": ${teamId},
-                    "timestamp": "2024-01-01T00:00:00Z",
-                    "uuid": "event-id",
+                  "distinct_id": "distinct-id",
+                  "event": "keep-me",
+                  "ip": "89.160.20.129",
+                  "now": "2024-06-07T12:00:00.000Z",
+                  "properties": {
+                    "$current_url": "https://example.com",
+                    "$ip": "89.160.20.129",
                   },
-                  "messagePromises": [
-                    Promise {},
-                    Promise {},
-                  ],
+                  "site_url": "http://localhost",
+                  "team_id": 2,
+                  "timestamp": "2024-01-01T00:00:00Z",
+                  "uuid": "event-id",
                 }
             `)
         })

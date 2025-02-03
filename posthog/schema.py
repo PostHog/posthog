@@ -1151,6 +1151,7 @@ class PropertyOperator(StrEnum):
     MAX = "max"
     IN_ = "in"
     NOT_IN = "not_in"
+    IS_CLEANED_PATH_EXACT = "is_cleaned_path_exact"
 
 
 class QueryResponseAlternative5(BaseModel):

@@ -9800,7 +9800,8 @@
                 "min",
                 "max",
                 "in",
-                "not_in"
+                "not_in",
+                "is_cleaned_path_exact"
             ],
             "type": "string"
         },

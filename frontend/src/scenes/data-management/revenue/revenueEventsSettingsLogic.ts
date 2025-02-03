@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -10,13 +11,13 @@ import type { revenueEventsSettingsLogicType } from './revenueEventsSettingsLogi
 const createEmptyConfig = (): RevenueTrackingConfig => ({ events: [] })
 
 export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
-    path(['scenes', 'settings', 'environment', 'revenueEventsSettingsLogic']),
+    path(['scenes', 'data-management', 'revenue', 'revenueEventsSettingsLogic']),
     connect({
         values: [teamLogic, ['currentTeam', 'currentTeamId']],
         actions: [teamLogic, ['updateCurrentTeam']],
     }),
     actions({
-        addEvent: (eventName: string) => ({ eventName }),
+        addEvent: (eventName: TaxonomicFilterValue) => ({ eventName }),
         deleteEvent: (eventName: string) => ({ eventName }),
         updatePropertyName: (eventName: string, revenueProperty: string) => ({ eventName, revenueProperty }),
     }),
@@ -35,10 +36,11 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                         return state
                     }
                     const existingEvents = new Set(state.events.map((item: RevenueTrackingEventItem) => item.eventName))
-                    if (!existingEvents.has(eventName)) {
-                        return { ...state, events: [...state.events, { eventName, revenueProperty: 'revenue' }] }
+                    if (existingEvents.has(eventName)) {
+                        return state
                     }
-                    return state
+
+                    return { ...state, events: [...state.events, { eventName, revenueProperty: 'revenue' }] }
                 },
                 deleteEvent: (state, { eventName }) => {
                     if (!state) {
@@ -70,7 +72,10 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
         ],
     })),
     selectors({
-        events: [(s) => [s.revenueTrackingConfig], (revenueTrackingConfig) => revenueTrackingConfig?.events || []],
+        events: [
+            (s) => [s.revenueTrackingConfig],
+            (revenueTrackingConfig: RevenueTrackingConfig | null) => revenueTrackingConfig?.events || [],
+        ],
         saveDisabledReason: [
             (s) => [s.revenueTrackingConfig, s.savedRevenueTrackingConfig],
             (config, savedConfig): string | null => {

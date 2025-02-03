@@ -75,6 +75,37 @@ const getMetricTitle = (metric: any, metricType: InsightType): JSX.Element => {
     return <span className="text-muted truncate">Untitled metric</span>
 }
 
+function generateViolinPath(x1: number, x2: number, y: number, height: number): string {
+    // Create points for the violin curve
+    const points: [number, number][] = []
+    const steps = 20
+    const maxWidth = height / 2 // Use half the height as the maximum width to maintain proportions
+
+    // Generate top curve points
+    for (let i = 0; i <= steps; i++) {
+        const t = i / steps
+        const x = x1 + (x2 - x1) * t
+        // Using a normal distribution approximation
+        const width = Math.exp(-Math.pow((t - 0.5) * 3, 2)) * maxWidth
+        points.push([x, y + height / 2 - width])
+    }
+
+    // Generate bottom curve points (mirror of top)
+    for (let i = steps; i >= 0; i--) {
+        const t = i / steps
+        const x = x1 + (x2 - x1) * t
+        const width = Math.exp(-Math.pow((t - 0.5) * 3, 2)) * maxWidth
+        points.push([x, y + height / 2 + width])
+    }
+
+    // Create SVG path
+    return `
+        M ${points[0][0]} ${points[0][1]}
+        ${points.map((point) => `L ${point[0]} ${point[1]}`).join(' ')}
+        Z
+    `
+}
+
 export function DeltaChart({
     isSecondary,
     result,
@@ -134,7 +165,7 @@ export function DeltaChart({
         return 0
     }
 
-    const BAR_HEIGHT = 8 + getScaleAddition(variants.length)
+    const BAR_HEIGHT = 10 + getScaleAddition(variants.length)
     const BAR_PADDING = 10 + getScaleAddition(variants.length)
     const TICK_PANEL_HEIGHT = 20
     const VIEW_BOX_WIDTH = 800
@@ -433,94 +464,76 @@ export function DeltaChart({
                                             </foreignObject>
 
                                             {variant.key === 'control' ? (
-                                                // Control variant - single gray bar
-                                                <>
-                                                    <rect
-                                                        x={x1}
-                                                        y={y}
-                                                        width={x2 - x1}
-                                                        height={BAR_HEIGHT}
-                                                        fill="transparent"
-                                                    />
-                                                    <rect
-                                                        x={x1}
-                                                        y={y}
-                                                        width={x2 - x1}
-                                                        height={BAR_HEIGHT}
-                                                        fill={COLORS.BAR_CONTROL}
-                                                        stroke={COLORS.BOUNDARY_LINES}
-                                                        strokeWidth={1}
-                                                        strokeDasharray="2,2"
-                                                        rx={4}
-                                                        ry={4}
-                                                    />
-                                                </>
+                                                // Control variant - dashed violin
+                                                <path
+                                                    d={generateViolinPath(x1, x2, y, BAR_HEIGHT)}
+                                                    fill={COLORS.BAR_CONTROL}
+                                                    stroke={COLORS.BOUNDARY_LINES}
+                                                    strokeWidth={1}
+                                                    strokeDasharray="2,2"
+                                                />
                                             ) : (
-                                                // Test variants - split into positive and negative sections if needed
+                                                // Test variants - single violin with gradient fill
                                                 <>
-                                                    <rect
-                                                        x={x1}
-                                                        y={y}
-                                                        width={x2 - x1}
-                                                        height={BAR_HEIGHT}
-                                                        fill="transparent"
+                                                    <defs>
+                                                        <linearGradient
+                                                            id={`gradient-${metricIndex}-${variant.key}`}
+                                                            x1="0"
+                                                            x2="1"
+                                                            y1="0"
+                                                            y2="0"
+                                                        >
+                                                            {lower < 0 && upper > 0 ? (
+                                                                <>
+                                                                    <stop offset="0%" stopColor={COLORS.BAR_NEGATIVE} />
+                                                                    <stop
+                                                                        offset={`${(-lower / (upper - lower)) * 100}%`}
+                                                                        stopColor={COLORS.BAR_NEGATIVE}
+                                                                    />
+                                                                    <stop
+                                                                        offset={`${(-lower / (upper - lower)) * 100}%`}
+                                                                        stopColor={COLORS.BAR_POSITIVE}
+                                                                    />
+                                                                    <stop
+                                                                        offset="100%"
+                                                                        stopColor={COLORS.BAR_POSITIVE}
+                                                                    />
+                                                                </>
+                                                            ) : (
+                                                                <stop
+                                                                    offset="100%"
+                                                                    stopColor={
+                                                                        upper <= 0
+                                                                            ? COLORS.BAR_NEGATIVE
+                                                                            : COLORS.BAR_POSITIVE
+                                                                    }
+                                                                />
+                                                            )}
+                                                        </linearGradient>
+                                                    </defs>
+                                                    <path
+                                                        d={generateViolinPath(x1, x2, y, BAR_HEIGHT)}
+                                                        fill={`url(#gradient-${metricIndex}-${variant.key})`}
                                                     />
-                                                    {lower < 0 && upper > 0 ? (
-                                                        // Bar spans across zero - need to split
-                                                        <>
-                                                            <path
-                                                                d={`
-                                                                M ${x1 + 4} ${y}
-                                                                H ${valueToX(0)}
-                                                                V ${y + BAR_HEIGHT}
-                                                                H ${x1 + 4}
-                                                                Q ${x1} ${y + BAR_HEIGHT} ${x1} ${y + BAR_HEIGHT - 4}
-                                                                V ${y + 4}
-                                                                Q ${x1} ${y} ${x1 + 4} ${y}
-                                                            `}
-                                                                fill={COLORS.BAR_NEGATIVE}
-                                                            />
-                                                            <path
-                                                                d={`
-                                                                M ${valueToX(0)} ${y}
-                                                                H ${x2 - 4}
-                                                                Q ${x2} ${y} ${x2} ${y + 4}
-                                                                V ${y + BAR_HEIGHT - 4}
-                                                                Q ${x2} ${y + BAR_HEIGHT} ${x2 - 4} ${y + BAR_HEIGHT}
-                                                                H ${valueToX(0)}
-                                                                V ${y}
-                                                            `}
-                                                                fill={COLORS.BAR_POSITIVE}
-                                                            />
-                                                        </>
-                                                    ) : (
-                                                        // Bar is entirely positive or negative
-                                                        <rect
-                                                            x={x1}
-                                                            y={y}
-                                                            width={x2 - x1}
-                                                            height={BAR_HEIGHT}
-                                                            fill={
-                                                                upper <= 0 ? COLORS.BAR_NEGATIVE : COLORS.BAR_POSITIVE
-                                                            }
-                                                            rx={4}
-                                                            ry={4}
-                                                        />
-                                                    )}
                                                 </>
                                             )}
                                             {/* Delta marker */}
-                                            <rect
-                                                x={deltaX - CONVERSION_RATE_RECT_WIDTH / 2}
-                                                y={y}
-                                                width={CONVERSION_RATE_RECT_WIDTH}
-                                                height={BAR_HEIGHT}
-                                                fill={
-                                                    variant.key === 'control'
-                                                        ? COLORS.BAR_MIDDLE_POINT_CONTROL
-                                                        : COLORS.BAR_MIDDLE_POINT
-                                                }
-                                            />
+                                            <g transform={`translate(${deltaX}, 0)`}>
+                                                <line
+                                                    x1={0}
+                                                    y1={y}
+                                                    x2={0}
+                                                    y2={y + BAR_HEIGHT}
+                                                    stroke={
+                                                        variant.key === 'control'
+                                                            ? COLORS.BAR_MIDDLE_POINT_CONTROL
+                                                            : COLORS.BAR_MIDDLE_POINT
+                                                    }
+                                                    strokeWidth={CONVERSION_RATE_RECT_WIDTH}
+                                                    vectorEffect="non-scaling-stroke"
+                                                    shapeRendering="crispEdges"
+                                                />
+                                            </g>
                                         </g>
                                     )
                                 })}
