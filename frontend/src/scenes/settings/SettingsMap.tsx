@@ -401,6 +401,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Delete environment',
                 component: <TeamDangerZone />,
             },
+
+            {
+                id: 'project-move',
+                title: 'Move environment',
+                component: <ProjectMove />,
+            },
         ],
     },
 

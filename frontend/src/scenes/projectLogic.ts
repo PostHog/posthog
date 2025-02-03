@@ -21,7 +21,12 @@ export const projectLogic = kea<projectLogicType>([
         moveProject: (project: ProjectType, organizationId: string) => ({ project, organizationId }),
     }),
     connect(() => ({
-        actions: [userLogic, ['loadUser', 'switchTeam'], organizationLogic, ['loadCurrentOrganization']],
+        actions: [
+            userLogic,
+            ['loadUser', 'switchTeam', 'updateCurrentOrganization'],
+            organizationLogic,
+            ['loadCurrentOrganization'],
+        ],
     })),
     reducers({
         projectBeingDeleted: [
@@ -93,9 +98,13 @@ export const projectLogic = kea<projectLogicType>([
             null as ProjectType | null,
             {
                 moveProject: async ({ project, organizationId }) => {
-                    return await api.create<ProjectType>(`api/projects/${project.id}/change_organization`, {
+                    const res = await api.create<ProjectType>(`api/projects/${project.id}/change_organization`, {
                         organization_id: organizationId,
                     })
+
+                    await api.update('api/users/@me/', { set_current_organization: organizationId })
+
+                    return res
                 },
             },
         ],
@@ -127,7 +136,7 @@ export const projectLogic = kea<projectLogicType>([
             }
         },
 
-        moveProjectSuccess: async () => {
+        moveProjectSuccess: () => {
             lemonToast.success('Project has been moved. Redirecting...')
             window.location.reload()
         },
