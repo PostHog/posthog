@@ -290,6 +290,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json()["hog"] == "fetch(inputs.url);"
         assert response.json()["template"] == {
             "type": "destination",
+            "free": False,
             "name": template_webhook.name,
             "description": template_webhook.description,
             "id": template_webhook.id,

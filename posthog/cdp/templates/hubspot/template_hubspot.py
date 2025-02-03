@@ -6,6 +6,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, Hog
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
+    free=False,
     type="destination",
     id="template-hubspot",
     name="Hubspot",
@@ -99,6 +100,7 @@ if (res.status == 200) {
 
 template_event: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
+    free=False,
     id="template-hubspot-event",
     type="destination",
     name="Hubspot",
