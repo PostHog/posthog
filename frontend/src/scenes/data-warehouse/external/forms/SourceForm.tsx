@@ -1,7 +1,7 @@
 import { LemonDivider, LemonFileInput, LemonInput, LemonSelect, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
-import { FieldName, Form, Group } from 'kea-forms'
+import { Form, Group } from 'kea-forms'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import React, { useEffect } from 'react'
+import React from 'react'
 
 import { SourceConfig, SourceFieldConfig } from '~/types'
 
@@ -13,25 +13,14 @@ export interface SourceFormProps {
     sourceConfig: SourceConfig
     showPrefix?: boolean
     jobInputs?: Record<string, any>
-    setSourceConfigValue?: (key: FieldName, value: any) => void
 }
 
 const CONNECTION_STRING_DEFAULT_PORT = {
     Postgres: 5432,
 }
 
-const sourceFieldToElement = (
-    field: SourceFieldConfig,
-    sourceConfig: SourceConfig,
-    lastValue?: any,
-    isUpdateMode?: boolean
-): JSX.Element => {
-    // It doesn't make sense for this to show on an update to an existing connection since we likely just want to change
-    // a field or two. There is also some divergence in creates vs. updates that make this a bit more complex to handle.
+const sourceFieldToElement = (field: SourceFieldConfig, sourceConfig: SourceConfig, lastValue?: any): JSX.Element => {
     if (field.type === 'text' && field.name === 'connection_string') {
-        if (isUpdateMode) {
-            return <React.Fragment key={field.name} />
-        }
         return (
             <React.Fragment key={field.name}>
                 <LemonField name={field.name} label={field.label}>
@@ -49,7 +38,7 @@ const sourceFieldToElement = (
 
                                 if (isValid) {
                                     sourceWizardLogic.actions.setSourceConnectionDetailsValue(
-                                        ['payload', 'database'],
+                                        ['payload', 'dbname'],
                                         database || ''
                                     )
                                     sourceWizardLogic.actions.setSourceConnectionDetailsValue(
@@ -137,16 +126,13 @@ const sourceFieldToElement = (
     if (field.type === 'textarea') {
         return (
             <LemonField key={field.name} name={field.name} label={field.label}>
-                {({ value, onChange }) => (
-                    <LemonTextArea
-                        className="ph-ignore-input"
-                        data-attr={field.name}
-                        placeholder={field.placeholder}
-                        minRows={4}
-                        value={value || ''}
-                        onChange={onChange}
-                    />
-                )}
+                <LemonTextArea
+                    className="ph-ignore-input"
+                    data-attr={field.name}
+                    placeholder={field.placeholder}
+                    minRows={4}
+                    defaultValue={lastValue}
+                />
             </LemonField>
         )
     }
@@ -186,7 +172,8 @@ const sourceFieldToElement = (
                     data-attr={field.name}
                     placeholder={field.placeholder}
                     type={field.type as 'text'}
-                    value={value || ''}
+                    defaultValue={lastValue}
+                    value={value ?? ''}
                     onChange={onChange}
                 />
             )}
@@ -202,27 +189,12 @@ export default function SourceFormContainer(props: SourceFormProps): JSX.Element
     )
 }
 
-export function SourceFormComponent({
-    sourceConfig,
-    showPrefix = true,
-    jobInputs,
-    setSourceConfigValue,
-}: SourceFormProps): JSX.Element {
-    useEffect(() => {
-        if (jobInputs && setSourceConfigValue) {
-            for (const input of Object.keys(jobInputs || {})) {
-                setSourceConfigValue(['payload', input], jobInputs[input])
-            }
-        }
-    }, [JSON.stringify(jobInputs), setSourceConfigValue])
-
-    const isUpdateMode = !!setSourceConfigValue
-
+export function SourceFormComponent({ sourceConfig, showPrefix = true, jobInputs }: SourceFormProps): JSX.Element {
     return (
         <div className="space-y-4">
             <Group name="payload">
                 {SOURCE_DETAILS[sourceConfig.name].fields.map((field) =>
-                    sourceFieldToElement(field, sourceConfig, jobInputs?.[field.name], isUpdateMode)
+                    sourceFieldToElement(field, sourceConfig, jobInputs?.[field.name])
                 )}
             </Group>
             {showPrefix && (

@@ -51,14 +51,14 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
         caption: <Caption />,
         fields: [
             {
-                name: 'stripe_account_id',
+                name: 'account_id',
                 label: 'Account id',
                 type: 'text',
                 required: false,
-                placeholder: 'stripe_account_id',
+                placeholder: 'acct_...',
             },
             {
-                name: 'stripe_secret_key',
+                name: 'client_secret',
                 label: 'Client secret',
                 type: 'password',
                 required: true,
@@ -103,7 +103,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                 placeholder: '5432',
             },
             {
-                name: 'database',
+                name: 'dbname',
                 label: 'Database',
                 type: 'text',
                 required: true,
@@ -234,7 +234,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                 placeholder: '3306',
             },
             {
-                name: 'database',
+                name: 'dbname',
                 label: 'Database',
                 type: 'text',
                 required: true,
@@ -383,7 +383,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
                 placeholder: '1433',
             },
             {
-                name: 'database',
+                name: 'dbname',
                 label: 'Database',
                 type: 'text',
                 required: true,
@@ -872,19 +872,21 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             {
                 setDatabaseSchemas: (_, { schemas }) => schemas,
                 toggleSchemaShouldSync: (state, { schema, shouldSync }) => {
-                    return state.map((s) => ({
+                    const newSchema = state.map((s) => ({
                         ...s,
                         should_sync: s.table === schema.table ? shouldSync : s.should_sync,
                     }))
+                    return newSchema
                 },
                 updateSchemaSyncType: (state, { schema, syncType, incrementalField, incrementalFieldType }) => {
-                    return state.map((s) => ({
+                    const newSchema = state.map((s) => ({
                         ...s,
                         sync_type: s.table === schema.table ? syncType : s.sync_type,
                         incremental_field: s.table === schema.table ? incrementalField : s.incremental_field,
                         incremental_field_type:
                             s.table === schema.table ? incrementalFieldType : s.incremental_field_type,
                     }))
+                    return newSchema
                 },
             },
         ],
@@ -1302,7 +1304,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                         fileReader.onerror = (e) => reject(e)
                                         fileReader.readAsText(payload['payload'][name][0])
                                     })
-                                    fieldPayload[name] = JSON.parse(loadedFile)
+                                    const jsonConfig = JSON.parse(loadedFile)
+
+                                    fieldPayload[name] = jsonConfig
                                 } catch (e) {
                                     return lemonToast.error('File is not valid')
                                 }
@@ -1371,7 +1375,7 @@ export const getErrorsForFields = (
                 }
             } else {
                 errorsObj[field.name] = {}
-                const selection = valueObj[field.name]?.['selection']
+                const selection = valueObj[field.name]['selection']
                 field.options
                     .find((n) => n.value === selection)
                     ?.fields?.forEach((f) => validateField(f, valueObj[field.name], errorsObj[field.name]))
