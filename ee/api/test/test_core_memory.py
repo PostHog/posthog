@@ -31,7 +31,9 @@ class TestCoreMemoryAPI(APIBaseTest):
         response = self.client.post(f"/api/environments/{self.team.pk}/core_memory", {"text": "New memory"})
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["text"], "New memory")
-        self.assertTrue(CoreMemory.objects.filter(team=self.team, text="New memory").exists())
+        self.assertTrue(CoreMemory.objects.get(team=self.team, text="New memory"))
+        self.assertEqual(CoreMemory.objects.get(team=self.team, text="New memory").initial_text, "New memory")
+        self.assertEqual(CoreMemory.objects.get(team=self.team, text="New memory").scraping_status, "completed")
 
     def test_cannot_create_duplicate_core_memory(self):
         response = self.client.post(f"/api/environments/{self.team.pk}/core_memory", {"text": "Initial memory"})

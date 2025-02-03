@@ -21,6 +21,8 @@ class CoreMemorySerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         try:
             validated_data["team"] = self.context["team"]
+            validated_data["initial_text"] = validated_data["text"]
+            validated_data["scraping_status"] = CoreMemory.ScrapingStatus.COMPLETED
             return super().create(validated_data)
         except IntegrityError:
             raise Conflict("Core memory already exists for this environment.")
