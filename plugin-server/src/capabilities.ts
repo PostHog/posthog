@@ -63,6 +63,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 mmdb: true,
                 ingestionOverflow: true,
+                appManagementSingleton: true,
                 ...sharedCapabilities,
             }
         case PluginServerMode.ingestion_historical:
