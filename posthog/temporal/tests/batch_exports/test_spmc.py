@@ -253,9 +253,10 @@ def test_compose_filters_clause(
     assert result_values == expected_values
 
 
-async def test_sessions_record_batch_model(ateam, data_interval_start, data_interval_end):
+async def test_sessions_record_batch_model(ateam):
     model = SessionsRecordBatchModel(
-        team_id=ateam.id, is_backfill=False, full_range=(data_interval_start, data_interval_end)
+        team_id=ateam.id,
+        is_backfill=False,
     )
     context = await model.get_hogql_context(ateam.id)
     hogql_query = model.get_hogql_query()
@@ -264,7 +265,7 @@ async def test_sessions_record_batch_model(ateam, data_interval_start, data_inte
         left=ast.Field(chain=["sessions", "team_id"]),
         right=ast.Constant(value=ateam.id),
     )
-    printed_query, values = await model.as_query_with_parameters()
+    printed_query, _ = await model.as_query_with_parameters()
 
     assert context.output_format == "ArrowStream"
 

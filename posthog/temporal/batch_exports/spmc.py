@@ -561,7 +561,7 @@ class SessionsRecordBatchModel(RecordBatchModel):
             hogql_query, context=context, dialect="clickhouse", stack=[]
         )
         printed = print_prepared_ast(
-            prepared_hogql_query,  # type: ignore
+            prepared_hogql_query,
             context=context,
             dialect="clickhouse",
             stack=[],
