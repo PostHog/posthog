@@ -6,7 +6,7 @@ import structlog
 from django.db import transaction
 from django.utils.timezone import now
 from loginas.utils import is_impersonated_session
-from rest_framework import filters, request, response, serializers, viewsets
+from rest_framework import filters, mixins, request, response, serializers, viewsets
 from rest_framework.exceptions import (
     NotAuthenticated,
     NotFound,
@@ -430,72 +430,6 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
     log_source = "batch_exports"
 
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
-    def backfill(self, request: request.Request, *args, **kwargs) -> response.Response:
-        """Trigger a backfill for a BatchExport."""
-        start_at_input = request.data.get("start_at", None)
-        end_at_input = request.data.get("end_at", None)
-
-        temporal = sync_connect()
-        batch_export = self.get_object()
-
-        if start_at_input is not None:
-            start_at = validate_date_input(start_at_input, self.team)
-        else:
-            start_at = None
-
-        if end_at_input is not None:
-            end_at = validate_date_input(end_at_input, self.team)
-        else:
-            end_at = None
-
-        if start_at is not None or end_at is not None:
-            earliest_backfill_start_at = fetch_earliest_backfill_start_at(
-                team_id=self.team_id,
-                model=batch_export.model,
-                interval_time_delta=batch_export.interval_time_delta,
-                exclude_events=batch_export.destination.config.get("exclude_events", []),
-                include_events=batch_export.destination.config.get("include_events", []),
-            )
-            if earliest_backfill_start_at is None:
-                raise ValidationError("There is no data to backfill for this model.")
-
-            earliest_backfill_start_at = earliest_backfill_start_at.astimezone(self.team.timezone_info)
-
-            if end_at is not None and end_at < earliest_backfill_start_at:
-                raise ValidationError(
-                    "The provided backfill date range contains no data. The earliest possible backfill start date is "
-                    f"{earliest_backfill_start_at.strftime('%Y-%m-%d %H:%M:%S')}",
-                )
-
-            if start_at is not None and start_at < earliest_backfill_start_at:
-                logger.info(
-                    "Backfill start_at '%s' is before the earliest possible backfill start_at '%s', setting start_at "
-                    "to earliest_backfill_start_at",
-                    start_at,
-                    earliest_backfill_start_at,
-                )
-                start_at = earliest_backfill_start_at
-
-        if start_at is None or end_at is None:
-            backfill_workflow_id = backfill_export(temporal, str(batch_export.pk), self.team_id, start_at, end_at)
-            return response.Response({"backfill_id": backfill_workflow_id})
-
-        if start_at >= end_at:
-            raise ValidationError("The initial backfill datetime 'start_at' happens after 'end_at'")
-
-        if end_at > dt.datetime.now(dt.UTC) + batch_export.interval_time_delta:
-            raise ValidationError(
-                f"The provided 'end_at' ({end_at.isoformat()}) is too far into the future. Cannot backfill beyond 1 batch period into the future."
-            )
-
-        try:
-            backfill_workflow_id = backfill_export(temporal, str(batch_export.pk), self.team_id, start_at, end_at)
-        except BatchExportWithNoEndNotAllowedError:
-            raise ValidationError("Backfilling a BatchExport with no end date is not allowed")
-
-        return response.Response({"backfill_id": backfill_workflow_id})
-
-    @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def pause(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Pause a BatchExport."""
         if not isinstance(request.user, User):
@@ -544,6 +478,21 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
 
         return response.Response({"paused": False})
 
+    @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
+    def backfill(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """Trigger a backfill for a BatchExport.
+
+        Note: This endpoint is deprecated. Please use POST /batch_exports/<id>/backfills/ instead.
+        """
+        batch_export = self.get_object()
+        backfill_workflow_id = create_backfill(
+            self.team,
+            batch_export,
+            request.data.get("start_at"),
+            request.data.get("end_at"),
+        )
+        return response.Response({"backfill_id": backfill_workflow_id})
+
     def perform_destroy(self, instance: BatchExport):
         """Perform a BatchExport destroy by clearing Temporal and Django state.
 
@@ -575,7 +524,92 @@ class BackfillsCursorPagination(CursorPagination):
     page_size = 50
 
 
-class BatchExportBackfillViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
+def create_backfill(
+    team: Team,
+    batch_export: BatchExport,
+    start_at_input: str | None,
+    end_at_input: str | None,
+) -> str:
+    """Create a new backfill for a BatchExport.
+
+    Args:
+        team: The team creating the backfill
+        batch_export: The batch export to backfill
+        start_at_input: ISO formatted datetime string for backfill start
+        end_at_input: ISO formatted datetime string for backfill end
+
+    Returns:
+        The backfill workflow ID
+    """
+    temporal = sync_connect()
+
+    if start_at_input is not None:
+        start_at = validate_date_input(start_at_input, team)
+    else:
+        start_at = None
+
+    if end_at_input is not None:
+        end_at = validate_date_input(end_at_input, team)
+    else:
+        end_at = None
+
+    if (start_at is not None or end_at is not None) and batch_export.model is not None:
+        earliest_backfill_start_at = fetch_earliest_backfill_start_at(
+            team_id=team.pk,
+            model=batch_export.model,
+            interval_time_delta=batch_export.interval_time_delta,
+            exclude_events=batch_export.destination.config.get("exclude_events", []),
+            include_events=batch_export.destination.config.get("include_events", []),
+        )
+        if earliest_backfill_start_at is None:
+            raise ValidationError("There is no data to backfill for this model.")
+
+        earliest_backfill_start_at = earliest_backfill_start_at.astimezone(team.timezone_info)
+
+        if end_at is not None and end_at < earliest_backfill_start_at:
+            raise ValidationError(
+                "The provided backfill date range contains no data. The earliest possible backfill start date is "
+                f"{earliest_backfill_start_at.strftime('%Y-%m-%d %H:%M:%S')}",
+            )
+
+        if start_at is not None and start_at < earliest_backfill_start_at:
+            logger.info(
+                "Backfill start_at '%s' is before the earliest possible backfill start_at '%s', setting start_at "
+                "to earliest_backfill_start_at",
+                start_at,
+                earliest_backfill_start_at,
+            )
+            start_at = earliest_backfill_start_at
+
+    if start_at is None or end_at is None:
+        return backfill_export(temporal, str(batch_export.pk), team.pk, start_at, end_at)
+
+    if start_at >= end_at:
+        raise ValidationError("The initial backfill datetime 'start_at' happens after 'end_at'")
+
+    if end_at > dt.datetime.now(dt.UTC) + batch_export.interval_time_delta:
+        raise ValidationError(
+            f"The provided 'end_at' ({end_at.isoformat()}) is too far into the future. Cannot backfill beyond 1 batch period into the future."
+        )
+
+    try:
+        return backfill_export(temporal, str(batch_export.pk), team.pk, start_at, end_at)
+    except BatchExportWithNoEndNotAllowedError:
+        raise ValidationError("Backfilling a BatchExport with no end date is not allowed")
+
+
+class BatchExportBackfillViewSet(
+    TeamAndOrgViewSetMixin,
+    mixins.CreateModelMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet,
+):
+    """ViewSet for BatchExportBackfill models.
+
+    Allows creating and reading backfills, but not updating or deleting them.
+    """
+
     scope_object = "batch_export"
     queryset = BatchExportBackfill.objects.all()
     serializer_class = BatchExportBackfillSerializer
@@ -586,8 +620,24 @@ class BatchExportBackfillViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelV
     ordering = "-created_at"
 
     def safely_get_queryset(self, queryset):
-        # TODO: add filters?
         return queryset.filter(batch_export_id=self.kwargs["parent_lookup_batch_export_id"])
+
+    def create(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """Create a new backfill for a BatchExport."""
+        try:
+            batch_export = BatchExport.objects.get(
+                id=self.kwargs["parent_lookup_batch_export_id"], team_id=self.team_id
+            )
+        except BatchExport.DoesNotExist:
+            raise NotFound("BatchExport not found.")
+
+        backfill_workflow_id = create_backfill(
+            self.team,
+            batch_export,
+            request.data.get("start_at"),
+            request.data.get("end_at"),
+        )
+        return response.Response({"backfill_id": backfill_workflow_id})
 
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def cancel(self, *args, **kwargs) -> response.Response:
