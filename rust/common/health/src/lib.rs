@@ -58,6 +58,17 @@ pub enum ComponentStatus {
     /// Automatically set when the HealthyUntil deadline is reached
     Stalled,
 }
+
+impl ComponentStatus {
+    /// Returns true if the component is currently healthy (i.e., has a valid HealthyUntil status)
+    pub fn is_healthy(&self) -> bool {
+        match self {
+            ComponentStatus::HealthyUntil(until) => until.gt(&time::OffsetDateTime::now_utc()),
+            _ => false,
+        }
+    }
+}
+
 struct HealthMessage {
     component: String,
     status: ComponentStatus,

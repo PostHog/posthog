@@ -106,7 +106,12 @@ async fn create_sink(
             .await
             .expect("failed to create S3 sink");
 
-            Ok(Box::new(FallbackSink::new(kafka_sink, s3_sink)))
+            Ok(Box::new(FallbackSink::new_with_health(
+                kafka_sink,
+                s3_sink,
+                liveness.clone(),
+                "rdkafka".to_string(),
+            )))
         } else {
             Ok(Box::new(kafka_sink))
         }
