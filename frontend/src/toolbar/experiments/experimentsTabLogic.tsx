@@ -11,8 +11,8 @@ import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import {
-    ExperimentDraftType,
-    ExperimentForm,
+    WebExperimentDraftType,
+    WebExperimentForm,
     WebExperiment,
     WebExperimentTransform,
     WebExperimentVariant,
@@ -22,14 +22,13 @@ import { Experiment, ExperimentIdType } from '~/types'
 
 import type { experimentsTabLogicType } from './experimentsTabLogicType'
 
-function newExperiment(): ExperimentForm {
+function newExperiment(): WebExperimentForm {
     return {
         name: '',
         variants: {
             control: {
                 transforms: [
                     {
-                        // text: '',
                         html: '',
                     } as unknown as WebExperimentTransform,
                 ],
@@ -39,14 +38,14 @@ function newExperiment(): ExperimentForm {
                 is_new: true,
                 transforms: [
                     {
-                        // text: '',
                         html: '',
                     } as unknown as WebExperimentTransform,
                 ],
                 rollout_percentage: 50,
             },
         },
-    } as unknown as ExperimentForm
+        original_html_state: {},
+    }
 }
 
 const EXPERIMENT_HEADER_TARGETS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']
@@ -99,7 +98,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             variant,
             index,
         }),
-        saveExperiment: (formValues: ExperimentForm) => ({ formValues }),
+        saveExperiment: (formValues: WebExperimentForm) => ({ formValues }),
         showButtonExperiments: true,
         hideButtonExperiments: true,
         setShowExperimentsTooltip: (showExperimentsTooltip: boolean) => ({ showExperimentsTooltip }),
@@ -182,7 +181,11 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
 
     forms(({ values, actions }) => ({
         experimentForm: {
-            defaults: { name: null, variants: [{}] as unknown as WebExperimentVariant[] } as unknown as ExperimentForm,
+            defaults: {
+                name: null,
+                variants: [{}] as unknown as WebExperimentVariant[],
+                original_html_state: {},
+            } as unknown as WebExperimentForm,
             errors: ({ name }) => ({
                 name: !name ? 'Please enter a name for this experiment' : undefined,
             }),
@@ -239,7 +242,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
     selectors({
         removeVariantAvailable: [
             (s) => [s.experimentForm, s.selectedExperimentId],
-            (experimentForm: ExperimentForm, selectedExperimentId: number | 'new' | null): boolean | undefined => {
+            (experimentForm: WebExperimentForm, selectedExperimentId: number | 'new' | null): boolean | undefined => {
                 /*Only show the remove button if all of these conditions are met:
                 1. Its a new Experiment
                 2. The experiment is still in draft form
@@ -254,7 +257,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
         ],
         addVariantAvailable: [
             (s) => [s.experimentForm, s.selectedExperimentId],
-            (experimentForm: ExperimentForm, selectedExperimentId: number | 'new' | null): boolean | undefined => {
+            (experimentForm: WebExperimentForm, selectedExperimentId: number | 'new' | null): boolean | undefined => {
                 /*Only show the add button if all of these conditions are met:
                 1. Its a new Experiment
                 2. The experiment is still in draft form*/
@@ -263,7 +266,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
         ],
         selectedExperiment: [
             (s) => [s.selectedExperimentId, s.allExperiments],
-            (selectedExperimentId, allExperiments: WebExperiment[]): Experiment | ExperimentDraftType | null => {
+            (selectedExperimentId, allExperiments: WebExperiment[]): Experiment | WebExperimentDraftType | null => {
                 if (selectedExperimentId === 'new') {
                     return newExperiment()
                 }
@@ -273,7 +276,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
     }),
 
     subscriptions(({ actions }) => ({
-        selectedExperiment: (selectedExperiment: Experiment | ExperimentDraftType | null) => {
+        selectedExperiment: (selectedExperiment: Experiment | WebExperimentDraftType | null) => {
             if (!selectedExperiment) {
                 actions.setExperimentFormValues({ name: '', variants: {} })
             } else {
@@ -313,10 +316,12 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 if (eVariant) {
                     if (index !== null && eVariant.transforms.length > index) {
                         const transform = eVariant.transforms[index]
-                        transform.selector = element.id ? `#${element.id}` : elementToQuery(element, [])
+                        const elementSelector = element.id ? `#${element.id}` : elementToQuery(element, [])
+                        transform.selector = elementSelector
                         // if (element.textContent) {
                         //     transform.text = element.textContent
                         // }
+                        values.experimentForm.original_html_state[elementSelector] = element.innerHTML
                         transform.html = element.innerHTML
                         actions.setExperimentFormValue('variants', values.experimentForm.variants)
                     }
@@ -334,33 +339,18 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             if (values.experimentForm && values.experimentForm.variants) {
                 const selectedVariant = values.experimentForm.variants[newVariantKey]
                 if (selectedVariant) {
-                    if (values.experimentForm.undo_transforms === undefined) {
-                        values.experimentForm.undo_transforms = []
-                    }
-
-                    // run the undo transforms first.
-                    values.experimentForm.undo_transforms?.forEach((transform) => {
-                        if (transform.selector) {
-                            const elements = document.querySelectorAll(transform.selector)
-                            elements.forEach((elements) => {
-                                const htmlElement = elements as HTMLElement
-                                if (htmlElement) {
-                                    if (transform.html) {
-                                        htmlElement.innerHTML = transform.html
-                                    }
-
-                                    // if (transform.css) {
-                                    //     htmlElement.setAttribute('style', transform.css)
-                                    // }
-
-                                    // if (transform.text) {
-                                    //     htmlElement.innerText = transform.text
-                                    // }
-                                }
-                            })
-                        }
+                    // First restore original HTML state for all elements
+                    Object.entries(values.experimentForm.original_html_state).forEach(([selector, originalHtml]) => {
+                        const elements = document.querySelectorAll(selector)
+                        elements.forEach((element) => {
+                            const htmlElement = element as HTMLElement
+                            if (htmlElement) {
+                                htmlElement.innerHTML = originalHtml
+                            }
+                        })
                     })
 
+                    // Then apply the new transforms
                     selectedVariant.transforms?.forEach((transform) => {
                         if (transform.selector) {
                             const undoTransform: WebExperimentTransform = {
@@ -374,25 +364,8 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                                         undoTransform.html = htmlElement.innerHTML
                                         htmlElement.innerHTML = transform.html
                                     }
-
-                                    // if (transform.css) {
-                                    //     undoTransform.css = htmlElement.getAttribute('style') || ' '
-                                    //     htmlElement.setAttribute('style', transform.css)
-                                    // }
-
-                                    // if (transform.text) {
-                                    //     undoTransform.text = htmlElement.innerText
-                                    //     htmlElement.innerText = transform.text
-                                    // }
                                 }
                             })
-
-                            if (
-                                (currentVariantKey === 'control' || currentVariantKey === '') &&
-                                newVariantKey !== 'control'
-                            ) {
-                                values.experimentForm.undo_transforms?.push(undoTransform)
-                            }
                         }
                     })
                 }

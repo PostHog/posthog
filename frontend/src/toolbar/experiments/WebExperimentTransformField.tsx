@@ -1,10 +1,7 @@
-import { IconAIText, IconCheckCircle, IconCode, IconMessage, IconPencil } from '@posthog/icons'
-import { LemonDivider, LemonInput } from '@posthog/lemon-ui'
+import { LemonLabel } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { useState } from 'react'
 
 import {
     ElementSelectorButtonTypes,
@@ -24,14 +21,9 @@ export function WebExperimentTransformField({
     tIndex,
     transform,
 }: WebExperimentTransformFieldProps): JSX.Element {
-    const [transformSelected, setTransformSelected] = useState(
-        transform.html && transform.html.length > 0 ? 'html' : 'text'
-    )
     const { experimentForm, inspectingElement, selectedVariant, selectedElementType } = useValues(experimentsTabLogic)
     const { setExperimentFormValue, selectVariant, selectElementType, inspectForElementWithIndex } =
         useActions(experimentsTabLogic)
-
-    const [editSelectorShowing, setEditSelectorShowing] = useState(false)
 
     return (
         <>
@@ -70,17 +62,6 @@ export function WebExperimentTransformField({
                                             </LemonButton>
                                         )
                                     })}
-                                    <LemonDivider className="my-1" />
-                                    <LemonButton
-                                        fullWidth
-                                        type="tertiary"
-                                        icon={<IconPencil />}
-                                        onClick={() => {
-                                            setEditSelectorShowing(true)
-                                        }}
-                                    >
-                                        Edit selector
-                                    </LemonButton>
                                 </>
                             ),
                             placement: 'bottom',
@@ -91,105 +72,8 @@ export function WebExperimentTransformField({
                     {transform.selector ? 'Change element' : 'Select element'}
                 </LemonButton>
             </div>
-            {editSelectorShowing && (
-                <div className="mb-2">
-                    <LemonInput
-                        value={transform.selector}
-                        onChange={(value) => {
-                            if (experimentForm.variants) {
-                                const variants = { ...experimentForm.variants }
-                                variants[variant].transforms[tIndex].selector = value
-                                setExperimentFormValue('variants', variants)
-                            }
-                        }}
-                        placeholder="HTML element selector"
-                    />
-                </div>
-            )}
-            <LemonSegmentedButton
-                fullWidth
-                options={[
-                    {
-                        value: 'text',
-                        label: 'Text',
-                        icon:
-                            transform.text && transform.text.length > 0 ? (
-                                <IconCheckCircle className="text-success" />
-                            ) : (
-                                <IconMessage />
-                            ),
-                    },
-                    {
-                        value: 'css',
-                        label: 'CSS',
-                        icon:
-                            transform.css && transform.css.length > 0 ? (
-                                <IconCheckCircle className="text-success" />
-                            ) : (
-                                <IconAIText />
-                            ),
-                    },
-                    {
-                        value: 'html',
-                        label: 'HTML',
-                        icon:
-                            transform.html && transform.html.length > 0 ? (
-                                <IconCheckCircle className="text-success" />
-                            ) : (
-                                <IconCode />
-                            ),
-                    },
-                ]}
-                onChange={(e) => {
-                    setTransformSelected(e)
-                    if (experimentForm.variants) {
-                        const webVariant = experimentForm.variants[variant]
-                        if (webVariant && transform.selector) {
-                            const element = document.querySelector(transform.selector) as HTMLElement
-                            switch (e) {
-                                case 'html':
-                                    if (transform.html === '') {
-                                        transform.html = element.innerHTML
-                                    }
-                                    break
-
-                                case 'text':
-                                    if (transform.text === '' && element.textContent) {
-                                        transform.text = element.textContent
-                                    }
-                                    break
-                                case 'css':
-                                    if (transform.css === '' && element.hasAttribute('style')) {
-                                        transform.css = element.getAttribute('style')!
-                                    }
-                                    break
-                            }
-                            setExperimentFormValue('variants', experimentForm.variants)
-                        }
-                    }
-                }}
-                value={transformSelected}
-            />
-            {transformSelected == 'text' && (
-                <LemonTextArea
-                    onChange={(value) => {
-                        if (experimentForm.variants) {
-                            const webVariant = experimentForm.variants[variant]
-                            if (webVariant && transform.selector) {
-                                webVariant.transforms[tIndex].text = value
-                                const element = document.querySelector(transform.selector) as HTMLElement
-                                if (element) {
-                                    element.innerText = value
-                                }
-                            }
-                        }
-                        setExperimentFormValue('variants', experimentForm.variants)
-                    }}
-                    value={transform.text}
-                />
-            )}
-
-            {transformSelected == 'html' && (
+            <div className="mt-4">
+                <LemonLabel>HTML</LemonLabel>
                 <LemonTextArea
                     onChange={(value) => {
                         transform.html = value
@@ -207,24 +91,7 @@ export function WebExperimentTransformField({
                     }}
                     value={transform.html}
                 />
-            )}
-
-            {transformSelected == 'css' && (
-                <LemonTextArea
-                    onChange={(value) => {
-                        if (experimentForm.variants) {
-                            const webVariant = experimentForm.variants[variant]
-                            if (webVariant && transform.selector) {
-                                webVariant.transforms[tIndex].css = value
-                                const element = document.querySelector(transform.selector) as HTMLElement
-                                element.setAttribute('style', value)
-                            }
-                        }
-                        setExperimentFormValue('variants', experimentForm.variants)
-                    }}
-                    value={transform.css || ''}
-                />
-            )}
+            </div>
         </>
     )
 }

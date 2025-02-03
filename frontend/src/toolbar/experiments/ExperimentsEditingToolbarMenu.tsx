@@ -1,7 +1,6 @@
 import { IconPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -47,24 +46,6 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                 enableFormOnSubmit
                 className="flex flex-col overflow-hidden flex-1"
             >
-                {/* <ToolbarMenu.Header className="border-b">
-                    <h1 className="p-1 font-bold text-sm mb-0">
-                        {selectedExperimentId === 'new' ? 'New ' : 'Edit '}
-                        experiment
-                        {selectedVariant && `  variant : ${selectedVariant}`}
-                    </h1>
-                    <div id="errorcontainer">
-                        {Object.keys(experimentFormErrors).length > 0 &&
-                            !Object.values(experimentFormErrors).every((el) => el === undefined) && (
-                                <LemonBanner type="error">
-                                    <ol>
-                                        {experimentFormErrors.name && <li>{experimentFormErrors.name}</li>}
-                                        {experimentFormErrors.variants && <li>{experimentFormErrors.variants}</li>}
-                                    </ol>
-                                </LemonBanner>
-                            )}
-                    </div>
-                </ToolbarMenu.Header> */}
                 <ToolbarMenu.Body>
                     <div className="space-y-6 p-2">
                         <div className="flex w-full">
