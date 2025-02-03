@@ -41,8 +41,8 @@ export class KafkaProducerWrapper {
     /** Kafka producer used for syncing Postgres and ClickHouse person data. */
     public producer: HighLevelProducer
 
-    static async create(config: PluginsServerConfig) {
-        const globalConfig = createRdConnectionConfigFromEnvVars(config, 'producer')
+    static async create(config: PluginsServerConfig, mode: 'producer' | 'consumer' = 'producer') {
+        const globalConfig = createRdConnectionConfigFromEnvVars(config, mode)
         const producer = new HighLevelProducer({
             ...globalConfig,
             // milliseconds to wait after the most recently added message before sending a batch. The

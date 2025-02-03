@@ -1,5 +1,6 @@
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { useMemo, useState } from 'react'
 import { WEB_VITALS_COLORS, WEB_VITALS_THRESHOLDS, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
@@ -11,6 +12,7 @@ import {
     WebVitalsPathBreakdownQueryResponse,
 } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
+import { PropertyFilterType } from '~/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { computePositionInBand, getValueWithUnit, ICON_PER_BAND } from './definitions'
@@ -67,10 +69,9 @@ const Header = ({ band, label }: { band: WebVitalsMetricBand; label: string }): 
 
     const thresholdText = useMemo(() => {
         const threshold = WEB_VITALS_THRESHOLDS[webVitalsTab]
-        const inSeconds = webVitalsTab !== 'CLS'
 
-        const { value: poorValue, unit: poorUnit } = getValueWithUnit(threshold.poor, inSeconds)
-        const { value: goodValue, unit: goodUnit } = getValueWithUnit(threshold.good, inSeconds)
+        const { value: poorValue, unit: poorUnit } = getValueWithUnit(threshold.poor, webVitalsTab)
+        const { value: goodValue, unit: goodUnit } = getValueWithUnit(threshold.good, webVitalsTab)
 
         if (band === 'poor') {
             return (
@@ -130,7 +131,8 @@ const Content = ({
     response: WebVitalsPathBreakdownQueryResponse | undefined
     responseLoading: boolean
 }): JSX.Element => {
-    const { webVitalsTab } = useValues(webAnalyticsLogic)
+    const { webVitalsTab, isPathCleaningEnabled } = useValues(webAnalyticsLogic)
+    const { togglePropertyFilter } = useActions(webAnalyticsLogic)
 
     const values = response?.results[0][band]
     const threshold = WEB_VITALS_THRESHOLDS[webVitalsTab]
@@ -147,6 +149,8 @@ const Content = ({
                     values?.map(({ path, value }) => {
                         const width = computePositionInBand(value, threshold) * 100
 
+                        const { value: parsedValue, unit } = getValueWithUnit(value, webVitalsTab)
+
                         return (
                             <div
                                 className="flex flex-row items-center justify-between relative w-full p-2 py-1"
@@ -157,11 +161,18 @@ const Content = ({
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{ width, backgroundColor: 'var(--muted)', opacity: 0.5 }}
                                 />
-                                <span title={path} className="relative z-10 truncate mr-2 flex-1">
-                                    {path}
+                                <span
+                                    title={path}
+                                    className="relative z-10 truncate mr-2 flex-1 cursor-pointer hover:underline"
+                                    onClick={() => {
+                                        togglePropertyFilter(PropertyFilterType.Event, '$pathname', path)
+                                    }}
+                                >
+                                    {isPathCleaningEnabled ? parseAliasToReadable(path) : path}
                                 </span>
                                 <span className="relative z-10 flex-shrink-0">
-                                    {value >= 1 ? value.toFixed(0) : value.toFixed(2)}
+                                    {parsedValue}
+                                    {unit}
                                 </span>
                             </div>
                         )

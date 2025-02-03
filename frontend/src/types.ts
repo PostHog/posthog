@@ -1,7 +1,7 @@
 import { LemonInputProps, LemonTableColumns } from '@posthog/lemon-ui'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
-import { LogLevel } from '@rrweb/rrweb-plugin-console-record'
-import { eventWithTime } from '@rrweb/types'
+import { LogLevel } from '@posthog/rrweb-plugin-console-record'
+import { eventWithTime } from '@posthog/rrweb-types'
 import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
 import { LogicWrapper } from 'kea'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
@@ -106,7 +106,6 @@ export enum AvailableFeature {
     ORGANIZATIONS_PROJECTS = 'organizations_projects',
     ROLE_BASED_ACCESS = 'role_based_access',
     SOCIAL_SSO = 'social_sso',
-    PROJECT_BASED_PERMISSIONING = 'project_based_permissioning',
     SAML = 'saml',
     SSO_ENFORCEMENT = 'sso_enforcement',
     WHITE_LABELLING = 'white_labelling',
@@ -704,6 +703,7 @@ export enum PropertyOperator {
     Maximum = 'max',
     In = 'in',
     NotIn = 'not_in',
+    IsCleanedPathExact = 'is_cleaned_path_exact',
 }
 
 export enum SavedInsightsTabs {
@@ -3494,7 +3494,7 @@ interface BreadcrumbBase {
 }
 interface LinkBreadcrumb extends BreadcrumbBase {
     /** Name to display. */
-    name: string | null | undefined
+    name: string | JSX.Element | null | undefined
     symbol?: never
     /** Path to link to. */
     path?: string
@@ -3504,7 +3504,7 @@ interface LinkBreadcrumb extends BreadcrumbBase {
 }
 interface RenamableBreadcrumb extends BreadcrumbBase {
     /** Name to display. */
-    name: string | null | undefined
+    name: string | JSX.Element | null | undefined
     symbol?: never
     path?: never
     /** When this is set, an "Edit" button shows up next to the title */
@@ -3748,6 +3748,7 @@ export type IntegrationKind =
     | 'google-pubsub'
     | 'google-cloud-storage'
     | 'google-ads'
+    | 'linkedin-ads'
     | 'snapchat'
 
 export interface IntegrationType {
@@ -4598,6 +4599,7 @@ export type HogFunctionInputSchemaType = {
     required?: boolean
     default?: any
     secret?: boolean
+    templating?: boolean
     description?: string
     integration?: string
     integration_key?: string
@@ -4689,7 +4691,7 @@ export type HogFunctionType = {
     updated_at: string
     enabled: boolean
     hog: string
-
+    execution_order?: number
     inputs_schema?: HogFunctionInputSchemaType[]
     inputs?: Record<string, HogFunctionInputType> | null
     mappings?: HogFunctionMappingType[] | null
@@ -4699,7 +4701,7 @@ export type HogFunctionType = {
     status?: HogFunctionStatus
 }
 
-export type HogFunctionTemplateStatus = 'alpha' | 'beta' | 'stable' | 'free' | 'deprecated' | 'client-side'
+export type HogFunctionTemplateStatus = 'stable' | 'alpha' | 'beta' | 'deprecated'
 export type HogFunctionSubTemplateIdType = 'early-access-feature-enrollment' | 'survey-response' | 'activity-log'
 
 export type HogFunctionConfigurationType = Omit<
@@ -4721,6 +4723,7 @@ export type HogFunctionTemplateType = Pick<
     'id' | 'type' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking' | 'mappings'
 > & {
     status: HogFunctionTemplateStatus
+    free: boolean
     sub_templates?: HogFunctionSubTemplateType[]
     mapping_templates?: HogFunctionMappingTemplateType[]
 }
@@ -4841,6 +4844,17 @@ export type GoogleAdsConversionActionType = {
     id: string
     name: string
     resourceName: string
+}
+
+export type LinkedInAdsConversionRuleType = {
+    id: number
+    name: string
+}
+
+export type LinkedInAdsAccountType = {
+    id: number
+    name: string
+    campaigns: string
 }
 
 export type DataColorThemeModel = {

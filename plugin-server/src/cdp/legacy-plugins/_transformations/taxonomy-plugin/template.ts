@@ -1,6 +1,7 @@
 import { HogFunctionTemplate } from '~/src/cdp/templates/types'
 
 export const template: HogFunctionTemplate = {
+    free: true,
     status: 'alpha',
     type: 'transformation',
     id: 'plugin-taxonomy-plugin',
@@ -12,6 +13,7 @@ export const template: HogFunctionTemplate = {
     inputs_schema: [
         {
             key: 'defaultNamingConvention',
+            templating: false,
             label: 'Select your default naming pattern',
             type: 'choice',
             choices: [
