@@ -6202,13 +6202,14 @@ class HogQLASTQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    name: Optional[str] = Field(default=None, description="Client provided name of the query")
     query: dict[str, Any]
     response: Optional[HogQLQueryResponse] = None
     values: Optional[dict[str, Any]] = Field(
         default=None, description="Constant values that can be referenced with the {placeholder} syntax in the query"
     )
     variables: Optional[dict[str, HogQLVariable]] = Field(
-        default=None, description="Variables to be subsituted into the query"
+        default=None, description="Variables to be substituted into the query"
     )
 
 
@@ -6222,13 +6223,14 @@ class HogQLQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    name: Optional[str] = Field(default=None, description="Client provided name of the query")
     query: str
     response: Optional[HogQLQueryResponse] = None
     values: Optional[dict[str, Any]] = Field(
         default=None, description="Constant values that can be referenced with the {placeholder} syntax in the query"
     )
     variables: Optional[dict[str, HogQLVariable]] = Field(
-        default=None, description="Variables to be subsituted into the query"
+        default=None, description="Variables to be substituted into the query"
     )
 
 
