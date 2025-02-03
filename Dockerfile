@@ -62,19 +62,14 @@ RUN apt-get update && \
     "zlib1g-dev" \
     && \
     rm -rf /var/lib/apt/lists/* && \
-    corepack enable && \
-    mkdir /tmp/pnpm-store && \
-    rm -rf node_modules && \
-    node --version && \
-    echo "1" && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
-    cd ../common/plugin_transpiler && \
-    rm -rf node_modules && \
-    echo "2" && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
-    echo "3" && \
-    pnpm build && \
-    rm -rf /tmp/pnpm-store
+RUN corepack enable
+RUN node --version
+RUN mkdir /tmp/pnpm-store \
+RUN pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store
+RUN cd ../common/plugin_transpiler && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store
+RUN pnpm build
+RUN rm -rf /tmp/pnpm-store
 
 # Build the plugin server.
 #
