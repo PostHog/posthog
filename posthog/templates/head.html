@@ -24,9 +24,6 @@
             window.JS_POSTHOG_HOST = window.location.origin;
         }
         window.JS_POSTHOG_UI_HOST = "{{ js_posthog_ui_host|escapejs }}";
-        if (window.JS_POSTHOG_UI_HOST === "''") {
-            window.JS_POSTHOG_UI_HOST = "";
-        }
         window.JS_POSTHOG_SELF_CAPTURE = {{self_capture | yesno:"true,false" }};
         window.POSTHOG_USER_IDENTITY_WITH_FLAGS = JSON.parse("{{ posthog_bootstrap | escapejs }}")
         window.IMPERSONATED_SESSION = {{is_impersonated_session | yesno:"true,false"}};
