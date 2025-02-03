@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useCallback } from 'react'
+import { useCallback, useEffect } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { ManualLinkSourceType, SourceConfig } from '~/types'
@@ -52,19 +52,16 @@ interface NewSourcesWizardProps {
 export function NewSourcesWizard({ onComplete }: NewSourcesWizardProps): JSX.Element {
     const wizardLogic = sourceWizardLogic({ onComplete })
 
-    const {
-        modalTitle,
-        modalCaption,
-        isWrapped,
-        currentStep,
-        isLoading,
-        canGoBack,
-        canGoNext,
-        nextButtonText,
-        showSkipButton,
-    } = useValues(wizardLogic)
-    const { onBack, onSubmit } = useActions(wizardLogic)
+    const { modalTitle, modalCaption, isWrapped, currentStep, isLoading, canGoBack, canGoNext, nextButtonText } =
+        useValues(wizardLogic)
+    const { onBack, onSubmit, onClear } = useActions(wizardLogic)
     const { tableLoading: manualLinkIsLoading } = useValues(dataWarehouseTableLogic)
+
+    useEffect(() => {
+        return () => {
+            onClear()
+        }
+    }, [onClear])
 
     const footer = useCallback(() => {
         if (currentStep === 1) {
@@ -96,7 +93,7 @@ export function NewSourcesWizard({ onComplete }: NewSourcesWizardProps): JSX.Ele
                 </LemonButton>
             </div>
         )
-    }, [currentStep, isLoading, manualLinkIsLoading, canGoNext, canGoBack, nextButtonText, showSkipButton])
+    }, [currentStep, canGoBack, onBack, isLoading, manualLinkIsLoading, canGoNext, nextButtonText, onSubmit])
 
     return (
         <>

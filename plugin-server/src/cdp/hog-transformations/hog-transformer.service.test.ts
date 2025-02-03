@@ -141,6 +141,7 @@ describe('HogTransformer', () => {
         })
         it('should execute multiple transformations', async () => {
             const testTemplate: HogFunctionTemplate = {
+                free: true,
                 status: 'beta',
                 type: 'transformation',
                 id: 'template-test',
@@ -216,6 +217,7 @@ describe('HogTransformer', () => {
 
         it('should delete a property from previous transformation', async () => {
             const addingTemplate: HogFunctionTemplate = {
+                free: true,
                 status: 'alpha',
                 type: 'transformation',
                 id: 'template-test',
@@ -231,6 +233,7 @@ describe('HogTransformer', () => {
             }
 
             const deletingTemplate: HogFunctionTemplate = {
+                free: true,
                 status: 'alpha',
                 type: 'transformation',
                 id: 'template-test',
@@ -296,6 +299,7 @@ describe('HogTransformer', () => {
         })
         it('should execute tranformation without execution_order last', async () => {
             const firstTemplate: HogFunctionTemplate = {
+                free: true,
                 status: 'alpha',
                 type: 'transformation',
                 id: 'template-test',
@@ -309,6 +313,7 @@ describe('HogTransformer', () => {
             }
 
             const secondTemplate: HogFunctionTemplate = {
+                free: true,
                 status: 'alpha',
                 type: 'transformation',
                 id: 'template-test',
@@ -322,6 +327,7 @@ describe('HogTransformer', () => {
             }
 
             const thirdTemplate: HogFunctionTemplate = {
+                free: true,
                 status: 'alpha',
                 type: 'transformation',
                 id: 'template-test',

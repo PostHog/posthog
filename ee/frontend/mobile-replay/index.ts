@@ -1,4 +1,4 @@
-import { eventWithTime } from '@rrweb/types'
+import { eventWithTime } from '@posthog/rrweb-types'
 import { captureException, captureMessage } from '@sentry/react'
 import Ajv, { ErrorObject } from 'ajv'
 

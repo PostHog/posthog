@@ -1,6 +1,7 @@
 import { HogFunctionTemplate } from '~/src/cdp/templates/types'
 
 export const template: HogFunctionTemplate = {
+    free: true,
     status: 'alpha',
     type: 'transformation',
     id: 'plugin-posthog-app-url-parameters-to-event-properties',
