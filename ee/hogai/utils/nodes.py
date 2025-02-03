@@ -45,7 +45,7 @@ class AssistantNode(ABC):
         return self._utc_now_datetime.strftime("%Y-%m-%d %H:%M:%S")
 
     @property
-    def project_tz_now(self) -> str:
+    def project_now(self) -> str:
         """
         Returns the current time in the project's timezone.
         """
@@ -54,6 +54,6 @@ class AssistantNode(ABC):
     @property
     def project_timezone(self) -> str | None:
         """
-        Returns the timezone of the project.
+        Returns the timezone of the project, e.g. "PST" or "UTC".
         """
         return self._team.timezone_info.tzname(self._utc_now_datetime)

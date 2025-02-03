@@ -88,7 +88,8 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         try:
             message: SchemaGeneratorOutput[Q] = chain.invoke(
                 {
-                    "project_time": self.project_tz_now,
+                    "project_datetime": self.project_now,
+                    "project_timezone": self.project_timezone,
                 },
                 config,
             )

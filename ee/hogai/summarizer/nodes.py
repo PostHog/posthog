@@ -82,7 +82,7 @@ class SummarizerNode(AssistantNode):
                 "core_memory": self.core_memory_text,
                 "results": json.dumps(results_response["results"], cls=DjangoJSONEncoder),
                 "utc_datetime_display": self.utc_now,
-                "project_datetime_display": self.project_tz_now,
+                "project_datetime_display": self.project_now,
                 "project_timezone": self.project_timezone,
             },
             config,
