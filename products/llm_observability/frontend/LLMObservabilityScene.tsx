@@ -146,7 +146,11 @@ export function LLMObservabilityScene(): JSX.Element {
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_OBSERVABILITY_DATA_COLLECTION_NODE_ID }}>
             <PageHeader
                 buttons={
-                    <LemonButton to="https://posthog.com/docs/ai-engineering" type="secondary" targetBlank>
+                    <LemonButton
+                        to="https://posthog.com/docs/ai-engineering/observability"
+                        type="secondary"
+                        targetBlank
+                    >
                         Documentation
                     </LemonButton>
                 }
