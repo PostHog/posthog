@@ -49,7 +49,7 @@ export function MaxMemorySettings(): JSX.Element {
                                     }
                                     loading={isUpdating}
                                 >
-                                    Save description
+                                    Save memory
                                 </LemonButton>
                             </Form>
                         ),

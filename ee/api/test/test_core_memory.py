@@ -1,3 +1,4 @@
+from django.db import transaction
 from rest_framework import status
 
 from ee.models.assistant import CoreMemory
@@ -31,14 +32,19 @@ class TestCoreMemoryAPI(APIBaseTest):
         response = self.client.post(f"/api/environments/{self.team.pk}/core_memory", {"text": "New memory"})
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["text"], "New memory")
-        self.assertTrue(CoreMemory.objects.get(team=self.team, text="New memory"))
-        self.assertEqual(CoreMemory.objects.get(team=self.team, text="New memory").initial_text, "New memory")
-        self.assertEqual(CoreMemory.objects.get(team=self.team, text="New memory").scraping_status, "completed")
+
+        created_memory = CoreMemory.objects.get(team=self.team, text="New memory")
+        self.assertTrue(created_memory)
+        self.assertEqual(created_memory.initial_text, "New memory")
+        self.assertEqual(created_memory.scraping_status, "completed")
 
     def test_cannot_create_duplicate_core_memory(self):
-        response = self.client.post(f"/api/environments/{self.team.pk}/core_memory", {"text": "Initial memory"})
-        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
-        self.assertEqual(response.json()["detail"], "Core memory already exists for this environment.")
+        count = CoreMemory.objects.count()
+        with transaction.atomic():
+            response = self.client.post(f"/api/environments/{self.team.pk}/core_memory", {"text": "Initial memory"})
+            self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+            self.assertEqual(response.json()["detail"], "Core memory already exists for this environment.")
+        self.assertEqual(CoreMemory.objects.count(), count)
 
     def test_patch_core_memory(self):
         response = self.client.patch(
