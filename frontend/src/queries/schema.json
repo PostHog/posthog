@@ -7744,6 +7744,49 @@
             "enum": ["hog", "hogJson", "hogQL", "hogQLExpr", "hogTemplate"],
             "type": "string"
         },
+        "HogQLASTQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "explain": {
+                    "deprecated": "use modifiers.debug instead",
+                    "type": "boolean"
+                },
+                "filters": {
+                    "$ref": "#/definitions/HogQLFilters"
+                },
+                "kind": {
+                    "const": "HogQLASTQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "name": {
+                    "description": "Client provided name of the query",
+                    "type": "string"
+                },
+                "query": {
+                    "type": "object"
+                },
+                "response": {
+                    "$ref": "#/definitions/HogQLQueryResponse"
+                },
+                "values": {
+                    "description": "Constant values that can be referenced with the {placeholder} syntax in the query",
+                    "type": "object"
+                },
+                "variables": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/HogQLVariable"
+                    },
+                    "description": "Variables to be substituted into the query",
+                    "type": "object"
+                }
+            },
+            "required": ["kind", "query"],
+            "type": "object"
+        },
         "HogQLAutocomplete": {
             "additionalProperties": false,
             "properties": {
@@ -7986,6 +8029,10 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "name": {
+                    "description": "Client provided name of the query",
+                    "type": "string"
+                },
                 "query": {
                     "type": "string"
                 },
@@ -8000,7 +8047,7 @@
                     "additionalProperties": {
                         "$ref": "#/definitions/HogQLVariable"
                     },
-                    "description": "Variables to be subsituted into the query",
+                    "description": "Variables to be substituted into the query",
                     "type": "object"
                 }
             },
@@ -9247,6 +9294,7 @@
                 "PersonsNode",
                 "HogQuery",
                 "HogQLQuery",
+                "HogQLASTQuery",
                 "HogQLMetadata",
                 "HogQLAutocomplete",
                 "ActorsQuery",

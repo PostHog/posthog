@@ -12,7 +12,6 @@
         <errorlog>/var/log/clickhouse-server/clickhouse-server.err.log</errorlog>
         <size>1000M</size>
         <count>10</count>
-        <console>1</console>
     </logger>
 
     <http_port>8123</http_port>

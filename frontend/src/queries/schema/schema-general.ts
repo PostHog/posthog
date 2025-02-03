@@ -63,6 +63,7 @@ export enum NodeKind {
     PersonsNode = 'PersonsNode',
     HogQuery = 'HogQuery',
     HogQLQuery = 'HogQLQuery',
+    HogQLASTQuery = 'HogQLASTQuery',
     HogQLMetadata = 'HogQLMetadata',
     HogQLAutocomplete = 'HogQLAutocomplete',
     ActorsQuery = 'ActorsQuery',
@@ -297,12 +298,19 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     kind: NodeKind.HogQLQuery
     query: string
     filters?: HogQLFilters
-    /** Variables to be subsituted into the query */
+    /** Variables to be substituted into the query */
     variables?: Record<string, HogQLVariable>
     /** Constant values that can be referenced with the {placeholder} syntax in the query */
     values?: Record<string, any>
     /** @deprecated use modifiers.debug instead */
     explain?: boolean
+    /** Client provided name of the query */
+    name?: string
+}
+
+export interface HogQLASTQuery extends Omit<HogQLQuery, 'query' | 'kind'> {
+    kind: NodeKind.HogQLASTQuery
+    query: Record<string, any>
 }
 
 export interface HogQueryResponse {
