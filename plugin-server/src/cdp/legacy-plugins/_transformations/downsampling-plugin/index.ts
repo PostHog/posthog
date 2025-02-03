@@ -39,7 +39,7 @@ export function processEvent(event: PluginEvent, { global }: LegacyTransformatio
 
 export const downsamplingPlugin: LegacyTransformationPlugin = {
     id: 'downsampling-plugin',
-    metadata: metadata as any,
+    metadata,
     processEvent,
     setupPlugin,
 }
