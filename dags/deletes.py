@@ -15,6 +15,8 @@ from dagster import (
 )
 from django.conf import settings
 from functools import partial
+import uuid
+
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
     Mutation,
@@ -34,7 +36,9 @@ class ClickhouseClusterResource(ConfigurableResource):
     client_settings: dict[str, str] = {
         "max_execution_time": "0",
         "max_memory_usage": "0",
-        "receive_timeout": f"{10 * 60}",
+        "receive_timeout": f"{24 * 60 * 60}",  # wait 24 hours for a response from CH
+        "mutations_sync": "0",
+        "lightweight_deletes_sync": "0",
     }
 
     def create_resource(self, context: InitResourceContext) -> ClickhouseCluster:
@@ -60,16 +64,12 @@ class DeleteConfig(Config):
     )
     max_execution_time: int = pydantic.Field(
         default=0,
-        description="The maximum amount of time to wait for the dictionary to be loaded before considering the operation "
+        description="The maximum amount of time to wait for the dictionary load to complete before considering the operation "
         "a failure, or 0 to wait an unlimited amount of time.",
     )
     max_memory_usage: int = pydantic.Field(
         default=0,
         description="The maximum amount of memory to use for the dictionary, or 0 to use an unlimited amount.",
-    )
-    lightweight_deletes_sync: int = pydantic.Field(
-        default=0,
-        description="0 is async. 1 is local sync. 2 is cluster sync.",
     )
 
     @property
@@ -83,7 +83,7 @@ ShardMutations = dict[int, Mutation]
 @dataclass
 class PendingPersonEventDeletesTable:
     """
-    Represents a temporary table storing pending person event deletions.
+    Represents a table storing pending person event deletions.
     """
 
     timestamp: datetime
@@ -111,6 +111,12 @@ class PendingPersonEventDeletesTable:
         return f"{settings.CLICKHOUSE_DATABASE}.{self.table_name}"
 
     @property
+    def zk_path(self) -> str:
+        ns_uuid = uuid.uuid4()
+        testing = f"testing/{ns_uuid}/" if settings.TEST else ""
+        return f"/clickhouse/tables/{testing}noshard/{self.table_name}"
+
+    @property
     def create_table_query(self) -> str:
         return f"""
             CREATE TABLE IF NOT EXISTS {self.qualified_name} ON CLUSTER '{self.cluster}'
@@ -119,7 +125,7 @@ class PendingPersonEventDeletesTable:
                 key String,
                 created_at DateTime,
             )
-            ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/{self.table_name}', '{{shard}}-{{replica}}')
+            ENGINE = ReplicatedReplacingMergeTree('{self.zk_path}', '{{shard}}-{{replica}}')
             ORDER BY (team_id, key)
         """
 
@@ -168,7 +174,6 @@ class PendingPersonEventDeletesTable:
 @dataclass
 class PendingDeletesDictionary:
     source: PendingPersonEventDeletesTable
-    lightweight_deletes_sync: int = 0
 
     @property
     def name(self) -> str:
@@ -258,7 +263,6 @@ class PendingDeletesDictionary:
                 timestamp <= dictGet('{self.qualified_name}', 'created_at', (team_id, person_id))
             """,
             {},
-            settings={"mutations_sync": self.lightweight_deletes_sync},
         )
 
 
@@ -381,7 +385,6 @@ def create_deletes_dict(
 
     del_dict = PendingDeletesDictionary(
         source=load_pending_person_deletions,
-        lightweight_deletes_sync=config.lightweight_deletes_sync,
     )
 
     cluster.any_host_by_role(
