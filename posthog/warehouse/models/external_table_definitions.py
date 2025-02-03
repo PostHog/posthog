@@ -730,7 +730,7 @@ external_tables: dict[str, dict[str, DatabaseField]] = {
     },
     "zendesk_ticket_metric_events": {
         "id": IntegerDatabaseField(name="id"),
-        "__time": DateTimeDatabaseField(name="time", hidden=True),
+        "__time": StringDatabaseField(name="time", hidden=True),
         "time": ast.ExpressionField(
             isolate_scope=True,
             expr=ast.Call(
