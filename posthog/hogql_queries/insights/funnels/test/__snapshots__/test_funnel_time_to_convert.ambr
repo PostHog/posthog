@@ -416,8 +416,7 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1,
-                     max_bytes_before_external_sort=0
+                     allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFunnelTimeToConvert.test_basic_strict
@@ -764,8 +763,7 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1,
-                     max_bytes_before_external_sort=0
+                     allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFunnelTimeToConvert.test_basic_unordered
@@ -1512,7 +1510,6 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1,
-                     max_bytes_before_external_sort=0
+                     allow_experimental_analyzer=1
   '''
 # ---

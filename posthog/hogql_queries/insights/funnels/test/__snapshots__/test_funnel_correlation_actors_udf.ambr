@@ -75,8 +75,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestFunnelCorrelationsActorsUDF.test_funnel_correlation_on_event_with_recordings.1
@@ -90,8 +89,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestFunnelCorrelationsActorsUDF.test_funnel_correlation_on_event_with_recordings.2
@@ -171,8 +169,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestFunnelCorrelationsActorsUDF.test_funnel_correlation_on_event_with_recordings.3
@@ -186,8 +183,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestFunnelCorrelationsActorsUDF.test_funnel_correlation_on_properties_with_recordings
@@ -268,8 +264,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestFunnelCorrelationsActorsUDF.test_funnel_correlation_on_properties_with_recordings.1
@@ -283,7 +278,6 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---

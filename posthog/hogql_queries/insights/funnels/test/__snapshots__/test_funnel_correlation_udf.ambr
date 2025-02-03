@@ -115,8 +115,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties
@@ -244,8 +243,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties.1
@@ -326,8 +324,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties.2
@@ -341,8 +338,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties.3
@@ -423,8 +419,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties.4
@@ -438,8 +433,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties.5
@@ -520,8 +514,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties.6
@@ -535,8 +528,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties.7
@@ -617,8 +609,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties.8
@@ -632,8 +623,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties_materialized
@@ -761,8 +751,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties_materialized.1
@@ -843,8 +832,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties_materialized.2
@@ -858,8 +846,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties_materialized.3
@@ -940,8 +927,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties_materialized.4
@@ -955,8 +941,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties_materialized.5
@@ -1037,8 +1022,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties_materialized.6
@@ -1052,8 +1036,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties_materialized.7
@@ -1134,8 +1117,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_basic_funnel_correlation_with_properties_materialized.8
@@ -1149,8 +1131,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_event_properties_and_groups
@@ -1255,8 +1236,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_event_properties_and_groups_materialized
@@ -1361,8 +1341,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups
@@ -1460,8 +1439,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups.1
@@ -1524,8 +1502,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups.2
@@ -1588,8 +1565,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups.3
@@ -1652,8 +1628,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups.4
@@ -1716,8 +1691,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups.5
@@ -1831,8 +1805,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups.6
@@ -1895,8 +1868,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups.7
@@ -1959,8 +1931,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups_poe_v2
@@ -2058,8 +2029,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups_poe_v2.1
@@ -2122,8 +2092,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups_poe_v2.2
@@ -2186,8 +2155,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups_poe_v2.3
@@ -2250,8 +2218,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups_poe_v2.4
@@ -2314,8 +2281,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups_poe_v2.5
@@ -2429,8 +2395,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups_poe_v2.6
@@ -2493,8 +2458,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_events_and_groups_poe_v2.7
@@ -2557,8 +2521,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups
@@ -2671,8 +2634,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups.1
@@ -2742,8 +2704,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups.2
@@ -2813,8 +2774,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups.3
@@ -2884,8 +2844,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups.4
@@ -2955,8 +2914,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups.5
@@ -3069,8 +3027,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_materialized
@@ -3183,8 +3140,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_materialized.1
@@ -3254,8 +3210,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_materialized.2
@@ -3325,8 +3280,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_materialized.3
@@ -3396,8 +3350,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_materialized.4
@@ -3467,8 +3420,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_materialized.5
@@ -3581,8 +3533,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events
@@ -3695,8 +3646,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events.1
@@ -3766,8 +3716,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events.2
@@ -3837,8 +3786,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events.3
@@ -3908,8 +3856,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events.4
@@ -3979,8 +3926,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events.5
@@ -4093,8 +4039,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized
@@ -4207,8 +4152,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.1
@@ -4278,8 +4222,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.2
@@ -4349,8 +4292,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.3
@@ -4420,8 +4362,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.4
@@ -4491,8 +4432,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.5
@@ -4605,8 +4545,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2
@@ -4719,8 +4658,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.1
@@ -4790,8 +4728,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.2
@@ -4861,8 +4798,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.3
@@ -4932,8 +4868,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.4
@@ -5003,8 +4938,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestClickhouseFunnelCorrelationUDF.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.5
@@ -5117,7 +5051,6 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
