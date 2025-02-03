@@ -14,7 +14,7 @@ export function Spinner({ textColored = false, className, speed = '1s' }: Spinne
     return (
         <svg
             // eslint-disable-next-line react/forbid-dom-props
-            style={{ '--speed': speed } as React.CSSProperties}
+            style={{ '--spinner-speed': speed } as React.CSSProperties}
             className={twMerge('LemonIcon Spinner', textColored && `Spinner--textColored`, className)}
             viewBox="0 0 48 48"
             xmlns="http://www.w3.org/2000/svg"
