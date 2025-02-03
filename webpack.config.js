@@ -29,7 +29,6 @@ function createEntry(entry) {
                         require('postcss-preset-env')({
                             stage: 0,
                         }),
-                        require('@csstools/postcss-gamut-mapping')(),
                     ],
                 },
             },

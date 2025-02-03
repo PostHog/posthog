@@ -1,6 +1,5 @@
 import fs from 'node:fs/promises'
 
-import postcssGamutMapping from '@csstools/postcss-gamut-mapping'
 import tailwindcss from '@tailwindcss/postcss'
 import autoprefixer from 'autoprefixer'
 import * as ps from 'child_process'
@@ -136,7 +135,7 @@ export const commonConfig = {
         sassPlugin({
             async transform(source, resolveDir, filePath) {
                 // Sync the plugins list with postcss.config.js
-                const plugins = [tailwindcss, autoprefixer, postcssPresetEnv({ stage: 0 }), postcssGamutMapping()]
+                const plugins = [tailwindcss, autoprefixer, postcssPresetEnv({ stage: 0 })]
                 if (!isDev) {
                     plugins.push(cssnano({ preset: 'default' }))
                 }
