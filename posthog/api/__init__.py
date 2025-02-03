@@ -591,9 +591,9 @@ register_grandfathered_environment_nested_viewset(
     r"data_color_themes", data_color_theme.DataColorThemeViewSet, "environment_data_color_themes", ["team_id"]
 )
 
-projects_router.register(
+environments_router.register(
     r"web_vitals",
     web_vitals.WebVitalsViewSet,
-    "project_web_vitals",
-    ["project_id"],
+    "environment_web_vitals",
+    ["team_id"],
 )
