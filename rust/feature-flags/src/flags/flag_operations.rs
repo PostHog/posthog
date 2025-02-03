@@ -81,7 +81,7 @@ impl FeatureFlagList {
             FlagError::DatabaseUnavailable
         })?;
 
-        let query = "SELECT id, team_id, name, key, filters, deleted, active, ensure_experience_continuity FROM posthog_featureflag WHERE team_id = $1";
+        let query = "SELECT id, team_id, name, key, filters, deleted, active, ensure_experience_continuity FROM posthog_featureflag WHERE team_id = $1 AND deleted = false AND active = true";
         let flags_row = sqlx::query_as::<_, FeatureFlagRow>(query)
             .bind(team_id)
             .fetch_all(&mut *conn)

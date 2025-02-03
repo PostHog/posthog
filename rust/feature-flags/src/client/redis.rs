@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use redis::{AsyncCommands, RedisError};
 use thiserror::Error;
 use tokio::time::timeout;
+use tracing;
 
 // average for all commands is <10ms, check grafana
 const REDIS_TIMEOUT_MILLISECS: u64 = 10;
@@ -82,6 +83,7 @@ impl Client for RedisClient {
     }
 
     async fn get(&self, k: String) -> Result<String, CustomRedisError> {
+        tracing::debug!(?k, "attempting to fetch key from redis");
         let mut conn = self.client.get_async_connection().await?;
 
         let results = conn.get(k);
@@ -96,9 +98,22 @@ impl Client for RedisClient {
             return Err(CustomRedisError::NotFound);
         }
 
+        let raw_bytes = fut?;
+        tracing::debug!(
+            raw_string = ?String::from_utf8_lossy(&raw_bytes),
+            "raw bytes from redis before pickle deserialization"
+        );
+
+        // how do I deserialize the bytes to a string?
+        let string_response: String = serde_pickle::from_slice(&raw_bytes, Default::default())?;
+        tracing::debug!(
+            string_response = ?string_response,
+            "string response from redis"
+        );
+
         // TRICKY: We serialise data to json, then django pickles it.
         // Here we deserialize the bytes using serde_pickle, to get the json string.
-        let string_response: String = serde_pickle::from_slice(&fut?, Default::default())?;
+        let string_response: String = serde_pickle::from_slice(&raw_bytes, Default::default())?;
 
         Ok(string_response)
     }
