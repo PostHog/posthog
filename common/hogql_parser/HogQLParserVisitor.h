@@ -187,6 +187,8 @@ public:
 
     virtual std::any visitColumnExprInterval(HogQLParser::ColumnExprIntervalContext *context) = 0;
 
+    virtual std::any visitColumnExprCallSelect(HogQLParser::ColumnExprCallSelectContext *context) = 0;
+
     virtual std::any visitColumnExprIsNull(HogQLParser::ColumnExprIsNullContext *context) = 0;
 
     virtual std::any visitColumnExprWinFunctionTarget(HogQLParser::ColumnExprWinFunctionTargetContext *context) = 0;

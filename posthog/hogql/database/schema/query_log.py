@@ -19,6 +19,7 @@ QUERY_LOG_FIELDS: dict[str, FieldOrTable] = {
     "query": StringDatabaseField(name="query"),  #
     "query_start_time": DateTimeDatabaseField(name="event_time"),  #
     "query_duration_ms": FloatDatabaseField(name="query_duration_ms"),  #
+    "hogql_name": StringDatabaseField(name="hogql_name"),
     "created_by": IntegerDatabaseField(name="created_by"),
     "read_rows": IntegerDatabaseField(name="read_rows"),
     "read_bytes": IntegerDatabaseField(name="read_bytes"),
@@ -41,6 +42,7 @@ STRING_FIELDS = {
     "query_id": ["client_query_id"],
     "query": ["query", "query"],
     "kind": ["query", "kind"],
+    "hogql_name": ["query", "name"],
 }
 INT_FIELDS = {"created_by": ["user_id"]}
 

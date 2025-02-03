@@ -198,7 +198,7 @@ class PersonOverridesSnapshotDictionary:
         return MutationRunner(
             PERSON_DISTINCT_ID_OVERRIDES_TABLE,
             f"""
-            DELETE WHERE
+            DELETE FROM {PERSON_DISTINCT_ID_OVERRIDES_TABLE} WHERE
                 isNotNull(dictGetOrNull(%(name)s, 'version', (team_id, distinct_id)) as snapshot_version)
                 AND snapshot_version >= version
             """,
