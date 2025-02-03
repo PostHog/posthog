@@ -50,6 +50,8 @@ def test_full_job(cluster: ClickhouseCluster):
 
     def get_oldest_override_timestamp(client: Client) -> datetime:
         result = client.execute(f"SELECT min(_timestamp) FROM {PERSON_DISTINCT_ID_OVERRIDES_TABLE}")
+        if not result or result[0][0] is None:
+            return datetime.max
         return result[0][0]
 
     # Insert some person overrides - we need this to establish high watermark for pending deletes
