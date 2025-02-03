@@ -194,9 +194,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
     def _interval_function_name(self) -> str:
         return f"toStartOf{self.query_date_range.interval_name.title()}"
 
-    def _actors_parent_select_query(
-        self, inner_query: ast.SelectQuery | ast.SelectSetQuery
-    ) -> ast.SelectQuery | ast.SelectSetQuery:
+    def _actors_parent_select_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         if self.is_count_per_actor_variant():
             query = parse_select(
                 "SELECT total FROM {inner_query}",
@@ -239,9 +237,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
         return query
 
-    def _actors_inner_select_query(
-        self, cross_join_select_query: ast.SelectQuery | ast.SelectSetQuery
-    ) -> ast.SelectQuery | ast.SelectSetQuery:
+    def _actors_inner_select_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         if self.is_count_per_actor_variant():
             if self.series.math == "avg_count_per_actor":
                 math_func = self._math_func("avg", ["total"])

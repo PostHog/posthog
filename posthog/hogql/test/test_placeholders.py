@@ -1,6 +1,6 @@
 from typing import cast
 
-from hogvm.python.utils import HogVMException
+from common.hogvm.python.utils import HogVMException
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.placeholders import replace_placeholders, find_placeholders

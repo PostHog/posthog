@@ -42,11 +42,11 @@ class ReplacePlaceholders(CloningVisitor):
         self.placeholders = placeholders
 
     def _visit_placeholder_via_bytecode(self, node):
-        from hogvm.python.execute import execute_bytecode
-        from posthog.hogql.bytecode import create_bytecode
+        from common.hogvm.python.execute import execute_bytecode
+        from posthog.hogql.compiler.bytecode import create_bytecode
 
         bytecode = create_bytecode(node.expr)
-        response = execute_bytecode(bytecode, self.placeholders)
+        response = execute_bytecode(bytecode.bytecode, self.placeholders)
         if isinstance(response.result, ast.Expr):
             expr = response.result
             expr.start = node.start

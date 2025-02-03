@@ -301,7 +301,7 @@ class Resolver(CloningVisitor):
             cte = lookup_cte_by_name(self.scopes, table_name)
             if cte:
                 node = cast(ast.JoinExpr, clone_expr(node))
-                node.table = clone_expr(cte.expr)
+                node.table = clone_expr(cte.expr)  # type: ignore
                 if node.alias is None:
                     node.alias = table_name
 
