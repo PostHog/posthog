@@ -61,8 +61,7 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1,
-                     max_bytes_before_external_sort=0
+                     allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_conversion_window_seconds.1
@@ -118,8 +117,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_events_with_person_on_events_v2
@@ -193,8 +191,7 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1,
-                     max_bytes_before_external_sort=0
+                     allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_precalculated_cohort_step_filter
@@ -276,8 +273,7 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1,
-                     max_bytes_before_external_sort=0
+                     allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_property_groups
@@ -353,8 +349,7 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1,
-                     max_bytes_before_external_sort=0
+                     allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_property_groups.1
@@ -421,8 +416,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_property_groups.2
@@ -489,8 +483,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_property_groups.3
@@ -557,8 +550,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_funnel_with_static_cohort_step_filter
@@ -629,8 +621,7 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1,
-                     max_bytes_before_external_sort=0
+                     allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFOSSFunnelUDF.test_timezones
@@ -689,8 +680,7 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1,
-                     max_bytes_before_external_sort=0
+                     allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFunnelBreakdownUDF.test_funnel_breakdown_correct_breakdown_props_are_chosen
@@ -765,8 +755,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
-                    allow_experimental_analyzer=1,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFunnelBreakdownUDF.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step
@@ -831,8 +820,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
-                    allow_experimental_analyzer=1,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFunnelBreakdownUDF.test_funnel_step_multiple_breakdown_snapshot
@@ -907,8 +895,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
-                    allow_experimental_analyzer=1,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFunnelGroupBreakdownUDF.test_funnel_aggregate_by_groups_breakdown_group_person_on_events
@@ -990,8 +977,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
-                    allow_experimental_analyzer=1,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFunnelGroupBreakdownUDF.test_funnel_aggregate_by_groups_breakdown_group_person_on_events_poe_v2
@@ -1073,8 +1059,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
-                    allow_experimental_analyzer=1,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFunnelGroupBreakdownUDF.test_funnel_breakdown_group
@@ -1163,8 +1148,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
-                    allow_experimental_analyzer=1,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFunnelGroupBreakdownUDF.test_funnel_breakdown_group.1
@@ -1244,8 +1228,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFunnelGroupBreakdownUDF.test_funnel_breakdown_group.2
@@ -1325,8 +1308,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFunnelGroupBreakdownUDF.test_funnel_breakdown_group.3
@@ -1406,8 +1388,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=1
   '''
 # ---
 # name: TestFunnelGroupBreakdownUDF.test_funnel_breakdown_group.4
@@ -1487,7 +1468,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=1
   '''
 # ---

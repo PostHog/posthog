@@ -74,8 +74,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_lifecycle_query
@@ -164,8 +163,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_stickiness_groups_query
@@ -204,8 +202,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_stickiness_query
@@ -272,8 +269,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_trends_groups_query
@@ -307,8 +303,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_trends_query_with_argmaxV1
@@ -379,8 +374,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_trends_query_with_argmaxV2
@@ -460,7 +454,6 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---

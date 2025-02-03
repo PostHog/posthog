@@ -11,8 +11,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       max_bytes_before_external_sort=0
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestFormula.test_aggregated_one_without_events.1
@@ -27,8 +26,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       max_bytes_before_external_sort=0
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestFormula.test_breakdown
@@ -68,8 +66,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       max_bytes_before_external_sort=0
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestFormula.test_breakdown.1
@@ -109,8 +106,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       max_bytes_before_external_sort=0
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestFormula.test_breakdown_aggregated
@@ -144,8 +140,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       max_bytes_before_external_sort=0
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestFormula.test_breakdown_aggregated.1
@@ -179,8 +174,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       max_bytes_before_external_sort=0
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestFormula.test_breakdown_cohort
@@ -240,8 +234,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       max_bytes_before_external_sort=0
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestFormula.test_breakdown_cohort.3
@@ -281,8 +274,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       max_bytes_before_external_sort=0
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestFormula.test_breakdown_cohort.4
@@ -332,8 +324,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       max_bytes_before_external_sort=0
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestFormula.test_breakdown_cohort.5
@@ -383,8 +374,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       max_bytes_before_external_sort=0
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestFormula.test_breakdown_hogql
@@ -441,8 +431,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       max_bytes_before_external_sort=0
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestFormula.test_breakdown_hogql.1
@@ -499,8 +488,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       max_bytes_before_external_sort=0
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestFormula.test_breakdown_with_different_breakdown_values_per_series
@@ -540,8 +528,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       max_bytes_before_external_sort=0
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestFormula.test_breakdown_with_different_breakdown_values_per_series.1
@@ -581,8 +568,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       max_bytes_before_external_sort=0
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestFormula.test_formula_with_unique_sessions
@@ -608,8 +594,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       max_bytes_before_external_sort=0
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestFormula.test_formula_with_unique_sessions.1
@@ -642,8 +627,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       max_bytes_before_external_sort=0
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestFormula.test_hour_interval_day_level_relative
@@ -669,8 +653,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       max_bytes_before_external_sort=0
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestFormula.test_hour_interval_day_level_relative.1
@@ -696,8 +679,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       max_bytes_before_external_sort=0
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestFormula.test_hour_interval_hour_level_relative
@@ -723,8 +705,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       max_bytes_before_external_sort=0
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestFormula.test_hour_interval_hour_level_relative.1
@@ -750,8 +731,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       max_bytes_before_external_sort=0
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_session_duration_aggregation
@@ -790,8 +770,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       max_bytes_before_external_sort=0
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_session_duration_aggregation.1
@@ -817,8 +796,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       max_bytes_before_external_sort=0
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter
@@ -851,8 +829,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       max_bytes_before_external_sort=0
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter.1
@@ -878,8 +855,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       max_bytes_before_external_sort=0
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter_2x
@@ -912,8 +888,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       max_bytes_before_external_sort=0
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter_2x.1
@@ -946,7 +921,6 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       max_bytes_before_external_sort=0
+                       max_bytes_before_external_group_by=0
   '''
 # ---

@@ -96,8 +96,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       max_bytes_before_external_sort=0
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_action_filtering_with_cohort_poe_v2
@@ -187,8 +186,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       max_bytes_before_external_sort=0
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_breakdown_by_group_props_person_on_events
@@ -236,8 +234,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       max_bytes_before_external_sort=0
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_breakdown_by_group_props_person_on_events.1
@@ -300,8 +297,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_breakdown_by_group_props_person_on_events.2
@@ -315,8 +311,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_breakdown_by_group_props_with_person_filter_person_on_events
@@ -364,8 +359,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       max_bytes_before_external_sort=0
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format
@@ -405,8 +399,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       max_bytes_before_external_sort=0
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.1
@@ -446,8 +439,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       max_bytes_before_external_sort=0
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.2
@@ -487,8 +479,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       max_bytes_before_external_sort=0
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.3
@@ -528,8 +519,7 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0,
-                       max_bytes_before_external_sort=0
+                       max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestTrends.test_breakdown_weekly_active_users_aggregated
