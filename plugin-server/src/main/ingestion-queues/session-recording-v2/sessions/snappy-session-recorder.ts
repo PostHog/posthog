@@ -7,6 +7,10 @@ export interface EndResult {
     buffer: Buffer
     /** Number of events in the session block */
     eventCount: number
+    /** Timestamp of the first event in the session block */
+    startTimestamp: number
+    /** Timestamp of the last event in the session block */
+    endTimestamp: number
 }
 
 /**
@@ -37,6 +41,8 @@ export class SnappySessionRecorder {
     private eventCount: number = 0
     private rawBytesWritten: number = 0
     private ended = false
+    private startTimestamp: number | null = null
+    private endTimestamp: number | null = null
 
     constructor(public readonly sessionId: string, public readonly teamId: number) {}
 
@@ -54,6 +60,17 @@ export class SnappySessionRecorder {
         }
 
         let rawBytesWritten = 0
+
+        // Note: We don't need to check for zero timestamps here because:
+        // 1. KafkaMessageParser filters out events with zero timestamps
+        // 2. KafkaMessageParser drops messages with no events
+        // Therefore, eventsRange.start and eventsRange.end will always be present and non-zero
+        this.startTimestamp =
+            this.startTimestamp === null
+                ? message.eventsRange.start
+                : Math.min(this.startTimestamp, message.eventsRange.start)
+        this.endTimestamp =
+            this.endTimestamp === null ? message.eventsRange.end : Math.max(this.endTimestamp, message.eventsRange.end)
 
         Object.entries(message.eventsByWindowId).forEach(([windowId, events]) => {
             events.forEach((event) => {
@@ -88,6 +105,8 @@ export class SnappySessionRecorder {
         return {
             buffer,
             eventCount: this.eventCount,
+            startTimestamp: this.startTimestamp ?? 0,
+            endTimestamp: this.endTimestamp ?? 0,
         }
     }
 }

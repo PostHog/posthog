@@ -45,10 +45,18 @@ import { SnappySessionRecorder } from './snappy-session-recorder'
  */
 
 export interface SessionBlockMetadata {
+    /** Unique identifier for the session */
     sessionId: string
+    /** ID of the team that owns this session recording */
     teamId: number
+    /** Byte offset where this session block starts in the batch file */
     blockStartOffset: number
+    /** Length of this session block in bytes */
     blockLength: number
+    /** Timestamp of the first event in the session block */
+    startTimestamp: number
+    /** Timestamp of the last event in the session block */
+    endTimestamp: number
 }
 
 export class SessionBatchRecorder {
@@ -159,7 +167,7 @@ export class SessionBatchRecorder {
 
             for (const sessions of this.partitionSessions.values()) {
                 for (const recorder of sessions.values()) {
-                    const { buffer, eventCount } = await recorder.end()
+                    const { buffer, eventCount, startTimestamp, endTimestamp } = await recorder.end()
 
                     // Track block metadata
                     blockMetadata.push({
@@ -167,6 +175,8 @@ export class SessionBatchRecorder {
                         teamId: recorder.teamId,
                         blockStartOffset: currentOffset,
                         blockLength: buffer.length,
+                        startTimestamp,
+                        endTimestamp,
                     })
                     currentOffset += buffer.length
 
