@@ -21,7 +21,7 @@ import { experimentLogic } from './experimentLogic'
 import { featureFlagEligibleForExperiment } from './utils'
 
 const ExperimentFormFields = (): JSX.Element => {
-    const { experiment, groupTypes, aggregationLabel, hasPrimaryMetricSet, isValidExistingFeatureFlag } =
+    const { experiment, groupTypes, aggregationLabel, hasPrimaryMetricSet, validExistingFeatureFlag } =
         useValues(experimentLogic)
     const {
         addVariant,
@@ -186,14 +186,25 @@ const ExperimentFormFields = (): JSX.Element => {
                         />
                     </div>
                 )}
-                {isValidExistingFeatureFlag && (
-                    <div className="my-10">
-                        <LemonBanner type="info">
-                            Existing feature flag configuration will be applied to the experiment.
+                {validExistingFeatureFlag && (
+                    <div className="mt-10">
+                        <h3 className="mb-1">Variants</h3>
+                        <LemonDivider />
+                        <LemonBanner type="info" className="mb-8">
+                            <div className="flex items-center">
+                                <div>Existing feature flag configuration will be applied to the experiment.</div>
+                                <Link
+                                    to={urls.featureFlag(validExistingFeatureFlag.id as number)}
+                                    target="_blank"
+                                    className="flex items-center"
+                                >
+                                    <IconOpenInNew className="ml-1" />
+                                </Link>
+                            </div>
                         </LemonBanner>
                     </div>
                 )}
-                {!isValidExistingFeatureFlag && (
+                {!validExistingFeatureFlag && (
                     <>
                         <div className="mt-10">
                             <h3 className="mb-1">Variants</h3>

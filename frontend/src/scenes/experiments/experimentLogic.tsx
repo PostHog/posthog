@@ -279,7 +279,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setIsCreatingExperimentDashboard: (isCreating: boolean) => ({ isCreating }),
         setUnmodifiedExperiment: (experiment: Experiment) => ({ experiment }),
         restoreUnmodifiedExperiment: true,
-        setIsValidExistingFeatureFlag: (isValid: boolean) => ({ isValid }),
+        setValidExistingFeatureFlag: (featureFlag: FeatureFlagType) => ({ featureFlag }),
         setFeatureFlagValidationError: (error: string) => ({ error }),
         validateFeatureFlag: (featureFlagKey: string) => ({ featureFlagKey }),
     }),
@@ -587,10 +587,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 setIsCreatingExperimentDashboard: (_, { isCreating }) => isCreating,
             },
         ],
-        isValidExistingFeatureFlag: [
-            false,
+        validExistingFeatureFlag: [
+            null as FeatureFlagType | null,
             {
-                setIsValidExistingFeatureFlag: (_, { isValid }) => isValid,
+                setValidExistingFeatureFlag: (_, { featureFlag }) => featureFlag,
             },
         ],
         featureFlagValidationError: [
@@ -1063,7 +1063,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     } catch (error) {
                         isValid = false
                     }
-                    actions.setIsValidExistingFeatureFlag(isValid)
+                    actions.setValidExistingFeatureFlag(isValid ? matchingFlag : null)
                     actions.setFeatureFlagValidationError(
                         isValid ? '' : 'Existing feature flag is not eligible for experiments.'
                     )
@@ -1075,7 +1075,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
             }
 
-            actions.setIsValidExistingFeatureFlag(false)
+            actions.setValidExistingFeatureFlag(null)
             actions.setFeatureFlagValidationError(validateFeatureFlagKey(featureFlagKey) || '')
             actions.setExperimentManualErrors({
                 ...existingErrors,
