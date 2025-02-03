@@ -84,10 +84,13 @@ impl Event for FallbackSink {
         if self.primary_is_healthy.load(Ordering::Relaxed) {
             match self.primary.send(event.clone()).await {
                 Ok(_) => Ok(()),
-                Err(e) => {
-                    error!("Primary sink failed, falling back: {}", e);
+                Err(CaptureError::RetryableSinkError) => {
+                    error!("Primary sink failed, falling back");
                     counter!("capture_fallback_sink_failovers_total").increment(1);
                     self.fallback.send(event).await
+                }
+                Err(e) => {
+                    Err(e)
                 }
             }
         } else {
@@ -102,10 +105,13 @@ impl Event for FallbackSink {
         if self.primary_is_healthy.load(Ordering::Relaxed) {
             match self.primary.send_batch(events.clone()).await {
                 Ok(_) => Ok(()),
-                Err(e) => {
-                    error!("Primary sink failed, falling back: {}", e);
+                Err(CaptureError::RetryableSinkError) => {
+                    error!("Primary sink failed, falling back");
                     counter!("capture_fallback_sink_failovers_total").increment(1);
                     self.fallback.send_batch(events).await
+                }
+                Err(e) => {
+                    Err(e)
                 }
             }
         } else {
@@ -139,10 +145,10 @@ mod tests {
     #[async_trait]
     impl Event for FailSink {
         async fn send(&self, _event: ProcessedEvent) -> Result<(), CaptureError> {
-            Err(CaptureError::EventTooBig)
+            Err(CaptureError::RetryableSinkError)
         }
         async fn send_batch(&self, _events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-            Err(CaptureError::EventTooBig)
+            Err(CaptureError::RetryableSinkError)
         }
     }
 
