@@ -64,10 +64,13 @@ import {
     HogFunctionStatus,
     HogFunctionSubTemplateIdType,
     HogFunctionTemplateType,
+    HogFunctionTestInvocationResult,
     HogFunctionType,
     HogFunctionTypeType,
     InsightModel,
     IntegrationType,
+    LinkedInAdsAccountType,
+    LinkedInAdsConversionRuleType,
     ListOrganizationMembersParams,
     LogEntry,
     LogEntryRequestParams,
@@ -817,6 +820,21 @@ class ApiRequest {
             .addPathComponent(id)
             .addPathComponent('google_conversion_actions')
             .withQueryString({ customerId })
+    }
+
+    public integrationLinkedInAdsAccounts(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId).addPathComponent(id).addPathComponent('linkedin_ads_accounts')
+    }
+
+    public integrationLinkedInAdsConversionRules(
+        id: IntegrationType['id'],
+        accountId: string,
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.integrations(teamId)
+            .addPathComponent(id)
+            .addPathComponent('linkedin_ads_conversion_rules')
+            .withQueryString({ accountId })
     }
 
     public media(teamId?: TeamType['id']): ApiRequest {
@@ -1908,11 +1926,11 @@ const api = {
         async createTestInvocation(
             id: HogFunctionType['id'],
             data: {
-                configuration: Partial<HogFunctionType>
+                configuration: Record<string, any>
                 mock_async_functions: boolean
                 globals: any
             }
-        ): Promise<any> {
+        ): Promise<HogFunctionTestInvocationResult> {
             return await new ApiRequest().hogFunction(id).withAction('invocations').create({ data })
         },
 
@@ -2560,6 +2578,15 @@ const api = {
             customerId: string
         ): Promise<{ conversionActions: GoogleAdsConversionActionType[] }> {
             return await new ApiRequest().integrationGoogleAdsConversionActions(id, customerId).get()
+        },
+        async linkedInAdsAccounts(id: IntegrationType['id']): Promise<{ adAccounts: LinkedInAdsAccountType[] }> {
+            return await new ApiRequest().integrationLinkedInAdsAccounts(id).get()
+        },
+        async linkedInAdsConversionRules(
+            id: IntegrationType['id'],
+            accountId: string
+        ): Promise<{ conversionRules: LinkedInAdsConversionRuleType[] }> {
+            return await new ApiRequest().integrationLinkedInAdsConversionRules(id, accountId).get()
         },
     },
 

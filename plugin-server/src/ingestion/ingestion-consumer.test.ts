@@ -323,6 +323,11 @@ describe('IngestionConsumer', () => {
     })
 
     describe('event batching', () => {
+        beforeEach(async () => {
+            ingester = new IngestionConsumer(hub)
+            await ingester.start()
+        })
+
         it('should batch events based on the distinct_id', async () => {
             const messages = createKafkaMessages([
                 createEvent({ distinct_id: 'distinct-id-1' }),

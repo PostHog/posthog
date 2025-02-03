@@ -1,0 +1,20 @@
+{
+    "name": "Anonymization and normalisation",
+    "description": "Anonymization and normalisation",
+    "config": [
+        {
+            "key": "salt",
+            "name": "The salt.",
+            "type": "string",
+            "required": true,
+            "secret": true
+        },
+        {
+            "key": "privateFields",
+            "name": "The names of fields to be anonymized divided by a colon.",
+            "type": "string",
+            "default": "distinct_id,name,userid",
+            "required": true
+        }
+    ]
+}

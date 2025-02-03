@@ -80,6 +80,7 @@ export const urls = {
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
+    revenue: (): string => '/data-management/revenue',
     insights: (): string => '/insights',
     insightNew: (type?: InsightType, dashboardId?: DashboardType['id'] | null, query?: Node): string =>
         combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
