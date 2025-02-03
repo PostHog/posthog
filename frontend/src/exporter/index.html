@@ -5,9 +5,14 @@
         {{ exported_data|json_script:"posthog-exported-data" }}
         <script>
             // need to parse twice to get JSON
-            window.POSTHOG_EXPORTED_DATA = JSON.parse(
-                JSON.parse(document.getElementById('posthog-exported-data').textContent)
-            )
+            try {
+                window.POSTHOG_EXPORTED_DATA = JSON.parse(
+                    JSON.parse(document.getElementById('posthog-exported-data').textContent)
+                )
+            } catch (e) {
+                console.error('Failed to parse exported data:', e)
+                window.POSTHOG_EXPORTED_DATA = {}
+            }
 
             if (window.POSTHOG_EXPORTED_DATA.type) {
               var root = document.documentElement
