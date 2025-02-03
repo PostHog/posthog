@@ -54,7 +54,9 @@
                             "required": ["top", "left"],
                             "type": "object"
                         },
-                        "node": {}
+                        "node": {
+                            "$ref": "#/definitions/serializedNodeWithId"
+                        }
                     },
                     "required": ["node", "initialOffset"],
                     "type": "object"
@@ -310,6 +312,30 @@
             "enum": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
             "type": "number"
         },
+        "NodeType.CDATA": {
+            "const": 4,
+            "type": "number"
+        },
+        "NodeType.Comment": {
+            "const": 5,
+            "type": "number"
+        },
+        "NodeType.Document": {
+            "const": 0,
+            "type": "number"
+        },
+        "NodeType.DocumentType": {
+            "const": 1,
+            "type": "number"
+        },
+        "NodeType.Element": {
+            "const": 2,
+            "type": "number"
+        },
+        "NodeType.Text": {
+            "const": 3,
+            "type": "number"
+        },
         "PointerTypes": {
             "enum": [0, 1, 2],
             "type": "number"
@@ -339,7 +365,9 @@
                 "nextId": {
                     "type": ["number", "null"]
                 },
-                "node": {},
+                "node": {
+                    "$ref": "#/definitions/serializedNodeWithId"
+                },
                 "parentId": {
                     "type": "number"
                 },
@@ -412,6 +440,17 @@
                 }
             },
             "required": ["id", "attributes"],
+            "type": "object"
+        },
+        "attributes": {
+            "additionalProperties": {
+                "type": ["string", "number", "boolean", "null"]
+            },
+            "properties": {
+                "_cssText": {
+                    "type": "string"
+                }
+            },
             "type": "object"
         },
         "canvasMutationCommand": {
@@ -784,6 +823,197 @@
             },
             "required": ["ranges", "source"],
             "type": "object"
+        },
+        "serializedNodeWithId": {
+            "anyOf": [
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "childNodes": {
+                            "items": {
+                                "$ref": "#/definitions/serializedNodeWithId"
+                            },
+                            "type": "array"
+                        },
+                        "compatMode": {
+                            "type": "string"
+                        },
+                        "id": {
+                            "type": "number"
+                        },
+                        "isShadow": {
+                            "type": "boolean"
+                        },
+                        "isShadowHost": {
+                            "type": "boolean"
+                        },
+                        "rootId": {
+                            "type": "number"
+                        },
+                        "type": {
+                            "$ref": "#/definitions/NodeType.Document"
+                        }
+                    },
+                    "required": ["childNodes", "id", "type"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "id": {
+                            "type": "number"
+                        },
+                        "isShadow": {
+                            "type": "boolean"
+                        },
+                        "isShadowHost": {
+                            "type": "boolean"
+                        },
+                        "name": {
+                            "type": "string"
+                        },
+                        "publicId": {
+                            "type": "string"
+                        },
+                        "rootId": {
+                            "type": "number"
+                        },
+                        "systemId": {
+                            "type": "string"
+                        },
+                        "type": {
+                            "$ref": "#/definitions/NodeType.DocumentType"
+                        }
+                    },
+                    "required": ["id", "name", "publicId", "systemId", "type"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "attributes": {
+                            "$ref": "#/definitions/attributes"
+                        },
+                        "childNodes": {
+                            "items": {
+                                "$ref": "#/definitions/serializedNodeWithId"
+                            },
+                            "type": "array"
+                        },
+                        "id": {
+                            "type": "number"
+                        },
+                        "isCustom": {
+                            "const": true,
+                            "type": "boolean"
+                        },
+                        "isSVG": {
+                            "const": true,
+                            "type": "boolean"
+                        },
+                        "isShadow": {
+                            "type": "boolean"
+                        },
+                        "isShadowHost": {
+                            "type": "boolean"
+                        },
+                        "needBlock": {
+                            "type": "boolean"
+                        },
+                        "rootId": {
+                            "type": "number"
+                        },
+                        "tagName": {
+                            "type": "string"
+                        },
+                        "type": {
+                            "$ref": "#/definitions/NodeType.Element"
+                        }
+                    },
+                    "required": ["attributes", "childNodes", "id", "tagName", "type"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "id": {
+                            "type": "number"
+                        },
+                        "isShadow": {
+                            "type": "boolean"
+                        },
+                        "isShadowHost": {
+                            "type": "boolean"
+                        },
+                        "isStyle": {
+                            "const": true,
+                            "type": "boolean"
+                        },
+                        "rootId": {
+                            "type": "number"
+                        },
+                        "textContent": {
+                            "type": "string"
+                        },
+                        "type": {
+                            "$ref": "#/definitions/NodeType.Text"
+                        }
+                    },
+                    "required": ["id", "textContent", "type"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "id": {
+                            "type": "number"
+                        },
+                        "isShadow": {
+                            "type": "boolean"
+                        },
+                        "isShadowHost": {
+                            "type": "boolean"
+                        },
+                        "rootId": {
+                            "type": "number"
+                        },
+                        "textContent": {
+                            "const": "",
+                            "type": "string"
+                        },
+                        "type": {
+                            "$ref": "#/definitions/NodeType.CDATA"
+                        }
+                    },
+                    "required": ["id", "textContent", "type"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "id": {
+                            "type": "number"
+                        },
+                        "isShadow": {
+                            "type": "boolean"
+                        },
+                        "isShadowHost": {
+                            "type": "boolean"
+                        },
+                        "rootId": {
+                            "type": "number"
+                        },
+                        "textContent": {
+                            "type": "string"
+                        },
+                        "type": {
+                            "$ref": "#/definitions/NodeType.Comment"
+                        }
+                    },
+                    "required": ["id", "textContent", "type"],
+                    "type": "object"
+                }
+            ]
         },
         "styleDeclarationData": {
             "additionalProperties": false,

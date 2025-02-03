@@ -20,11 +20,32 @@ exports[`LegacyPluginExecutorService smoke tests should run the destination plug
 `;
 
 exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: {
+  name: 'plugin-posthog-plugin-snowplow-referer-parser',
+  plugin: [Object]
+} 1`] = `
+[
+  "Executing plugin plugin-posthog-plugin-snowplow-referer-parser",
+  "(Event: $pageview) URL: https://posthog.com, Referrer: undefined, Referring domain: undefined",
+  "Plugin execution failed: Cannot read properties of undefined (reading 'indexOf')",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: {
   name: 'posthog-app-url-parameters-to-event-properties',
   plugin: [Object]
 } 1`] = `
 [
   "Executing plugin posthog-app-url-parameters-to-event-properties",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: {
+  name: 'posthog-plugin-netdata-event-processing-plugin',
+  plugin: [Object]
+} 1`] = `
+[
+  "Executing plugin posthog-plugin-netdata-event-processing-plugin",
   "Execution successful",
 ]
 `;
@@ -36,6 +57,20 @@ exports[`LegacyPluginExecutorService smoke tests should run the transformation p
 ]
 `;
 
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'drop-events-on-property-plugin', plugin: [Object] } 1`] = `
+[
+  "Executing plugin drop-events-on-property-plugin",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'flatten-properties-plugin', plugin: [Object] } 1`] = `
+[
+  "Executing plugin flatten-properties-plugin",
+  "Execution successful",
+]
+`;
+
 exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'language-url-splitter-app', plugin: [Object] } 1`] = `
 [
   "Executing plugin language-url-splitter-app",
@@ -43,9 +78,87 @@ exports[`LegacyPluginExecutorService smoke tests should run the transformation p
 ]
 `;
 
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'ph-shotgun-processevent-app', plugin: [Object] } 1`] = `
+[
+  "Executing plugin ph-shotgun-processevent-app",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'plugin-advanced-geoip', plugin: [Object] } 1`] = `
+[
+  "Executing plugin plugin-advanced-geoip",
+  "Could not discard IP for event b3a1fe86-b10c-43cc-acaf-d208977608d0 as GeoIP has not been processed.",
+  "Finished processing b3a1fe86-b10c-43cc-acaf-d208977608d0.",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'plugin-posthog-anonymization', plugin: [Object] } 1`] = `
+[
+  "Executing plugin plugin-posthog-anonymization",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'plugin-stonly-clean-campaign-name', plugin: [Object] } 1`] = `
+[
+  "Executing plugin plugin-stonly-clean-campaign-name",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'plugin-stonly-utm-extractor', plugin: [Object] } 1`] = `
+[
+  "Executing plugin plugin-stonly-utm-extractor",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'posthog-app-unduplicator', plugin: [Object] } 1`] = `
+[
+  "Executing plugin posthog-app-unduplicator",
+  "Execution successful",
+]
+`;
+
 exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'posthog-filter-out-plugin', plugin: [Object] } 1`] = `
 [
   "Executing plugin posthog-filter-out-plugin",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'posthog-plugin-geoip', plugin: [Object] } 1`] = `
+[
+  "Executing plugin posthog-plugin-geoip",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'posthog-route-censor-plugin', plugin: [Object] } 1`] = `
+[
+  "Executing plugin posthog-route-censor-plugin",
+  "Plugin set up with global config: , {
+  "properties": [
+    "$current_url",
+    "$referrer",
+    "$pathname",
+    "$initial_current_url",
+    "initial_pathname",
+    "initial_referrer"
+  ],
+  "setProperties": [
+    "$initial_current_url",
+    "$initial_pathname",
+    "$initial_referrer"
+  ],
+  "setOnceProperties": [
+    "$initial_current_url",
+    "$initial_pathname",
+    "$initial_referrer"
+  ]
+}",
   "Execution successful",
 ]
 `;

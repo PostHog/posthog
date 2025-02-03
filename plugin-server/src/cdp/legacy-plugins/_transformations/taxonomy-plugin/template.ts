@@ -12,6 +12,7 @@ export const template: HogFunctionTemplate = {
     inputs_schema: [
         {
             key: 'defaultNamingConvention',
+            templating: false,
             label: 'Select your default naming pattern',
             type: 'choice',
             choices: [

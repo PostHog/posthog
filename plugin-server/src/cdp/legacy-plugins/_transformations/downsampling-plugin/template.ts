@@ -16,6 +16,7 @@ export const template: HogFunctionTemplate = {
             label: '% of events to keep',
             default: '100',
             required: false,
+            templating: false,
         },
         {
             type: 'choice',
@@ -27,6 +28,7 @@ export const template: HogFunctionTemplate = {
             ],
             default: 'Distinct ID aware sampling',
             required: false,
+            templating: false,
         },
     ],
 }
