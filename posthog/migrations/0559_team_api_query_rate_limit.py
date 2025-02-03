@@ -12,6 +12,11 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="team",
             name="api_query_rate_limit",
-            field=models.CharField(blank=True, help_text="API rate limit", max_length=32, null=True),
+            field=models.CharField(
+                blank=True,
+                help_text="Custom rate limit for HogQL API queries in #requests/{sec,min,hour,day}",
+                max_length=32,
+                null=True,
+            ),
         ),
     ]
