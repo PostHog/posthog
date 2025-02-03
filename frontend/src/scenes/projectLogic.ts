@@ -98,8 +98,8 @@ export const projectLogic = kea<projectLogicType>([
             null as ProjectType | null,
             {
                 moveProject: async ({ project, organizationId }) => {
-                    const res = await api.create<ProjectType>(`api/projects/${project.id}/change_organization`, {
-                        organization_id: organizationId,
+                    const res = await api.update<ProjectType>(`api/projects/${project.id}`, {
+                        organization: organizationId,
                     })
 
                     await api.update('api/users/@me/', { set_current_organization: organizationId })

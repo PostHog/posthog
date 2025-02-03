@@ -130,7 +130,6 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         read_only_fields = (
             "id",
             "uuid",
-            "organization",
             "effective_membership_level",
             "has_group_types",
             "live_events_token",
@@ -188,6 +187,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "surveys_opt_in",
             "heatmaps_opt_in",
             "flags_persistence_default",
+            "organization",
         }
 
     def get_effective_membership_level(self, project: Project) -> Optional[OrganizationMembership.Level]:
@@ -228,6 +228,24 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
     @staticmethod
     def validate_session_replay_ai_summary_config(value: dict | None) -> dict | None:
         return TeamSerializer.validate_session_replay_ai_summary_config(value)
+
+    def validate_organization(self, value: Organization) -> Organization:
+        # Check the org can be accessed by the user
+        if value.id != self.context["view"].organization_id:
+            # Check that the user has access to the target org
+            target_organization_membership = OrganizationMembership.objects.get(
+                user=self.context["request"].user, organization=value
+            )
+
+            if (
+                not target_organization_membership
+                or target_organization_membership.level < OrganizationMembership.Level.ADMIN
+            ):
+                raise exceptions.ValidationError("You do not have access to this organization.")
+
+        # TODO: For the future - do we need to make sure that this then modifies all teams as well?
+
+        return value
 
     def validate(self, attrs: Any) -> Any:
         attrs = validate_team_attrs(attrs, self.context["view"], self.context["request"], self.instance)
@@ -306,7 +324,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             )
             if survey_config_changes_between:
                 log_activity(
-                    organization_id=cast(UUIDT, instance.organization_id),
+                    organization_id=cast(UUIDT, instance.organization),
                     team_id=instance.pk,
                     user=cast(User, self.context["request"].user),
                     was_impersonated=is_impersonated_session(request),
@@ -367,36 +385,71 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "Project", project_before_update, project_after_update, use_field_exclusions=True
         )
 
-        if team_changes:
-            log_activity(
-                organization_id=cast(UUIDT, instance.organization_id),
-                team_id=instance.pk,
-                user=cast(User, self.context["request"].user),
-                was_impersonated=is_impersonated_session(request),
-                scope="Team",
-                item_id=instance.pk,
-                activity="updated",
-                detail=Detail(
-                    name=str(team.name),
-                    changes=team_changes,
-                ),
-            )
-        if project_changes:
-            log_activity(
-                organization_id=cast(UUIDT, instance.organization_id),
-                team_id=instance.pk,
-                user=cast(User, self.context["request"].user),
-                was_impersonated=is_impersonated_session(request),
-                scope="Project",
-                item_id=instance.pk,
-                activity="updated",
-                detail=Detail(
-                    name=str(instance.name),
-                    changes=project_changes,
-                ),
-            )
+        # if team_changes:
+        #     log_activity(
+        #         organization_id=cast(UUIDT, instance.organization),
+        #         team_id=instance.pk,
+        #         user=cast(User, self.context["request"].user),
+        #         was_impersonated=is_impersonated_session(request),
+        #         scope="Team",
+        #         item_id=instance.pk,
+        #         activity="updated",
+        #         detail=Detail(
+        #             name=str(team.name),
+        #             changes=team_changes,
+        #         ),
+        #     )
+        # if project_changes:
+        #     log_activity(
+        #         organization_id=cast(UUIDT, instance.organization),
+        #         team_id=instance.pk,
+        #         user=cast(User, self.context["request"].user),
+        #         was_impersonated=is_impersonated_session(request),
+        #         scope="Project",
+        #         item_id=instance.pk,
+        #         activity="updated",
+        #         detail=Detail(
+        #             name=str(instance.name),
+        #             changes=project_changes,
+        #         ),
+        #     )
 
         return instance
+
+    def _change_organization(self, instance: Project, target_organization: Organization) -> None:
+        user = cast(User, self.context["request"].user)
+        current_organization = instance.organization
+
+        try:
+            current_organization_membership = OrganizationMembership.objects.get(
+                user=user, organization=current_organization
+            )
+            target_organization_membership = OrganizationMembership.objects.get(
+                user=user, organization=target_organization
+            )
+
+            if (
+                current_organization_membership.level < OrganizationMembership.Level.ADMIN
+                or target_organization_membership.level < OrganizationMembership.Level.ADMIN
+            ):
+                raise exceptions.ValidationError(
+                    "You must be an admin of both the source and target organizations to move a project."
+                )
+
+        except (OrganizationMembership.DoesNotExist, Organization.DoesNotExist):
+            raise exceptions.ValidationError("You must be a member of the target organization to move a project.")
+
+        # if instance.organization == target_organization:
+        #     raise exceptions.ValidationError("Project is already in the target organization.")
+
+        # teams = list(instance.teams.all())
+
+        # instance.organization = target_organization
+        # instance.save()
+
+        # for team in teams:
+        #     team.organization = target_organization
+        #     team.save()
 
 
 class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
@@ -660,91 +713,6 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
             )
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
-
-    @action(
-        methods=["POST"],
-        detail=True,
-        permission_classes=[IsAuthenticated],
-    )
-    def change_organization(self, request: request.Request, id: str, **kwargs) -> response.Response:
-        project = self.get_object()
-        user = cast(User, request.user)
-
-        target_organization_id = request.data.get("organization_id")
-        current_organization = project.organization
-
-        try:
-            target_organization = Organization.objects.get(pk=target_organization_id)
-            current_organization_membership = OrganizationMembership.objects.get(
-                user=user, organization=current_organization
-            )
-            target_organization_membership = OrganizationMembership.objects.get(
-                user=user, organization=target_organization
-            )
-
-            if (
-                current_organization_membership.level < OrganizationMembership.Level.ADMIN
-                or target_organization_membership.level < OrganizationMembership.Level.ADMIN
-            ):
-                raise exceptions.ValidationError(
-                    "You must be an admin of both the source and target organizations to move a project."
-                )
-
-        except (OrganizationMembership.DoesNotExist, Organization.DoesNotExist):
-            raise exceptions.ValidationError("You must be a member of the target organization to move a project.")
-
-        if project.organization_id == target_organization_id:
-            raise exceptions.ValidationError("Project is already in the target organization.")
-
-        teams = list(project.teams.all())
-
-        with transaction.atomic():
-            project.organization_id = target_organization_id
-            project.save()
-
-            log_activity(
-                organization_id=cast(UUIDT, target_organization_id),
-                team_id=project.pk,
-                user=user,
-                was_impersonated=is_impersonated_session(request),
-                scope="Project",
-                item_id=project.pk,
-                activity="updated",
-                detail=Detail(
-                    name="moved to another organization",
-                    changes=[
-                        Change(
-                            type="Project",
-                            action="changed",
-                            field="organization_id",
-                            before=str(current_organization.id),
-                            after=str(target_organization.id),
-                        )
-                    ],
-                ),
-            )
-
-            for team in teams:
-                team.organization_id = target_organization_id
-                team.save()
-
-        report_user_action(
-            user,
-            f"project moved to another organization",
-            {
-                "project_id": project.id,
-                "project_name": project.name,
-                "old_organization_id": current_organization.id,
-                "old_organization_name": current_organization.name,
-                "new_organization_id": target_organization_id,
-                "new_organization_name": target_organization.name,
-            },
-            team=teams[0],
-        )
-
-        return response.Response(
-            ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data, status=200
-        )
 
     @cached_property
     def user_permissions(self):

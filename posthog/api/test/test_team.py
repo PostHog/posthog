@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from typing import Any, Optional
 from unittest import mock
 from unittest.mock import ANY, MagicMock, call, patch
+import uuid
 
 from django.core.cache import cache
 from django.http import HttpResponse
@@ -1196,9 +1197,16 @@ def team_api_test_factory():
 
         def test_cant_change_organization_if_not_admin_of_target_org(self):
             other_org, _ = self._create_other_org_and_team(OrganizationMembership.Level.MEMBER)
-            res = self.client.post(
-                f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
+            res = self.client.patch(f"/api/projects/{self.team.project.id}", {"organization": other_org.id})
+
+            assert res.status_code == status.HTTP_400_BAD_REQUEST
+            assert (
+                res.json()["detail"]
+                == "You must be an admin of both the source and target organizations to move a project."
             )
+
+        def test_cant_change_to_non_existent_org(self):
+            res = self.client.patch(f"/api/projects/{self.team.project.id}", {"organization": str(uuid.uuid4())})
 
             assert res.status_code == status.HTTP_400_BAD_REQUEST
             assert (
@@ -1210,9 +1218,7 @@ def team_api_test_factory():
             other_org, _ = self._create_other_org_and_team(OrganizationMembership.Level.OWNER)
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
-            res = self.client.post(
-                f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
-            )
+            res = self.client.patch(f"/api/projects/{self.team.project.id}", {"organization": other_org.id})
 
             assert res.status_code == status.HTTP_400_BAD_REQUEST
             assert (
@@ -1224,9 +1230,7 @@ def team_api_test_factory():
             other_org, _ = self._create_other_org_and_team(OrganizationMembership.Level.ADMIN)
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
-            res = self.client.post(
-                f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
-            )
+            res = self.client.patch(f"/api/projects/{self.team.project.id}", {"organization": other_org.id})
 
             assert res.status_code == status.HTTP_200_OK, res.json()
             assert res.json()["id"] == self.team.id
