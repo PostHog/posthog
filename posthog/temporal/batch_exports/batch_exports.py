@@ -269,11 +269,6 @@ async def iter_records_from_model_view(
                 view = SELECT_FROM_PERSONS_VIEW_NEW
             else:
                 view = SELECT_FROM_PERSONS_VIEW
-    elif model_name == "sessions":
-        if is_backfill and interval_start is None:
-            view = SELECT_FROM_SESSIONS_VIEW_BACKFILL
-        else:
-            view = SELECT_FROM_SESSIONS_VIEW
     elif str(team_id) not in settings.ASYNC_ARROW_STREAMING_TEAM_IDS:
         # TODO: Let this model be exported by `astream_query_as_arrow`.
         # Just to reduce risk, I don't want to change the function that runs 100% of the exports

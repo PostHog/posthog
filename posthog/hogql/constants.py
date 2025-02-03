@@ -114,3 +114,4 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     max_expanded_ast_elements: Optional[int] = 4_000_000
     max_bytes_before_external_group_by: Optional[int] = 0  # default value means we don't swap ordering by to disk
     allow_experimental_analyzer: Optional[bool] = None
+    max_bytes_before_external_sort: Optional[int] = 0

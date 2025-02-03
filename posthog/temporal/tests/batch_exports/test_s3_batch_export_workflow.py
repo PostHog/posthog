@@ -32,7 +32,6 @@ from posthog.batch_exports.service import (
 )
 from posthog.temporal.batch_exports.batch_exports import (
     finish_batch_export_run,
-    iter_model_records,
     start_batch_export_run,
 )
 from posthog.temporal.batch_exports.s3_batch_export import (
@@ -49,6 +48,7 @@ from posthog.temporal.batch_exports.s3_batch_export import (
     insert_into_s3_activity,
     s3_default_fields,
 )
+from posthog.temporal.batch_exports.spmc import Producer, RecordBatchQueue
 from posthog.temporal.batch_exports.temporary_file import UnsupportedFileFormatError
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.batch_exports.utils import mocked_start_batch_export_run
@@ -214,6 +214,21 @@ async def read_json_file_from_s3(s3_compatible_client, bucket_name, key) -> list
     return data[0]
 
 
+async def get_record_batch_from_queue(queue, produce_task):
+    while not queue.empty() or not produce_task.done():
+        try:
+            record_batch = queue.get_nowait()
+        except asyncio.QueueEmpty:
+            if produce_task.done():
+                break
+            else:
+                await asyncio.sleep(0.1)
+                continue
+
+        return record_batch
+    return None
+
+
 async def assert_clickhouse_records_in_s3(
     s3_compatible_client,
     clickhouse_client: ClickHouseClient,
@@ -258,37 +273,62 @@ async def assert_clickhouse_records_in_s3(
     schema_column_names = [field["alias"] for field in s3_default_fields()]
     if batch_export_model is not None:
         if isinstance(batch_export_model, BatchExportModel):
-            batch_export_schema = batch_export_model.schema
+            model_name = batch_export_model.name
+            fields = batch_export_model.schema["fields"] if batch_export_model.schema is not None else None
+            filters = batch_export_model.filters
+            extra_query_parameters = (
+                batch_export_model.schema["values"] if batch_export_model.schema is not None else None
+            )
         else:
-            batch_export_schema = batch_export_model
+            model_name = "custom"
+            fields = batch_export_model["fields"]
+            filters = None
+            extra_query_parameters = batch_export_model["values"]
+    else:
+        model_name = "events"
+        extra_query_parameters = None
+        fields = None
+        filters = None
 
-        if batch_export_schema is not None:
-            schema_column_names = [field["alias"] for field in batch_export_schema["fields"]]
-        elif isinstance(batch_export_model, BatchExportModel) and batch_export_model.name == "persons":
-            schema_column_names = [
-                "team_id",
-                "distinct_id",
-                "person_id",
-                "properties",
-                "person_version",
-                "person_distinct_id_version",
-                "_inserted_at",
-                "created_at",
-            ]
+    if fields is not None:
+        schema_column_names = [field["alias"] for field in fields]
+    elif isinstance(batch_export_model, BatchExportModel) and batch_export_model.name == "persons":
+        schema_column_names = [
+            "team_id",
+            "distinct_id",
+            "person_id",
+            "properties",
+            "person_version",
+            "person_distinct_id_version",
+            "_inserted_at",
+            "created_at",
+        ]
 
     expected_records = []
-    async for record_batch in iter_model_records(
-        client=clickhouse_client,
-        model=batch_export_model,
+
+    queue = RecordBatchQueue()
+    producer = Producer()
+    producer_task = await producer.start(
+        queue=queue,
+        model_name=model_name,
+        is_backfill=is_backfill,
         team_id=team_id,
-        interval_start=data_interval_start.isoformat(),
-        interval_end=data_interval_end.isoformat(),
+        full_range=(data_interval_start, data_interval_end),
+        done_ranges=[],
+        fields=fields,
+        filters=filters,
+        destination_default_fields=s3_default_fields(),
         exclude_events=exclude_events,
         include_events=include_events,
         destination_default_fields=s3_default_fields(),
         backfill_details=backfill_details,
         use_latest_schema=True,
-    ):
+    )
+    while not queue.empty() or not producer_task.done():
+        record_batch = await get_record_batch_from_queue(queue, producer_task)
+        if record_batch is None:
+            break
+
         for record in record_batch.to_pylist():
             expected_record = {}
             for k, v in record.items():
@@ -386,7 +426,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
         and (model.name == "persons" or model.name == "sessions")
         and exclude_events is not None
     ):
-        pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
+        pytest.skip(f"Unnecessary test case as {model.name} batch export is not affected by 'exclude_events'")
 
     prefix = str(uuid.uuid4())
 

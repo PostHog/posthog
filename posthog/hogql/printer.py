@@ -445,6 +445,9 @@ class _Printer(Visitor):
             if settings is not None:
                 clauses.append(settings)
 
+        if self.context.output_format:
+            clauses.append(f"FORMAT{space}{self.context.output_format}")
+
         if self.pretty:
             response = "\n".join([f"{self.indent()}{clause}" for clause in clauses if clause is not None])
         else:

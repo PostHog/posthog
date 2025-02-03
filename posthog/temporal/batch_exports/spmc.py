@@ -36,8 +36,6 @@ from posthog.temporal.batch_exports.sql import (
     SELECT_FROM_PERSONS_VIEW_BACKFILL,
     SELECT_FROM_PERSONS_VIEW_BACKFILL_NEW,
     SELECT_FROM_PERSONS_VIEW_NEW,
-    SELECT_FROM_SESSIONS_VIEW,
-    SELECT_FROM_SESSIONS_VIEW_BACKFILL,
 )
 from posthog.temporal.batch_exports.temporary_file import (
     BatchExportTemporaryFile,
@@ -480,6 +478,97 @@ async def run_consumer(
     return records_completed
 
 
+Query = str
+QueryParameters = dict[str, typing.Any]
+BatchExportDateRange = tuple[dt.datetime | None, dt.datetime]
+
+
+class RecordBatchModel(abc.ABC):
+    """Base class for models that can be produced as record batches."""
+
+    def __init__(self, team_id: int, is_backfill: bool):
+        self.team_id = team_id
+        self.is_backfill = is_backfill
+
+    async def get_hogql_context(self, team_id: int) -> HogQLContext:
+        """Return a HogQLContext to generate a ClickHouse query."""
+        team = await Team.objects.aget(id=team_id)
+        context = HogQLContext(
+            team=team,
+            team_id=team.id,
+            enable_select_queries=True,
+            limit_top_select=False,
+            output_format="ArrowStream",
+        )
+        context.database = await database_sync_to_async(create_hogql_database)(team.id, context.modifiers)
+
+        return context
+
+    @abc.abstractmethod
+    async def as_query_with_parameters(self) -> tuple[Query, QueryParameters]:
+        """Produce a printed query and any necessary ClickHouse query parameters."""
+        raise NotImplementedError
+
+
+class SessionsRecordBatchModel(RecordBatchModel):
+    """A model to produce record batches from the sessions table.
+
+    Attributes:
+       team_id: The ID of the team we are producing records for.
+       is_backfill: Whether we are meant to be backfilling all records.
+    """
+
+    def __init__(self, team_id: int, is_backfill: bool):
+        super().__init__(team_id, is_backfill)
+
+    def get_hogql_query(self) -> ast.SelectQuery:
+        """Return the HogQLQuery used for the sessions model."""
+        hogql_query = sql.SELECT_FROM_SESSIONS_HOGQL
+
+        where_and = ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["sessions", "team_id"]),
+                    right=ast.Constant(value=self.team_id),
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Lt,
+                    left=ast.Field(chain=["_inserted_at"]),
+                    right=ast.Constant(value="{{interval_end:DateTime64}}"),
+                ),
+            ]
+        )
+        if not self.is_backfill:
+            where_and.exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["_inserted_at"]),
+                    right=ast.Constant(value="{{interval_start:DateTime64}}"),
+                )
+            )
+
+        hogql_query.prewhere = where_and
+
+        return hogql_query
+
+    async def as_query_with_parameters(self) -> tuple[Query, QueryParameters]:
+        """Produce a printed query and any necessary ClickHouse query parameters."""
+        hogql_query = self.get_hogql_query()
+        context = await self.get_hogql_context(self.team_id)
+
+        prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
+            hogql_query, context=context, dialect="clickhouse", stack=[]
+        )
+        printed = print_prepared_ast(
+            prepared_hogql_query,  # type: ignore
+            context=context,
+            dialect="clickhouse",
+            stack=[],
+        )
+        return printed, context.values
+
+
 class BatchExportField(typing.TypedDict):
     """A field to be queried from ClickHouse.
 
@@ -555,9 +644,10 @@ class Producer:
         _task: Used to keep track of producer background task.
     """
 
-    def __init__(self):
-        self._task: asyncio.Task | None = None
+    def __init__(self, model: RecordBatchModel | None = None):
+        self.model = model
         self.logger = get_internal_logger()
+        self._task: asyncio.Task | None = None
 
     @property
     def task(self) -> asyncio.Task:
@@ -566,6 +656,60 @@ class Producer:
         return self._task
 
     async def start(
+        self,
+        queue: RecordBatchQueue,
+        full_range: tuple[dt.datetime | None, dt.datetime],
+        done_ranges: list[tuple[dt.datetime, dt.datetime]],
+        max_record_batch_size_bytes: int = 0,
+        min_records_per_batch: int = 100,
+        **kwargs,
+    ) -> asyncio.Task:
+        """Dispatch to one of two implementations, depending on `self.model`."""
+        if self.model is not None:
+            return await self.start_with_model(
+                queue=queue,
+                max_record_batch_size_bytes=max_record_batch_size_bytes,
+                min_records_per_batch=min_records_per_batch,
+                full_range=full_range,
+                done_ranges=done_ranges,
+            )
+        else:
+            return await self.start_without_model(
+                queue=queue,
+                max_record_batch_size_bytes=max_record_batch_size_bytes,
+                min_records_per_batch=min_records_per_batch,
+                full_range=full_range,
+                done_ranges=done_ranges,
+                **kwargs,
+            )
+
+    async def start_with_model(
+        self,
+        queue: RecordBatchQueue,
+        full_range: tuple[dt.datetime | None, dt.datetime],
+        done_ranges: list[tuple[dt.datetime, dt.datetime]],
+        max_record_batch_size_bytes: int = 0,
+        min_records_per_batch: int = 100,
+    ):
+        assert self.model is not None
+
+        query, query_parameters = await self.model.as_query_with_parameters()
+        self._task = asyncio.create_task(
+            self.produce_batch_export_record_batches_from_range(
+                query=query,
+                full_range=full_range,
+                done_ranges=done_ranges,
+                queue=queue,
+                query_parameters=query_parameters,
+                max_record_batch_size_bytes=max_record_batch_size_bytes,
+                min_records_per_batch=min_records_per_batch,
+                team_id=self.model.team_id,
+            ),
+            name="record_batch_producer",
+        )
+        return self._task
+
+    async def start_without_model(
         self,
         queue: RecordBatchQueue,
         model_name: str,
@@ -612,11 +756,6 @@ class Producer:
                     query = SELECT_FROM_PERSONS_VIEW_NEW
                 else:
                     query = SELECT_FROM_PERSONS_VIEW
-        elif model_name == "sessions":
-            if is_backfill and full_range[0] is None:
-                query = SELECT_FROM_SESSIONS_VIEW_BACKFILL
-            else:
-                query = SELECT_FROM_SESSIONS_VIEW
         else:
             if parameters.get("exclude_events", None):
                 parameters["exclude_events"] = list(parameters["exclude_events"])
@@ -679,7 +818,6 @@ class Producer:
                 max_record_batch_size_bytes=max_record_batch_size_bytes,
                 min_records_per_batch=min_records_per_batch,
                 team_id=team_id,
-                is_backfill=is_backfill,
             ),
             name="record_batch_producer",
         )
@@ -694,7 +832,6 @@ class Producer:
         queue: RecordBatchQueue,
         query_parameters: dict[str, typing.Any],
         team_id: int,
-        is_backfill: bool,
         max_record_batch_size_bytes: int = 0,
         min_records_per_batch: int = 100,
     ):
@@ -709,7 +846,6 @@ class Producer:
             queue: The queue where to produce record batches.
             query_parameters: Additional query parameters.
             team_id: The team ID of the batch export.
-            is_backfill: Whether the batch export is a backfill.
             max_record_batch_size_bytes: The max size in bytes of a record batch to insert in `queue`.
                 If a record batch is larger than this, `slice_record_batch` will be used to slice it
                 into smaller record batches.
