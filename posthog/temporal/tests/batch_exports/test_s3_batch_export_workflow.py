@@ -48,7 +48,7 @@ from posthog.temporal.batch_exports.s3_batch_export import (
     insert_into_s3_activity,
     s3_default_fields,
 )
-from posthog.temporal.batch_exports.spmc import Producer, RecordBatchQueue
+from posthog.temporal.batch_exports.spmc import Producer, RecordBatchQueue, SessionsRecordBatchModel
 from posthog.temporal.batch_exports.temporary_file import UnsupportedFileFormatError
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.batch_exports.utils import mocked_start_batch_export_run
@@ -307,7 +307,10 @@ async def assert_clickhouse_records_in_s3(
     expected_records = []
 
     queue = RecordBatchQueue()
-    producer = Producer()
+    if model_name == "sessions":
+        producer = Producer(model=SessionsRecordBatchModel(team_id, is_backfill))
+    else:
+        producer = Producer()
     producer_task = await producer.start(
         queue=queue,
         model_name=model_name,
@@ -464,6 +467,12 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
         records_exported == len(events_to_export_created)
         or records_exported == len(persons_to_export_created)
         or records_exported == len([event for event in events_to_export_created if event["properties"] is not None])
+        or (
+            isinstance(model, BatchExportModel)
+            and model.name == "sessions"
+            and records_exported
+            == len([event for event in events_to_export_created if event["properties"] is not None]) * 2
+        )
     )
 
     await assert_clickhouse_records_in_s3(
@@ -816,6 +825,12 @@ async def test_insert_into_s3_activity_puts_data_into_s3_using_async(
         records_exported == len(events_to_export_created)
         or records_exported == len(persons_to_export_created)
         or records_exported == len([event for event in events_to_export_created if event["properties"] is not None])
+        or (
+            isinstance(model, BatchExportModel)
+            and model.name == "sessions"
+            and records_exported
+            == len([event for event in events_to_export_created if event["properties"] is not None]) * 2
+        )
     )
 
     await assert_clickhouse_records_in_s3(

@@ -498,14 +498,15 @@ class RecordBatchModel(abc.ABC):
             team_id=team.id,
             enable_select_queries=True,
             limit_top_select=False,
-            output_format="ArrowStream",
         )
         context.database = await database_sync_to_async(create_hogql_database)(team.id, context.modifiers)
 
         return context
 
     @abc.abstractmethod
-    async def as_query_with_parameters(self) -> tuple[Query, QueryParameters]:
+    async def as_query_with_parameters(
+        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
+    ) -> tuple[Query, QueryParameters]:
         """Produce a printed query and any necessary ClickHouse query parameters."""
         raise NotImplementedError
 
@@ -521,7 +522,9 @@ class SessionsRecordBatchModel(RecordBatchModel):
     def __init__(self, team_id: int, is_backfill: bool):
         super().__init__(team_id, is_backfill)
 
-    def get_hogql_query(self) -> ast.SelectQuery:
+    def get_hogql_query(
+        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
+    ) -> ast.SelectQuery:
         """Return the HogQLQuery used for the sessions model."""
         hogql_query = sql.SELECT_FROM_SESSIONS_HOGQL
 
@@ -535,31 +538,34 @@ class SessionsRecordBatchModel(RecordBatchModel):
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Lt,
                     left=ast.Field(chain=["_inserted_at"]),
-                    right=ast.Constant(value="{{interval_end:DateTime64}}"),
+                    right=ast.Constant(value=data_interval_end),
                 ),
             ]
         )
-        if not self.is_backfill:
+        if not self.is_backfill and data_interval_start:
             where_and.exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
                     left=ast.Field(chain=["_inserted_at"]),
-                    right=ast.Constant(value="{{interval_start:DateTime64}}"),
+                    right=ast.Constant(value=data_interval_start),
                 )
             )
 
-        hogql_query.prewhere = where_and
+        hogql_query.where = where_and
 
         return hogql_query
 
-    async def as_query_with_parameters(self) -> tuple[Query, QueryParameters]:
+    async def as_query_with_parameters(
+        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
+    ) -> tuple[Query, QueryParameters]:
         """Produce a printed query and any necessary ClickHouse query parameters."""
-        hogql_query = self.get_hogql_query()
+        hogql_query = self.get_hogql_query(data_interval_start, data_interval_end)
         context = await self.get_hogql_context(self.team_id)
 
         prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
             hogql_query, context=context, dialect="clickhouse", stack=[]
         )
+        context.output_format = "ArrowStream"
         printed = print_prepared_ast(
             prepared_hogql_query,
             context=context,
@@ -567,6 +573,45 @@ class SessionsRecordBatchModel(RecordBatchModel):
             stack=[],
         )
         return printed, context.values
+
+
+def resolve_batch_exports_model(
+    team_id: int,
+    is_backfill: bool,
+    batch_export_model: BatchExportModel | None = None,
+    batch_export_schema: BatchExportSchema | None = None,
+):
+    """Resolve which model and model parameters to use for a batch export.
+
+    This function exists to isolate a lot of repetitive checks that deal with deprecated
+    and new parameters. Eventually, once everything is a `RecordBatchModel`, this could
+    be removed.
+    """
+    model: BatchExportModel | BatchExportSchema | None = None
+    record_batch_model = None
+    if batch_export_schema is None:
+        model = batch_export_model
+        if model is not None:
+            model_name = model.name
+            extra_query_parameters = model.schema["values"] if model.schema is not None else None
+            fields = model.schema["fields"] if model.schema is not None else None
+            filters = model.filters
+
+            if model_name == "sessions":
+                record_batch_model = SessionsRecordBatchModel(team_id, is_backfill)
+        else:
+            model_name = "events"
+            extra_query_parameters = None
+            fields = None
+            filters = None
+    else:
+        model = batch_export_schema
+        model_name = "custom"
+        extra_query_parameters = model["values"] if model is not None else {}
+        fields = model["fields"] if model is not None else None
+        filters = None
+
+    return model, record_batch_model, model_name, fields, filters, extra_query_parameters
 
 
 class BatchExportField(typing.TypedDict):
@@ -693,14 +738,13 @@ class Producer:
     ):
         assert self.model is not None
 
-        query, query_parameters = await self.model.as_query_with_parameters()
         self._task = asyncio.create_task(
             self.produce_batch_export_record_batches_from_range(
-                query=query,
+                query_or_model=self.model,
                 full_range=full_range,
                 done_ranges=done_ranges,
                 queue=queue,
-                query_parameters=query_parameters,
+                query_parameters={},
                 max_record_batch_size_bytes=max_record_batch_size_bytes,
                 min_records_per_batch=min_records_per_batch,
                 team_id=self.model.team_id,
@@ -810,7 +854,7 @@ class Producer:
 
         self._task = asyncio.create_task(
             self.produce_batch_export_record_batches_from_range(
-                query=query,
+                query_or_model=query,
                 full_range=full_range,
                 done_ranges=done_ranges,
                 queue=queue,
@@ -826,7 +870,7 @@ class Producer:
 
     async def produce_batch_export_record_batches_from_range(
         self,
-        query: str,
+        query_or_model: str | RecordBatchModel,
         full_range: tuple[dt.datetime | None, dt.datetime],
         done_ranges: collections.abc.Sequence[tuple[dt.datetime, dt.datetime]],
         queue: RecordBatchQueue,
@@ -876,6 +920,13 @@ class Producer:
                     query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
                 query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
                 query_id = uuid.uuid4()
+
+                if isinstance(query_or_model, RecordBatchModel):
+                    query, query_parameters = await query_or_model.as_query_with_parameters(
+                        interval_start, interval_end
+                    )
+                else:
+                    query = query_or_model
 
                 try:
                     async for record_batch in client.astream_query_as_arrow(

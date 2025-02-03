@@ -253,21 +253,18 @@ def test_compose_filters_clause(
     assert result_values == expected_values
 
 
-async def test_sessions_record_batch_model(ateam):
+async def test_sessions_record_batch_model(ateam, data_interval_start, data_interval_end):
     model = SessionsRecordBatchModel(
         team_id=ateam.id,
         is_backfill=False,
     )
-    context = await model.get_hogql_context(ateam.id)
-    hogql_query = model.get_hogql_query()
+    hogql_query = model.get_hogql_query(data_interval_start, data_interval_end)
     team_id_filter = ast.CompareOperation(
         op=ast.CompareOperationOp.Eq,
         left=ast.Field(chain=["sessions", "team_id"]),
         right=ast.Constant(value=ateam.id),
     )
-    printed_query, _ = await model.as_query_with_parameters()
-
-    assert context.output_format == "ArrowStream"
+    printed_query, _ = await model.as_query_with_parameters(data_interval_start, data_interval_end)
 
     assert hogql_query.prewhere is not None
     assert isinstance(hogql_query.prewhere, ast.And)
@@ -275,3 +272,8 @@ async def test_sessions_record_batch_model(ateam):
 
     assert f"equals(raw_sessions.team_id, {ateam.id})" in printed_query
     assert "FORMAT ArrowStream" in printed_query
+    assert (
+        f"greaterOrEquals(_inserted_at, toDateTime64('{data_interval_start:%Y-%m-%d %H:%M:%S.%f}', 6, 'UTC')"
+        in printed_query
+    )
+    assert f"less(_inserted_at, toDateTime64('{data_interval_end:%Y-%m-%d %H:%M:%S.%f}', 6, 'UTC')" in printed_query
