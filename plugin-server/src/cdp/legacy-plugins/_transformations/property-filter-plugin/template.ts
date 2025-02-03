@@ -1,7 +1,7 @@
 import { HogFunctionTemplate } from '~/src/cdp/templates/types'
 
 export const template: HogFunctionTemplate = {
-    free: false,
+    free: true,
     status: 'alpha',
     type: 'transformation',
     id: 'plugin-property-filter-plugin',
