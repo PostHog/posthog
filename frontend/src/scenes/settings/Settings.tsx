@@ -3,6 +3,7 @@ import './Settings.scss'
 import { LemonBanner, LemonButton, LemonButtonProps, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { NotFound } from 'lib/components/NotFound'
 import { TimeSensitiveAuthenticationArea } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -94,10 +95,16 @@ export function Settings({
                       key: section.id,
                       content: (
                           <OptionButton
-                              to={urls.settings(section.id)}
+                              to={section.to ?? urls.settings(section.id)}
                               handleLocally={handleLocally}
                               active={selectedSectionId === section.id}
-                              onClick={() => selectSection(section.id, level)}
+                              onClick={() => {
+                                  if (section.to) {
+                                      router.actions.push(section.to)
+                                  } else {
+                                      selectSection(section.id, level)
+                                  }
+                              }}
                           >
                               {section.title}
                           </OptionButton>

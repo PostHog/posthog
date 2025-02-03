@@ -41,6 +41,7 @@ export type SettingSectionId =
     | 'project-danger-zone'
     | 'organization-details'
     | 'organization-members'
+    | 'organization-billing'
     | 'organization-authentication'
     | 'organization-roles'
     | 'organization-proxy'
@@ -141,6 +142,7 @@ export type Setting = {
 export interface SettingSection extends Pick<Setting, 'flag'> {
     id: SettingSectionId
     title: string
+    to?: string
     level: SettingLevelId
     settings: Setting[]
     minimumAccessLevel?: EitherMembershipLevel
