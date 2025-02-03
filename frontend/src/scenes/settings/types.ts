@@ -86,6 +86,7 @@ export type SettingId =
     | 'environment-role-based-access-control'
     | 'environment-delete'
     | 'project-delete'
+    | 'project-move'
     | 'organization-logo'
     | 'organization-display-name'
     | 'invites'

@@ -18,6 +18,7 @@ export const projectLogic = kea<projectLogicType>([
         deleteProject: (project: ProjectType) => ({ project }),
         deleteProjectSuccess: true,
         deleteProjectFailure: true,
+        moveProject: (project: ProjectType, organizationId: string) => ({ project, organizationId }),
     }),
     connect(() => ({
         actions: [userLogic, ['loadUser', 'switchTeam'], organizationLogic, ['loadCurrentOrganization']],
@@ -87,6 +88,17 @@ export const projectLogic = kea<projectLogicType>([
                 },
             },
         ],
+
+        projectBeingMoved: [
+            null as ProjectType | null,
+            {
+                moveProject: async ({ project, organizationId }) => {
+                    return await api.create<ProjectType>(`api/projects/${project.id}/change_organization`, {
+                        organization_id: organizationId,
+                    })
+                },
+            },
+        ],
     })),
     selectors({
         currentProjectId: [(s) => [s.currentProject], (currentProject) => currentProject?.id || null],
@@ -113,6 +125,11 @@ export const projectLogic = kea<projectLogicType>([
             if (currentProject) {
                 actions.switchTeam(currentProject.id)
             }
+        },
+
+        moveProjectSuccess: async () => {
+            lemonToast.success('Project has been moved. Redirecting...')
+            window.location.reload()
         },
     })),
     afterMount(({ actions }) => {

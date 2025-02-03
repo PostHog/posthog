@@ -61,6 +61,7 @@ import { OrganizationLogo } from './organization/OrgLogo'
 import { RoleBasedAccess } from './organization/Permissions/RoleBasedAccess'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
+import { ProjectMove } from './project/ProjectMove'
 import { ProjectDisplayName, ProjectProductDescription } from './project/ProjectSettings'
 import { SettingSection } from './types'
 import { ChangePassword } from './user/ChangePassword'
@@ -433,6 +434,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'project-delete',
                 title: 'Delete project',
                 component: <ProjectDangerZone />,
+            },
+            {
+                id: 'project-move',
+                title: 'Move project',
+                component: <ProjectMove />,
             },
         ],
     },
