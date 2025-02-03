@@ -15,6 +15,8 @@ from dagster import (
 )
 from django.conf import settings
 from functools import partial
+import uuid
+
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
     Mutation,
@@ -81,7 +83,7 @@ ShardMutations = dict[int, Mutation]
 @dataclass
 class PendingPersonEventDeletesTable:
     """
-    Represents a temporary table storing pending person event deletions.
+    Represents a table storing pending person event deletions.
     """
 
     timestamp: datetime
@@ -109,6 +111,12 @@ class PendingPersonEventDeletesTable:
         return f"{settings.CLICKHOUSE_DATABASE}.{self.table_name}"
 
     @property
+    def zk_path(self) -> str:
+        ns_uuid = uuid.uuid4()
+        testing = f"testing/{ns_uuid}/" if settings.TEST else ""
+        return f"/clickhouse/tables/{testing}noshard/{self.table_name}"
+
+    @property
     def create_table_query(self) -> str:
         return f"""
             CREATE TABLE IF NOT EXISTS {self.qualified_name} ON CLUSTER '{self.cluster}'
@@ -117,7 +125,7 @@ class PendingPersonEventDeletesTable:
                 key String,
                 created_at DateTime,
             )
-            ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/{self.table_name}', '{{shard}}-{{replica}}')
+            ENGINE = ReplicatedReplacingMergeTree('{self.zk_path}', '{{shard}}-{{replica}}')
             ORDER BY (team_id, key)
         """
 
