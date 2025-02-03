@@ -7,6 +7,10 @@ export interface EndResult {
     buffer: Buffer
     /** Number of events in the session block */
     eventCount: number
+    /** Timestamp of the first event in the session block */
+    startTimestamp: number
+    /** Timestamp of the last event in the session block */
+    endTimestamp: number
 }
 
 /**
@@ -38,6 +42,8 @@ export class SessionRecorder {
     private eventCount: number = 0
     private rawBytesWritten: number = 0
     private ended = false
+    private startTimestamp: number | null = null
+    private endTimestamp: number | null = null
     // Store any gzip error that occurs - these should be rare/never happen in practice
     // We keep the error until end() to keep the recordMessage interface simple
     private gzipError: Error | null = null
@@ -66,6 +72,19 @@ export class SessionRecorder {
         }
 
         let rawBytesWritten = 0
+
+        if (message.eventsRange.start > 0) {
+            this.startTimestamp =
+                this.startTimestamp === null
+                    ? message.eventsRange.start
+                    : Math.min(this.startTimestamp, message.eventsRange.start)
+        }
+        if (message.eventsRange.end > 0) {
+            this.endTimestamp =
+                this.endTimestamp === null
+                    ? message.eventsRange.end
+                    : Math.max(this.endTimestamp, message.eventsRange.end)
+        }
 
         Object.entries(message.eventsByWindowId).forEach(([windowId, events]) => {
             events.forEach((event) => {
@@ -107,6 +126,8 @@ export class SessionRecorder {
                     // Buffer.concat typings are missing the signature with Buffer[]
                     buffer: Buffer.concat(this.chunks as any[]),
                     eventCount: this.eventCount,
+                    startTimestamp: this.startTimestamp ?? 0,
+                    endTimestamp: this.endTimestamp ?? 0,
                 })
             })
 
