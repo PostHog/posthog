@@ -21,8 +21,8 @@ def rbac_feature_flag_role_access_migration(organization_id: str):
         # And only other roles / specific opt in via FeatureFlagRoleAccess give edit access
         organization_resource_access = OrganizationResourceAccess.objects.filter(
             organization_id=organization_id,
-            resource="feature_flags",  # note this is plural
-            access_level=21,
+            resource="feature flags",  # note this is plural and space
+            access_level=OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW,
         )
         if organization_resource_access.exists():
             # Add view only access to all feature flags for the organization
@@ -39,7 +39,10 @@ def rbac_feature_flag_role_access_migration(organization_id: str):
 
             # Then we want to look at all roles where the feature flag role is edit level to apply those to all flags, we need
             # to do this if the organization resource access is view only
-            editor_roles = Role.objects.filter(organization_id=organization_id, feature_flags_access_level=37)
+            editor_roles = Role.objects.filter(
+                organization_id=organization_id,
+                feature_flags_access_level=OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT,
+            )
             for role in editor_roles:
                 for feature_flag in FeatureFlag.objects.filter(team__organization_id=organization_id):
                     AccessControl.objects.create(
@@ -53,7 +56,6 @@ def rbac_feature_flag_role_access_migration(organization_id: str):
         # Now that we've done the org level ones we can look at the feature flag role access
         # These a basically specific ones applied to a role and a feature flag
         feature_flag_role_access = FeatureFlagRoleAccess.objects.filter(role__organization_id=organization_id)
-
         for role_access in feature_flag_role_access:
             # Create access control for the feature flag role access
             feature_flag = role_access.feature_flag
