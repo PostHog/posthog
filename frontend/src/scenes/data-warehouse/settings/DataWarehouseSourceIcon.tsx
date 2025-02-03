@@ -30,6 +30,8 @@ export function mapUrlToProvider(url: string): string {
         return 'google-cloud'
     } else if (url.includes('.blob.')) {
         return 'azure'
+    } else if (url.includes('.r2.cloudflarestorage.com')) {
+        return 'cloudflare-r2'
     }
     return 'BlushingHog'
 }

@@ -70,7 +70,7 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
                       ? { [PipelineNodeTab.SourceConfiguration]: <SourceConfiguration id={node.id} /> }
                       : {}),
               }
-            : node.backend !== PipelineBackend.DataWarehouse
+            : node.backend !== PipelineBackend.SelfManagedSource
             ? {
                   [PipelineNodeTab.Configuration]: <PipelineNodeConfiguration />,
                   [PipelineNodeTab.Metrics]:
@@ -87,7 +87,7 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
         tabToContent[PipelineNodeTab.Runs] = <BatchExportRuns id={node.id} />
     }
 
-    if (node.backend === PipelineBackend.DataWarehouse) {
+    if (node.backend === PipelineBackend.SelfManagedSource) {
         tabToContent[PipelineNodeTab.SourceConfiguration] = <SelfManaged id={node.id.toString()} />
     }
 

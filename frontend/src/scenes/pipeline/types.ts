@@ -12,7 +12,7 @@ export enum PipelineBackend {
     Plugin = 'plugin',
     HogFunction = 'hog_function',
     ManagedSource = 'managed_source',
-    DataWarehouse = 'data_warehouse',
+    SelfManagedSource = 'data_warehouse',
 }
 
 // Base - we're taking a discriminated union approach here, so that TypeScript can discern types for free

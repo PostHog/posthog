@@ -34,7 +34,7 @@ type ManagedSourceId = {
     id: string
 }
 type DataWarehouseId = {
-    backend: PipelineBackend.DataWarehouse
+    backend: PipelineBackend.SelfManagedSource
     id: number | string
 }
 export type PipelineNodeLimitedType =
@@ -120,7 +120,7 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
                     }
 
                     if (id.indexOf('self-managed') === 0) {
-                        return { backend: PipelineBackend.DataWarehouse, id: `${id}`.replace('self-managed-', '') }
+                        return { backend: PipelineBackend.SelfManagedSource, id: `${id}`.replace('self-managed-', '') }
                     }
 
                     return { backend: PipelineBackend.BatchExport, id }
