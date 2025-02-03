@@ -86,9 +86,18 @@ export const extractCoreModelParams = (event: PluginEvent): PluginEvent => {
 }
 
 const findCostFromModel = (aiModel: string): ModelRow | undefined => {
+    // Check if the model is an exact match
     let cost = costs.find((cost) => cost.model.toLowerCase() === aiModel.toLowerCase())
+    // Check if the model is a variant of a known model
     if (!cost) {
         cost = costs.find((cost) => aiModel.toLowerCase().includes(cost.model.toLowerCase()))
+    }
+    // Check if the model is a variant of a known model
+    if (!cost) {
+        cost = costs.find((cost) => cost.model.toLowerCase().includes(aiModel.toLowerCase()))
+    }
+    if (!cost) {
+        console.warn(`No cost found for model: ${aiModel}`)
     }
     return cost
 }
