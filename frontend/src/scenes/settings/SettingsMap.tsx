@@ -1,3 +1,4 @@
+import { LemonTag } from '@posthog/lemon-ui'
 import { ErrorTrackingAlerting } from 'scenes/error-tracking/configuration/alerting/ErrorTrackingAlerting'
 import { ErrorTrackingSymbolSets } from 'scenes/error-tracking/configuration/symbol-sets/ErrorTrackingSymbolSets'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
@@ -166,7 +167,14 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'data-theme',
-                title: 'Data colors',
+                title: (
+                    <>
+                        Chart color themes
+                        <LemonTag type="warning" className="ml-1 uppercase">
+                            Beta
+                        </LemonTag>
+                    </>
+                ),
                 component: <DataColorThemes />,
                 flag: 'INSIGHT_COLORS',
             },

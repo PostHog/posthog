@@ -618,7 +618,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         $geoip_accuracy_radius: {
             label: 'GeoIP detection accuracy radius',
-            description: "Accuracy radius of the location matched to this event's IP address.",
+            description: "Accuracy radius of the location matched to this event's IP address (in kilometers).",
             examples: ['50'],
         },
         $geoip_subdivision_1_confidence: {
