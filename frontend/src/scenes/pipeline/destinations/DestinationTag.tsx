@@ -14,8 +14,7 @@ export function DestinationTag({ status }: DestinationTagProps): JSX.Element | n
         case 'beta':
             return <LemonTag type="completion">Beta</LemonTag>
         case 'stable':
-            // Once Hog Functions are fully released we can remove the new label
-            return <LemonTag type="highlight">New</LemonTag>
+            return null
         default:
             return status ? <LemonTag type="highlight">{capitalizeFirstLetter(status)}</LemonTag> : null
     }
