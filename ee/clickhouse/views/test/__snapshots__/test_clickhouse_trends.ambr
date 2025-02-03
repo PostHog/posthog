@@ -12,7 +12,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhouseTestTrends.test_insight_trends_aggregate.1
@@ -82,7 +83,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhouseTestTrends.test_insight_trends_basic.1
@@ -215,7 +217,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.1
@@ -254,7 +257,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.10
@@ -415,7 +419,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.3
@@ -495,7 +500,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.4
@@ -549,7 +555,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.5
@@ -844,7 +851,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhouseTestTrendsCaching.test_insight_trends_merging.1
@@ -878,7 +886,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhouseTestTrendsCaching.test_insight_trends_merging_skipped_interval
@@ -912,7 +921,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhouseTestTrendsCaching.test_insight_trends_merging_skipped_interval.1
@@ -946,7 +956,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_group
@@ -973,7 +984,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_group.1
@@ -1023,7 +1035,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_session.1
