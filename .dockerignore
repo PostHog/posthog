@@ -13,7 +13,6 @@
 !pnpm-lock.yaml
 !webpack.config.js
 !playwright.config.ts
-!tailwind.config.js
 !.kearc
 !.storybook
 !tsconfig.json

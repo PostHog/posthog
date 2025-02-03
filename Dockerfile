@@ -36,7 +36,7 @@ COPY frontend/ frontend/
 COPY products/ products/
 COPY ee/frontend/ ee/frontend/
 COPY ./bin/ ./bin/
-COPY babel.config.js tsconfig.json webpack.config.js tailwind.config.js ./
+COPY babel.config.js tsconfig.json webpack.config.js ./
 RUN pnpm build
 
 #
