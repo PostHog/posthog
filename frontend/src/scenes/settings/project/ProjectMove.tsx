@@ -95,7 +95,7 @@ export function ProjectMove(): JSX.Element {
                         label: o.name,
                         value: o.id,
                     }))}
-                    placeholder="Select an organization"
+                    placeholder="Select target organization"
                     onChange={(value) => {
                         const organization = otherOrganizations.find((o) => o.id === value)
                         setTargetOrganization(organization || null)
@@ -109,7 +109,9 @@ export function ProjectMove(): JSX.Element {
                     onClick={() => setIsModalVisible(true)}
                     data-attr="move-project-button"
                     icon={<IconArrowRight />}
-                    disabledReason={restrictedReason ?? (targetOrganization === null && 'Select an organization')}
+                    disabledReason={
+                        restrictedReason ?? (targetOrganization === null && 'Please select the target organization')
+                    }
                 >
                     Move {currentProject?.name || 'the current project'}
                 </LemonButton>
