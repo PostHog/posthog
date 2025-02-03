@@ -174,8 +174,8 @@ dependencies:
     specifier: ^2.5.1
     version: 2.5.1
   clsx:
-    specifier: ^1.1.1
-    version: 1.1.1
+    specifier: ^2.1.1
+    version: 2.1.1
   core-js:
     specifier: ^3.32.0
     version: 3.32.0

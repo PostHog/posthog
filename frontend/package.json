@@ -109,7 +109,7 @@
         "chartjs-plugin-trendline": "^2.1.2",
         "chokidar": "^3.5.3",
         "classnames": "^2.5.1",
-        "clsx": "^1.1.1",
+        "clsx": "^2.1.1",
         "core-js": "^3.32.0",
         "cors": "^2.8.5",
         "crypto-browserify": "^3.12.0",

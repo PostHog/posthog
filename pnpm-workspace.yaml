@@ -4,3 +4,5 @@ packages:
     - 'plugin-server'
     - 'rust/cyclotron-node'
     - 'frontend'
+    - 'products/*'
+    - 'ee/frontend/mobile-replay'

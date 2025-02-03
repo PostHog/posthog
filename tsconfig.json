@@ -7,7 +7,7 @@
             "@posthog/lemon-ui": ["./frontend/@posthog/lemon-ui/src/index"],
             "@posthog/lemon-ui/*": ["./frontend/@posthog/lemon-ui/src/*"],
             "storybook/*": ["./.storybook/*"],
-            "@posthog/ee/exports": ["./ee/exports", "@posthog/ee/exports"],
+            "@posthog/ee/exports": ["./frontend/@posthog/ee/exports", "@posthog/ee/exports"],
             "~/*": ["./frontend/src/*"],
             "public/*": ["./frontend/public/*"],
             "products/*": ["./products/*"]

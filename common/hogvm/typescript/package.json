@@ -34,7 +34,7 @@
         "@swc/core": "^1.5.7",
         "@swc/jest": "^0.2.36",
         "@types/luxon": "^3.4.2",
-        "@types/node": "^20.14.2",
+        "@types/node": "^18.11.9",
         "crypto-browserify": "^3.12.0",
         "jest": "^28.1.1",
         "parcel": "^2.13.3",
@@ -54,7 +54,6 @@
         "luxon": "^3.4.4"
     },
     "dependencies": {
-        "luxon": "^3.4.4",
-        "@posthog/build": "workspace:*"
+        "luxon": "^3.4.4"
     }
 }
