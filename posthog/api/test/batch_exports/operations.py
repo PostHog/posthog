@@ -162,7 +162,7 @@ def cancel_batch_export_backfill(client: TestClient, team_id: int, batch_export_
 
 
 def cancel_batch_export_backfill_ok(client: TestClient, team_id: int, batch_export_id: str, backfill_id: str):
-    response = client.post(f"/api/projects/{team_id}/batch_exports/{batch_export_id}/backfills/{backfill_id}/cancel")
+    response = cancel_batch_export_backfill(client, team_id, batch_export_id, backfill_id)
     assert response.status_code == status.HTTP_200_OK, response.json()
     return response.json()
 
@@ -176,11 +176,10 @@ async def wait_for_workflow_executions(
 
     total = 0
     while not workflows:
-        total += sleep
-
         if total > timeout:
             raise TimeoutError(f"No backfill Workflow Executions after {timeout} seconds")
 
+        total += sleep
         await asyncio.sleep(sleep)
         workflows = [workflow async for workflow in temporal.list_workflows(query=query)]
 

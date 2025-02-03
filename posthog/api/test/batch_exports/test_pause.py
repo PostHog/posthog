@@ -79,7 +79,7 @@ def test_pause_and_unpause_batch_export(client: HttpClient, temporal):
         assert schedule_desc.schedule.state.paused is False
 
 
-def test_connot_pause_and_unpause_batch_exports_of_other_organizations(client: HttpClient, temporal):
+def test_cannot_pause_and_unpause_batch_exports_of_other_organizations(client: HttpClient, temporal):
     destination_data = {
         "type": "S3",
         "config": {

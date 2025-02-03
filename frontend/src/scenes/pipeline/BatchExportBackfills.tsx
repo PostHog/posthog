@@ -1,4 +1,5 @@
 import { LemonButton, LemonDialog, LemonTable } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -86,9 +87,19 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                         render: (_, backfill) => {
                             const status = combineFailedStatuses(backfill.status)
                             const color = colorForStatus(status)
+                            const statusStyles = {
+                                success: 'border-success text-success-dark',
+                                primary: 'border-primary text-primary-dark',
+                                warning: 'border-warning text-warning-dark',
+                                danger: 'border-danger text-danger-dark',
+                                default: 'border-default text-default-dark',
+                            } as const
                             return (
                                 <span
-                                    className={`h-6 p-2 border-2 flex items-center justify-center rounded-full font-semibold text-xs border-${color} text-${color}-dark select-none`}
+                                    className={clsx(
+                                        'h-6 p-2 border-2 flex items-center justify-center rounded-full font-semibold text-xs select-none',
+                                        statusStyles[color]
+                                    )}
                                 >
                                     <span className="text-center">{status}</span>
                                 </span>
@@ -175,7 +186,7 @@ function BackfillCancelButton({
     cancelBackfill,
 }: {
     backfill: BatchExportBackfill
-    cancelBackfill: any
+    cancelBackfill: (backfill: BatchExportBackfill) => void
 }): JSX.Element {
     return (
         <span className="flex items-center gap-1">
@@ -186,7 +197,7 @@ function BackfillCancelButton({
                 tooltip="Cancel backfill"
                 onClick={() =>
                     LemonDialog.open({
-                        title: 'Cancel run?',
+                        title: 'Cancel backfill?',
                         description: (
                             <>
                                 <p>This will cancel the selected backfill.</p>

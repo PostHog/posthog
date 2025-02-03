@@ -47,7 +47,7 @@ def test_list_batch_export_backfills(client: HttpClient):
 
 def test_cannot_list_batch_export_backfills_for_other_organizations(client: HttpClient):
     """
-    Should not be able to list batch export backfills for other teams.
+    Should not be able to list batch export backfills for other organizations.
     """
     organization = create_organization("Test Org")
     team = create_team(organization)

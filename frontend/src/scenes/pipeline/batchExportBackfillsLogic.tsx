@@ -40,9 +40,14 @@ export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
             null as PaginatedResponse<RawBatchExportBackfill> | null,
             {
                 loadBackfills: async () => {
-                    return await api.batchExports.listBackfills(props.id, {
-                        ordering: '-created_at',
-                    })
+                    try {
+                        return await api.batchExports.listBackfills(props.id, {
+                            ordering: '-created_at',
+                        })
+                    } catch (e) {
+                        lemonToast.error('Unknown error occurred when fetching backfills')
+                        throw e
+                    }
                 },
                 loadOlderBackfills: async () => {
                     const nextUrl = values.backfillsPaginatedResponse?.next
@@ -50,10 +55,15 @@ export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
                     if (!nextUrl) {
                         return values.backfillsPaginatedResponse
                     }
-                    const res = await api.get<PaginatedResponse<RawBatchExportBackfill>>(nextUrl)
-                    res.results = [...(values.backfillsPaginatedResponse?.results ?? []), ...res.results]
+                    try {
+                        const res = await api.get<PaginatedResponse<RawBatchExportBackfill>>(nextUrl)
+                        res.results = [...(values.backfillsPaginatedResponse?.results ?? []), ...res.results]
 
-                    return res
+                        return res
+                    } catch (e) {
+                        lemonToast.error('Unknown error occurred when fetching backfills')
+                        throw e
+                    }
                 },
             },
         ],
@@ -72,13 +82,20 @@ export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
             (backfillsPaginatedResponse): BatchExportBackfill[] => {
                 const backfills = backfillsPaginatedResponse?.results ?? []
                 return backfills.map((backfill) => {
+                    const parseDateSafely = (date: string | null | undefined): dayjs.Dayjs | undefined => {
+                        if (!date) {
+                            return undefined
+                        }
+                        const parsed = dayjs(date)
+                        return parsed.isValid() ? parsed : undefined
+                    }
                     return {
                         ...backfill,
-                        created_at: dayjs(backfill.created_at),
-                        finished_at: backfill.finished_at ? dayjs(backfill.finished_at) : undefined,
-                        start_at: backfill.start_at ? dayjs(backfill.start_at) : undefined,
-                        end_at: backfill.end_at ? dayjs(backfill.end_at) : undefined,
-                        last_updated_at: backfill.last_updated_at ? dayjs(backfill.last_updated_at) : undefined,
+                        created_at: parseDateSafely(backfill.created_at),
+                        finished_at: parseDateSafely(backfill.finished_at),
+                        start_at: parseDateSafely(backfill.start_at),
+                        end_at: parseDateSafely(backfill.end_at),
+                        last_updated_at: parseDateSafely(backfill.last_updated_at),
                     }
                 })
             },
@@ -86,9 +103,13 @@ export const batchExportBackfillsLogic = kea<batchExportBackfillsLogicType>([
     }),
     listeners(({ actions, props }) => ({
         cancelBackfill: async ({ backfill }) => {
-            await api.batchExports.cancelBackfill(props.id, backfill.id)
-            lemonToast.success('Backfill has been cancelled.')
-            actions.loadBackfills()
+            try {
+                await api.batchExports.cancelBackfill(props.id, backfill.id)
+                lemonToast.success('Backfill has been cancelled.')
+                actions.loadBackfills()
+            } catch (error) {
+                lemonToast.error('Failed to cancel backfill. Please try again.')
+            }
         },
     })),
     afterMount(({ actions }) => {

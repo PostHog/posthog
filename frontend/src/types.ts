@@ -4421,7 +4421,7 @@ export type BatchExportBackfill = {
         | 'TimedOut'
         | 'Running'
         | 'Starting'
-    created_at: Dayjs
+    created_at?: Dayjs
     finished_at?: Dayjs
     start_at?: Dayjs
     end_at?: Dayjs

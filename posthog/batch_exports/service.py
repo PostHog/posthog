@@ -824,22 +824,6 @@ def update_batch_export_backfill_status(
     return model.get()
 
 
-async def aupdate_batch_export_backfill_status(backfill_id: UUID, status: str) -> BatchExportBackfill:
-    """Update the status of an BatchExportBackfill with given id.
-
-    Arguments:
-        id: The id of the BatchExportBackfill to update.
-        status: The new status to assign to the BatchExportBackfill.
-    """
-    model = BatchExportBackfill.objects.filter(id=backfill_id)
-    updated = await model.aupdate(status=status)
-
-    if not updated:
-        raise ValueError(f"BatchExportBackfill with id {backfill_id} not found.")
-
-    return await model.aget()
-
-
 async def aupdate_records_total_count(
     batch_export_id: UUID, interval_start: dt.datetime, interval_end: dt.datetime, count: int
 ) -> int:
