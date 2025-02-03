@@ -2,7 +2,6 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
-import { useEffect } from 'react'
 import { DatawarehouseTableForm } from 'scenes/data-warehouse/new/DataWarehouseTableForm'
 import { dataWarehouseTableLogic } from 'scenes/data-warehouse/new/dataWarehouseTableLogic'
 import { urls } from 'scenes/urls'
@@ -15,21 +14,16 @@ interface SelfManagedProps {
 
 export const SelfManaged = ({ id }: SelfManagedProps): JSX.Element => {
     const { table } = useValues(dataWarehouseTableLogic({ id }))
-    const { loadTable, updateTable, resetTable } = useActions(dataWarehouseTableLogic({ id }))
-
-    useEffect(() => {
-        loadTable()
-    }, [loadTable])
-
-    useEffect(() => {
-        return () => {
-            resetTable()
-        }
-    }, [resetTable])
+    const { updateTable, resetTable, editingTable } = useActions(dataWarehouseTableLogic({ id }))
 
     return (
         <BindLogic logic={dataWarehouseTableLogic} props={{ id }}>
-            <SelfManagedTable table={table} updateTable={updateTable} />
+            <SelfManagedTable
+                table={table}
+                updateTable={updateTable}
+                resetTable={resetTable}
+                editingTable={editingTable}
+            />
         </BindLogic>
     )
 }
@@ -37,9 +31,11 @@ export const SelfManaged = ({ id }: SelfManagedProps): JSX.Element => {
 interface Props {
     table: DataWarehouseTable
     updateTable: (tablePayload: any) => void
+    resetTable: (values?: DataWarehouseTable | undefined) => void
+    editingTable: (editing: boolean) => void
 }
 
-export function SelfManagedTable({ table, updateTable }: Props): JSX.Element {
+export function SelfManagedTable({ table, updateTable, resetTable, editingTable }: Props): JSX.Element {
     return (
         <>
             <PageHeader
@@ -47,6 +43,8 @@ export function SelfManagedTable({ table, updateTable }: Props): JSX.Element {
                     <LemonButton
                         type="secondary"
                         onClick={() => {
+                            resetTable()
+                            editingTable(false)
                             router.actions.push(urls.pipeline())
                         }}
                     >

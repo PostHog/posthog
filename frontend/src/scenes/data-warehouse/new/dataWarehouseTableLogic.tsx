@@ -1,5 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, afterMount, connect, kea, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, connect, events, kea, listeners, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -147,6 +147,11 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
                     actions.createTable(tablePayload)
                 }
             },
+        },
+    })),
+    events(({ actions }) => ({
+        propsChanged: () => {
+            actions.loadTable()
         },
     })),
     afterMount(({ actions }) => {
