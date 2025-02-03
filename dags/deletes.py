@@ -38,8 +38,8 @@ class ClickhouseClusterResource(ConfigurableResource):
         "max_execution_time": "0",
         "max_memory_usage": "0",
         "receive_timeout": f"{24 * 60 * 60}",  # wait 24 hours for a response from CH
-        "mutations_sync": "2",
-        "lightweight_deletes_sync": "2",
+        "mutations_sync": "0",
+        "lightweight_deletes_sync": "0",
     }
 
     def create_resource(self, context: InitResourceContext) -> ClickhouseCluster:
