@@ -454,6 +454,8 @@ def render_template(
                 posthog_app_context["frontend_apps"] = get_frontend_apps(user.team.pk)
                 posthog_app_context["default_event_name"] = get_default_event_name(user.team)
 
+    # JSON dumps here since there may be objects like Queries
+    # that are not serializable by Django's JSON serializer
     context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
 
     if posthog_distinct_id:
