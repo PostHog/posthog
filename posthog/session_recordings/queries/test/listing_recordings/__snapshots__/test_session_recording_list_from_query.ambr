@@ -36,8 +36,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_action_filter.1
@@ -77,8 +76,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_action_filter.2
@@ -118,8 +116,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_action_filter.3
@@ -159,8 +156,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_all_filters_at_once
@@ -209,8 +205,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_any_event_filter_with_properties
@@ -250,8 +245,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_any_event_filter_with_properties.1
@@ -291,8 +285,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_any_event_filter_with_properties.2
@@ -332,8 +325,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_any_event_filter_with_properties_materialized
@@ -373,8 +365,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_any_event_filter_with_properties_materialized.1
@@ -414,8 +405,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_any_event_filter_with_properties_materialized.2
@@ -455,8 +445,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_basic_query
@@ -491,8 +480,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_basic_query_active_sessions
@@ -527,8 +515,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_basic_query_active_sessions.1
@@ -563,8 +550,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_basic_query_active_sessions.2
@@ -599,8 +585,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_basic_query_with_ordering
@@ -635,8 +620,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_basic_query_with_ordering.1
@@ -671,8 +655,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_basic_query_with_ordering.2
@@ -707,8 +690,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_basic_query_with_paging
@@ -743,8 +725,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_basic_query_with_paging.1
@@ -779,8 +760,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_basic_query_with_paging.2
@@ -815,8 +795,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_can_filter_for_does_not_contain_event_properties
@@ -856,8 +835,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_can_filter_for_does_not_match_regex_event_properties
@@ -897,8 +875,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_can_filter_for_flags_0_session_1_matches_target_flag_is_True
@@ -938,8 +915,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_can_filter_for_flags_1_session_2_matches_target_flag_is_False
@@ -979,8 +955,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_can_filter_for_flags_2_sessions_1_and_2_match_target_flag_is_set
@@ -1020,8 +995,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_can_filter_for_flags_3_sessions_3_and_4_match_target_flag_is_not_set
@@ -1061,8 +1035,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_can_filter_for_two_is_not_event_properties
@@ -1102,8 +1075,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_date_from_filter
@@ -1138,8 +1110,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_date_from_filter.1
@@ -1174,8 +1145,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_date_from_filter_cannot_search_before_ttl
@@ -1210,8 +1180,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_date_from_filter_cannot_search_before_ttl.1
@@ -1246,8 +1215,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_date_from_filter_cannot_search_before_ttl.2
@@ -1282,8 +1250,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_date_to_filter
@@ -1318,8 +1285,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_date_to_filter.1
@@ -1354,8 +1320,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_duration_filter
@@ -1390,8 +1355,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_duration_filter.1
@@ -1426,8 +1390,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter
@@ -1467,8 +1430,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter.1
@@ -1508,8 +1470,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_has_ttl_applied_too
@@ -1549,8 +1510,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_has_ttl_applied_too.1
@@ -1585,8 +1545,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_active_sessions
@@ -1626,8 +1585,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_active_sessions.1
@@ -1667,8 +1625,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_group_filter
@@ -1713,8 +1670,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_group_filter.1
@@ -1759,8 +1715,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_group_filter.2
@@ -1805,8 +1760,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_event_properties_test_accounts_excluded
@@ -1846,8 +1800,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_event_properties_test_accounts_excluded.1
@@ -1902,8 +1855,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_event_properties_test_accounts_excluded.2
@@ -1958,8 +1910,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_event_properties_test_accounts_excluded_materialized
@@ -1999,8 +1950,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_event_properties_test_accounts_excluded_materialized.1
@@ -2055,8 +2005,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_event_properties_test_accounts_excluded_materialized.2
@@ -2111,8 +2060,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_person_properties
@@ -2167,8 +2115,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_person_properties.1
@@ -2223,8 +2170,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_properties
@@ -2264,8 +2210,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_properties.1
@@ -2305,8 +2250,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_properties_materialized
@@ -2346,8 +2290,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_hogql_properties_materialized.1
@@ -2387,8 +2330,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_matching_on_session_id
@@ -2428,8 +2370,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_matching_on_session_id.1
@@ -2469,8 +2410,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_properties
@@ -2510,8 +2450,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_properties.1
@@ -2551,8 +2490,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_properties.2
@@ -2592,8 +2530,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_properties.3
@@ -2633,8 +2570,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_properties_materialized
@@ -2674,8 +2610,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_properties_materialized.1
@@ -2715,8 +2650,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_properties_materialized.2
@@ -2756,8 +2690,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_properties_materialized.3
@@ -2797,8 +2730,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_test_accounts_excluded
@@ -2853,8 +2785,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_test_accounts_excluded.1
@@ -2894,8 +2825,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_test_accounts_excluded_materialized
@@ -2950,8 +2880,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_test_accounts_excluded_materialized.1
@@ -2991,8 +2920,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_event_filter_with_two_events_and_multiple_teams
@@ -3032,8 +2960,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_by_console_text_0__key_level_value_warn_error_operator_exact_type_log_entry_key_message_value_message_4_operator_icontains_type_log_entry_
@@ -3074,8 +3001,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_by_console_text_1__key_level_value_warn_error_operator_exact_type_log_entry_key_message_value_message_4_operator_icontains_type_log_entry_
@@ -3116,8 +3042,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_by_console_text_2__key_level_value_warn_error_operator_exact_type_log_entry_key_message_value_message_5_operator_icontains_type_log_entry_
@@ -3158,8 +3083,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_by_console_text_3__key_level_value_info_operator_exact_type_log_entry_key_message_value_message_5_operator_icontains_type_log_entry_
@@ -3200,8 +3124,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_by_snapshot_source
@@ -3236,8 +3159,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_by_snapshot_source.1
@@ -3272,8 +3194,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_with_console_errors
@@ -3314,8 +3235,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_with_console_errors.1
@@ -3356,8 +3276,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_with_console_logs
@@ -3398,8 +3317,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_with_console_logs.1
@@ -3440,8 +3358,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_with_console_warns
@@ -3482,8 +3399,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_with_console_warns.1
@@ -3524,8 +3440,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_with_mixed_console_counts
@@ -3566,8 +3481,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_for_recordings_with_mixed_console_counts.1
@@ -3608,8 +3522,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_on_session_ids
@@ -3649,8 +3562,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_on_session_ids.1
@@ -3690,8 +3602,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_with_person_properties_exact
@@ -3746,8 +3657,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_filter_with_person_properties_not_contains
@@ -3802,8 +3712,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_listing_ignores_future_replays
@@ -3838,8 +3747,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_multiple_event_filters
@@ -3879,8 +3787,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_multiple_event_filters.1
@@ -3920,8 +3827,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_multiple_event_filters.2
@@ -3961,8 +3867,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_multiple_event_filters.3
@@ -4002,8 +3907,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_multiple_event_filters.4
@@ -4043,8 +3947,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_multiple_event_filters.5
@@ -4084,8 +3987,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_event_filters
@@ -4125,8 +4027,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_event_filters.1
@@ -4166,8 +4067,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_filters_0__key_level_value_warn_operator_exact_type_log_entry_key_message_value_random_operator_exact_type_log_entry_
@@ -4208,8 +4108,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_filters_1__key_level_value_info_operator_exact_type_log_entry_key_message_value_random_operator_exact_type_log_entry_
@@ -4250,8 +4149,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_filters_2__key_level_value_warn_operator_exact_type_log_entry_
@@ -4292,8 +4190,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_filters_3__key_message_value_random_operator_exact_type_log_entry_
@@ -4334,8 +4231,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_filters_4__key_level_value_warn_operator_exact_type_log_entry_key_message_value_random_operator_exact_type_log_entry_
@@ -4376,8 +4272,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_mandatory_filters
@@ -4426,8 +4321,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_mandatory_filters.1
@@ -4476,8 +4370,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_mandatory_filters.2
@@ -4517,8 +4410,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_mandatory_filters.3
@@ -4558,8 +4450,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_person_filters
@@ -4614,8 +4505,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_operand_or_person_filters.1
@@ -4670,8 +4560,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_ordering
@@ -4706,8 +4595,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_ordering.1
@@ -4742,8 +4630,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_person_id_filter
@@ -4787,8 +4674,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_sessions_with_current_data
@@ -4823,8 +4709,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_host_property_test_account_filter
@@ -4864,8 +4749,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_host_property_test_account_filter.1
@@ -4905,8 +4789,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_host_property_test_account_filter_materialized
@@ -4946,8 +4829,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_host_property_test_account_filter_materialized.1
@@ -4987,8 +4869,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_property_test_account_filter
@@ -5028,8 +4909,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_property_test_account_filter.1
@@ -5069,8 +4949,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_property_test_account_filter_allowing_denormalized_props
@@ -5110,8 +4989,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_property_test_account_filter_allowing_denormalized_props.1
@@ -5151,8 +5029,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_property_test_account_filter_allowing_denormalized_props_materialized
@@ -5192,8 +5069,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_property_test_account_filter_allowing_denormalized_props_materialized.1
@@ -5233,8 +5109,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_property_test_account_filter_materialized
@@ -5274,8 +5149,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_event_property_test_account_filter_materialized.1
@@ -5315,8 +5189,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_hogql_event_property_test_account_filter
@@ -5356,8 +5229,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_hogql_event_property_test_account_filter.1
@@ -5397,8 +5269,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_hogql_event_property_test_account_filter_materialized
@@ -5438,8 +5309,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_hogql_event_property_test_account_filter_materialized.1
@@ -5479,8 +5349,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_hogql_person_property_test_account_filter
@@ -5520,8 +5389,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_hogql_person_property_test_account_filter.1
@@ -5576,8 +5444,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_hogql_person_property_test_account_filter_materialized
@@ -5617,8 +5484,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_hogql_person_property_test_account_filter_materialized.1
@@ -5673,8 +5539,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_person_property_test_account_filter
@@ -5714,8 +5579,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_person_property_test_account_filter.1
@@ -5770,8 +5634,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_person_property_test_account_filter_materialized
@@ -5811,8 +5674,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery.test_top_level_person_property_test_account_filter_materialized.1
@@ -5867,7 +5729,6 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=0,
-                    max_bytes_before_external_sort=0
+                    allow_experimental_analyzer=0
   '''
 # ---
