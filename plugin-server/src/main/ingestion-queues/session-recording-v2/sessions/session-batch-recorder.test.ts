@@ -33,6 +33,8 @@ interface MessageMetadata {
 }
 
 export class SnappySessionRecorderMock {
+    constructor(private readonly sessionId: string, private readonly teamId: number) {}
+
     private chunks: Buffer[] = []
     private size: number = 0
 
@@ -73,7 +75,9 @@ jest.mock('./metrics', () => ({
 
 jest.mock('./blackhole-session-batch-writer')
 jest.mock('./snappy-session-recorder', () => ({
-    SnappySessionRecorder: jest.fn().mockImplementation(() => new SnappySessionRecorderMock()),
+    SnappySessionRecorder: jest
+        .fn()
+        .mockImplementation((sessionId: string, teamId: number) => new SnappySessionRecorderMock(sessionId, teamId)),
 }))
 
 describe('SessionBatchRecorder', () => {
@@ -95,7 +99,8 @@ describe('SessionBatchRecorder', () => {
         jest.clearAllMocks()
 
         jest.mocked(SnappySessionRecorder).mockImplementation(
-            () => new SnappySessionRecorderMock() as unknown as SnappySessionRecorder
+            (sessionId: string, teamId: number) =>
+                new SnappySessionRecorderMock(sessionId, teamId) as unknown as SnappySessionRecorder
         )
 
         const openMock = createOpenMock()
@@ -118,10 +123,11 @@ describe('SessionBatchRecorder', () => {
     const createMessage = (
         sessionId: string,
         events: RRWebEvent[],
-        metadata: MessageMetadata = {}
+        metadata: MessageMetadata = {},
+        teamId: number = 1
     ): MessageWithTeam => ({
         team: {
-            teamId: 1,
+            teamId,
             consoleLogIngestionEnabled: false,
         },
         message: {
@@ -798,6 +804,103 @@ describe('SessionBatchRecorder', () => {
             await expect(recorder.flush()).rejects.toThrow('Stream write error')
             expect(mockFinish).not.toHaveBeenCalled()
             expect(mockOffsetManager.commit).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('block metadata', () => {
+        it('should track correct metadata for multiple sessions', async () => {
+            const messages = [
+                createMessage(
+                    'session1',
+                    [
+                        {
+                            type: EventType.FullSnapshot,
+                            timestamp: 1000,
+                            data: { source: 1, adds: [{ parentId: 1, nextId: 2, node: { tag: 'div' } }] },
+                        },
+                    ],
+                    undefined,
+                    42
+                ),
+                createMessage(
+                    'session2',
+                    [
+                        {
+                            type: EventType.Meta,
+                            timestamp: 1500,
+                            data: { href: 'https://example.com', width: 1024, height: 768 },
+                        },
+                    ],
+                    undefined,
+                    787
+                ),
+                createMessage(
+                    'session3',
+                    [
+                        {
+                            type: EventType.IncrementalSnapshot,
+                            timestamp: 2000,
+                            data: { source: 2, texts: [{ id: 1, value: 'Updated text' }] },
+                        },
+                    ],
+                    undefined,
+                    123
+                ),
+            ]
+
+            // Create individual recorders and get their buffers
+            const recorder1 = new SnappySessionRecorderMock('session1', 42)
+            const recorder2 = new SnappySessionRecorderMock('session2', 787)
+            const recorder3 = new SnappySessionRecorderMock('session3', 123)
+
+            recorder1.recordMessage(messages[0].message)
+            recorder2.recordMessage(messages[1].message)
+            recorder3.recordMessage(messages[2].message)
+
+            const buffer1 = recorder1.end().buffer
+            const buffer2 = recorder2.end().buffer
+            const buffer3 = recorder3.end().buffer
+
+            const expectedBuffers = {
+                session1: buffer1,
+                session2: buffer2,
+                session3: buffer3,
+            }
+
+            // Record messages in the batch recorder
+            messages.forEach((message) => recorder.record(message))
+
+            const streamOutputPromise = captureOutput(mockStream)
+            const metadata = await recorder.flush()
+            const streamOutput = await streamOutputPromise
+
+            // Verify we got metadata for all three sessions
+            expect(metadata).toHaveLength(3)
+
+            // Verify all expected sessions are present
+            const sessionIds = new Set(metadata.map((block) => block.sessionId))
+            expect(sessionIds).toEqual(new Set(['session1', 'session2', 'session3']))
+
+            // Verify that each session has a block with correct data
+            metadata.forEach((block) => {
+                const expectedBuffer = expectedBuffers[block.sessionId as keyof typeof expectedBuffers]
+                const blockData = streamOutput.slice(block.blockStartOffset, block.blockStartOffset + block.blockLength)
+
+                const expectedTeamId = {
+                    session1: 42,
+                    session2: 787,
+                    session3: 123,
+                }[block.sessionId as keyof typeof expectedBuffers]
+
+                expect(block.teamId).toBe(expectedTeamId)
+                expect(block.blockLength).toBe(expectedBuffer.length)
+                expect(Buffer.from(blockData)).toEqual(expectedBuffer)
+            })
+
+            // Verify total length matches
+            const totalLength = Buffer.from(streamOutput).length
+            const expectedTotalLength = Object.values(expectedBuffers).reduce((sum, buf) => sum + buf.length, 0)
+            expect(totalLength).toBe(expectedTotalLength)
         })
     })
 })

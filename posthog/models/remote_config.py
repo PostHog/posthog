@@ -337,7 +337,7 @@ class RemoteConfig(UUIDModel):
   window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {{}};
   window._POSTHOG_REMOTE_CONFIG['{token}'] = {{
     config: {json.dumps(config)},
-    siteApps: [{','.join(site_apps_js)}]
+    siteApps: [{",".join(site_apps_js)}]
   }}
 }})();
         """.strip()
