@@ -114,6 +114,13 @@ export const costs: ModelRow[] = [
         },
     },
     {
+        model: 'gemma-7b-it',
+        cost: {
+            prompt_token: 1.5e-7,
+            completion_token: 1.5e-7,
+        },
+    },
+    {
         model: 'gemini-pro-vision',
         cost: {
             prompt_token: 5e-7,

@@ -704,6 +704,7 @@ export enum PropertyOperator {
     Maximum = 'max',
     In = 'in',
     NotIn = 'not_in',
+    IsCleanedPathExact = 'is_cleaned_path_exact',
 }
 
 export enum SavedInsightsTabs {
@@ -3748,6 +3749,7 @@ export type IntegrationKind =
     | 'google-pubsub'
     | 'google-cloud-storage'
     | 'google-ads'
+    | 'linkedin-ads'
     | 'snapchat'
 
 export interface IntegrationType {
@@ -4598,6 +4600,7 @@ export type HogFunctionInputSchemaType = {
     required?: boolean
     default?: any
     secret?: boolean
+    templating?: boolean
     description?: string
     integration?: string
     integration_key?: string
@@ -4689,7 +4692,7 @@ export type HogFunctionType = {
     updated_at: string
     enabled: boolean
     hog: string
-
+    execution_order?: number
     inputs_schema?: HogFunctionInputSchemaType[]
     inputs?: Record<string, HogFunctionInputType> | null
     mappings?: HogFunctionMappingType[] | null
@@ -4841,6 +4844,17 @@ export type GoogleAdsConversionActionType = {
     id: string
     name: string
     resourceName: string
+}
+
+export type LinkedInAdsConversionRuleType = {
+    id: number
+    name: string
+}
+
+export type LinkedInAdsAccountType = {
+    id: number
+    name: string
+    campaigns: string
 }
 
 export type DataColorThemeModel = {
