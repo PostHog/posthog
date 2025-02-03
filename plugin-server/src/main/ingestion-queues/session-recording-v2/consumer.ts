@@ -63,8 +63,7 @@ export class SessionRecordingIngester {
     constructor(
         private config: PluginsServerConfig,
         private consumeOverflow: boolean,
-        private postgres: PostgresRouter,
-        s3Client: S3Client | null = null,
+        postgres: PostgresRouter,
         batchConsumerFactory: BatchConsumerFactory,
         ingestionWarningProducer?: KafkaProducerWrapper
     ) {
@@ -77,6 +76,19 @@ export class SessionRecordingIngester {
 
         this.promiseScheduler = new PromiseScheduler()
 
+        let s3Client: S3Client | null = null
+        if (
+            config.SESSION_RECORDING_V2_S3_BUCKET &&
+            config.SESSION_RECORDING_V2_S3_REGION &&
+            config.SESSION_RECORDING_V2_S3_PREFIX
+        ) {
+            s3Client = new S3Client({
+                region: config.SESSION_RECORDING_V2_S3_REGION,
+                endpoint: config.SESSION_RECORDING_V2_S3_ENDPOINT,
+                forcePathStyle: true,
+            })
+        }
+
         this.kafkaParser = new KafkaMessageParser()
         this.teamFilter = new TeamFilter(new TeamService(postgres))
         if (ingestionWarningProducer) {
@@ -87,14 +99,13 @@ export class SessionRecordingIngester {
         }
 
         const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
-        const writer =
-            s3Client && this.config.SESSION_RECORDING_V2_S3_BUCKET && this.config.SESSION_RECORDING_V2_S3_PREFIX
-                ? new S3SessionBatchWriter(
-                      s3Client,
-                      this.config.SESSION_RECORDING_V2_S3_BUCKET,
-                      this.config.SESSION_RECORDING_V2_S3_PREFIX
-                  )
-                : new BlackholeSessionBatchWriter()
+        const writer = s3Client
+            ? new S3SessionBatchWriter(
+                  s3Client,
+                  this.config.SESSION_RECORDING_V2_S3_BUCKET!,
+                  this.config.SESSION_RECORDING_V2_S3_PREFIX!
+              )
+            : new BlackholeSessionBatchWriter()
 
         this.sessionBatchManager = new SessionBatchManager({
             maxBatchSizeBytes: (config.SESSION_RECORDING_MAX_BATCH_SIZE_KB ?? 1024) * 1024,

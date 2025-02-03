@@ -338,6 +338,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
 
     SESSION_RECORDING_V2_S3_BUCKET?: string
     SESSION_RECORDING_V2_S3_PREFIX?: string
+    SESSION_RECORDING_V2_S3_ENDPOINT?: string
+    SESSION_RECORDING_V2_S3_REGION?: string
 }
 
 export interface Hub extends PluginsServerConfig {
