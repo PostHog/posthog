@@ -63,7 +63,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 mmdb: true,
                 ingestionOverflow: true,
-                appManagementSingleton: true,
                 ...sharedCapabilities,
             }
         case PluginServerMode.ingestion_historical:
@@ -150,6 +149,8 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case PluginServerMode.cdp_api:
             return {
                 cdpApi: true,
+                // NOTE: This is temporary until we have removed plugins
+                appManagementSingleton: true,
                 ...sharedCapabilities,
             }
         // This is only for functional tests, which time out if all capabilities are used
