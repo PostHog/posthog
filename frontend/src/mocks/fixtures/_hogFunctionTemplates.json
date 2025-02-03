@@ -84,7 +84,7 @@
                     }
                 }
             ],
-            "status": "free",
+            "status": "stable",
             "id": "template-slack",
             "name": "Slack",
             "description": "Sends a message to a slack channel",
@@ -1391,7 +1391,7 @@
         },
         {
             "sub_templates": null,
-            "status": "free",
+            "status": "stable",
             "id": "template-zapier",
             "name": "Zapier",
             "description": "Sends a webhook templated by the incoming event data",
