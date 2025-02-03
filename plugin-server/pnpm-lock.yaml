@@ -169,6 +169,9 @@ dependencies:
   tldts:
     specifier: ^6.1.57
     version: 6.1.57
+  undici-types:
+    specifier: ^7.3.0
+    version: 7.3.0
   uuid:
     specifier: ^9.0.1
     version: 9.0.1
@@ -10920,6 +10923,10 @@ packages:
 
   /underscore@1.13.6:
     resolution: {integrity: sha512-+A5Sja4HP1M08MaXya7p5LvjuM7K6q/2EaC0+iovj/wOcMsTzMvDFbasi/oSapiwOlt252IqsKqPjCl7huKS0A==}
+    dev: false
+
+  /undici-types@7.3.0:
+    resolution: {integrity: sha512-z2pHpkN2BEJl3QlQo0GtfGCyuhuBbWX60vzGwyn7ex/seM2UkvyGEfEV0Qb9pXc5StNfcJpsstgaf2YTEJa63Q==}
     dev: false
 
   /undici@5.22.0:
