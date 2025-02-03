@@ -65,10 +65,14 @@ RUN apt-get update && \
 RUN corepack enable
 RUN node --version
 RUN mkdir /tmp/pnpm-store
+RUN echo "111111"
 RUN pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store
+RUN echo "222222"
 RUN cd ../common/plugin_transpiler && \
     pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store
+RUN echo "333333"
 RUN pnpm build
+RUN echo "444444"
 RUN rm -rf /tmp/pnpm-store
 
 # Build the plugin server.
