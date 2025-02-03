@@ -4,7 +4,9 @@
         "build": {
             "dependsOn": ["^build"],
             "inputs": ["src"],
-            "outputs": ["dist"]
+            "outputs": ["dist"],
+            "env": ["RUST_VERSION"],
+            "passThroughEnv": ["RUSTUP_HOME", "CARGO_HOME"]
         },
         "deps": {
             "dependsOn": ["^build"]
