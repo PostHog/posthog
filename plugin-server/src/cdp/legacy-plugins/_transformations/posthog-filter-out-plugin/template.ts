@@ -12,6 +12,7 @@ export const template: HogFunctionTemplate = {
     inputs_schema: [
         {
             key: 'filters',
+            templating: false,
             label: 'Filters to apply',
             type: 'string',
             description: 'A JSON file containing an array of filters to apply. See the README for more information.',
@@ -19,6 +20,7 @@ export const template: HogFunctionTemplate = {
         },
         {
             key: 'eventsToDrop',
+            templating: false,
             label: 'Events to filter out',
             type: 'string',
             description: 'A comma-separated list of event names to filter out (e.g. $pageview,$autocapture)',
@@ -26,6 +28,7 @@ export const template: HogFunctionTemplate = {
         },
         {
             key: 'keepUndefinedProperties',
+            templating: false,
             label: 'Keep event if any of the filtered properties are undefined?',
             type: 'choice',
             choices: [

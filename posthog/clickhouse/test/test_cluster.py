@@ -80,10 +80,10 @@ def test_map_hosts_by_role() -> None:
     bootstrap_client_mock = Mock()
     bootstrap_client_mock.execute = Mock()
     bootstrap_client_mock.execute.return_value = [
-        ("host1", "9000", "1", "1", "online", "worker"),
-        ("host2", "9000", "1", "2", "online", "worker"),
-        ("host3", "9000", "1", "3", "online", "worker"),
-        ("host4", "9000", "1", "4", "online", "coordinator"),
+        ("host1", "1", "1", "online", "worker"),
+        ("host2", "1", "2", "online", "worker"),
+        ("host3", "1", "3", "online", "worker"),
+        ("host4", "1", "4", "online", "coordinator"),
     ]
 
     cluster = ClickhouseCluster(bootstrap_client_mock)

@@ -69,6 +69,9 @@ export function OutputPane(): JSX.Element {
                         name: column,
                         resizable: true,
                         renderCell: (props: any) => {
+                            if (props.row[column] === null) {
+                                return null
+                            }
                             return props.row[column].toString()
                         },
                     }
