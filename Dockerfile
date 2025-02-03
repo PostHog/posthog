@@ -63,11 +63,12 @@ RUN apt-get update && \
     && \
     rm -rf /var/lib/apt/lists/* && \
     corepack enable && \
-    mkdir -p /tmp/pnpm-store/node-18 && \
-    mkdir -p /tmp/pnpm-store/node-20 && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store/node-18 --config.confirmModulesPurge=false && \
+    mkdir /tmp/pnpm-store && \
+    rm -rf node_modules && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
     cd ../common/plugin_transpiler && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store/node-20 --config.confirmModulesPurge=false && \
+    rm -rf node_modules && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
     pnpm build && \
     rm -rf /tmp/pnpm-store
 
