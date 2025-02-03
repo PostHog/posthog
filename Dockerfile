@@ -61,7 +61,7 @@ RUN apt-get update && \
     "libssl-dev" \
     "zlib1g-dev" \
     && \
-    rm -rf /var/lib/apt/lists/* && \
+    rm -rf /var/lib/apt/lists/*
 RUN corepack enable
 RUN node --version
 RUN mkdir /tmp/pnpm-store \
