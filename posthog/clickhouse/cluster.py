@@ -98,11 +98,11 @@ class ClickhouseCluster:
 
         cluster_hosts = bootstrap_client.execute(
             """
-                SELECT host_address, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
-                FROM clusterAllReplicas(%(name)s, system.clusters)
-                WHERE name = %(name)s and is_local
-                ORDER BY shard_num, replica_num
-                """,
+            SELECT host_address, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
+            FROM clusterAllReplicas(%(name)s, system.clusters)
+            WHERE name = %(name)s and is_local
+            ORDER BY shard_num, replica_num
+            """,
             {"name": cluster or settings.CLICKHOUSE_CLUSTER},
         )
 
