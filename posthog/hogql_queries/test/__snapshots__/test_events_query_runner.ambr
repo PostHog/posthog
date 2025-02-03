@@ -12,8 +12,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestEventsQueryRunner.test_absolute_date_range_minus_utc
@@ -29,8 +28,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestEventsQueryRunner.test_absolute_date_range_plus_utc
@@ -46,7 +44,6 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---

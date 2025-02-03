@@ -26,8 +26,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_column_names.1
@@ -58,8 +57,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_correctly_counts_session_ids
@@ -90,8 +88,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_hogql_filters
@@ -138,8 +135,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_issue_grouping
@@ -170,8 +166,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_ordering
@@ -202,8 +197,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_ordering.1
@@ -234,8 +228,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_search_query
@@ -282,8 +275,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_search_query_with_multiple_search_items
@@ -330,8 +322,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_user_assignee
@@ -361,8 +352,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestErrorTrackingQueryRunner.test_user_group_assignee
@@ -392,7 +382,6 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---

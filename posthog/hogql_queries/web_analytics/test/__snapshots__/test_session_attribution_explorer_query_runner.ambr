@@ -35,8 +35,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionAttributionQueryRunner.test_group_by_initial_url
@@ -73,8 +72,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionAttributionQueryRunner.test_group_by_nothing
@@ -110,8 +108,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionAttributionQueryRunner.test_group_channel_medium_source
@@ -150,8 +147,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestSessionAttributionQueryRunner.test_no_crash_when_no_data
@@ -187,7 +183,6 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    max_bytes_before_external_sort=0
+                    max_bytes_before_external_group_by=0
   '''
 # ---

@@ -56,8 +56,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_comparison
@@ -106,8 +105,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_conversion_goal_no_conversions
@@ -154,8 +152,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_conversion_goal_one_autocapture_conversion
@@ -199,8 +196,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_conversion_goal_one_custom_action_conversion
@@ -244,8 +240,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_conversion_goal_one_custom_event_conversion
@@ -289,8 +284,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_conversion_goal_one_pageview_conversion
@@ -337,8 +331,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_conversion_rate
@@ -385,8 +378,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_correctly_counts_pageviews_in_long_running_session
@@ -435,8 +427,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_dont_filter_test_accounts
@@ -485,8 +476,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_filter_test_accounts
@@ -545,8 +535,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_increase_in_users
@@ -595,8 +584,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_increase_in_users_using_mobile
@@ -645,8 +633,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_limit_is_context_aware
@@ -695,8 +682,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_no_crash_when_no_data
@@ -745,8 +731,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_no_crash_when_no_data.1
@@ -795,8 +780,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_no_crash_when_no_data.2
@@ -843,8 +827,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_no_revenue_when_action_conversion_goal_set_but_include_revenue_disabled
@@ -888,8 +871,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_no_revenue_when_event_conversion_goal_set_but_include_revenue_disabled
@@ -933,8 +915,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_revenue
@@ -986,8 +967,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_revenue_conversion_event
@@ -1034,8 +1014,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_revenue_conversion_event_with_multiple_revenue_events
@@ -1082,8 +1061,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_revenue_conversion_no_config
@@ -1130,8 +1108,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_revenue_multiple_events
@@ -1183,8 +1160,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_revenue_no_config
@@ -1236,7 +1212,6 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     max_bytes_before_external_sort=0
+                     max_bytes_before_external_group_by=0
   '''
 # ---
