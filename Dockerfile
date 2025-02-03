@@ -64,7 +64,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 RUN corepack enable
 RUN node --version
-RUN mkdir /tmp/pnpm-store \
+RUN mkdir /tmp/pnpm-store
 RUN pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store
 RUN cd ../common/plugin_transpiler && \
     pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store
