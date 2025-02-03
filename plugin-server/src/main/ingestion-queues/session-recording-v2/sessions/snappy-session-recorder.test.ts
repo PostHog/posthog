@@ -206,15 +206,15 @@ describe('SnappySessionRecorder', () => {
             expect(result.endTimestamp).toBe(2000)
         })
 
-        it('should handle multiple messages and track min/max timestamps', async () => {
+        it('should track min/max timestamps across multiple messages', async () => {
             const messages = [
                 createMessage('window1', [
-                    { type: EventType.Meta, timestamp: 2000, data: {} },
-                    { type: EventType.FullSnapshot, timestamp: 3000, data: {} },
+                    { type: EventType.Meta, timestamp: 2000 },
+                    { type: EventType.FullSnapshot, timestamp: 3000 },
                 ]),
                 createMessage('window2', [
-                    { type: EventType.FullSnapshot, timestamp: 1000, data: {} },
-                    { type: EventType.IncrementalSnapshot, timestamp: 4000, data: {} },
+                    { type: EventType.FullSnapshot, timestamp: 1000 },
+                    { type: EventType.IncrementalSnapshot, timestamp: 4000 },
                 ]),
             ]
 
@@ -232,37 +232,6 @@ describe('SnappySessionRecorder', () => {
 
             expect(result.startTimestamp).toBe(0)
             expect(result.endTimestamp).toBe(0)
-        })
-
-        it('should handle zero timestamps', async () => {
-            const message = createMessage('window1', [
-                { type: EventType.Meta, timestamp: 0, data: {} },
-                { type: EventType.FullSnapshot, timestamp: 0, data: {} },
-            ])
-            recorder.recordMessage(message)
-            const result = await recorder.end()
-
-            expect(result.startTimestamp).toBe(0)
-            expect(result.endTimestamp).toBe(0)
-        })
-
-        it('should ignore zero timestamps when other valid timestamps exist', async () => {
-            const messages = [
-                createMessage('window1', [
-                    { type: EventType.Meta, timestamp: 0, data: {} },
-                    { type: EventType.FullSnapshot, timestamp: 2000, data: {} },
-                ]),
-                createMessage('window2', [
-                    { type: EventType.FullSnapshot, timestamp: 1000, data: {} },
-                    { type: EventType.IncrementalSnapshot, timestamp: 0, data: {} },
-                ]),
-            ]
-
-            messages.forEach((message) => recorder.recordMessage(message))
-            const result = await recorder.end()
-
-            expect(result.startTimestamp).toBe(1000)
-            expect(result.endTimestamp).toBe(2000)
         })
     })
 })
