@@ -171,6 +171,30 @@ const TitleWithCount = ({ title, count }: { title?: string; count: number }): JS
     )
 }
 
+function SectionContent({
+    section,
+    loading,
+    activeItemId,
+    setActiveItemId,
+    emptyState,
+}: {
+    section: PlaylistSection
+    loading: boolean
+    activeItemId: SessionRecordingType['id'] | null
+    setActiveItemId: (item: SessionRecordingType) => void
+    emptyState: PlaylistProps['listEmptyState']
+}): JSX.Element {
+    return 'content' in section ? (
+        <>{section.content}</>
+    ) : 'items' in section && !!section.items.length ? (
+        <ListSection {...section} onClick={setActiveItemId} activeItemId={activeItemId} />
+    ) : loading ? (
+        <LoadingState />
+    ) : (
+        emptyState
+    )
+}
+
 const List = ({
     title,
     notebooksHref,
@@ -218,6 +242,7 @@ const List = ({
         lastScrollPositionRef.current = e.currentTarget.scrollTop
     }
 
+    const sectionCount = sections.length
     const itemsCount = sections
         .filter((s): s is PlaylistRecordingPreviewBlock => 'items' in s)
         .flatMap((s) => s.items).length
@@ -235,32 +260,43 @@ const List = ({
                 </div>
             </DraggableToNotebook>
             <div className="overflow-y-auto flex-1" onScroll={handleScroll} ref={contentRef}>
-                <LemonCollapse
-                    defaultActiveKeys={initiallyOpenSections}
-                    panels={sections.map((s) => {
-                        const content =
-                            'content' in s ? (
-                                s.content
-                            ) : 'items' in s && !!s.items.length ? (
-                                <ListSection {...s} onClick={setActiveItemId} activeItemId={activeItemId} />
-                            ) : loading ? (
-                                <LoadingState />
-                            ) : (
-                                emptyState
-                            )
-
-                        return {
-                            key: s.key,
-                            header: s.title ?? '',
-                            content,
-                            className: 'p-0',
-                        }
-                    })}
-                    onChange={onChangeSections}
-                    multiple
-                    embedded
-                    size="small"
-                />
+                {sectionCount > 1 ? (
+                    <LemonCollapse
+                        defaultActiveKeys={initiallyOpenSections}
+                        panels={sections.map((s) => {
+                            return {
+                                key: s.key,
+                                header: s.title ?? '',
+                                content: (
+                                    <SectionContent
+                                        section={s}
+                                        loading={!!loading}
+                                        setActiveItemId={setActiveItemId}
+                                        activeItemId={activeItemId}
+                                        emptyState={emptyState}
+                                    />
+                                ),
+                                className: 'p-0',
+                            }
+                        })}
+                        onChange={onChangeSections}
+                        multiple
+                        embedded
+                        size="small"
+                    />
+                ) : sectionCount === 1 ? (
+                    <SectionContent
+                        section={sections[0]}
+                        loading={!!loading}
+                        setActiveItemId={setActiveItemId}
+                        activeItemId={activeItemId}
+                        emptyState={emptyState}
+                    />
+                ) : loading ? (
+                    <LoadingState />
+                ) : (
+                    emptyState
+                )}
             </div>
             <div className="shrink-0 relative flex justify-between items-center gap-0.5 whitespace-nowrap">
                 {footerActions}

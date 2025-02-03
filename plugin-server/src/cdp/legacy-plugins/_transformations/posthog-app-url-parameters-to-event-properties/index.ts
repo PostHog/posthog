@@ -87,7 +87,7 @@ export const processEvent = (event: PluginEvent, meta: LocalMeta): PluginEvent =
 
 export const posthogAppUrlParametersToEventPropertiesPlugin: LegacyTransformationPlugin = {
     id: 'posthog-app-url-parameters-to-event-properties',
-    metadata: metadata as any,
+    metadata,
     processEvent,
     setupPlugin: setupPlugin as any,
 }

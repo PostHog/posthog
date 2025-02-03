@@ -223,6 +223,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconBrackets,
         inMenu: true,
     },
+    [NodeKind.HogQLASTQuery]: {
+        name: 'HogQL AST',
+        description: 'Direct HogQL AST query.',
+        icon: IconBrackets,
+        inMenu: false,
+    },
     [NodeKind.HogQLMetadata]: {
         name: 'HogQL Metadata',
         description: 'Metadata for a HogQL query.',

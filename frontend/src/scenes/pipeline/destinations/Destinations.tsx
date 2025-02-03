@@ -119,6 +119,8 @@ export function DestinationsTable({
         (d): d is FunctionDestination => d.stage === PipelineStage.Transformation && d.enabled
     )
 
+    const showPriorityColumn = types.includes('transformation')
+
     return (
         <div className="space-y-4">
             <DestinationsFilters
@@ -148,40 +150,45 @@ export function DestinationsTable({
                 size="small"
                 loading={loading}
                 columns={[
-                    {
-                        title: 'Prio',
-                        key: 'order',
-                        width: 0,
-                        align: 'center',
-                        sorter: (a, b) => {
-                            const aIsFunction = a.backend === PipelineBackend.HogFunction
-                            const bIsFunction = b.backend === PipelineBackend.HogFunction
-                            if (aIsFunction && bIsFunction) {
-                                const orderA = a.hog_function.execution_order || 0
-                                const orderB = b.hog_function.execution_order || 0
-                                return orderA - orderB
-                            }
-                            return 0
-                        },
-                        render: function RenderOrdering(_, destination) {
-                            if (destination.backend === PipelineBackend.HogFunction && destination.enabled) {
-                                const enabledTransformations = filteredDestinations
-                                    .filter(
-                                        (d): d is FunctionDestination =>
-                                            d.backend === PipelineBackend.HogFunction && d.enabled
-                                    )
-                                    .sort(
-                                        (a, b) =>
-                                            (a.hog_function.execution_order || 0) -
-                                            (b.hog_function.execution_order || 0)
-                                    )
+                    ...(showPriorityColumn
+                        ? [
+                              {
+                                  title: 'Prio',
+                                  key: 'order',
+                                  width: 0,
+                                  align: 'center',
+                                  sorter: (a, b) => {
+                                      if (
+                                          a.backend === PipelineBackend.HogFunction &&
+                                          b.backend === PipelineBackend.HogFunction
+                                      ) {
+                                          const orderA = a.hog_function.execution_order || 0
+                                          const orderB = b.hog_function.execution_order || 0
+                                          return orderA - orderB
+                                      }
+                                      return 0
+                                  },
+                                  render: function RenderOrdering(_, destination) {
+                                      if (destination.backend === PipelineBackend.HogFunction && destination.enabled) {
+                                          const enabledTransformations = filteredDestinations
+                                              .filter(
+                                                  (d): d is FunctionDestination =>
+                                                      d.backend === PipelineBackend.HogFunction && d.enabled
+                                              )
+                                              .sort(
+                                                  (a, b) =>
+                                                      (a.hog_function.execution_order || 0) -
+                                                      (b.hog_function.execution_order || 0)
+                                              )
 
-                                const index = enabledTransformations.findIndex((t) => t.id === destination.id)
-                                return <div className="text-center">{index + 1}</div>
-                            }
-                            return null
-                        },
-                    },
+                                          const index = enabledTransformations.findIndex((t) => t.id === destination.id)
+                                          return <div className="text-center">{index + 1}</div>
+                                      }
+                                      return null
+                                  },
+                              } as LemonTableColumn<Destination | Transformation | SiteApp, any>,
+                          ]
+                        : []),
                     {
                         title: 'App',
                         width: 0,
