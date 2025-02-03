@@ -97,7 +97,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1
+                     allow_experimental_analyzer=1,
+                     max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestInsight.test_insight_funnels_hogql_breakdown.1
@@ -260,7 +261,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1
+                     allow_experimental_analyzer=1,
+                     max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestInsight.test_insight_funnels_hogql_local_filters
@@ -335,7 +337,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1
+                     allow_experimental_analyzer=1,
+                     max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_breakdown
@@ -376,7 +379,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_breakdown.1
@@ -462,7 +466,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_breakdown_materialized.1
@@ -534,7 +539,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_global_filters.1
@@ -578,7 +584,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_global_filters_materialized
@@ -605,7 +612,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_global_filters_materialized.1
@@ -649,7 +657,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_local_filters
@@ -693,7 +702,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_local_filters_materialized
@@ -737,7 +747,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1
