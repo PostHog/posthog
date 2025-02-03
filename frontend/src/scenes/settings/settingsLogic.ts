@@ -97,7 +97,10 @@ export const settingsLogic = kea<settingsLogicType>([
                             level: section.level === 'environment' ? 'project' : section.level,
                             settings: section.settings.map((setting) => ({
                                 ...setting,
-                                title: setting.title.replace('environment', 'project'),
+                                title:
+                                    typeof setting.title === 'string'
+                                        ? setting.title.replace('environment', 'project')
+                                        : setting.title,
                                 id: setting.id.replace('environment-', 'project-') as SettingId,
                             })),
                         }))
