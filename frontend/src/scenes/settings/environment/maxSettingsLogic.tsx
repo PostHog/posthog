@@ -1,60 +1,80 @@
-import { afterMount, connect, kea, listeners, path } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import api, { PaginatedResponse } from 'lib/api'
+import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { organizationLogic } from 'scenes/organizationLogic'
 
 import { CoreMemory } from '~/types'
 
 import type { maxSettingsLogicType } from './maxSettingsLogicType'
 
-interface CoreMemoryForm {
+export type CoreMemoryForm = {
     text: string
 }
 
 export const maxSettingsLogic = kea<maxSettingsLogicType>([
     path(['scenes', 'project', 'Settings', 'maxSettingsLogic']),
 
-    connect({ values: [organizationLogic, ['currentOrganization']] }),
+    actions({
+        setIsLoading: (isLoading: boolean) => ({ isLoading }),
+    }),
 
-    loaders(() => ({
+    reducers({
+        isLoading: [
+            false,
+            {
+                loadCoreMemory: () => true,
+                loadCoreMemorySuccess: () => false,
+                loadCoreMemoryFailure: () => false,
+                createCoreMemory: () => true,
+                createCoreMemorySuccess: () => false,
+                createCoreMemoryFailure: () => false,
+                updateCoreMemory: () => true,
+                updateCoreMemorySuccess: () => false,
+                updateCoreMemoryFailure: () => false,
+            },
+        ],
+    }),
+
+    loaders(({ values }) => ({
         coreMemory: {
-            __default: [] as CoreMemory[],
+            __default: null as CoreMemory | null,
             loadCoreMemory: async () => {
-                return await api.coreMemory.list()
+                const response = await api.coreMemory.list()
+                return response.results[0] || null
             },
-            createCoreMemory: async ({ text }: Pick<CoreMemory, 'text'>) => {
-                const response = await api.coreMemory.create({
-                    text,
-                })
+            createCoreMemory: async (data: CoreMemoryForm) => {
+                const response = await api.coreMemory.create(data)
                 lemonToast.success('Max memory created')
-                return [response]
+                return response
             },
-            updateCoreMemory: async (id: CoreMemory['id'], data: Pick<CoreMemory, 'text'>) => {
-                const response = await api.coreMemory.update(id, data)
+            updateCoreMemory: async (data: CoreMemoryForm) => {
+                if (!values.coreMemory) {
+                    throw new Error('No core memory loaded.')
+                }
+                const response = await api.coreMemory.update(values.coreMemory.id, data)
                 lemonToast.success('Max memory updated')
-                return [response]
+                return response
             },
         },
     })),
 
-    forms(({ actions }) => ({
+    forms(({ actions, values }) => ({
         coreMemoryForm: {
             defaults: { text: '' } as CoreMemoryForm,
             submit: ({ text }) => {
-                actions.createCoreMemory({ text })
+                if (values.coreMemory) {
+                    actions.updateCoreMemory({ text })
+                } else {
+                    actions.createCoreMemory({ text })
+                }
             },
         },
     })),
 
     listeners(({ actions }) => ({
-        loadCoreMemory: (payload: PaginatedResponse<CoreMemory>) => {
-            {
-                if (payload.results.length > 0) {
-                    actions.setCoreMemoryFormValue('text', payload.results[0].text)
-                }
-            }
+        loadCoreMemorySuccess: ({ coreMemory }) => {
+            actions.setCoreMemoryFormValue('text', coreMemory.text)
         },
     })),
 

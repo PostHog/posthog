@@ -1,13 +1,14 @@
 import { LemonButton, LemonCollapse, LemonTextArea } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useValues } from 'kea'
+import { Form } from 'kea-forms'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { projectLogic } from 'scenes/projectLogic'
+
+import { maxSettingsLogic } from './maxSettingsLogic'
 
 export function MaxMemorySettings(): JSX.Element {
     const { currentProject, currentProjectLoading } = useValues(projectLogic)
-    const { updateCurrentProject } = useActions(projectLogic)
-
-    const [description, setDescription] = useState(currentProject?.product_description || '')
+    const { isLoading } = useValues(maxSettingsLogic)
 
     return (
         <div>
@@ -18,27 +19,31 @@ export function MaxMemorySettings(): JSX.Element {
                         key: 'core-memory',
                         header: 'Show Memory',
                         content: (
-                            <div className="space-y-4">
-                                <LemonTextArea
-                                    id="product-description-textarea" // Slightly dirty ID for .focus() elsewhere
-                                    value={description}
-                                    onChange={setDescription}
-                                    disabled={currentProjectLoading}
-                                    placeholder={`What's the essence of ${
-                                        currentProject ? currentProject.name : 'your product'
-                                    }?`}
-                                    onPressCmdEnter={() => updateCurrentProject({ product_description: description })}
-                                    maxLength={10000}
-                                />
+                            <Form
+                                logic={maxSettingsLogic}
+                                formKey="coreMemoryForm"
+                                enableFormOnSubmit
+                                className="w-full space-y-4"
+                            >
+                                <LemonField name="text" label="Max memory">
+                                    <LemonTextArea
+                                        id="product-description-textarea" // Slightly dirty ID for .focus() elsewhere
+                                        placeholder={`What's the essence of ${
+                                            currentProject ? currentProject.name : 'your product'
+                                        }?`}
+                                        maxLength={10000}
+                                        disabled={isLoading || currentProjectLoading}
+                                    />
+                                </LemonField>
                                 <LemonButton
                                     type="primary"
-                                    onClick={() => updateCurrentProject({ product_description: description })}
-                                    disabled={!currentProject || description === currentProject.product_description}
-                                    loading={currentProjectLoading}
+                                    htmlType="submit"
+                                    disabled={!currentProject}
+                                    loading={isLoading}
                                 >
                                     Save description
                                 </LemonButton>
-                            </div>
+                            </Form>
                         ),
                     },
                 ]}
