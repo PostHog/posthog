@@ -6222,6 +6222,7 @@ class HogQLQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
+    name: Optional[constr(max_length=64)] = Field(default=None, description="Client provided name of the query")
     query: str
     response: Optional[HogQLQueryResponse] = None
     values: Optional[dict[str, Any]] = Field(
@@ -6230,7 +6231,6 @@ class HogQLQuery(BaseModel):
     variables: Optional[dict[str, HogQLVariable]] = Field(
         default=None, description="Variables to be substituted into the query"
     )
-    name: Optional[constr(max_length=64)] = Field(default=None, description="Client provided name of the query")
 
 
 class InsightActorsQueryOptionsResponse(BaseModel):
