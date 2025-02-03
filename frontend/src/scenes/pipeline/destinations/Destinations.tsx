@@ -108,7 +108,7 @@ export function DestinationsTable({
     const { resetFilters } = useActions(destinationsFiltersLogic({ types }))
 
     const showMetricsHistory = types.includes('destination') || types.includes('transformation')
-    const showFrequency = types.includes('destination')
+    const showFrequencyInterval = types.includes('destination')
     const simpleName =
         types.includes('destination') || types.includes('site_destination')
             ? 'destination'
@@ -232,7 +232,7 @@ export function DestinationsTable({
                             )
                         },
                     },
-                    ...(showFrequency
+                    ...(showFrequencyInterval
                         ? [
                               {
                                   title: 'Frequency',
