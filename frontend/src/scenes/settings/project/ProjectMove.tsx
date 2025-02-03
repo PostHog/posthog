@@ -107,7 +107,7 @@ export function ProjectMove(): JSX.Element {
                     status="danger"
                     type="secondary"
                     onClick={() => setIsModalVisible(true)}
-                    data-attr="delete-project-button"
+                    data-attr="move-project-button"
                     icon={<IconArrowRight />}
                     disabledReason={restrictedReason ?? (targetOrganization === null && 'Select an organization')}
                 >
