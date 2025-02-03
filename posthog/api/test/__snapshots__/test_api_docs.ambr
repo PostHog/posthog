@@ -116,6 +116,7 @@
     'Warning: operationId "environments_app_metrics_historical_exports_retrieve" has collisions [(\'/api/environments/{project_id}/app_metrics/{plugin_config_id}/historical_exports/\', \'get\'), (\'/api/environments/{project_id}/app_metrics/{plugin_config_id}/historical_exports/{id}/\', \'get\')]. resolving with numeral suffixes.',
     'Warning: operationId "environments_insights_activity_retrieve" has collisions [(\'/api/environments/{project_id}/insights/{id}/activity/\', \'get\'), (\'/api/environments/{project_id}/insights/activity/\', \'get\')]. resolving with numeral suffixes.',
     'Warning: operationId "environments_persons_activity_retrieve" has collisions [(\'/api/environments/{project_id}/persons/{id}/activity/\', \'get\'), (\'/api/environments/{project_id}/persons/activity/\', \'get\')]. resolving with numeral suffixes.',
+    'Warning: operationId "environments_web_vitals_retrieve" has collisions [(\'/api/environments/{project_id}/web_vitals/\', \'get\'), (\'/api/environments/{project_id}/web_vitals/{id}/\', \'get\')]. resolving with numeral suffixes.',
     'Warning: operationId "event_definitions_retrieve" has collisions [(\'/api/projects/{project_id}/event_definitions/\', \'get\'), (\'/api/projects/{project_id}/event_definitions/{id}/\', \'get\')]. resolving with numeral suffixes.',
     'Warning: operationId "feature_flags_activity_retrieve" has collisions [(\'/api/projects/{project_id}/feature_flags/{id}/activity/\', \'get\'), (\'/api/projects/{project_id}/feature_flags/activity/\', \'get\')]. resolving with numeral suffixes.',
     'Warning: operationId "insights_activity_retrieve" has collisions [(\'/api/projects/{project_id}/insights/{id}/activity/\', \'get\'), (\'/api/projects/{project_id}/insights/activity/\', \'get\')]. resolving with numeral suffixes.',
@@ -127,6 +128,5 @@
     'Warning: operationId "retrieve" has collisions [(\'/api/organizations/{id}/\', \'get\'), (\'/api/organizations/{organization_id}/projects/{id}/\', \'get\')]. resolving with numeral suffixes.',
     'Warning: operationId "surveys_activity_retrieve" has collisions [(\'/api/projects/{project_id}/surveys/{id}/activity/\', \'get\'), (\'/api/projects/{project_id}/surveys/activity/\', \'get\')]. resolving with numeral suffixes.',
     'Warning: operationId "update" has collisions [(\'/api/organizations/{id}/\', \'put\'), (\'/api/organizations/{organization_id}/projects/{id}/\', \'put\')]. resolving with numeral suffixes.',
-    'Warning: operationId "web_vitals_retrieve" has collisions [(\'/api/projects/{project_id}/web_vitals/\', \'get\'), (\'/api/projects/{project_id}/web_vitals/{id}/\', \'get\')]. resolving with numeral suffixes.',
   ])
 # ---
