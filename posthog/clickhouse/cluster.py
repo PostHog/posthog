@@ -68,9 +68,10 @@ class FuturesMap(dict[K, Future[V]]):
 
 class ConnectionInfo(NamedTuple):
     address: str
+    port: int | None
 
     def make_pool(self, client_settings: Mapping[str, str] | None = None) -> ChPool:
-        return _make_ch_pool(host=self.address, settings=client_settings)
+        return _make_ch_pool(host=self.address, port=self.port, settings=client_settings)
 
 
 class HostInfo(NamedTuple):
@@ -107,10 +108,15 @@ class ClickhouseCluster:
         )
 
         self.__hosts = [
+            # We only use the port from system.clusters if we're running in E2E tests or debug mode,
+            # otherwise, we will use the default port.
             HostInfo(
-                ConnectionInfo(host_address, port),
+                ConnectionInfo(
+                    host_address,
+                    port=port if (settings.E2E_TESTING or settings.DEBUG) else None,
+                ),
                 shard_num if host_cluster_role != "coordinator" else None,
-                replica_num,
+                replica_num if host_cluster_role != "coordinator" else None,
                 host_cluster_type,
                 host_cluster_role,
             )
@@ -278,7 +284,7 @@ def get_cluster(
 ) -> ClickhouseCluster:
     extra_hosts = []
     for host_config in map(copy, CLICKHOUSE_PER_TEAM_SETTINGS.values()):
-        extra_hosts.append(ConnectionInfo(host_config.pop("host")))
+        extra_hosts.append(ConnectionInfo(host_config.pop("host"), None))
         assert len(host_config) == 0, f"unexpected values: {host_config!r}"
     return ClickhouseCluster(
         default_client(), extra_hosts=extra_hosts, logger=logger, client_settings=client_settings, cluster=cluster
