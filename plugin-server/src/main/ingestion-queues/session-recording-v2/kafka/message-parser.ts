@@ -60,11 +60,15 @@ export class KafkaMessageParser {
             return dropMessage('received_non_snapshot_message')
         }
 
-        const events: RRWebEvent[] = $snapshot_items.filter((event: any) => event && event.timestamp)
+        const events: RRWebEvent[] = $snapshot_items.filter((event: any) => event && event.timestamp > 0)
 
         if (!events.length) {
             return dropMessage('message_contained_no_valid_rrweb_events')
         }
+
+        const timestamps = events.map((event) => event.timestamp)
+        const minTimestamp = Math.min(...timestamps)
+        const maxTimestamp = Math.max(...timestamps)
 
         return {
             metadata: {
@@ -81,8 +85,8 @@ export class KafkaMessageParser {
                 [$window_id ?? '']: events,
             },
             eventsRange: {
-                start: events[0].timestamp,
-                end: events[events.length - 1].timestamp,
+                start: minTimestamp,
+                end: maxTimestamp,
             },
             snapshot_source: $snapshot_source,
         }
