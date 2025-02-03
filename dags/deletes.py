@@ -89,6 +89,7 @@ class PendingPersonEventDeletesTable:
     timestamp: datetime
     team_id: int | None = None
     cluster: str = settings.CLICKHOUSE_CLUSTER
+    is_reporting: bool = False
 
     @property
     def timestamp_isoformat(self) -> str:
@@ -100,7 +101,10 @@ class PendingPersonEventDeletesTable:
 
     @property
     def table_name(self) -> str:
-        return f"pending_person_deletes_{self.clickhouse_timestamp}"
+        if self.is_reporting:
+            return "pending_person_deletes_reporting"
+        else:
+            return f"pending_person_deletes_{self.clickhouse_timestamp}"
 
     @property
     def qualified_name(self):
@@ -120,11 +124,18 @@ class PendingPersonEventDeletesTable:
         """
 
     @property
+    def truncate_table_query(self) -> str:
+        return f"TRUNCATE TABLE {self.qualified_name} ON CLUSTER '{self.cluster}'"
+
+    @property
     def drop_table_query(self) -> str:
         return f"DROP TABLE IF EXISTS {self.qualified_name} ON CLUSTER '{self.cluster}'"
 
     def create(self, client: Client) -> None:
         client.execute(self.create_table_query)
+
+    def truncate(self, client: Client) -> None:
+        client.execute(self.truncate_table_query)
 
     def drop(self, client: Client) -> None:
         client.execute(self.drop_table_query)
@@ -267,26 +278,45 @@ def create_pending_person_deletions_table(
 
 
 @op
+def create_reporting_pending_person_deletions_table(
+    config: DeleteConfig,
+    cluster: ResourceParam[ClickhouseCluster],
+) -> PendingPersonEventDeletesTable:
+    """Create a merge tree table in ClickHouse to store pending deletes."""
+    table = PendingPersonEventDeletesTable(
+        timestamp=config.parsed_timestamp,
+        cluster=settings.CLICKHOUSE_CLUSTER,
+        is_reporting=True,
+    )
+    cluster.any_host_by_role(table.create, NodeRole.WORKER).result()
+    cluster.any_host_by_role(table.truncate, NodeRole.WORKER).result()
+    return table
+
+
+@op
 def load_pending_person_deletions(
     context: OpExecutionContext,
     create_pending_person_deletions_table: PendingPersonEventDeletesTable,
+    cleanup_delete_assets: bool | None = None,
 ) -> PendingPersonEventDeletesTable:
     """Query postgres using django ORM to get pending person deletions and insert directly into ClickHouse."""
 
-    if not create_pending_person_deletions_table.team_id:
-        # Use Django's queryset iterator for memory efficiency
-        pending_deletions = AsyncDeletion.objects.filter(
-            deletion_type=DeletionType.Person,
-            delete_verified_at__isnull=True,
-            created_at__lte=create_pending_person_deletions_table.timestamp,
-        ).iterator()
+    if create_pending_person_deletions_table.is_reporting:
+        pending_deletions = AsyncDeletion.objects.all().iterator()
     else:
-        pending_deletions = AsyncDeletion.objects.filter(
-            deletion_type=DeletionType.Person,
-            team_id=create_pending_person_deletions_table.team_id,
-            delete_verified_at__isnull=True,
-            created_at__lte=create_pending_person_deletions_table.timestamp,
-        ).iterator()
+        if not create_pending_person_deletions_table.team_id:
+            pending_deletions = AsyncDeletion.objects.filter(
+                deletion_type=DeletionType.Person,
+                delete_verified_at__isnull=True,
+                created_at__lte=create_pending_person_deletions_table.timestamp,
+            ).iterator()
+        else:
+            pending_deletions = AsyncDeletion.objects.filter(
+                deletion_type=DeletionType.Person,
+                team_id=create_pending_person_deletions_table.team_id,
+                delete_verified_at__isnull=True,
+                created_at__lte=create_pending_person_deletions_table.timestamp,
+            ).iterator()
 
     # Process and insert in chunks
     chunk_size = 10000
@@ -471,10 +501,12 @@ def cleanup_delete_assets(
 @job
 def deletes_job():
     """Job that handles deletion of person events."""
+    report_person_table = create_reporting_pending_person_deletions_table()
     person_table = create_pending_person_deletions_table()
     loaded_person_table = load_pending_person_deletions(person_table)
     create_deletes_dict_op = create_deletes_dict(loaded_person_table)
     load_dict = load_and_verify_deletes_dictionary(create_deletes_dict_op)
     delete_events = delete_person_events(load_dict)
     waited_mutation = wait_for_delete_mutations(delete_events)
-    cleanup_delete_assets(person_table, create_deletes_dict_op, waited_mutation)
+    cleaned = cleanup_delete_assets(person_table, create_deletes_dict_op, waited_mutation)
+    load_pending_person_deletions(report_person_table, cleaned)
