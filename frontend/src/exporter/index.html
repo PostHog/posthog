@@ -2,8 +2,13 @@
 <html>
     <head>
         <meta name="robots" content="noindex" />
+        {{ exported_data|json_script:"posthog-exported-data" }}
         <script>
-            window.POSTHOG_EXPORTED_DATA = {{exported_data|safe}}
+            // need to parse twice to get JSON
+            window.POSTHOG_EXPORTED_DATA = JSON.parse(
+                JSON.parse(document.getElementById('posthog-exported-data').textContent)
+            )
+
             if (window.POSTHOG_EXPORTED_DATA.type) {
               var root = document.documentElement
               root.className += ' export-type-' + window.POSTHOG_EXPORTED_DATA.type
