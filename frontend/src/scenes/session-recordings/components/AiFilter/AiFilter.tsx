@@ -1,7 +1,7 @@
 /**
  * @fileoverview A component that allows user to "chat with recordings" using Max AI
  */
-import { IconAIText, IconPerson } from '@posthog/icons'
+import { IconAIText, IconPerson, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonInput, LemonTag } from '@posthog/lemon-ui'
 import { BuiltLogic, useActions, useValues } from 'kea'
 import { sessionRecordingsPlaylistLogicType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogicType'
@@ -69,10 +69,11 @@ export function AiFilter({ logic }: { logic: BuiltLogic<sessionRecordingsPlaylis
                                         {messages.length > 1 && (
                                             <div>
                                                 <LemonButton
+                                                    icon={<IconTrash />}
                                                     onClick={handleReset}
                                                     disabled={isLoading}
                                                     type="tertiary"
-                                                    size="small"
+                                                    size="xsmall"
                                                 >
                                                     Reset
                                                 </LemonButton>
