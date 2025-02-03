@@ -66,6 +66,8 @@ RUN corepack enable
 RUN node --version
 RUN mkdir /tmp/pnpm-store
 RUN echo "111111"
+RUN pnpm --version
+RUN node --version
 RUN pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store
 RUN echo "222222"
 RUN cd ../common/plugin_transpiler && \
