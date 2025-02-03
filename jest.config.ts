@@ -11,7 +11,7 @@ process.env.TZ = process.env.TZ || 'UTC'
 const esmModules = ['query-selector-shadow-dom', 'react-syntax-highlighter', '@react-hook', '@medv', 'monaco-editor']
 const eeFolderExists = fs.existsSync('ee/frontend/exports.ts')
 function rootDirectories() {
-    const rootDirectories = ['<rootDir>/frontend/src']
+    const rootDirectories = ['<rootDir>/frontend/src', '<rootDir>/products']
     if (eeFolderExists) {
         rootDirectories.push('<rootDir>/ee/frontend')
     }

@@ -4,6 +4,7 @@ import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import QuerySet
 from loginas.utils import is_impersonated_session
+from django.db import transaction
 
 from rest_framework import serializers, viewsets, exceptions
 from rest_framework.serializers import BaseSerializer
@@ -13,19 +14,19 @@ from rest_framework.response import Response
 
 from posthog.api.app_metrics2 import AppMetricsMixin
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.hog_function_template import HogFunctionTemplateSerializer
+from posthog.api.hog_function_template import HogFunctionTemplateSerializer, HogFunctionTemplates
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 
 from posthog.cdp.filters import compile_filters_bytecode, compile_filters_expr
 from posthog.cdp.services.icons import CDPIconsService
-from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES_BY_ID
+from posthog.cdp.templates._internal.template_legacy_plugin import create_legacy_plugin_template
 from posthog.cdp.validation import compile_hog, generate_template_bytecode, validate_inputs, validate_inputs_schema
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.constants import AvailableFeature
 from posthog.hogql.compiler.javascript import JavaScriptCompiler
-from posthog.models.activity_logging.activity_log import log_activity, changes_between, Detail
+from posthog.models.activity_logging.activity_log import log_activity, changes_between, Detail, Change
 from posthog.models.hog_functions.hog_function import (
     HogFunction,
     HogFunctionState,
@@ -36,7 +37,7 @@ from posthog.models.hog_functions.hog_function import (
 )
 from posthog.models.plugin import TranspilerError
 from posthog.plugins.plugin_server_api import create_hog_invocation_test
-
+from django.conf import settings
 
 logger = structlog.get_logger(__name__)
 
@@ -67,6 +68,7 @@ class HogFunctionMinimalSerializer(serializers.ModelSerializer):
             "icon_url",
             "template",
             "status",
+            "execution_order",
         ]
         read_only_fields = fields
 
@@ -115,6 +117,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "template",
             "template_id",
             "status",
+            "execution_order",
         ]
         read_only_fields = [
             "id",
@@ -155,7 +158,10 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         is_create = self.context.get("view") and self.context["view"].action == "create"
 
         template_id = attrs.get("template_id", instance.template_id if instance else None)
-        template = HOG_FUNCTION_TEMPLATES_BY_ID.get(template_id, None)
+        template = HogFunctionTemplates.template(template_id) if template_id else None
+
+        if template_id and template_id.startswith("plugin-"):
+            template = create_legacy_plugin_template(template_id)
 
         if not has_addon:
             # In this case they are only allowed to create or update the function with free templates
@@ -185,6 +191,16 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 attrs["hog"] = attrs.get("hog") or template.hog
                 attrs["inputs_schema"] = attrs.get("inputs_schema") or template.inputs_schema
                 attrs["inputs"] = attrs.get("inputs") or {}
+
+        if hog_type == "transformation":
+            if not settings.HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED:
+                if not template:
+                    raise serializers.ValidationError(
+                        {"template_id": "Transformation functions must be created from a template."}
+                    )
+                # Currently we do not allow modifying the core transformation templates when transformations are disabled
+                attrs["hog"] = template.hog
+                attrs["inputs_schema"] = template.inputs_schema
 
         # Used for both top level input validation, and mappings input validation
         def validate_input_and_filters(attrs: dict):
@@ -269,8 +285,21 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
     def create(self, validated_data: dict, *args, **kwargs) -> HogFunction:
         request = self.context["request"]
         validated_data["created_by"] = request.user
-        hog_function = super().create(validated_data=validated_data)
 
+        # Set execution_order for transformation type
+        if validated_data.get("type") == "transformation":
+            # Get the highest execution_order for existing transformations
+            highest_order = (
+                HogFunction.objects.filter(team_id=validated_data["team"].id, type="transformation", deleted=False)
+                .order_by("-execution_order")
+                .values_list("execution_order", flat=True)
+                .first()
+            )
+
+            # Set to 1 if no existing transformations, otherwise increment by 1
+            validated_data["execution_order"] = (highest_order or 0) + 1
+
+        hog_function = super().create(validated_data=validated_data)
         return hog_function
 
     def update(self, instance: HogFunction, validated_data: dict, *args, **kwargs) -> HogFunction:
@@ -317,6 +346,8 @@ class HogFunctionViewSet(
             else:
                 types = ["destination"]
             queryset = queryset.filter(type__in=types)
+            # Add ordering by execution_order and created_at
+            queryset = queryset.order_by("execution_order", "created_at")
 
         if self.request.GET.get("filters"):
             try:
@@ -362,7 +393,11 @@ class HogFunctionViewSet(
 
     @action(detail=True, methods=["POST"])
     def invocations(self, request: Request, *args, **kwargs):
-        hog_function = self.get_object()
+        try:
+            hog_function = self.get_object()
+        except Exception:
+            hog_function = None
+
         serializer = HogFunctionInvocationSerializer(
             data=request.data, context={**self.get_serializer_context(), "instance": hog_function}
         )
@@ -377,8 +412,8 @@ class HogFunctionViewSet(
         mock_async_functions = serializer.validated_data["mock_async_functions"]
 
         res = create_hog_invocation_test(
-            team_id=hog_function.team_id,
-            hog_function_id=hog_function.id,
+            team_id=self.team_id,
+            hog_function_id=str(hog_function.id) if hog_function else "new",
             globals=hog_globals,
             configuration=configuration,
             mock_async_functions=mock_async_functions,
@@ -426,3 +461,75 @@ class HogFunctionViewSet(
                 changes=changes, name=serializer.instance.name, type=serializer.instance.type or "destination"
             ),
         )
+
+    @action(methods=["PATCH"], detail=False)
+    def rearrange(self, request: Request, *args, **kwargs) -> Response:
+        """Update the execution order of multiple HogFunctions."""
+        team = self.team
+        orders: dict[str, int] = request.data.get("orders", {})
+
+        if not orders:
+            raise exceptions.ValidationError("No orders provided")
+
+        with transaction.atomic():
+            # Get all functions in a single query and validate them
+            function_ids = list(orders.keys())
+            functions = {
+                str(f.id): f
+                for f in HogFunction.objects.filter(
+                    id__in=function_ids, team=team, type="transformation", deleted=False
+                )
+            }
+
+            # Validate all functions exist
+            missing_ids = set(function_ids) - set(functions.keys())
+            if missing_ids:
+                raise exceptions.ValidationError(f"HogFunction with id {missing_ids.pop()} does not exist")
+
+            # Update orders and create activity logs
+            from django.utils import timezone
+            from django.contrib.auth.models import AnonymousUser
+
+            current_time = timezone.now()
+            user = None if isinstance(request.user, AnonymousUser) else request.user
+
+            for function_id, function in functions.items():
+                new_order = orders[function_id]
+                old_order = function.execution_order
+
+                if old_order != new_order:
+                    function.execution_order = new_order
+                    function.updated_at = current_time
+
+                    log_activity(
+                        organization_id=self.organization.id,
+                        team_id=self.team_id,
+                        user=user,
+                        item_id=str(function.id),
+                        was_impersonated=is_impersonated_session(request),
+                        scope="HogFunction",
+                        activity="updated",
+                        detail=Detail(
+                            name=function.name,
+                            type="transformation",
+                            changes=[
+                                Change(
+                                    type="HogFunction",
+                                    action="changed",
+                                    field="priority",
+                                    before=str(old_order),
+                                    after=str(new_order),
+                                )
+                            ],
+                        ),
+                    )
+
+                    function.save(update_fields=["execution_order", "updated_at"])
+
+        # Get final ordered list in a single query
+        transformations = HogFunction.objects.filter(team=team, type="transformation", deleted=False).order_by(
+            "execution_order"
+        )
+
+        serializer = self.get_serializer(transformations, many=True)
+        return Response(serializer.data)

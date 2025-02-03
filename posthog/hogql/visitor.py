@@ -283,7 +283,11 @@ class TraversingVisitor(Visitor[None]):
             self.visit(attribute)
 
     def visit_hogqlx_attribute(self, node: ast.HogQLXAttribute):
-        self.visit(node.value)
+        if isinstance(node.value, list):
+            for value in node.value:
+                self.visit(value)
+        else:
+            self.visit(node.value)
 
     def visit_program(self, node: ast.Program):
         for expr in node.declarations:
@@ -654,6 +658,8 @@ class CloningVisitor(Visitor[Any]):
         return ast.HogQLXTag(kind=node.kind, attributes=[self.visit(a) for a in node.attributes])
 
     def visit_hogqlx_attribute(self, node: ast.HogQLXAttribute):
+        if isinstance(node.value, list):
+            return ast.HogQLXAttribute(name=node.name, value=[self.visit(v) for v in node.value])
         return ast.HogQLXAttribute(name=node.name, value=self.visit(node.value))
 
     def visit_program(self, node: ast.Program):

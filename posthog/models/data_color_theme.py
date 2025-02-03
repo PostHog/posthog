@@ -14,3 +14,7 @@ class DataColorTheme(models.Model):
 
     def __str__(self):
         return self.name
+
+    @property
+    def is_global(self):
+        return self.team_id is None

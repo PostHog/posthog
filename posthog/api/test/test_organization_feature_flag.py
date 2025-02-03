@@ -130,6 +130,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "has_enriched_analytics": False,
             "tags": [],
             "user_access_level": "editor",
+            "is_remote_configuration": False,
         }
 
         flag_response = response.json()["success"][0]
@@ -207,6 +208,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "features": ANY,
             "analytics_dashboards": ANY,
             "user_access_level": "editor",
+            "is_remote_configuration": False,
         }
 
         flag_response = response.json()["success"][0]
@@ -328,6 +330,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "features": ANY,
             "analytics_dashboards": ANY,
             "user_access_level": "editor",
+            "is_remote_configuration": False,
         }
         flag_response = response.json()["success"][0]
 
