@@ -27,7 +27,8 @@ common_inputs = [
 ]
 
 template_snapchat_pixel: HogFunctionTemplate = HogFunctionTemplate(
-    status="client-side",
+    status="beta",
+    free=False,
     type="site_destination",
     id="template-snapchat-pixel",
     name="Snapchat Pixel",
