@@ -68,6 +68,9 @@ pub struct Config {
     pub s3_fallback_bucket: Option<String>,
     pub s3_fallback_endpoint: Option<String>,
 
+    #[envconfig(default = "")]
+    pub s3_fallback_prefix: String,
+
     #[envconfig(default = "ALL")]
     pub healthcheck_strategy: HealthStrategy
 }
@@ -112,6 +115,7 @@ impl Config {
             s3_fallback_enabled: false,
             s3_fallback_bucket: None,
             s3_fallback_endpoint: None,
+            s3_fallback_prefix: String::new(),
             healthcheck_strategy: HealthStrategy::All,
         }
     }

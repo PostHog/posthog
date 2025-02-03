@@ -100,6 +100,7 @@ async fn create_sink(
                     .s3_fallback_bucket
                     .clone()
                     .expect("S3 bucket required when fallback enabled"),
+                config.s3_fallback_prefix.clone(),
                 config.s3_fallback_endpoint.clone(),
                 sink_liveness,
             )

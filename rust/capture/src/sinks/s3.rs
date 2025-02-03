@@ -32,6 +32,7 @@ const MAX_BUFFER_SIZE: usize = 4 * 1024 * 1024; // 4MB
 pub struct S3Sink {
     client: S3Client,
     bucket: String,
+    prefix: String,
     buffer: Arc<Mutex<EventBuffer>>,
     liveness: HealthHandle,
     shutdown: Option<oneshot::Sender<()>>,
@@ -60,6 +61,7 @@ impl EventBuffer {
 impl S3Sink {
     pub async fn new(
         bucket: String,
+        prefix: String,
         s3_endpoint: Option<String>,
         liveness: HealthHandle,
     ) -> anyhow::Result<S3Sink> {
@@ -85,6 +87,7 @@ impl S3Sink {
         let s3sink = S3Sink {
             client: client.clone(),
             bucket: bucket.clone(),
+            prefix: prefix.clone(),
             buffer: buffer.clone(),
             liveness: liveness.clone(),
             shutdown: None,
@@ -136,6 +139,7 @@ impl S3Sink {
         Ok(S3Sink {
             client,
             bucket,
+            prefix,
             buffer,
             liveness,
             shutdown: Some(shutdown_tx),
@@ -205,7 +209,8 @@ impl S3Sink {
 
         let now: DateTime<Utc> = SystemTime::now().into();
         let path = format!(
-            "year={}/month={:02}/day={:02}/hour={:02}/events_{}_{}.json.gz",
+            "{}year={}/month={:02}/day={:02}/hour={:02}/events_{}_{}.json.gz",
+            self.prefix,
             now.year(),
             now.month(),
             now.day(),
@@ -327,6 +332,7 @@ mod tests {
 
         S3Sink::new(
             "capture".to_string(),
+            "".to_string(),
             Some("http://localhost:19000".to_string()),
             handle,
         )
