@@ -97,8 +97,7 @@
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."external_data_workspace_id",
-         "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -166,8 +165,7 @@
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."external_data_workspace_id",
-         "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -254,8 +252,7 @@
          "posthog_team"."event_properties_with_usage",
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
-         "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -489,8 +486,7 @@
          "posthog_team"."event_properties_with_usage",
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
-         "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_hogfunction"
   INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_hogfunction"."deleted"
@@ -586,8 +582,7 @@
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."external_data_workspace_id",
-         "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -686,8 +681,7 @@
          "posthog_team"."event_properties_with_usage",
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
-         "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -921,8 +915,7 @@
          "posthog_team"."event_properties_with_usage",
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
-         "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_hogfunction"
   INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_hogfunction"."deleted"
@@ -1018,8 +1011,7 @@
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."external_data_workspace_id",
-         "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1106,8 +1098,7 @@
          "posthog_team"."event_properties_with_usage",
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
-         "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1182,8 +1173,7 @@
          "posthog_team"."event_properties_with_usage",
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
-         "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1417,8 +1407,7 @@
          "posthog_team"."event_properties_with_usage",
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
-         "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_hogfunction"
   INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_hogfunction"."deleted"
@@ -1502,8 +1491,7 @@
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."external_data_workspace_id",
-         "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1590,8 +1578,7 @@
          "posthog_team"."event_properties_with_usage",
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
-         "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
@@ -1834,8 +1821,7 @@
          "posthog_team"."event_properties_with_usage",
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
-         "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_hogfunction"
   INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_hogfunction"."deleted"
@@ -1940,8 +1926,7 @@
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."external_data_workspace_id",
-         "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."api_token" = 'token123'
   LIMIT 21
@@ -2278,8 +2263,7 @@
          "posthog_team"."event_properties_with_usage",
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
-         "posthog_team"."external_data_workspace_last_synced_at",
-         "posthog_team"."api_query_rate_limit"
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_hogfunction"
   INNER JOIN "posthog_team" ON ("posthog_hogfunction"."team_id" = "posthog_team"."id")
   WHERE (NOT "posthog_hogfunction"."deleted"
