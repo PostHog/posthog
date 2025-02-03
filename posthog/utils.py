@@ -355,13 +355,13 @@ def render_template(
         context["debug"] = True
         context["git_branch"] = get_git_branch()
 
-    context["js_posthog_ui_host"] = "''"
+    context["js_posthog_ui_host"] = ""
 
     if settings.E2E_TESTING:
         context["e2e_testing"] = True
-        context["js_posthog_api_key"] = "'phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO'"
-        context["js_posthog_host"] = "'https://internal-t.posthog.com'"
-        context["js_posthog_ui_host"] = "'https://us.posthog.com'"
+        context["js_posthog_api_key"] = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"
+        context["js_posthog_host"] = "https://internal-t.posthog.com"
+        context["js_posthog_ui_host"] = "https://us.posthog.com"
 
     elif settings.SELF_CAPTURE:
         api_token = get_self_capture_api_token(request.user)
@@ -370,9 +370,9 @@ def render_template(
             context["js_posthog_api_key"] = api_token
             context["js_posthog_host"] = None
     else:
-        context["js_posthog_api_key"] = "'sTMFPsFhdP1Ssg'"
-        context["js_posthog_host"] = "'https://internal-t.posthog.com'"
-        context["js_posthog_ui_host"] = "'https://us.posthog.com'"
+        context["js_posthog_api_key"] = "sTMFPsFhdP1Ssg"
+        context["js_posthog_host"] = "https://internal-t.posthog.com"
+        context["js_posthog_ui_host"] = "https://us.posthog.com"
 
     context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA
     context["js_kea_verbose_logging"] = settings.KEA_VERBOSE_LOGGING
