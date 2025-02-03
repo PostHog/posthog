@@ -1,5 +1,14 @@
+import { S3Client } from '@aws-sdk/client-s3'
 import { captureException } from '@sentry/node'
-import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartition } from 'node-rdkafka'
+import {
+    CODES,
+    features,
+    KafkaConsumer,
+    librdkafkaVersion,
+    Message,
+    TopicPartition,
+    TopicPartitionOffset,
+} from 'node-rdkafka'
 
 import { KafkaProducerWrapper } from '~/src/kafka/producer'
 import { PostgresRouter } from '~/src/utils/db/postgres'
@@ -19,20 +28,19 @@ import {
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
 } from './constants'
 import { KafkaMessageParser } from './kafka/message-parser'
-import { KafkaMetrics } from './kafka/metrics'
 import { KafkaOffsetManager } from './kafka/offset-manager'
-import { SessionRecordingMetrics } from './metrics'
+import { SessionRecordingIngesterMetrics } from './metrics'
 import { PromiseScheduler } from './promise-scheduler'
 import { BlackholeSessionBatchWriter } from './sessions/blackhole-session-batch-writer'
+import { S3SessionBatchWriter } from './sessions/s3-session-batch-writer'
 import { SessionBatchManager } from './sessions/session-batch-manager'
-import { SessionBatchRecorder, SessionBatchRecorderInterface } from './sessions/session-batch-recorder'
+import { SessionBatchRecorder } from './sessions/session-batch-recorder'
 import { TeamFilter } from './teams/team-filter'
 import { TeamService } from './teams/team-service'
 import { MessageWithTeam } from './teams/types'
 import { CaptureIngestionWarningFn } from './types'
 import { getPartitionsForTopic } from './utils'
 import { LibVersionMonitor } from './versions/lib-version-monitor'
-import { VersionMetrics } from './versions/version-metrics'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -45,7 +53,6 @@ export class SessionRecordingIngester {
     isStopping = false
 
     private isDebugLoggingEnabled: ValueMatcher<number>
-    private readonly metrics: SessionRecordingMetrics
     private readonly promiseScheduler: PromiseScheduler
     private readonly batchConsumerFactory: BatchConsumerFactory
     private readonly sessionBatchManager: SessionBatchManager
@@ -56,7 +63,7 @@ export class SessionRecordingIngester {
     constructor(
         private config: PluginsServerConfig,
         private consumeOverflow: boolean,
-        private postgres: PostgresRouter,
+        postgres: PostgresRouter,
         batchConsumerFactory: BatchConsumerFactory,
         ingestionWarningProducer?: KafkaProducerWrapper
     ) {
@@ -69,32 +76,43 @@ export class SessionRecordingIngester {
 
         this.promiseScheduler = new PromiseScheduler()
 
-        this.kafkaParser = new KafkaMessageParser(KafkaMetrics.getInstance())
+        let s3Client: S3Client | null = null
+        if (
+            config.SESSION_RECORDING_V2_S3_ENDPOINT &&
+            config.SESSION_RECORDING_V2_S3_REGION &&
+            config.SESSION_RECORDING_V2_S3_BUCKET &&
+            config.SESSION_RECORDING_V2_S3_PREFIX
+        ) {
+            s3Client = new S3Client({
+                region: config.SESSION_RECORDING_V2_S3_REGION,
+                endpoint: config.SESSION_RECORDING_V2_S3_ENDPOINT,
+                forcePathStyle: true,
+            })
+        }
+
+        this.kafkaParser = new KafkaMessageParser()
         this.teamFilter = new TeamFilter(new TeamService(postgres))
         if (ingestionWarningProducer) {
             const captureWarning: CaptureIngestionWarningFn = async (teamId, type, details, debounce) => {
                 await captureIngestionWarning(ingestionWarningProducer, teamId, type, details, debounce)
             }
-            this.libVersionMonitor = new LibVersionMonitor(captureWarning, VersionMetrics.getInstance())
+            this.libVersionMonitor = new LibVersionMonitor(captureWarning)
         }
 
-        this.metrics = SessionRecordingMetrics.getInstance()
+        const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
+        const writer = s3Client
+            ? new S3SessionBatchWriter(
+                  s3Client,
+                  this.config.SESSION_RECORDING_V2_S3_BUCKET!,
+                  this.config.SESSION_RECORDING_V2_S3_PREFIX!
+              )
+            : new BlackholeSessionBatchWriter()
 
-        const offsetManager = new KafkaOffsetManager(async (offsets) => {
-            await new Promise<void>((resolve, reject) => {
-                try {
-                    this.batchConsumer!.consumer.commitSync(offsets)
-                    resolve()
-                } catch (error) {
-                    reject(error)
-                }
-            })
-        }, this.topic)
         this.sessionBatchManager = new SessionBatchManager({
-            maxBatchSizeBytes: (config.SESSION_RECORDING_MAX_BATCH_SIZE_KB ?? 0) * 1024,
+            maxBatchSizeBytes: (config.SESSION_RECORDING_MAX_BATCH_SIZE_KB ?? 1024) * 1024,
             maxBatchAgeMs: config.SESSION_RECORDING_MAX_BATCH_AGE_MS ?? 1000,
-            createBatch: () => new SessionBatchRecorder(new BlackholeSessionBatchWriter()),
             offsetManager,
+            writer,
         })
 
         this.consumerGroupId = this.consumeOverflow ? KAFKA_CONSUMER_GROUP_ID_OVERFLOW : KAFKA_CONSUMER_GROUP_ID
@@ -128,15 +146,14 @@ export class SessionRecordingIngester {
     }
 
     private async processBatchMessages(messages: Message[], context: { heartbeat: () => void }): Promise<void> {
-        // Increment message received counter for each message
         messages.forEach((message) => {
-            this.metrics.incrementMessageReceived(message.partition)
+            SessionRecordingIngesterMetrics.incrementMessageReceived(message.partition)
         })
 
         const batchSize = messages.length
         const batchSizeKb = messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024
-        this.metrics.observeKafkaBatchSize(batchSize)
-        this.metrics.observeKafkaBatchSizeKb(batchSizeKb)
+        SessionRecordingIngesterMetrics.observeKafkaBatchSize(batchSize)
+        SessionRecordingIngesterMetrics.observeKafkaBatchSizeKb(batchSizeKb)
 
         const processedMessages = await runInstrumentedFunction({
             statsKey: `recordingingesterv2.handleEachBatch.parseBatch`,
@@ -168,18 +185,17 @@ export class SessionRecordingIngester {
     }
 
     private async processMessages(parsedMessages: MessageWithTeam[]) {
-        await this.sessionBatchManager.withBatch(async (batch) => {
-            for (const message of parsedMessages) {
-                this.consume(message, batch)
-            }
-            return Promise.resolve()
-        })
+        const batch = this.sessionBatchManager.getCurrentBatch()
+        for (const message of parsedMessages) {
+            this.consume(message, batch)
+        }
+        return Promise.resolve()
     }
 
-    private consume(message: MessageWithTeam, batch: SessionBatchRecorderInterface) {
+    private consume(message: MessageWithTeam, batch: SessionBatchRecorder) {
         // we have to reset this counter once we're consuming messages since then we know we're not re-balancing
         // otherwise the consumer continues to report however many sessions were revoked at the last re-balance forever
-        this.metrics.resetSessionsRevoked()
+        SessionRecordingIngesterMetrics.resetSessionsRevoked()
         const { team, message: parsedMessage } = message
         const debugEnabled = this.isDebugLoggingEnabled(parsedMessage.metadata.partition)
 
@@ -203,7 +219,7 @@ export class SessionRecordingIngester {
             })
         }
 
-        this.metrics.observeSessionInfo(parsedMessage.metadata.rawSize)
+        SessionRecordingIngesterMetrics.observeSessionInfo(parsedMessage.metadata.rawSize)
         batch.record(message)
     }
 
@@ -296,7 +312,7 @@ export class SessionRecordingIngester {
         return this.assignedTopicPartitions.map((x) => x.partition)
     }
 
-    private async onRevokePartitions(topicPartitions: TopicPartition[]): Promise<void> {
+    private onRevokePartitions(topicPartitions: TopicPartition[]): Promise<void> {
         /**
          * The revoke_partitions indicates that the consumer group has had partitions revoked.
          * As a result, we need to drop all sessions currently managed for the revoked partitions
@@ -304,10 +320,21 @@ export class SessionRecordingIngester {
 
         const revokedPartitions = topicPartitions.map((x) => x.partition)
         if (!revokedPartitions.length) {
-            return
+            return Promise.resolve()
         }
 
-        this.metrics.resetSessionsHandled()
-        await this.sessionBatchManager.discardPartitions(revokedPartitions)
+        SessionRecordingIngesterMetrics.resetSessionsHandled()
+        this.sessionBatchManager.discardPartitions(revokedPartitions)
+        return Promise.resolve()
+    }
+
+    private async commitOffsets(offsets: TopicPartitionOffset[]): Promise<void> {
+        await runInstrumentedFunction({
+            statsKey: `recordingingesterv2.handleEachBatch.flush.commitOffsets`,
+            func: async () => {
+                this.batchConsumer!.consumer.offsetsStore(offsets)
+                return Promise.resolve()
+            },
+        })
     }
 }

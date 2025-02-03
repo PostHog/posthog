@@ -9,8 +9,8 @@ from clickhouse_driver import Client
 from dags.person_overrides import (
     PersonOverridesSnapshotDictionary,
     PersonOverridesSnapshotTable,
-    SnapshotTableConfig,
-    create_snapshot_table,
+    PopulateSnapshotTableConfig,
+    populate_snapshot_table,
     squash_person_overrides,
 )
 from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
@@ -76,12 +76,37 @@ def test_full_job(cluster: ClickhouseCluster):
     }
     assert cluster.any_host(get_distinct_ids_with_overrides).result() == {"c", "d", "e", "z"}
 
-    result = squash_person_overrides.execute_in_process(
+    # run with limit
+    limited_run_result = squash_person_overrides.execute_in_process(
         run_config=dagster.RunConfig(
-            {create_snapshot_table.name: SnapshotTableConfig(timestamp=timestamp.isoformat())}
+            {populate_snapshot_table.name: PopulateSnapshotTableConfig(timestamp=timestamp.isoformat(), limit=2)}
         ),
         resources={"cluster": cluster},
     )
+
+    # ensure we cleaned up after ourselves
+    table = PersonOverridesSnapshotTable(UUID(limited_run_result.dagster_run.run_id))
+    dictionary = PersonOverridesSnapshotDictionary(table)
+    assert not any(cluster.map_all_hosts(table.exists).result().values())
+    assert not any(cluster.map_all_hosts(dictionary.exists).result().values())
+
+    remaining_overrides = cluster.any_host(get_distinct_ids_with_overrides).result()
+    assert len(remaining_overrides) == 2  # one candidate discarded due to limit, one out of timestamp range
+    assert "z" in remaining_overrides  # outside of timestamp range
+
+    # run without limit to handle the remaining item(s)
+    full_run_result = squash_person_overrides.execute_in_process(
+        run_config=dagster.RunConfig(
+            {populate_snapshot_table.name: PopulateSnapshotTableConfig(timestamp=timestamp.isoformat())}
+        ),
+        resources={"cluster": cluster},
+    )
+
+    # ensure we cleaned up after ourselves again
+    table = PersonOverridesSnapshotTable(UUID(full_run_result.dagster_run.run_id))
+    dictionary = PersonOverridesSnapshotDictionary(table)
+    assert not any(cluster.map_all_hosts(table.exists).result().values())
+    assert not any(cluster.map_all_hosts(dictionary.exists).result().values())
 
     # check postconditions
     assert cluster.any_host(get_distinct_ids_on_events_by_person).result() == {
@@ -90,9 +115,3 @@ def test_full_job(cluster: ClickhouseCluster):
         UUID(int=100): {"z"},
     }
     assert cluster.any_host(get_distinct_ids_with_overrides).result() == {"z"}
-
-    # ensure we cleaned up after ourselves
-    table = PersonOverridesSnapshotTable(UUID(result.dagster_run.run_id), timestamp)
-    dictionary = PersonOverridesSnapshotDictionary(table)
-    assert not any(cluster.map_all_hosts(table.exists).result().values())
-    assert not any(cluster.map_all_hosts(dictionary.exists).result().values())

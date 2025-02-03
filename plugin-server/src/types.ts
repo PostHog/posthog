@@ -28,6 +28,7 @@ import { UUID } from './utils/utils'
 import { ActionManager } from './worker/ingestion/action-manager'
 import { ActionMatcher } from './worker/ingestion/action-matcher'
 import { AppMetrics } from './worker/ingestion/app-metrics'
+import type { CookielessSaltManager } from './worker/ingestion/event-pipeline/cookielessServerHashStep'
 import { GroupTypeManager } from './worker/ingestion/group-type-manager'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
 import { TeamManager } from './worker/ingestion/team-manager'
@@ -90,6 +91,8 @@ export enum PluginServerMode {
     cdp_processed_events = 'cdp-processed-events',
     cdp_internal_events = 'cdp-internal-events',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
+    cdp_cyclotron_worker_plugins = 'cdp-cyclotron-worker-plugins',
+    cdp_api = 'cdp-api',
     functional_tests = 'functional-tests',
 }
 
@@ -118,7 +121,6 @@ export type CdpConfig = {
     CDP_WATCHER_REFILL_RATE: number // The number of tokens to be refilled per second
     CDP_WATCHER_DISABLED_TEMPORARY_TTL: number // How long a function should be temporarily disabled for
     CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: number // How many times a function can be disabled before it is disabled permanently
-    CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: string
     CDP_HOG_FILTERS_TELEMETRY_TEAMS: string
     CDP_CYCLOTRON_BATCH_SIZE: number
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
@@ -319,8 +321,26 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CYCLOTRON_DATABASE_URL: string
     CYCLOTRON_SHARD_DEPTH_LIMIT: number
 
+    // HOG Transformations (Alpha feature)
+    HOG_TRANSFORMATIONS_ENABLED: boolean
+    HOG_TRANSFORMATIONS_COMPARISON_PERCENTAGE: number | undefined
+
     SESSION_RECORDING_MAX_BATCH_SIZE_KB: number | undefined
     SESSION_RECORDING_MAX_BATCH_AGE_MS: number | undefined
+
+    // cookieless
+    COOKIELESS_DISABLED: boolean
+    COOKIELESS_FORCE_STATELESS_MODE: boolean
+    COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS: number
+    COOKIELESS_SESSION_TTL_SECONDS: number
+    COOKIELESS_SALT_TTL_SECONDS: number
+    COOKIELESS_SESSION_INACTIVITY_MS: number
+    COOKIELESS_IDENTIFIES_TTL_SECONDS: number
+
+    SESSION_RECORDING_V2_S3_BUCKET?: string
+    SESSION_RECORDING_V2_S3_PREFIX?: string
+    SESSION_RECORDING_V2_S3_ENDPOINT?: string
+    SESSION_RECORDING_V2_S3_REGION?: string
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -364,6 +384,10 @@ export interface Hub extends PluginsServerConfig {
     eventsToDropByToken: Map<string, string[]>
     eventsToSkipPersonsProcessingByToken: Map<string, string[]>
     encryptedFields: EncryptedFields
+
+    // cookieless
+    cookielessConfig: CookielessConfig
+    cookielessSaltManager: CookielessSaltManager
 }
 
 export interface PluginServerCapabilities {
@@ -386,6 +410,8 @@ export interface PluginServerCapabilities {
     cdpProcessedEvents?: boolean
     cdpInternalEvents?: boolean
     cdpCyclotronWorker?: boolean
+    cdpCyclotronWorkerPlugins?: boolean
+    cdpApi?: boolean
     appManagementSingleton?: boolean
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
     http?: boolean
@@ -981,6 +1007,7 @@ export enum PropertyOperator {
     IsNotSet = 'is_not_set',
     IsDateBefore = 'is_date_before',
     IsDateAfter = 'is_date_after',
+    IsCleanedPathExact = 'is_cleaned_path_exact',
 }
 
 /** Sync with posthog/frontend/src/types.ts */
@@ -1293,57 +1320,12 @@ export type AppMetric2Type = {
     count: number
 }
 
-interface TextOperator {
-    operator: 'equals' | 'startsWith' | 'includes'
-    value: string
-}
-
-export interface ModelDetails {
-    matches: string[]
-    searchTerms: string[]
-    info: {
-        releaseDate: string
-        maxTokens?: number
-        description: string
-        tradeOffs: string[]
-        benchmarks: {
-            [key: string]: number
-        }
-        capabilities: string[]
-        strengths: string[]
-        weaknesses: string[]
-        recommendations: string[]
-    }
-}
-
-export type ModelDetailsMap = {
-    [key: string]: ModelDetails
-}
-
-export interface ModelRow {
-    model: TextOperator
-    cost: {
-        prompt_token: number
-        completion_token: number
-    }
-    showInPlayground?: boolean
-    targetUrl?: string
-    dateRange?: {
-        start: string
-        end: string
-    }
-}
-
-export interface ModelRow {
-    model: TextOperator
-    cost: {
-        prompt_token: number
-        completion_token: number
-    }
-    showInPlayground?: boolean
-    targetUrl?: string
-    dateRange?: {
-        start: string
-        end: string
-    }
+export interface CookielessConfig {
+    disabled: boolean
+    forceStatelessMode: boolean
+    deleteExpiredLocalSaltsIntervalMs: number
+    identifiesTtlSeconds: number
+    sessionTtlSeconds: number
+    saltTtlSeconds: number
+    sessionInactivityMs: number
 }

@@ -92,7 +92,7 @@ INSTALLED_APPS = [
 
 
 MIDDLEWARE = [
-    "posthog.middleware.PrometheusBeforeMiddlewareWithTeamIds",
+    "django_prometheus.middleware.PrometheusBeforeMiddleware",
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     "posthog.middleware.per_request_logging_context_middleware",
     "django_structlog.middlewares.RequestMiddleware",
@@ -122,7 +122,7 @@ MIDDLEWARE = [
     "axes.middleware.AxesMiddleware",
     "posthog.middleware.AutoProjectMiddleware",
     "posthog.middleware.CHQueries",
-    "posthog.middleware.PrometheusAfterMiddlewareWithTeamIds",
+    "django_prometheus.middleware.PrometheusAfterMiddleware",
     "posthog.middleware.PostHogTokenCookieMiddleware",
 ]
 
@@ -416,3 +416,8 @@ if REMOTE_CONFIG_DECIDE_ROLLOUT_PERCENTAGE > 1:
 REMOTE_CONFIG_CDN_PURGE_ENDPOINT = get_from_env("REMOTE_CONFIG_CDN_PURGE_ENDPOINT", "")
 REMOTE_CONFIG_CDN_PURGE_TOKEN = get_from_env("REMOTE_CONFIG_CDN_PURGE_TOKEN", "")
 REMOTE_CONFIG_CDN_PURGE_DOMAINS = get_list(os.getenv("REMOTE_CONFIG_CDN_PURGE_DOMAINS", ""))
+
+# Whether to allow modification of transformation code
+HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED = get_from_env(
+    "HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED", False, type_cast=str_to_bool
+)

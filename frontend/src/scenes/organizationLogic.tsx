@@ -33,6 +33,14 @@ export const organizationLogic = kea<organizationLogicType>([
                 deleteOrganizationFailure: () => null,
             },
         ],
+        migrateAccessControlVersionLoading: [
+            false,
+            {
+                migrateAccessControlVersion: () => true,
+                migrateAccessControlVersionSuccess: () => false,
+                migrateAccessControlVersionFailure: () => false,
+            },
+        ],
     }),
     loaders(({ values }) => ({
         currentOrganization: [
@@ -62,6 +70,11 @@ export const organizationLogic = kea<organizationLogicType>([
                     return updatedOrganization
                 },
                 completeOnboarding: async () => await api.create('api/organizations/@current/onboarding/', {}),
+                migrateAccessControlVersion: async () => {
+                    await api.create(`api/organizations/${values.currentOrganization?.id}/migrate_access_control/`, {})
+                    window.location.reload()
+                    return values.currentOrganization // Return current organization state since the page will reload anyway
+                },
             },
         ],
     })),
