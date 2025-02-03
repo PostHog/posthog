@@ -78,8 +78,9 @@ export class SessionRecordingIngester {
 
         let s3Client: S3Client | null = null
         if (
-            config.SESSION_RECORDING_V2_S3_BUCKET &&
+            config.SESSION_RECORDING_V2_S3_ENDPOINT &&
             config.SESSION_RECORDING_V2_S3_REGION &&
+            config.SESSION_RECORDING_V2_S3_BUCKET &&
             config.SESSION_RECORDING_V2_S3_PREFIX
         ) {
             s3Client = new S3Client({
