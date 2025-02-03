@@ -2,8 +2,8 @@ import { expect, test } from '@playwright/test'
 
 import { InsightType } from '~/types'
 
-import { Navigation } from '../shared/navigation'
-import { InsightPage } from './insightPage'
+import { InsightPage } from '../../page-models/insightPage'
+import {Navigation} from "../../utils/navigation";
 
 const typeTestCases: { type: InsightType; selector: string }[] = [
     { type: InsightType.TRENDS, selector: '.TrendsInsight canvas' },
