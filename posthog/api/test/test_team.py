@@ -1228,7 +1228,7 @@ def team_api_test_factory():
                 f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
             )
 
-            assert res.status_code == status.HTTP_201_CREATED, res.json()
+            assert res.status_code == status.HTTP_200_OK, res.json()
             assert res.json()["id"] == self.team.id
             assert res.json()["organization"] == str(other_org.id)
             self.project.refresh_from_db()

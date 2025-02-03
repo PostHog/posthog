@@ -743,7 +743,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         )
 
         return response.Response(
-            ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data, status=201
+            ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data, status=200
         )
 
     @cached_property
