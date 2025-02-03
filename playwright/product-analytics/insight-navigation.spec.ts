@@ -1,11 +1,9 @@
 import { expect, test } from '@playwright/test'
-import { urls } from 'scenes/urls'
 
 import { InsightType } from '~/types'
 
 import { Navigation } from '../shared/navigation'
 import { InsightPage } from './insightPage'
-import { NodeKind } from '~/queries/schema'
 
 const typeTestCases: { type: InsightType; selector: string }[] = [
     { type: InsightType.TRENDS, selector: '.TrendsInsight canvas' },
