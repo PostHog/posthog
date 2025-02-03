@@ -33,7 +33,7 @@ describe('LegacyPluginExecutorService', () => {
     beforeEach(async () => {
         hub = await createHub()
         await resetTestDatabase()
-        service = new LegacyPluginExecutorService()
+        service = new LegacyPluginExecutorService(hub)
         team = await getFirstTeam(hub)
 
         fn = createHogFunction({
@@ -117,6 +117,9 @@ describe('LegacyPluginExecutorService', () => {
                     "useEuropeanDataStorage": "No",
                   },
                   "fetch": [Function],
+                  "geoip": {
+                    "locate": [Function],
+                  },
                   "global": {},
                   "logger": {
                     "debug": [Function],
