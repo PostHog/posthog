@@ -371,7 +371,7 @@ def get_hogql_autocomplete(
         database = create_hogql_database(team_id=team.pk, team_arg=team)
 
     context = HogQLContext(team_id=team.pk, team=team, database=database)
-    if query.sourceQuery is not None:
+    if query.sourceQuery and query.sourceQuery.query is not None and query.sourceQuery.query != "":
         source_query = get_query_runner(query=query.sourceQuery, team=team).to_query()
     else:
         source_query = parse_select("select 1")
