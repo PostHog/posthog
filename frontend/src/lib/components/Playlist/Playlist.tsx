@@ -183,9 +183,9 @@ function SectionContent({
     activeItemId: SessionRecordingType['id'] | null
     setActiveItemId: (item: SessionRecordingType) => void
     emptyState: PlaylistProps['listEmptyState']
-}): ReactNode {
+}): JSX.Element {
     return 'content' in section ? (
-        section.content
+        <>{section.content}</>
     ) : 'items' in section && !!section.items.length ? (
         <ListSection {...section} onClick={setActiveItemId} activeItemId={activeItemId} />
     ) : loading ? (
