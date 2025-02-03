@@ -7764,7 +7764,6 @@
                 },
                 "name": {
                     "description": "Client provided name of the query",
-                    "maxLength": 64,
                     "type": "string"
                 },
                 "query": {
@@ -8032,7 +8031,6 @@
                 },
                 "name": {
                     "description": "Client provided name of the query",
-                    "maxLength": 64,
                     "type": "string"
                 },
                 "query": {

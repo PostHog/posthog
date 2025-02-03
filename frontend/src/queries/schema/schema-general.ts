@@ -304,9 +304,7 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     values?: Record<string, any>
     /** @deprecated use modifiers.debug instead */
     explain?: boolean
-    /** Client provided name of the query
-     * @maxLength 64
-     */
+    /** Client provided name of the query */
     name?: string
 }
 

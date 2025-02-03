@@ -5,7 +5,7 @@ from __future__ import annotations
 from enum import Enum, StrEnum
 from typing import Any, Literal, Optional, Union
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel, constr
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel
 
 
 class SchemaRoot(RootModel[Any]):
@@ -6202,7 +6202,7 @@ class HogQLASTQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    name: Optional[constr(max_length=64)] = Field(default=None, description="Client provided name of the query")
+    name: Optional[str] = Field(default=None, description="Client provided name of the query")
     query: dict[str, Any]
     response: Optional[HogQLQueryResponse] = None
     values: Optional[dict[str, Any]] = Field(
@@ -6223,7 +6223,7 @@ class HogQLQuery(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    name: Optional[constr(max_length=64)] = Field(default=None, description="Client provided name of the query")
+    name: Optional[str] = Field(default=None, description="Client provided name of the query")
     query: str
     response: Optional[HogQLQueryResponse] = None
     values: Optional[dict[str, Any]] = Field(
