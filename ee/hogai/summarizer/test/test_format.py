@@ -13,7 +13,7 @@ from ..format import (
 )
 
 
-class TestFormat(BaseTest):
+class TestFormatHelpers(BaseTest):
     def test_format_number(self):
         self.assertEqual(_format_number(1), "1")
         self.assertEqual(_format_number(1.0), "1")
@@ -27,6 +27,8 @@ class TestFormat(BaseTest):
         self.assertEqual(_format_duration(45, seconds_precision=2), "45s")
         self.assertEqual(_format_duration(90000, max_units=2), "1d 1h")
 
+
+class TestCompression(BaseTest):
     def test_trends_single_series(self):
         results = [
             {
