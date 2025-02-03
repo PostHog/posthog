@@ -954,6 +954,9 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
 
+    @unittest.skip(
+        "flaky in west coast afternoons because we're comparing a clickhouse query using now() and something is wrong with the freezetime / test setup"
+    )
     def test_performed_event_regularly_not_in_total(self):
         now = datetime.now()
         with freeze_time(now.replace(hour=0, minute=0, second=0, microsecond=0)):

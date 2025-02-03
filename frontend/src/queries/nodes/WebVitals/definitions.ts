@@ -92,7 +92,7 @@ export const getMetricBand = (
 }
 
 type ValueWithUnit = { value: string | undefined; unit: 's' | 'ms' | undefined }
-export const getValueWithUnit = (value: number | undefined, inSeconds: boolean): ValueWithUnit => {
+export const getValueWithUnit = (value: number | undefined, tab: WebVitalsMetric): ValueWithUnit => {
     if (value === undefined) {
         return { value: undefined, unit: undefined }
     }
@@ -102,6 +102,7 @@ export const getValueWithUnit = (value: number | undefined, inSeconds: boolean):
         return { value: '-', unit: undefined }
     }
 
+    const inSeconds = tab !== 'CLS'
     if (inSeconds) {
         return value < 1000 ? { value: value.toFixed(0), unit: 'ms' } : { value: (value / 1000).toFixed(2), unit: 's' }
     }
