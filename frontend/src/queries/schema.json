@@ -8025,11 +8025,6 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
-                "name": {
-                    "description": "Client provided name of the query",
-                    "maxLength": 64,
-                    "type": "string"
-                },
                 "query": {
                     "type": "string"
                 },
@@ -8044,7 +8039,7 @@
                     "additionalProperties": {
                         "$ref": "#/definitions/HogQLVariable"
                     },
-                    "description": "Variables to be substituted into the query",
+                    "description": "Variables to be subsituted into the query",
                     "type": "object"
                 }
             },
