@@ -17,7 +17,7 @@ describe('SnappySessionRecorder', () => {
     let recorder: SnappySessionRecorder
 
     beforeEach(() => {
-        recorder = new SnappySessionRecorder()
+        recorder = new SnappySessionRecorder('test_session_id', 1)
     })
 
     const createMessage = (windowId: string, events: any[]): ParsedMessageData => ({
