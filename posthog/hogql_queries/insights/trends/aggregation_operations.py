@@ -281,6 +281,13 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
             return query
 
+        lookahead = ast.Call(name="toIntervalDay", args=[ast.Constant(value=1)])
+        if self.series.math in (
+            BaseMathType.WEEKLY_ACTIVE,
+            BaseMathType.MONTHLY_ACTIVE,
+        ):
+            lookahead = self._interval_placeholders()["inclusive_lookback"]
+
         query = cast(
             ast.SelectQuery,
             parse_select(
@@ -296,7 +303,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 ) d
                 CROSS JOIN {cross_join_select_query} e
                 WHERE
-                    e.timestamp <= d.timestamp + INTERVAL 1 DAY AND
+                    e.timestamp <= d.timestamp + {lookahead} AND
                     e.timestamp > d.timestamp - {exclusive_lookback}
                 GROUP BY d.timestamp
                 ORDER BY d.timestamp
@@ -304,6 +311,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 placeholders={
                     **self.query_date_range.to_placeholders(),
                     **self._interval_placeholders(),
+                    "lookahead": lookahead,
                     "cross_join_select_query": cross_join_select_query,
                 },
             ),

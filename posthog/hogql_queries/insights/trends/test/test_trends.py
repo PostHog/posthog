@@ -1,7 +1,7 @@
 import dataclasses
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional, Union, cast
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
@@ -6852,7 +6852,26 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     @also_test_with_different_timezones
     @snapshot_clickhouse_queries
     def test_weekly_active_users_weekly(self):
-        self._create_active_users_events()
+        # We're looking at weekly active users, grouped by week for
+        # Sunday the 5th of January. Sunday is the start of the week.
+
+        # Let's get a user per day from Sun 29.12.2019 to Sun 12.01.2020.
+        start_date = datetime(2019, 12, 29)
+        end_date = datetime(2020, 1, 12)
+        current_date = start_date
+        user_index = 1
+
+        while current_date <= end_date:
+            distinct_id = f"p{user_index}"
+            self._create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
+            self._create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=distinct_id,
+                timestamp=current_date.strftime("%Y-%m-%dT12:00:00Z"),
+            )
+            user_index += 1
+            current_date += timedelta(days=1)
 
         data = {
             "date_from": "2019-12-29",
@@ -6868,10 +6887,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ],
         }
 
+        # We expect the first and last user to be excluded, but all other users to be counted.
         filter = Filter(team=self.team, data=data)
         result = self._run(filter, self.team)
         self.assertEqual(result[0]["days"], ["2019-12-29", "2020-01-05", "2020-01-12"])
-        self.assertEqual(result[0]["data"], [0.0, 1.0, 3.0])
+        self.assertEqual(result[0]["data"], [7.0, 13.0, 7.0])
 
     @snapshot_clickhouse_queries
     def test_weekly_active_users_hourly(self):
