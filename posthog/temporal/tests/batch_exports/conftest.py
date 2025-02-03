@@ -176,8 +176,6 @@ async def create_clickhouse_tables_and_views(clickhouse_client, django_db_setup)
         CREATE_EVENTS_BATCH_EXPORT_VIEW_UNBOUNDED,
         CREATE_PERSONS_BATCH_EXPORT_VIEW,
         CREATE_PERSONS_BATCH_EXPORT_VIEW_BACKFILL,
-        CREATE_SESSIONS_BATCH_EXPORT_VIEW,
-        CREATE_SESSIONS_BATCH_EXPORT_VIEW_BACKFILL,
     )
     from posthog.clickhouse.schema import CREATE_KAFKA_TABLE_QUERIES, build_query
 
@@ -188,8 +186,6 @@ async def create_clickhouse_tables_and_views(clickhouse_client, django_db_setup)
         CREATE_EVENTS_BATCH_EXPORT_VIEW_RECENT,
         CREATE_PERSONS_BATCH_EXPORT_VIEW,
         CREATE_PERSONS_BATCH_EXPORT_VIEW_BACKFILL,
-        CREATE_SESSIONS_BATCH_EXPORT_VIEW,
-        CREATE_SESSIONS_BATCH_EXPORT_VIEW_BACKFILL,
     )
 
     clickhouse_tasks = set()
