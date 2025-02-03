@@ -7,7 +7,7 @@ export const template: HogFunctionTemplate = {
     type: 'transformation',
     id: 'plugin-posthog-snowplow-referer-parser',
     name: 'UTM Referrer',
-    description: '',
+    description: 'UTM referrer snowplow parser',
     icon_url: '/static/hedgehog/builder-hog-01.png',
     category: ['Custom'],
     hog: `return event`,

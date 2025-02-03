@@ -7,7 +7,7 @@ export const template: HogFunctionTemplate = {
     type: 'transformation',
     id: 'plugin-plugin-netdata-event-processing',
     name: 'Netdata Event Processing',
-    description: '',
+    description: 'Event processing for Netdata',
     icon_url: '/static/hedgehog/builder-hog-01.png',
     category: ['Custom'],
     hog: `return event`,

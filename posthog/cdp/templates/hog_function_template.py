@@ -61,10 +61,10 @@ class HogFunctionTemplate:
     type: HogFunctionTemplateType
     id: str
     name: str
-    description: str
     hog: str
     inputs_schema: list[dict]
     category: list[str]
+    description: Optional[str] = None
     sub_templates: Optional[list[HogFunctionSubTemplate]] = None
     filters: Optional[dict] = None
     mappings: Optional[list[HogFunctionMapping]] = None

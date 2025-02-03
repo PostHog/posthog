@@ -7,7 +7,7 @@ export const template: HogFunctionTemplate = {
     type: 'transformation',
     id: 'plugin-stonly-utm-extractor',
     name: 'UTM Extractor',
-    description: '',
+    description: 'UTM extractor',
     icon_url: '/static/hedgehog/builder-hog-01.png',
     category: ['Custom'],
     hog: `return event`,

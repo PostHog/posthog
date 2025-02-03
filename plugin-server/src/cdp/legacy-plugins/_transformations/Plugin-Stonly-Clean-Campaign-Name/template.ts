@@ -7,7 +7,7 @@ export const template: HogFunctionTemplate = {
     type: 'transformation',
     id: 'plugin-stonly-clean-campaign-name',
     name: 'Clean Campaign Name',
-    description: '',
+    description: 'Clean campaign name',
     icon_url: '/static/hedgehog/builder-hog-01.png',
     category: ['Custom'],
     hog: `return event`,

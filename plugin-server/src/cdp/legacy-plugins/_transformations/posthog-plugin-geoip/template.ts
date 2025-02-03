@@ -7,7 +7,7 @@ export const template: HogFunctionTemplate = {
     type: 'transformation',
     id: 'plugin-posthog-plugin-geoip',
     name: 'GeoIP',
-    description: '',
+    description: 'Enrich events with GeoIP data',
     icon_url: '/static/transformations/geoip.png',
     category: ['Custom'],
     hog: `return event`,
