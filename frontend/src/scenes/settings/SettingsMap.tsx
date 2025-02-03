@@ -398,13 +398,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'Danger zone',
         settings: [
             {
-                id: 'project-move',
-                title: 'Move environment',
-                component: <ProjectMove />,
-                allowForTeam: () =>
-                    (organizationLogic.findMounted()?.values.currentOrganization?.teams.length ?? 0) > 1,
-            },
-            {
                 id: 'environment-delete',
                 title: 'Delete environment',
                 component: <TeamDangerZone />,
