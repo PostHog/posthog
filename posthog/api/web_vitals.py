@@ -25,6 +25,8 @@ class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
             raise exceptions.NotAuthenticated()
 
         pathname = request.query_params.get("pathname")
+        if not pathname:
+            raise exceptions.ValidationError({"pathname": "This field is required."})
 
         query_runner = get_query_runner(
             query={
