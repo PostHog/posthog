@@ -279,8 +279,8 @@ export const experimentLogic = kea<experimentLogicType>([
         setIsCreatingExperimentDashboard: (isCreating: boolean) => ({ isCreating }),
         setUnmodifiedExperiment: (experiment: Experiment) => ({ experiment }),
         restoreUnmodifiedExperiment: true,
-        setIsExistingFeatureFlag: (isExisting: boolean) => ({ isExisting }),
         setIsValidExistingFeatureFlag: (isValid: boolean) => ({ isValid }),
+        setFeatureFlagValidationError: (error: string) => ({ error }),
         validateFeatureFlag: (featureFlagKey: string) => ({ featureFlagKey }),
     }),
     reducers({
@@ -587,16 +587,16 @@ export const experimentLogic = kea<experimentLogicType>([
                 setIsCreatingExperimentDashboard: (_, { isCreating }) => isCreating,
             },
         ],
-        isExistingFeatureFlag: [
-            false,
-            {
-                setIsExistingFeatureFlag: (_, { isExisting }) => isExisting,
-            },
-        ],
         isValidExistingFeatureFlag: [
             false,
             {
                 setIsValidExistingFeatureFlag: (_, { isValid }) => isValid,
+            },
+        ],
+        featureFlagValidationError: [
+            null as string | null,
+            {
+                setFeatureFlagValidationError: (_, { error }) => error,
             },
         ],
     }),
@@ -1063,29 +1063,32 @@ export const experimentLogic = kea<experimentLogicType>([
                     } catch (error) {
                         isValid = false
                     }
-                    actions.setIsExistingFeatureFlag(true)
                     actions.setIsValidExistingFeatureFlag(isValid)
-                    if (isValid) {
-                        actions.setExperimentManualErrors({
-                            ...existingErrors,
-                            feature_flag_key: null,
-                        })
-                    } else {
-                        actions.setExperimentManualErrors({
-                            ...existingErrors,
-                            feature_flag_key: 'Existing feature flag is not eligible for experiments.',
-                        })
-                    }
+                    actions.setFeatureFlagValidationError(
+                        isValid ? '' : 'Existing feature flag is not eligible for experiments.'
+                    )
+                    actions.setExperimentManualErrors({
+                        ...existingErrors,
+                        feature_flag_key: values.featureFlagValidationError,
+                    })
                     return
                 }
             }
 
-            actions.setIsExistingFeatureFlag(false)
             actions.setIsValidExistingFeatureFlag(false)
+            actions.setFeatureFlagValidationError(validateFeatureFlagKey(featureFlagKey) || '')
             actions.setExperimentManualErrors({
                 ...existingErrors,
-                feature_flag_key: validateFeatureFlagKey(featureFlagKey),
+                feature_flag_key: values.featureFlagValidationError,
             })
+        },
+        touchExperimentField: ({ key }) => {
+            // :KLUDGE: Persist the existing feature_flag_key validation when the field is blurred.
+            if (key === 'feature_flag_key') {
+                actions.setExperimentManualErrors({
+                    feature_flag_key: values.featureFlagValidationError,
+                })
+            }
         },
     })),
     loaders(({ actions, props, values }) => ({
