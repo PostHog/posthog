@@ -62,7 +62,7 @@ class DeleteConfig(Config):
     )
     max_execution_time: int = pydantic.Field(
         default=0,
-        description="The maximum amount of time to wait for any step to complete before considering the operation "
+        description="The maximum amount of time to wait for the dictionary load to complete before considering the operation "
         "a failure, or 0 to wait an unlimited amount of time.",
     )
     max_memory_usage: int = pydantic.Field(
