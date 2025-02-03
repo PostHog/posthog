@@ -55,7 +55,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1
+                    allow_experimental_analyzer=1,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestFunnelTrendsActorsUDF.test_funnel_trend_persons_returns_recordings.1
@@ -69,7 +70,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestFunnelTrendsActorsUDF.test_funnel_trend_persons_with_drop_off
@@ -128,7 +130,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1
+                    allow_experimental_analyzer=1,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestFunnelTrendsActorsUDF.test_funnel_trend_persons_with_drop_off.1
@@ -142,7 +145,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestFunnelTrendsActorsUDF.test_funnel_trend_persons_with_no_to_step
@@ -201,7 +205,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1
+                    allow_experimental_analyzer=1,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestFunnelTrendsActorsUDF.test_funnel_trend_persons_with_no_to_step.1
@@ -215,6 +220,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_sort=0
   '''
 # ---

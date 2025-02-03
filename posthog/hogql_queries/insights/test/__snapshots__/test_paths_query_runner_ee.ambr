@@ -79,7 +79,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_end.1
@@ -162,7 +163,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_end_materialized
@@ -245,7 +247,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_end_materialized.1
@@ -328,7 +331,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_event_exclusion_filters_with_wildcard_groups
@@ -410,7 +414,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_event_exclusion_filters_with_wildcard_groups.1
@@ -492,7 +497,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_event_inclusion_exclusion_filters
@@ -574,7 +580,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_event_inclusion_exclusion_filters.1
@@ -656,7 +663,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_event_inclusion_exclusion_filters.2
@@ -738,7 +746,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_event_inclusion_exclusion_filters.3
@@ -820,7 +829,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_event_ordering
@@ -902,7 +912,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_groups_filtering_person_on_events
@@ -992,7 +1003,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_groups_filtering_person_on_events.1
@@ -1075,7 +1087,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_groups_filtering_person_on_events.2
@@ -1158,7 +1171,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_person_dropoffs
@@ -1275,7 +1289,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_person_dropoffs.1
@@ -1391,7 +1406,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_person_dropoffs.2
@@ -1507,7 +1523,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_person_dropoffs.3
@@ -1624,7 +1641,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_person_dropoffs.4
@@ -1740,7 +1758,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_person_dropoffs.5
@@ -1856,7 +1875,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_person_dropoffs.6
@@ -1973,7 +1993,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_person_dropoffs.7
@@ -2089,7 +2110,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_person_dropoffs.8
@@ -2205,7 +2227,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_person_on_events_v2
@@ -2296,7 +2319,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_recording
@@ -2449,7 +2473,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_recording.1
@@ -2463,7 +2488,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_recording_for_dropoff
@@ -2618,7 +2644,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_recording_for_dropoff.1
@@ -2773,7 +2800,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_recording_for_dropoff.2
@@ -2787,7 +2815,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_recording_with_no_window_or_session_id
@@ -2940,7 +2969,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_recording_with_no_window_or_session_id.1
@@ -2954,7 +2984,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_recording_with_start_and_end
@@ -3117,7 +3148,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_recording_with_start_and_end.1
@@ -3131,7 +3163,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_respect_session_limits
@@ -3213,7 +3246,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_start_and_end
@@ -3300,7 +3334,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_start_and_end.1
@@ -3425,7 +3460,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_start_and_end.2
@@ -3512,7 +3548,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_start_and_end.3
@@ -3637,7 +3674,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_start_and_end_materialized
@@ -3724,7 +3762,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_start_and_end_materialized.1
@@ -3849,7 +3888,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_start_and_end_materialized.2
@@ -3936,7 +3976,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_start_and_end_materialized.3
@@ -4061,7 +4102,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_start_dropping_orphaned_edges
@@ -4144,7 +4186,8 @@
                    format_csv_allow_double_quotes=0,
                    max_ast_elements=4000000,
                    max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=23622320128
+                   max_bytes_before_external_group_by=23622320128,
+                   max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_step_conversion_times
@@ -4226,7 +4269,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_step_limit
@@ -4308,7 +4352,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_step_limit.1
@@ -4424,7 +4469,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_step_limit.2
@@ -4540,7 +4586,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_step_limit.3
@@ -4622,7 +4669,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_step_limit.4
@@ -4738,7 +4786,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_step_limit.5
@@ -4820,7 +4869,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_step_limit.6
@@ -4936,7 +4986,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_step_limit.7
@@ -5052,7 +5103,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_step_limit.8
@@ -5168,7 +5220,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_wildcard_groups_across_people
@@ -5250,7 +5303,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: ClickhousePathsUDF.test_wildcard_groups_evil_input
@@ -5337,7 +5391,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePaths.test_end
@@ -11347,7 +11402,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_end.1
@@ -11430,7 +11486,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_end_materialized
@@ -11513,7 +11570,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_end_materialized.1
@@ -11596,7 +11654,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_event_exclusion_filters_with_wildcard_groups
@@ -11678,7 +11737,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_event_exclusion_filters_with_wildcard_groups.1
@@ -11760,7 +11820,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_event_inclusion_exclusion_filters
@@ -11842,7 +11903,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_event_inclusion_exclusion_filters.1
@@ -11924,7 +11986,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_event_inclusion_exclusion_filters.2
@@ -12006,7 +12069,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_event_inclusion_exclusion_filters.3
@@ -12088,7 +12152,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_event_ordering
@@ -12170,7 +12235,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_groups_filtering_person_on_events
@@ -12260,7 +12326,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_groups_filtering_person_on_events.1
@@ -12343,7 +12410,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_groups_filtering_person_on_events.2
@@ -12426,7 +12494,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_person_dropoffs
@@ -12543,7 +12612,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_person_dropoffs.1
@@ -12659,7 +12729,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_person_dropoffs.2
@@ -12775,7 +12846,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_person_dropoffs.3
@@ -12892,7 +12964,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_person_dropoffs.4
@@ -13008,7 +13081,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_person_dropoffs.5
@@ -13124,7 +13198,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_person_dropoffs.6
@@ -13241,7 +13316,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_person_dropoffs.7
@@ -13357,7 +13433,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_person_dropoffs.8
@@ -13473,7 +13550,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_person_on_events_v2
@@ -13564,7 +13642,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_recording
@@ -13717,7 +13796,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_recording.1
@@ -13731,7 +13811,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_recording_for_dropoff
@@ -13886,7 +13967,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_recording_for_dropoff.1
@@ -14041,7 +14123,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_recording_for_dropoff.2
@@ -14055,7 +14138,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_recording_with_no_window_or_session_id
@@ -14208,7 +14292,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_recording_with_no_window_or_session_id.1
@@ -14222,7 +14307,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_recording_with_start_and_end
@@ -14385,7 +14471,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_recording_with_start_and_end.1
@@ -14399,7 +14486,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_respect_session_limits
@@ -14481,7 +14569,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_start_and_end
@@ -14568,7 +14657,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_start_and_end.1
@@ -14693,7 +14783,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_start_and_end.2
@@ -14780,7 +14871,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_start_and_end.3
@@ -14905,7 +14997,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_start_and_end_materialized
@@ -14992,7 +15085,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_start_and_end_materialized.1
@@ -15117,7 +15211,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_start_and_end_materialized.2
@@ -15204,7 +15299,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_start_and_end_materialized.3
@@ -15329,7 +15425,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_start_dropping_orphaned_edges
@@ -15412,7 +15509,8 @@
                    format_csv_allow_double_quotes=0,
                    max_ast_elements=4000000,
                    max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=23622320128
+                   max_bytes_before_external_group_by=23622320128,
+                   max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_step_conversion_times
@@ -15494,7 +15592,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_step_limit
@@ -15576,7 +15675,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_step_limit.1
@@ -15692,7 +15792,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_step_limit.2
@@ -15808,7 +15909,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_step_limit.3
@@ -15890,7 +15992,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_step_limit.4
@@ -16006,7 +16109,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_step_limit.5
@@ -16088,7 +16192,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_step_limit.6
@@ -16204,7 +16309,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_step_limit.7
@@ -16320,7 +16426,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_step_limit.8
@@ -16436,7 +16543,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_wildcard_groups_across_people
@@ -16518,7 +16626,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestClickhousePathsUDF.test_wildcard_groups_evil_input
@@ -16605,6 +16714,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=23622320128
+                    max_bytes_before_external_group_by=23622320128,
+                    max_bytes_before_external_sort=0
   '''
 # ---

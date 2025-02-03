@@ -49,7 +49,8 @@
                       max_ast_elements=4000000,
                       max_expanded_ast_elements=4000000,
                       max_bytes_before_external_group_by=23622320128,
-                      allow_experimental_analyzer=1
+                      allow_experimental_analyzer=1,
+                      max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestFunnelTrendsUDF.test_timezones_trends.1
@@ -102,7 +103,8 @@
                       max_ast_elements=4000000,
                       max_expanded_ast_elements=4000000,
                       max_bytes_before_external_group_by=23622320128,
-                      allow_experimental_analyzer=1
+                      allow_experimental_analyzer=1,
+                      max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestFunnelTrendsUDF.test_week_interval
@@ -155,7 +157,8 @@
                       max_ast_elements=4000000,
                       max_expanded_ast_elements=4000000,
                       max_bytes_before_external_group_by=23622320128,
-                      allow_experimental_analyzer=1
+                      allow_experimental_analyzer=1,
+                      max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestFunnelTrendsUDF.test_week_interval.1
