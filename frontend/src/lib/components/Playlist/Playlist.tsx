@@ -264,20 +264,18 @@ const List = ({
                     <LemonCollapse
                         defaultActiveKeys={initiallyOpenSections}
                         panels={sections.map((s) => {
-                            const content = (
-                                <SectionContent
-                                    section={s}
-                                    loading={!!loading}
-                                    setActiveItemId={setActiveItemId}
-                                    activeItemId={activeItemId}
-                                    emptyState={emptyState}
-                                />
-                            )
-
                             return {
                                 key: s.key,
                                 header: s.title ?? '',
-                                content,
+                                content: (
+                                    <SectionContent
+                                        section={s}
+                                        loading={!!loading}
+                                        setActiveItemId={setActiveItemId}
+                                        activeItemId={activeItemId}
+                                        emptyState={emptyState}
+                                    />
+                                ),
                                 className: 'p-0',
                             }
                         })}
