@@ -21,7 +21,6 @@ from posthog.api.shared import UserBasicSerializer
 
 from posthog.cdp.filters import compile_filters_bytecode, compile_filters_expr
 from posthog.cdp.services.icons import CDPIconsService
-from posthog.cdp.templates._internal.template_legacy_plugin import create_legacy_plugin_template
 from posthog.cdp.validation import compile_hog, generate_template_bytecode, validate_inputs, validate_inputs_schema
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.constants import AvailableFeature
@@ -159,9 +158,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         template_id = attrs.get("template_id", instance.template_id if instance else None)
         template = HogFunctionTemplates.template(template_id) if template_id else None
-
-        if not template and template_id and template_id.startswith("plugin-"):
-            template = create_legacy_plugin_template(template_id)
 
         if hog_type == "transformation":
             if not settings.HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED:
