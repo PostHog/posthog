@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import date, datetime
 from typing import Any, Literal, Optional, cast
 from uuid import UUID
@@ -520,9 +521,9 @@ class Resolver(CloningVisitor):
             # )
 
         if node.name == "concat":
-            return_type.nullable = False
+            return_type = dataclasses.replace(return_type, nullable=False)
         elif not isinstance(return_type, ast.UnknownType):
-            return_type.nullable = any(arg_type.nullable for arg_type in arg_types)
+            return_type = dataclasses.replace(return_type, nullable=any(arg_type.nullable for arg_type in arg_types))
 
         node.type = ast.CallType(
             name=node.name,
