@@ -83,13 +83,13 @@ class TestEmail(BaseTest):
             )
 
     @patch("requests.post")
-    def test_send_via_customerio_success(self, mock_post) -> None:
+    def test_send_via_http_success(self, mock_post) -> None:
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_post.return_value = mock_response
 
         with override_instance_config("EMAIL_HOST", "localhost"), self.settings(CUSTOMER_IO_API_KEY="test-key"):
-            message = EmailMessage("test_campaign", "Test subject", "async_migration_error", use_customerio=True)
+            message = EmailMessage("test_campaign", "Test subject", "async_migration_error", use_http=True)
             message.add_recipient("test@posthog.com", "Test User")
             message.send(send_async=False)
 
@@ -100,7 +100,7 @@ class TestEmail(BaseTest):
             self.assertEqual(call_kwargs["json"]["transactional_message_id"], "test_campaign")
 
     @patch("requests.post")
-    def test_send_via_customerio_handles_decimal_values(self, mock_post) -> None:
+    def test_send_via_http_handles_decimal_values(self, mock_post) -> None:
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_post.return_value = mock_response
@@ -111,7 +111,7 @@ class TestEmail(BaseTest):
                 "Test subject",
                 "async_migration_error",
                 headers={"decimal_value": Decimal("1.23")},
-                use_customerio=True,
+                use_http=True,
             )
             message.add_recipient("test@posthog.com")
             message.send(send_async=False)
@@ -122,14 +122,14 @@ class TestEmail(BaseTest):
             self.assertEqual(call_kwargs["json"]["message_data"]["decimal_value"], 1.23)
 
     @patch("requests.post")
-    def test_send_via_customerio_api_error(self, mock_post) -> None:
+    def test_send_via_http_api_error(self, mock_post) -> None:
         mock_response = MagicMock()
         mock_response.status_code = 400
         mock_response.text = "Bad Request"
         mock_post.return_value = mock_response
 
         with override_instance_config("EMAIL_HOST", "localhost"), self.settings(CUSTOMER_IO_API_KEY="test-key"):
-            message = EmailMessage("test_campaign", "Test subject", "async_migration_error", use_customerio=True)
+            message = EmailMessage("test_campaign", "Test subject", "async_migration_error", use_http=True)
             message.add_recipient("test@posthog.com")
 
             # The error should be caught and logged, not raised
