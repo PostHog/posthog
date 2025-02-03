@@ -1,5 +1,4 @@
 import hashlib
-import logging
 import re
 import time
 from functools import lru_cache
@@ -69,8 +68,6 @@ def is_decide_rate_limit_enabled() -> bool:
 path_by_team_pattern = re.compile(r"/api/projects/(\d+)/")
 path_by_org_pattern = re.compile(r"/api/organizations/(.+)/")
 
-logger = logging.getLogger("django")
-
 
 class PersonalApiKeyRateThrottle(SimpleRateThrottle):
     @staticmethod
@@ -87,27 +84,17 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
             return None
 
     def load_team_rate_limit(self, team_id):
-        logger.info("Loading team rate limit", extra={"team_id": team_id})
-
         # try loading from cache
         rate_limit_cache_key = f"team_ratelimit_{self.scope}_{team_id}"
         cached_rate_limit = self.cache.get(rate_limit_cache_key, None)
         if cached_rate_limit is not None:
-            logger.info(
-                "use cached rate limit",
-                extra={"rate_limit_cache_key": rate_limit_cache_key, "rate_limit": cached_rate_limit},
-            )
             self.rate = cached_rate_limit
         else:
             team = Team.objects.get(id=team_id)
             if not team or not team.api_query_rate_limit:
-                logger.info("No custom rate limit available", extra={"team_id": team_id})
                 return
             self.rate = team.api_query_rate_limit
             self.cache.set(rate_limit_cache_key, self.rate)
-            logger.info(
-                "set custom rate limit", extra={"rate_limit_cache_key": rate_limit_cache_key, "rate_limit": self.rate}
-            )
 
         self.num_requests, self.duration = self.parse_rate(self.rate)
 
