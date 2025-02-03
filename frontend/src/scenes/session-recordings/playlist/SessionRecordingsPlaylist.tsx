@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { ReplayTabs } from '~/types'
 
+import { AiFilter } from '../components/AiFilter/AiFilter'
 import { RecordingsUniversalFilters } from '../filters/RecordingsUniversalFilters'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { SessionRecordingPreview } from './SessionRecordingPreview'
@@ -103,6 +104,7 @@ export function SessionRecordingsPlaylist({
 
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
+            <AiFilter logic={logic} />
             <div className="h-full space-y-2">
                 <Playlist
                     data-attr="session-recordings-playlist"

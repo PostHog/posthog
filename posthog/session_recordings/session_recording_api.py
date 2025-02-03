@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from json import JSONDecodeError
 from typing import Any, Optional, cast
+from openai import OpenAI
 
 import posthoganalytics
 import requests
@@ -21,6 +22,7 @@ from rest_framework.mixins import UpdateModelMixin
 from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
+from rest_framework.request import Request
 
 import posthog.session_recordings.queries.session_recording_list_from_query
 from ee.session_recordings.session_summary.summarize_session import summarize_recording
@@ -49,6 +51,7 @@ from posthog.session_recordings.realtime_snapshots import (
     publish_subscription,
 )
 from posthog.storage import object_storage
+from posthog.session_recordings.ai_data.ai_filter_schema import AI_FILTER_SCHEMA
 
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",
@@ -76,6 +79,20 @@ STREAM_RESPONSE_TO_CLIENT_HISTOGRAM = Histogram(
     "session_snapshots_stream_response_to_client_histogram",
     "Time taken to stream a session snapshot to the client",
 )
+
+
+class MessageSerializer(serializers.Serializer):
+    role = serializers.ChoiceField(choices=["user", "assistant", "system"])
+    content = serializers.CharField()
+
+
+class AiFiltersRequestSerializer(serializers.Serializer):
+    messages = MessageSerializer(many=True)
+
+
+class AiFiltersResponseSerializer(serializers.Serializer):
+    result = serializers.CharField()
+    data = serializers.JSONField()
 
 
 class SurrogatePairSafeJSONEncoder(JSONEncoder):
@@ -790,6 +807,39 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             return response
         else:
             raise exceptions.ValidationError(f"Invalid version: {version}")
+
+    @extend_schema(
+        description="Generate session recording filters using AI",
+        request=AiFiltersRequestSerializer,
+        responses={200: AiFiltersResponseSerializer},
+    )
+    @action(methods=["POST"], detail=False, url_path="ai/filters")
+    def ai_filters(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Generate session recording filters using AI."""
+        if not request.user.is_authenticated:
+            raise exceptions.NotAuthenticated()
+
+        if not settings.DEBUG and not is_cloud():
+            raise exceptions.ValidationError("AI filters are only available in PostHog Cloud")
+
+        if not os.environ.get("OPENAI_API_KEY"):
+            raise exceptions.ValidationError("OpenAI API key is not configured")
+
+        serializer = AiFiltersRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        messages = serializer.validated_data["messages"]
+
+        client = OpenAI()
+
+        completion = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=messages,
+            response_format={"type": "json_schema", "json_schema": AI_FILTER_SCHEMA},
+        )
+
+        response_content = json.loads(completion.choices[0].message.content)
+        return Response(response_content)
 
 
 # TODO i guess this becomes the query runner for our _internal_ use of RecordingsQuery
