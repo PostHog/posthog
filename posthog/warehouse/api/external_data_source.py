@@ -185,9 +185,35 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "schemas",
             "prefix",
         ]
-        extra_kwargs = {
-            "job_inputs": {"write_only": True},
+
+    """
+    This method is used to remove sensitive fields from the response.
+    IMPORTANT: This method should be updated when a new source type is added to allow for editing of the new source.
+    """
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+
+        # non-sensitive fields
+        whitelisted_keys = {
+            # stripe
+            "stripe_account_id",
+            # sql
+            "database",
+            "host",
+            "port",
+            "user",
+            "schema",
+            "ssh-tunnel",
+            "use_ssl",
         }
+        job_inputs = representation.get("job_inputs", {})
+        if isinstance(job_inputs, dict):
+            for key in list(job_inputs.keys()):  # Use list() to avoid modifying dict during iteration
+                if key not in whitelisted_keys:
+                    job_inputs.pop(key, None)
+
+        return representation
 
     def get_last_run_at(self, instance: ExternalDataSource) -> str:
         latest_completed_run = instance.ordered_jobs[0] if instance.ordered_jobs else None  # type: ignore
@@ -429,8 +455,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def _handle_stripe_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
         payload = request.data["payload"]
-        client_secret = payload.get("client_secret")
-        account_id = payload.get("account_id", None)
+        client_secret = payload.get("stripe_secret_key")
+        account_id = payload.get("stripe_account_id", None)
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
         # TODO: remove dummy vars
@@ -576,7 +602,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         host = payload.get("host")
         port = payload.get("port")
-        database = payload.get("dbname")
+        database = payload.get("database")
 
         user = payload.get("user")
         password = payload.get("password")
@@ -847,7 +873,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # Validate sourced credentials
         if source_type == ExternalDataSource.Type.STRIPE:
-            key = request.data.get("client_secret", "")
+            key = request.data.get("stripe_secret_key", "")
             if not validate_stripe_credentials(api_key=key):
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
@@ -960,7 +986,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             host = request.data.get("host", None)
             port = request.data.get("port", None)
-            database = request.data.get("dbname", None)
+            database = request.data.get("database", None)
 
             user = request.data.get("user", None)
             password = request.data.get("password", None)
