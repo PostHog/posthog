@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useCallback } from 'react'
+import { useCallback, useEffect } from 'react'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -54,8 +54,14 @@ export function NewSourcesWizard({ onComplete }: NewSourcesWizardProps): JSX.Ele
 
     const { modalTitle, modalCaption, isWrapped, currentStep, isLoading, canGoBack, canGoNext, nextButtonText } =
         useValues(wizardLogic)
-    const { onBack, onSubmit } = useActions(wizardLogic)
+    const { onBack, onSubmit, onClear } = useActions(wizardLogic)
     const { tableLoading: manualLinkIsLoading } = useValues(dataWarehouseTableLogic)
+
+    useEffect(() => {
+        return () => {
+            onClear()
+        }
+    }, [onClear])
 
     const footer = useCallback(() => {
         if (currentStep === 1) {
@@ -87,7 +93,7 @@ export function NewSourcesWizard({ onComplete }: NewSourcesWizardProps): JSX.Ele
                 </LemonButton>
             </div>
         )
-    }, [currentStep, isLoading, manualLinkIsLoading, canGoNext, canGoBack, nextButtonText, onBack, onSubmit])
+    }, [currentStep, canGoBack, onBack, isLoading, manualLinkIsLoading, canGoNext, nextButtonText, onSubmit])
 
     return (
         <>
