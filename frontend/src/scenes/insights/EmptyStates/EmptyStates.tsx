@@ -1,15 +1,8 @@
 import './EmptyStates.scss'
 
-import {
-    IconArchive,
-    IconInfo,
-    IconPieChart,
-    IconPlus,
-    IconPlusSmall,
-    IconPlusSquare,
-    IconWarning,
-} from '@posthog/icons'
+import { IconArchive, IconPieChart, IconPlus, IconPlusSmall, IconPlusSquare, IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
@@ -18,7 +11,7 @@ import { IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyNumber, humanizeBytes } from 'lib/utils'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -46,12 +39,13 @@ export function InsightEmptyState({
     detail?: string
 }): JSX.Element {
     return (
-        <div className="insight-empty-state">
-            <div className="empty-state-inner">
-                <IconArchive className="text-5xl mb-2 text-tertiary" />
-                <h2 className="text-xl leading-tight">{heading}</h2>
-                <p className="text-sm text-center text-balance">{detail}</p>
-            </div>
+        <div
+            data-attr="insight-empty-state"
+            className="insights-empty-state rounded p-4 m-2 h-full w-full flex flex-col items-center justify-center"
+        >
+            <IconArchive className="text-5xl mb-2 text-tertiary" />
+            <h2 className="text-xl leading-tight">{heading}</h2>
+            <p className="text-sm text-center text-balance">{detail}</p>
         </div>
     )
 }
@@ -65,6 +59,7 @@ function SamplingLink({ insightProps }: { insightProps: InsightLogicProps }): JS
             placement="bottom"
         >
             <Link
+                className="font-medium"
                 onClick={() => {
                     setSamplingPercentage(suggestedSamplingPercentage)
                     posthog.capture('sampling_enabled_on_slow_query', {
@@ -77,29 +72,80 @@ function SamplingLink({ insightProps }: { insightProps: InsightLogicProps }): JS
         </Tooltip>
     )
 }
-function humanFileSize(size: number): string {
-    const i = size == 0 ? 0 : Math.floor(Math.log(size) / Math.log(1024))
-    return (+(size / Math.pow(1024, i))).toFixed(2) + ' ' + ['B', 'kB', 'MB', 'GB', 'TB'][i]
+
+function QueryIdDisplay({
+    queryId,
+    compact = false,
+}: {
+    queryId?: string | null
+    compact?: boolean
+}): JSX.Element | null {
+    if (queryId == null) {
+        return null
+    }
+
+    return (
+        <div className={clsx('text-muted text-xs', { 'mt-20': !compact })}>
+            Query ID: <span className="font-mono">{queryId}</span>
+        </div>
+    )
 }
+
+function QueryDebuggerButton({ query }: { query?: Record<string, any> | null }): JSX.Element | null {
+    if (!query) {
+        return null
+    }
+
+    return (
+        <LemonButton
+            data-attr="insight-error-query"
+            targetBlank
+            size="small"
+            type="secondary"
+            active
+            to={urls.debugQuery(query)}
+            className="max-w-80 mt-4"
+        >
+            Open in query debugger
+        </LemonButton>
+    )
+}
+
+const LOADING_MESSAGES = [
+    'Crunching through hogloads of data…',
+    'Teaching hedgehogs to count…',
+    'Waking up the hibernating data hogs…',
+    'Polishing graphs with tiny hedgehog paws…',
+    'Rolling through data like a spiky ball of insights…',
+    'Gathering nuts and numbers from the data forest…',
+]
 
 export function StatelessInsightLoadingState({
     queryId,
     pollResponse,
     suggestion,
+    compact = false,
 }: {
     queryId?: string | null
     pollResponse?: Record<string, QueryStatus | null> | null
     suggestion?: JSX.Element
+    compact?: boolean
 }): JSX.Element {
     const [rowsRead, setRowsRead] = useState(0)
     const [bytesRead, setBytesRead] = useState(0)
     const [secondsElapsed, setSecondsElapsed] = useState(0)
+
+    const [loadingMessageIndex, setLoadingMessageIndex] = useState(() =>
+        Math.floor(Math.random() * LOADING_MESSAGES.length)
+    )
+    const [isLoadingMessageVisible, setIsLoadingMessageVisible] = useState(true)
 
     useEffect(() => {
         const status = pollResponse?.status?.query_progress
         const previousStatus = pollResponse?.previousStatus?.query_progress
         setRowsRead(previousStatus?.rows_read || 0)
         setBytesRead(previousStatus?.bytes_read || 0)
+
         const interval = setInterval(() => {
             setRowsRead((rowsRead) => {
                 const diff = (status?.rows_read || 0) - (previousStatus?.rows_read || 0)
@@ -117,6 +163,30 @@ export function StatelessInsightLoadingState({
         return () => clearInterval(interval)
     }, [pollResponse])
 
+    // Toggle between loading messages every 3 seconds, with 300ms fade out, then change text, keep in sync with the transition duration below
+    useEffect(() => {
+        const TOGGLE_INTERVAL = 3000
+        const FADE_OUT_DURATION = 300
+
+        const interval = setInterval(() => {
+            setIsLoadingMessageVisible(false)
+            setTimeout(() => {
+                setLoadingMessageIndex((current) => {
+                    // Attempt to do random messages, but don't do the same message twice
+                    let newIndex = Math.floor(Math.random() * LOADING_MESSAGES.length)
+                    if (newIndex === current) {
+                        newIndex = (newIndex + 1) % LOADING_MESSAGES.length
+                    }
+
+                    return newIndex
+                })
+                setIsLoadingMessageVisible(true)
+            }, FADE_OUT_DURATION)
+        }, TOGGLE_INTERVAL)
+
+        return () => clearInterval(interval)
+    }, [])
+
     const bytesPerSecond = (bytesRead / (secondsElapsed || 1)) * 1000
     const estimatedRows = pollResponse?.status?.query_progress?.estimated_rows_total
 
@@ -126,39 +196,46 @@ export function StatelessInsightLoadingState({
         10000
 
     return (
-        <div className="insight-empty-state warning">
-            <div className="empty-state-inner">
-                <p className="mx-auto text-center font-medium italic">Crunching through hogloads of data…</p>
-                <LoadingBar />
-                <p className="mx-auto text-center text-xs">
-                    {rowsRead > 0 && bytesRead > 0 && (
-                        <>
-                            {humanFriendlyNumber(rowsRead || 0, 0)}{' '}
-                            {estimatedRows && estimatedRows >= rowsRead
-                                ? `/ ${humanFriendlyNumber(estimatedRows)} `
-                                : null}{' '}
-                            rows
-                            <br />
-                            {humanFileSize(bytesRead || 0)} ({humanFileSize(bytesPerSecond || 0)}/s)
-                            <br />
-                            CPU {humanFriendlyNumber(cpuUtilization, 0)}%
-                        </>
+        <div data-attr="insight-empty-state" className="insights-empty-state rounded p-4 m-2 h-full w-full">
+            <div className="flex flex-col gap-1">
+                <span
+                    className={clsx(
+                        'font-bold transition-opacity duration-300',
+                        isLoadingMessageVisible ? 'opacity-100' : 'opacity-0'
                     )}
-                </p>
+                >
+                    {LOADING_MESSAGES[loadingMessageIndex]}
+                </span>
                 {suggestion ? (
                     suggestion
                 ) : (
-                    <div className="flex items-center p-4 rounded bg-primary gap-x-3 max-w-120">
-                        <IconInfo className="text-xl shrink-0" />
+                    <div className="flex gap-3">
                         <p className="text-xs m-0">Need to speed things up? Try reducing the date range.</p>
                     </div>
                 )}
-                {queryId ? (
-                    <div className="text-secondary text-xs mx-auto text-center mt-5">
-                        Query ID: <span className="font-mono">{queryId}</span>
-                    </div>
-                ) : null}
             </div>
+
+            <LoadingBar />
+            <p className="mx-auto text-center text-xs">
+                {rowsRead > 0 && bytesRead > 0 && (
+                    <>
+                        <span>{humanFriendlyNumber(rowsRead || 0, 0)} </span>
+                        <span>
+                            {estimatedRows && estimatedRows >= rowsRead ? (
+                                <span>/ ${humanFriendlyNumber(estimatedRows)} </span>
+                            ) : null}
+                        </span>
+                        <span>rows</span>
+                        <br />
+                        <span>{humanizeBytes(bytesRead || 0)} </span>
+                        <span>({humanizeBytes(bytesPerSecond || 0)}/s)</span>
+                        <br />
+                        <span>CPU {humanFriendlyNumber(cpuUtilization, 0)}%</span>
+                    </>
+                )}
+            </p>
+
+            <QueryIdDisplay queryId={queryId} compact={compact} />
         </div>
     )
 }
@@ -178,48 +255,41 @@ export function InsightLoadingState({
         currentTeam?.modifiers?.personsOnEventsMode ?? currentTeam?.default_modifiers?.personsOnEventsMode ?? 'disabled'
 
     return (
-        <div>
-            <StatelessInsightLoadingState
-                queryId={queryId}
-                pollResponse={insightPollResponse}
-                suggestion={
-                    <div className="flex items-center p-4 rounded bg-primary gap-x-3 max-w-120">
-                        {personsOnEventsMode === 'person_id_override_properties_joined' ? (
-                            <>
-                                <IconWarning className="text-xl shrink-0 text-warning" />
-                                <p className="text-xs m-0">
-                                    You can speed this query up by changing the{' '}
-                                    <Link to="/settings/project#persons-on-events">person properties mode</Link>{' '}
-                                    setting.
-                                </p>
-                            </>
-                        ) : (
-                            <>
-                                <IconInfo className="text-xl shrink-0" />
-                                <p className="text-xs m-0">
-                                    {suggestedSamplingPercentage && !samplingPercentage ? (
-                                        <span data-attr="insight-loading-waiting-message">
-                                            Need to speed things up? Try reducing the date range, removing breakdowns,
-                                            or turning on <SamplingLink insightProps={insightProps} />.
-                                        </span>
-                                    ) : suggestedSamplingPercentage && samplingPercentage ? (
-                                        <>
-                                            Still waiting around? You must have lots of data! Kick it up a notch with{' '}
-                                            <SamplingLink insightProps={insightProps} />. Or try reducing the date range
-                                            and removing breakdowns.
-                                        </>
-                                    ) : (
-                                        <>
-                                            Need to speed things up? Try reducing the date range or removing breakdowns.
-                                        </>
-                                    )}
-                                </p>
-                            </>
-                        )}
-                    </div>
-                }
-            />
-        </div>
+        <StatelessInsightLoadingState
+            queryId={queryId}
+            pollResponse={insightPollResponse}
+            suggestion={
+                <div className="flex items-center rounded gap-x-3 max-w-120 m-2">
+                    {personsOnEventsMode === 'person_id_override_properties_joined' ? (
+                        <>
+                            <p className="text-xs m-0">
+                                You can speed this query up by changing the{' '}
+                                <Link to="/settings/project#persons-on-events">person properties mode</Link> setting.
+                            </p>
+                        </>
+                    ) : (
+                        <>
+                            <p className="text-xs m-0">
+                                {suggestedSamplingPercentage && !samplingPercentage ? (
+                                    <span data-attr="insight-loading-waiting-message">
+                                        Need to speed things up? Try reducing the date range, removing breakdowns, or
+                                        turning on <SamplingLink insightProps={insightProps} /> to speed things up.
+                                    </span>
+                                ) : suggestedSamplingPercentage && samplingPercentage ? (
+                                    <>
+                                        Still waiting around? You must have lots of data! Kick it up a notch with{' '}
+                                        <SamplingLink insightProps={insightProps} />. Or try reducing the date range and
+                                        removing breakdowns.
+                                    </>
+                                ) : (
+                                    <>Need to speed things up? Try reducing the date range or removing breakdowns.</>
+                                )}
+                            </p>
+                        </>
+                    )}
+                </div>
+            }
+        />
     )
 }
 
@@ -227,37 +297,55 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
     const { openSupportForm } = useActions(supportLogic)
 
     return (
-        <div className="insight-empty-state warning">
-            <div className="empty-state-inner">
-                <>
-                    <div className="illustration-main">
-                        <IconErrorOutline />
-                    </div>
-                    <h2 className="text-xl leading-tight mb-6">Your query took too long to complete</h2>
-                </>
-                <div className="flex items-center p-4 rounded bg-primary gap-x-3 max-w-120">
-                    <IconInfo className="text-xl shrink-0" />
-                    <p className="text-xs m-0">
-                        <>
-                            Sometimes this happens. Try refreshing the page, reducing the date range, or removing
-                            breakdowns. If you're still having issues,{' '}
-                            <Link
-                                onClick={() => {
-                                    openSupportForm({ kind: 'bug', target_area: 'analytics' })
-                                }}
-                            >
-                                let us know
-                            </Link>
-                            .
-                        </>
-                    </p>
-                </div>
-                {queryId ? (
-                    <div className="text-secondary text-xs mx-auto text-center mt-5">
-                        Query ID: <span className="font-mono">{queryId}</span>
-                    </div>
-                ) : null}
+        <div data-attr="insight-empty-state" className="insights-empty-state rounded p-4 m-2 h-full w-full">
+            <h2 className="text-xl leading-tight mb-6">
+                <IconWarning className="text-xl shrink-0 mr-2" />
+                Your query took too long to complete
+            </h2>
+
+            <div className="rounded max-w-120 text-xs">
+                Sometimes this happens. Try refreshing the page, reducing the date range, or removing breakdowns. If
+                you're still having issues,{' '}
+                <Link
+                    onClick={() => {
+                        openSupportForm({ kind: 'bug', target_area: 'analytics' })
+                    }}
+                >
+                    let us know
+                </Link>
+                .
             </div>
+
+            <QueryIdDisplay queryId={queryId} />
+        </div>
+    )
+}
+
+export function InsightValidationError({ detail, query }: { detail: string; query?: Record<string, any> | null }): JSX.Element {
+    return (
+        <div data-attr="insight-empty-state" className="insights-empty-state rounded p-4 m-2 h-full w-full">
+            <h2 className="text-xl leading-tight mb-6" data-attr="insight-loading-too-long">
+                <IconErrorOutline className="text-xl shrink-0 mr-2" />
+                There is a problem with this query
+                {/* Note that this phrasing above signals the issue is not intermittent, */}
+                {/* but rather that it's something with the definition of the query itself */}
+            </h2>
+
+            <p className="text-sm text-balance">{detail}</p>
+            <QueryDebuggerButton query={query} />
+
+            {detail.includes('Exclusion') && (
+                <div className="mt-4">
+                    <Link
+                        data-attr="insight-funnels-emptystate-help"
+                        to="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-exclusion-filter-state"
+                        target="_blank"
+                    >
+                        Learn more about funnels in PostHog docs
+                        <IconOpenInNew style={{ marginLeft: 4, fontSize: '0.85em' }} />
+                    </Link>
+                </div>
+            )}
         </div>
     )
 }
@@ -278,53 +366,42 @@ export function InsightErrorState({ excludeDetail, title, query, queryId }: Insi
     }
 
     return (
-        <div className="insight-empty-state error">
-            <div className="empty-state-inner">
-                <div className="illustration-main">
-                    <IconErrorOutline />
-                </div>
-                <h2 className="text-xl leading-tight">{title || 'There was a problem completing this query'}</h2>
+        <div
+            data-attr="insight-empty-state"
+            className="insights-empty-state flex flex-col items-center justify-center rounded p-4 m-2 h-full w-full"
+        >
+            <h2 className="text-xl leading-tight mb-6" data-attr="insight-loading-too-long">
+                <IconErrorOutline className="text-xl shrink-0 mr-2" />
+                <span className="text-accent-primary">
+                    {title || <span>There was a problem completing this query</span>}
+                </span>
                 {/* Note that this default phrasing above signals the issue is intermittent, */}
                 {/* and that perhaps the query will complete on retry */}
-                {!excludeDetail && (
-                    <div className="mt-4">
-                        We apologize for this unexpected situation. There are a couple of things you can do:
-                        <ol>
-                            <li>
-                                First and foremost you can <b>try again</b>. We recommend you wait a moment before doing
-                                so.
-                            </li>
-                            <li>
-                                <Link
-                                    data-attr="insight-error-bug-report"
-                                    onClick={() => {
-                                        openSupportForm({ kind: 'bug', target_area: 'analytics' })
-                                    }}
-                                >
-                                    If this persists, submit a bug report.
-                                </Link>
-                            </li>
-                        </ol>
-                    </div>
-                )}
-                {queryId && (
-                    <div className="text-secondary text-xs text-center">
-                        Query ID: <span className="font-mono">{queryId}</span>
-                    </div>
-                )}
-                {query && (
-                    <LemonButton
-                        data-attr="insight-error-query"
-                        targetBlank
-                        size="small"
-                        type="secondary"
-                        to={urls.debugQuery(query)}
-                        className="mt-4"
-                    >
-                        Open in query debugger
-                    </LemonButton>
-                )}
-            </div>
+            </h2>
+
+            {!excludeDetail && (
+                <div className="mt-4">
+                    We apologize for this unexpected situation. There are a couple of things you can do:
+                    <ol>
+                        <li>
+                            First and foremost you can <b>try again</b>. We recommend you wait a moment before doing so.
+                        </li>
+                        <li>
+                            <Link
+                                data-attr="insight-error-bug-report"
+                                onClick={() => {
+                                    openSupportForm({ kind: 'bug', target_area: 'analytics' })
+                                }}
+                            >
+                                If this persists, submit a bug report.
+                            </Link>
+                        </li>
+                    </ol>
+                </div>
+            )}
+
+            <QueryDebuggerButton query={query} />
+            <QueryIdDisplay queryId={queryId} />
         </div>
     )
 }
@@ -346,90 +423,43 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
     const { addFilter } = useActions(entityFilterLogic({ setFilters, filters, typeKey: 'EditFunnel-action' }))
 
     return (
-        <div className="insight-empty-state funnels-empty-state">
-            <div className="empty-state-inner">
-                <div className="illustration-main">
-                    <IconPlusSquare />
-                </div>
-                <h2 className="text-xl leading-tight funnels-empty-state__title">Add another step!</h2>
-                <p className="mb-0 text-sm text-center text-balance">
-                    You’re almost there! Funnels require at least two steps before calculating.
-                    {actionable &&
-                        ' Once you have two steps defined, additional changes will recalculate automatically.'}
-                </p>
-                {actionable && (
-                    <div className="flex justify-center mt-4">
-                        <LemonButton
-                            size="large"
-                            type="secondary"
-                            onClick={() => addFilter()}
-                            data-attr="add-action-event-button-empty-state"
-                            icon={<IconPlus />}
-                        >
-                            Add funnel step
-                        </LemonButton>
-                    </div>
-                )}
-                <div className="mt-4">
-                    <Link
-                        data-attr="funnels-single-step-help"
-                        to="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-empty-state"
-                        target="_blank"
-                        className="flex items-center justify-center"
-                        targetBlankIcon
-                    >
-                        Learn more about funnels in PostHog docs
-                    </Link>
-                </div>
+        <div data-attr="insight-empty-state" className="flex flex-col flex-1 items-center justify-center m-2">
+            <div className="text-2xl text-muted mb-2">
+                <IconPlusSquare />
             </div>
-        </div>
-    )
-}
-
-export function InsightValidationError({
-    detail,
-    query,
-}: {
-    detail: string
-    query?: Record<string, any> | null
-}): JSX.Element {
-    return (
-        <div className="insight-empty-state warning">
-            <div className="empty-state-inner">
-                <div className="illustration-main">
-                    <IconWarning />
-                </div>
-                <h2 className="text-xl leading-tight" data-attr="insight-loading-too-long">
-                    There is a problem with this query
-                    {/* Note that this phrasing above signals the issue is not intermittent, */}
-                    {/* but rather that it's something with the definition of the query itself */}
-                </h2>
-                <p className="text-sm text-center text-balance">{detail}</p>
-                {query ? (
-                    <p className="text-center text-balance">
-                        <LemonButton
-                            data-attr="insight-error-query"
-                            targetBlank
-                            size="small"
-                            type="secondary"
-                            to={urls.debugQuery(query)}
-                        >
-                            Open in query debugger
-                        </LemonButton>
-                    </p>
-                ) : null}
-                {detail.includes('Exclusion') && (
-                    <div className="mt-4">
-                        <Link
-                            data-attr="insight-funnels-emptystate-help"
-                            to="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-exclusion-filter-state"
-                            target="_blank"
-                        >
-                            Learn more about funnels in PostHog docs
-                            <IconOpenInNew style={{ marginLeft: 4, fontSize: '0.85em' }} />
-                        </Link>
-                    </div>
+            <h2 className="text-xl leading-tight font-medium">Add another step!</h2>
+            <p className="mb-0 text-sm text-center text-balance text-muted">
+                <span>You're almost there! Funnels require at least two steps before calculating.</span>
+                {actionable && (
+                    <>
+                        <br />
+                        <span>Once you have two steps defined, additional changes will recalculate automatically.</span>
+                    </>
                 )}
+            </p>
+            {actionable && (
+                <div className="flex justify-center mt-4">
+                    <LemonButton
+                        size="large"
+                        type="secondary"
+                        onClick={() => addFilter()}
+                        data-attr="add-action-event-button-empty-state"
+                        icon={<IconPlus />}
+                    >
+                        Add funnel step
+                    </LemonButton>
+                </div>
+            )}
+            <div className="mt-4">
+                <Link
+                    data-attr="funnels-single-step-help"
+                    to="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-empty-state"
+                    target="_blank"
+                    className="flex items-center justify-center"
+                    targetBlankIcon
+                >
+                    Learn more about funnels in PostHog docs
+                </Link>
             </div>
         </div>
     )
@@ -462,41 +492,41 @@ export function SavedInsightsEmptyState(): JSX.Element {
     const { title, description } = SAVED_INSIGHTS_COPY[tab] ?? {}
 
     return (
-        <div className="saved-insight-empty-state">
-            <div className="empty-state-inner">
-                <div className="illustration-main w-40 m-auto">
-                    <BuilderHog3 className="w-full h-full" />
-                </div>
-                <h2 className="empty-state__title">
-                    {usingFilters
-                        ? searchString
-                            ? title.replace('$CONDITION', `matching "${searchString}"`)
-                            : title.replace('$CONDITION', `matching these filters`)
-                        : title.replace('$CONDITION', 'for this project')}
-                </h2>
-                {usingFilters ? (
-                    <p className="empty-state__description">
-                        Refine your keyword search, or try using other filters such as type, last modified or created
-                        by.
-                    </p>
-                ) : (
-                    <p className="empty-state__description">{description}</p>
-                )}
-                {tab !== SavedInsightsTabs.Favorites && (
-                    <div className="flex justify-center">
-                        <Link to={urls.insightNew()}>
-                            <LemonButton
-                                type="primary"
-                                data-attr="add-insight-button-empty-state"
-                                icon={<IconPlusSmall />}
-                                className="add-insight-button"
-                            >
-                                New insight
-                            </LemonButton>
-                        </Link>
-                    </div>
-                )}
+        <div
+            data-attr="insight-empty-state"
+            className="saved-insight-empty-state flex flex-col flex-1 items-center justify-center"
+        >
+            <div className="illustration-main w-40 m-auto">
+                <BuilderHog3 className="w-full h-full" />
             </div>
+            <h2>
+                {usingFilters
+                    ? searchString
+                        ? title.replace('$CONDITION', `matching "${searchString}"`)
+                        : title.replace('$CONDITION', `matching these filters`)
+                    : title.replace('$CONDITION', 'for this project')}
+            </h2>
+            {usingFilters ? (
+                <p className="empty-state__description">
+                    Refine your keyword search, or try using other filters such as type, last modified or created by.
+                </p>
+            ) : (
+                <p className="empty-state__description">{description}</p>
+            )}
+            {tab !== SavedInsightsTabs.Favorites && (
+                <div className="flex justify-center">
+                    <Link to={urls.insightNew()}>
+                        <LemonButton
+                            type="primary"
+                            data-attr="add-insight-button-empty-state"
+                            icon={<IconPlusSmall />}
+                            className="add-insight-button"
+                        >
+                            New insight
+                        </LemonButton>
+                    </Link>
+                </div>
+            )}
         </div>
     )
 }
