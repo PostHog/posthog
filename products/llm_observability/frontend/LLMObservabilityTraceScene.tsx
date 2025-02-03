@@ -167,7 +167,7 @@ function TraceSidebar({
                 selectedNode.scrollIntoView({ block: 'center' })
             }
         }
-    }, [])
+    }, [eventId])
 
     return (
         <aside
