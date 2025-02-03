@@ -9,7 +9,6 @@ import temporalio.worker
 from psycopg import sql
 
 from posthog import constants
-from posthog.models.utils import uuid7
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,
