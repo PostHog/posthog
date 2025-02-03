@@ -35,4 +35,4 @@ class TestValidateRateLimit(BaseTest):
 
     def test_correct_values(self):
         for v in ["1/s", "2/m", "3/h", "4/d", "5/sec", "6/min", "7/hour", "8/day"]:
-            validate_rate_limit(v)
+            self.assertIsNone(validate_rate_limit(v), f"validate_rate_limit should not raise for {v}")

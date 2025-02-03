@@ -104,7 +104,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
                 logger.info("No custom rate limit available", extra={"team_id": team_id})
                 return
             self.rate = team.api_query_rate_limit
-            self.cache.set(cached_rate_limit, self.rate)
+            self.cache.set(rate_limit_cache_key, self.rate)
             logger.info(
                 "set custom rate limit", extra={"rate_limit_cache_key": rate_limit_cache_key, "rate_limit": self.rate}
             )
@@ -157,6 +157,9 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
                 )
                 RATE_LIMIT_EXCEEDED_COUNTER.labels(team_id=team_id, scope=scope, path=path).inc()
 
+            return False
+        except Team.DoesNotExist as e:
+            capture_exception(e)
             return False
         except Exception as e:
             capture_exception(e)

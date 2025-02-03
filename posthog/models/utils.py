@@ -353,6 +353,6 @@ def validate_rate_limit(value):
     # pattern must match throttling::SimpleRateThrottle::parse_rate
     if value is not None and value != "" and not re.match("^[0-9]+/(s|sec|m|min|h|hour|d|day)$", value):
         raise ValidationError(
-            "%(value)s is not proper amount/duration",
+            "%(value)s is not a valid rate limit format. Use formats like '5/s', '10/min', '2/hour', '1/day'.",
             params={"value": value},
         )
