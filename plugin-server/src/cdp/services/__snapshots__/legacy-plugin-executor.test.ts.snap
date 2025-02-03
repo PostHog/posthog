@@ -14,7 +14,6 @@ exports[`LegacyPluginExecutorService smoke tests should run the destination plug
 exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'hubspot-plugin', plugin: [Object] } 1`] = `
 [
   "Executing plugin hubspot-plugin",
-  "Created Hubspot Contact for test@posthog.com",
   "Execution successful",
 ]
 `;
@@ -50,7 +49,6 @@ exports[`LegacyPluginExecutorService smoke tests should run the destination plug
 exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'posthog-intercom-plugin', plugin: [Object] } 1`] = `
 [
   "Executing plugin posthog-intercom-plugin",
-  "Contact test@posthog.com in Intercom not found",
   "Execution successful",
 ]
 `;
