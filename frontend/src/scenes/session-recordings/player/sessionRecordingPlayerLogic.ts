@@ -1,5 +1,6 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { EventType, eventWithTime, IncrementalSource } from '@rrweb/types'
+import { playerConfig, Replayer, ReplayPlugin } from '@posthog/rrweb'
+import { EventType, eventWithTime, IncrementalSource } from '@posthog/rrweb-types'
 import { captureException } from '@sentry/react'
 import {
     actions,
@@ -25,8 +26,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { wrapConsole } from 'lib/utils/wrapConsole'
 import posthog from 'posthog-js'
 import { RefObject } from 'react'
-import { Replayer } from 'rrweb'
-import { playerConfig, ReplayPlugin } from 'rrweb/typings/types'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import {
