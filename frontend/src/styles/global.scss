@@ -1,12 +1,3 @@
-/* Only styles that are shared across multiple components (i.e. global) should go here, trying to keep this file
-nimble to simplify maintenance. We separate variables and mixins in vars.scss to be able to import those into local
-style files without adding already imported styles.
-
-Font weights:
-Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), or 700 (`bold`) should be used
-
-*/
-
 @use 'sass:map';
 
 // Global components
@@ -15,30 +6,11 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
 @import 'fonts';
 @import 'functions';
 @import 'mixins';
-
-// @import 'tailwindcss/components'; // NOTE: The components layer must be before utilities for correct specificity
 @import 'tailwindcss';
 @import 'utilities-legacy'; // TODO: Remove all legacy utilities
-// @import 'design-system';
-
-// TODO: Check if this is needed for the above directories
-// @source './'
-// https://tailwindcss.com/docs/detecting-classes-in-source-files#explicitly-registering-sources
-// './frontend/src/**/*.{ts,tsx}',
-// './ee/frontend/**/*.{ts,tsx}',
-// './frontend/src/index.html',
-// './products/**/frontend/**/*.{ts,tsx}',
-// './common/**/src/**/*.{ts,tsx}',
-// './common/**/frontend/**/*.{ts,tsx}',
 
 // Variants
 @custom-variant dark (&:where([theme="dark"], [theme="dark"] * ));
-
-$sm: 576px;
-$md: 768px;
-$lg: 992px;
-$xl: 1200px;
-$xxl: 1600px;
 
 // Set variables
 :root {

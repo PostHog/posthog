@@ -4,6 +4,13 @@ $lg: 992px;
 $xl: 1200px;
 $xxl: 1600px;
 
+// THIS FILE WILL BE REMOVED
+// Do not use these colors.
+// They are only here for further development of the design system.
+// If you need a color variable, add it to globals.scss in :root {}
+// If you need to add the new color tailwind,
+// then add the new them to globals.scss in @theme {}
+
 // $colors: (
 //     'primary': #1d4aff,
 //     'danger-highlight': rgba(#db3707, 0.1),
