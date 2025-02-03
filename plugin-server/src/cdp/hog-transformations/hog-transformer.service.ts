@@ -3,7 +3,6 @@ import { Counter } from 'prom-client'
 
 import {
     HogFunctionAppMetric,
-    HogFunctionInvocation,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationResult,
     HogFunctionType,
@@ -25,8 +24,12 @@ export const hogTransformationDroppedEvents = new Counter({
     help: 'Indicates how many events are dropped by hog transformations',
 })
 
-export interface TransformationResult {
+export interface TransformationResultPure {
     event: PluginEvent | null
+    invocationResults: HogFunctionInvocationResult[]
+}
+
+export interface TransformationResult extends TransformationResultPure {
     messagePromises: Promise<void>[]
 }
 
@@ -40,7 +43,7 @@ export class HogTransformerService {
         this.hub = hub
         this.hogFunctionManager = new HogFunctionManagerService(hub)
         this.hogExecutor = new HogExecutorService(hub, this.hogFunctionManager)
-        this.pluginExecutor = new LegacyPluginExecutorService()
+        this.pluginExecutor = new LegacyPluginExecutorService(hub)
     }
 
     private getTransformationFunctions() {
@@ -80,18 +83,13 @@ export class HogTransformerService {
         }
     }
 
-    private createHogFunctionInvocation(event: PluginEvent, hogFunction: HogFunctionType): HogFunctionInvocation {
-        const globalsWithInputs = buildGlobalsWithInputs(this.createInvocationGlobals(event), {
-            ...(hogFunction.inputs ?? {}),
-            ...(hogFunction.encrypted_inputs ?? {}),
-        })
-
-        return createInvocation(globalsWithInputs, hogFunction)
-    }
-
     public async start(): Promise<void> {
         const hogTypes: HogFunctionTypeType[] = ['transformation']
         await this.hogFunctionManager.start(hogTypes)
+    }
+
+    public async stop(): Promise<void> {
+        await this.hogFunctionManager.stop()
     }
 
     private produceAppMetric(metric: HogFunctionAppMetric): Promise<void> {
@@ -170,33 +168,38 @@ export class HogTransformerService {
         return promises
     }
 
-    public transformEvent(event: PluginEvent): Promise<TransformationResult> {
+    public transformEventAndProduceMessages(event: PluginEvent): Promise<TransformationResult> {
         return runInstrumentedFunction({
-            statsKey: `hogTransformer`,
+            statsKey: `hogTransformer.transformEventAndProduceMessages`,
+            func: async () => {
+                const transformationResult = await this.transformEvent(event)
+                const messagePromises: Promise<void>[] = []
+
+                transformationResult.invocationResults.forEach((result) => {
+                    messagePromises.push(...this.processInvocationResult(result))
+                })
+
+                return {
+                    ...transformationResult,
+                    messagePromises,
+                }
+            },
+        })
+    }
+
+    public transformEvent(event: PluginEvent): Promise<TransformationResultPure> {
+        return runInstrumentedFunction({
+            statsKey: `hogTransformer.transformEvent`,
 
             func: async () => {
                 const teamHogFunctions = this.hogFunctionManager.getTeamHogFunctions(event.team_id)
-                const transformationFunctions = this.getTransformationFunctions()
-                const messagePromises: Promise<void>[] = []
+                const results: HogFunctionInvocationResult[] = []
 
                 // For now, execute each transformation function in sequence
                 for (const hogFunction of teamHogFunctions) {
-                    const invocation = this.createHogFunctionInvocation(event, hogFunction)
+                    const result = await this.executeHogFunction(hogFunction, this.createInvocationGlobals(event))
 
-                    const result = isLegacyPluginHogFunction(hogFunction)
-                        ? await this.pluginExecutor.execute(invocation)
-                        : this.hogExecutor.execute(invocation, { functions: transformationFunctions })
-
-                    // Process results and collect promises
-                    messagePromises.push(
-                        ...this.processInvocationResult({
-                            invocation,
-                            logs: result.logs,
-                            error: result.error,
-                            execResult: result.execResult,
-                            finished: true,
-                        })
-                    )
+                    results.push(result)
 
                     if (result.error) {
                         status.error('⚠️', 'Error in transformation', {
@@ -213,7 +216,7 @@ export class HogTransformerService {
                         hogTransformationDroppedEvents.inc()
                         return {
                             event: null,
-                            messagePromises,
+                            invocationResults: results,
                         }
                     }
 
@@ -251,9 +254,27 @@ export class HogTransformerService {
 
                 return {
                     event,
-                    messagePromises,
+                    invocationResults: results,
                 }
             },
         })
+    }
+
+    public async executeHogFunction(
+        hogFunction: HogFunctionType,
+        globals: HogFunctionInvocationGlobals
+    ): Promise<HogFunctionInvocationResult> {
+        const transformationFunctions = this.getTransformationFunctions()
+        const globalsWithInputs = buildGlobalsWithInputs(globals, {
+            ...(hogFunction.inputs ?? {}),
+            ...(hogFunction.encrypted_inputs ?? {}),
+        })
+
+        const invocation = createInvocation(globalsWithInputs, hogFunction)
+
+        const result = isLegacyPluginHogFunction(hogFunction)
+            ? await this.pluginExecutor.execute(invocation)
+            : this.hogExecutor.execute(invocation, { functions: transformationFunctions })
+        return result
     }
 }

@@ -3,7 +3,7 @@ import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithTeam } from '../teams/types'
 import { SessionBatchMetrics } from './metrics'
 import { SessionBatchFileWriter } from './session-batch-file-writer'
-import { SessionRecorder } from './session-recorder'
+import { SnappySessionRecorder } from './snappy-session-recorder'
 
 /**
  * Manages the recording of a batch of session recordings:
@@ -19,12 +19,12 @@ import { SessionRecorder } from './session-recorder'
  * └── ... (previous batch)
  *
  * Session Batch File 2 <── One SessionBatchRecorder corresponds to one batch file
- * ├── Gzipped Session Recording Block 1
+ * ├── Compressed Session Recording Block 1
  * │   └── JSONL Session Recording Block
  * │       ├── [windowId, event1]
  * │       ├── [windowId, event2]
  * │       └── ...
- * ├── Gzipped Session Recording Block 2
+ * ├── Compressed Session Recording Block 2
  * │   └── JSONL Session Recording Block
  * │       ├── [windowId, event1]
  * │       └── ...
@@ -43,8 +43,16 @@ import { SessionRecorder } from './session-recorder'
  * This format allows efficient access to individual session recordings within a batch,
  * as only the relevant session block needs to be retrieved and decompressed.
  */
+
+export interface SessionBlockMetadata {
+    sessionId: string
+    teamId: number
+    blockStartOffset: number
+    blockLength: number
+}
+
 export class SessionBatchRecorder {
-    private readonly partitionSessions = new Map<number, Map<string, SessionRecorder>>()
+    private readonly partitionSessions = new Map<number, Map<string, SnappySessionRecorder>>()
     private readonly partitionSizes = new Map<number, number>()
     private _size: number = 0
 
@@ -61,6 +69,7 @@ export class SessionBatchRecorder {
     public record(message: MessageWithTeam): number {
         const { partition } = message.message.metadata
         const sessionId = message.message.session_id
+        const teamId = message.team.teamId
 
         if (!this.partitionSessions.has(partition)) {
             this.partitionSessions.set(partition, new Map())
@@ -68,8 +77,19 @@ export class SessionBatchRecorder {
         }
 
         const sessions = this.partitionSessions.get(partition)!
-        if (!sessions.has(sessionId)) {
-            sessions.set(sessionId, new SessionRecorder())
+        const existingRecorder = sessions.get(sessionId)
+
+        if (existingRecorder) {
+            if (existingRecorder.teamId !== teamId) {
+                status.warn('🔁', 'session_batch_recorder_team_id_mismatch', {
+                    sessionId,
+                    existingTeamId: existingRecorder.teamId,
+                    newTeamId: teamId,
+                })
+                return 0
+            }
+        } else {
+            sessions.set(sessionId, new SnappySessionRecorder(sessionId, teamId))
         }
 
         const recorder = sessions.get(sessionId)!
@@ -117,13 +137,15 @@ export class SessionBatchRecorder {
      *
      * @throws If the flush operation fails
      */
-    public async flush(): Promise<void> {
+    public async flush(): Promise<SessionBlockMetadata[]> {
         status.info('🔁', 'session_batch_recorder_flushing', {
             partitions: this.partitionSessions.size,
             totalSize: this._size,
         })
 
         const { stream: outputStream, finish } = this.writer.newBatch()
+        const blockMetadata: SessionBlockMetadata[] = []
+        let currentOffset = 0
 
         let totalEvents = 0
         let totalSessions = 0
@@ -138,6 +160,15 @@ export class SessionBatchRecorder {
             for (const sessions of this.partitionSessions.values()) {
                 for (const recorder of sessions.values()) {
                     const { buffer, eventCount } = await recorder.end()
+
+                    // Track block metadata
+                    blockMetadata.push({
+                        sessionId: recorder.sessionId,
+                        teamId: recorder.teamId,
+                        blockStartOffset: currentOffset,
+                        blockLength: buffer.length,
+                    })
+                    currentOffset += buffer.length
 
                     // Write and handle backpressure, but also watch for errors
                     const canWriteMore = outputStream.write(buffer)
@@ -176,6 +207,8 @@ export class SessionBatchRecorder {
                 totalSessions,
                 totalBytes,
             })
+
+            return blockMetadata
         } catch (error) {
             // Log error and cleanup
             status.error('🔁', 'session_batch_recorder_flush_error', {

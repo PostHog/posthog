@@ -48,6 +48,7 @@ services:
             - ./posthog/posthog/idl:/idl
             - ./posthog/docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ./posthog/docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
+            - ./posthog/docker/clickhouse/config.d/default.xml:/etc/clickhouse-server/config.d/default.xml
             - ./posthog/docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
             - clickhouse-data:/var/lib/clickhouse
     zookeeper:

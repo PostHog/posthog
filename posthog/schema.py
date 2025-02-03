@@ -1013,6 +1013,7 @@ class NodeKind(StrEnum):
     PERSONS_NODE = "PersonsNode"
     HOG_QUERY = "HogQuery"
     HOG_QL_QUERY = "HogQLQuery"
+    HOG_QLAST_QUERY = "HogQLASTQuery"
     HOG_QL_METADATA = "HogQLMetadata"
     HOG_QL_AUTOCOMPLETE = "HogQLAutocomplete"
     ACTORS_QUERY = "ActorsQuery"
@@ -1150,6 +1151,7 @@ class PropertyOperator(StrEnum):
     MAX = "max"
     IN_ = "in"
     NOT_IN = "not_in"
+    IS_CLEANED_PATH_EXACT = "is_cleaned_path_exact"
 
 
 class QueryResponseAlternative5(BaseModel):
@@ -6188,6 +6190,26 @@ class FunnelsFilter(BaseModel):
         default=None, description="Customizations for the appearance of result datasets."
     )
     useUdf: Optional[bool] = None
+
+
+class HogQLASTQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    explain: Optional[bool] = None
+    filters: Optional[HogQLFilters] = None
+    kind: Literal["HogQLASTQuery"] = "HogQLASTQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query: dict[str, Any]
+    response: Optional[HogQLQueryResponse] = None
+    values: Optional[dict[str, Any]] = Field(
+        default=None, description="Constant values that can be referenced with the {placeholder} syntax in the query"
+    )
+    variables: Optional[dict[str, HogQLVariable]] = Field(
+        default=None, description="Variables to be subsituted into the query"
+    )
 
 
 class HogQLQuery(BaseModel):
