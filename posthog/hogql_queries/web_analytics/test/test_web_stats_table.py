@@ -311,7 +311,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ] == response_2.results
         assert response_2.hasMore is False
 
-    def test_path_filters(self):
+    def test_path_cleaning_filters(self):
         s1 = str(uuid7("2023-12-02"))
         s2 = str(uuid7("2023-12-10"))
         s3 = str(uuid7("2023-12-10"))
@@ -343,6 +343,97 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["/cleaned/:id/path/:id", (1, None), (1, None), ""],
             ["/not-cleaned", (1, None), (1, None), ""],
             ["/thing_c", (1, None), (1, None), ""],
+        ] == results
+
+    def test_path_cleaning_filters_with_cleaned_path_property(self):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-10"))
+        s3 = str(uuid7("2023-12-10"))
+        s4 = str(uuid7("2023-12-11"))
+        s5 = str(uuid7("2023-12-11"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1, "/cleaned/123/path/456")]),
+                ("p2", [("2023-12-10", s2, "/cleaned/123")]),
+                ("p3", [("2023-12-10", s3, "/cleaned/456")]),
+                ("p4", [("2023-12-11", s4, "/not-cleaned")]),
+                ("p5", [("2023-12-11", s5, "/thing_a")]),
+            ]
+        )
+
+        # Send a property filter that it's just like a cleaned path filter
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            path_cleaning_filters=[
+                {"regex": "\\/cleaned\\/\\d+", "alias": "/cleaned/:id"},
+                {"regex": "\\/path\\/\\d+", "alias": "/path/:id"},
+                {"regex": "thing_a", "alias": "thing_b"},
+                {"regex": "thing_b", "alias": "thing_c"},
+            ],
+            properties=[
+                EventPropertyFilter(
+                    key="$pathname", operator=PropertyOperator.IS_CLEANED_PATH_EXACT, value="/cleaned/:id"
+                )
+            ],
+        ).results
+
+        # 2 events because we have 2 events that match this cleaned path
+        assert [
+            ["/cleaned/:id", (2, None), (2, None), ""],
+        ] == results
+
+        # Send a property filter that when cleaned will look like a cleaned path filter
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            path_cleaning_filters=[
+                {"regex": "\\/cleaned\\/\\d+", "alias": "/cleaned/:id"},
+                {"regex": "\\/path\\/\\d+", "alias": "/path/:id"},
+                {"regex": "thing_a", "alias": "thing_b"},
+                {"regex": "thing_b", "alias": "thing_c"},
+            ],
+            properties=[
+                EventPropertyFilter(
+                    key="$pathname", operator=PropertyOperator.IS_CLEANED_PATH_EXACT, value="/cleaned/123456"
+                )
+            ],
+        ).results
+
+        assert [
+            ["/cleaned/:id", (2, None), (2, None), ""],
+        ] == results
+
+    def test_path_cleaning_filters_with_cleanable_path_property(self):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-10"))
+        s3 = str(uuid7("2023-12-10"))
+        s4 = str(uuid7("2023-12-11"))
+        s5 = str(uuid7("2023-12-11"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1, "/cleaned/123/path/456")]),
+                ("p2", [("2023-12-10", s2, "/cleaned/123")]),
+                ("p3", [("2023-12-10", s3, "/cleaned/456")]),
+                ("p4", [("2023-12-11", s4, "/not-cleaned")]),
+                ("p5", [("2023-12-11", s5, "/thing_a")]),
+            ]
+        )
+
+        # Send a property filter that when cleaned will look like a cleaned path filter
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            path_cleaning_filters=[{"regex": "\\/cleaned\\/\\d+", "alias": "/cleaned/:id"}],
+            properties=[
+                EventPropertyFilter(
+                    key="$pathname", operator=PropertyOperator.IS_CLEANED_PATH_EXACT, value="/cleaned/123456"
+                )
+            ],
+        ).results
+
+        assert [
+            ["/cleaned/:id", (2, None), (2, None), ""],
         ] == results
 
     def test_scroll_depth_bounce_rate_one_user(self):

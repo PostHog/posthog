@@ -225,6 +225,7 @@ export function getDefaultConfig(): PluginsServerConfig {
 
         // Hog Transformations (Alpha)
         HOG_TRANSFORMATIONS_ENABLED: false,
+        HOG_TRANSFORMATIONS_COMPARISON_PERCENTAGE: 0,
 
         // Cookieless
         COOKIELESS_FORCE_STATELESS_MODE: false,

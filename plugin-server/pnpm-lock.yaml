@@ -1,4 +1,4 @@
-lockfileVersion: '6.1'
+lockfileVersion: '6.0'
 
 settings:
   autoInstallPeers: true
@@ -47,8 +47,8 @@ dependencies:
     specifier: file:../rust/cyclotron-node
     version: file:../rust/cyclotron-node
   '@posthog/hogvm':
-    specifier: ^1.0.66
-    version: 1.0.66(luxon@3.4.4)
+    specifier: ^1.0.67
+    version: 1.0.67(luxon@3.4.4)
   '@posthog/plugin-scaffold':
     specifier: 1.4.4
     version: 1.4.4
@@ -273,6 +273,9 @@ devDependencies:
   deepmerge:
     specifier: ^4.2.2
     version: 4.3.1
+  dotenv:
+    specifier: ^16.4.7
+    version: 16.4.7
   eslint:
     specifier: ^8.53.0
     version: 8.53.0
@@ -3093,8 +3096,8 @@ packages:
     engines: {node: '>=12'}
     dev: false
 
-  /@posthog/hogvm@1.0.66(luxon@3.4.4):
-    resolution: {integrity: sha512-bczn4tB2rXRJVXihkRHGiNT+6ruYRLRtGRf9xhGlZmdFBL/QSJa5/gQqflp5de+N6UMofkyjdX8yvBwiTt3VHw==}
+  /@posthog/hogvm@1.0.67(luxon@3.4.4):
+    resolution: {integrity: sha512-kSAtW2rN8z16SOS7PvCfqOBFpg9E+aeuKlkLHaDbUSAG5Rf34n9Nq7t4d4iyfn9YHVTCzFvDGDPvKbbOXg5HBA==}
     peerDependencies:
       luxon: ^3.4.4
     dependencies:
@@ -5986,6 +5989,11 @@ packages:
     dependencies:
       is-obj: 2.0.0
     dev: false
+
+  /dotenv@16.4.7:
+    resolution: {integrity: sha512-47qPchRCykZC03FhkYAhrvwU4xDBFIj1QPqaarj6mdM/hgUzfPHcpkHJOn3mJAufFeeAxAzeGsr5X0M4k6fLZQ==}
+    engines: {node: '>=12'}
+    dev: true
 
   /duplexer2@0.1.4:
     resolution: {integrity: sha512-asLFVfWWtJ90ZyOUHMqk7/S2w2guQKxUI2itj3d92ADHhxUSbCMGi1f1cBcJ7xM1To+pE/Khbwo1yuNbMEPKeA==}
@@ -11329,5 +11337,4 @@ packages:
   file:../rust/cyclotron-node:
     resolution: {directory: ../rust/cyclotron-node, type: directory}
     name: '@posthog/cyclotron'
-    version: 0.1.7
     dev: false
