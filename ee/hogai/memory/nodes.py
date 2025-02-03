@@ -255,7 +255,7 @@ class MemoryInitializerInterruptNode(AssistantNode):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4o-mini", temperature=0, disable_streaming=True)
+        return ChatOpenAI(model="gpt-4o-mini", temperature=0, disable_streaming=True, stop_sequences=["[Done]"])
 
     def _format_memory(self, memory: str) -> str:
         """

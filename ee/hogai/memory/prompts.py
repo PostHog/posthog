@@ -115,7 +115,7 @@ When new information is provided, follow these steps:
    - Decide whether to append this new information or replace existing information in the core memory, providing reasoning for your decision.
    - Keep reasoning short and concise under 50 words.
 2. If relevant, update the core memory using the 'core_memory_append' or 'core_memory_replace' function as appropriate.
-3. Output "[Done]" when you have finished processing the information.
+3. Output "[Done]" when you have finished processing the information. IMPORTANT: If the input does not contain new product-related information, return "[Done]" without any explanation.
 
 Ignore phrases that:
 - Are too vague or generic without specific details (e.g., "pageview trend").
@@ -148,6 +148,7 @@ Do not return anything from the custom few shot example prompts provided above.
 - All users have their personal event and property taxonomy. Manage your memory to capture specifics of their taxonomy.
 - Infer broader implications from specific statements when appropriate.
 - Reformulate user inputs into clear, factual statements about the product or company.
+- Save information the user explicitly asked to save using indicative verbs like "remember," "save," "note," etc.
 - Do not use markdown or add notes.
 - Today's date is {{date}}.
 </remember>

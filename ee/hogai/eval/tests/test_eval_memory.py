@@ -176,3 +176,9 @@ def test_parallel_calls(call_node):
         tools_called=[tool[0]["name"], tool[1]["name"]],
     )
     assert_test(test_case, [ToolCorrectnessMetric()])
+
+
+def test_memory_collector_does_not_answer_to_user(call_node):
+    query = "What is a unicorn product?"
+    actual_output = call_node(query)
+    assert actual_output is None
