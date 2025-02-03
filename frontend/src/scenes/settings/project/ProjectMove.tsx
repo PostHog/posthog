@@ -84,9 +84,7 @@ export function ProjectMove(): JSX.Element {
     return (
         <>
             <p>
-                Move <b>{currentProject?.name}</b> to another organization. You must be at least an Admin of both
-                organizations. Once this is done, all access and settings applying to the current Organization will no
-                longer apply.
+                Move <b>{currentProject?.name}</b> to another organization?
             </p>
 
             <div className="flex items-center gap-2">
