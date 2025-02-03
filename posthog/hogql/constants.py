@@ -1,9 +1,10 @@
 from datetime import date, datetime
-from enum import StrEnum
 import sys
-from typing import Optional, Literal, TypeAlias
+from enum import StrEnum
+from typing import Literal, Optional, TypeAlias
 from uuid import UUID
-from pydantic import ConfigDict, BaseModel
+
+from pydantic import BaseModel, ConfigDict
 
 ConstantDataType: TypeAlias = Literal[
     "int",
@@ -114,4 +115,3 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     max_expanded_ast_elements: Optional[int] = 4_000_000
     max_bytes_before_external_group_by: Optional[int] = 0  # default value means we don't swap ordering by to disk
     allow_experimental_analyzer: Optional[bool] = None
-    max_bytes_before_external_sort: Optional[int] = 0
