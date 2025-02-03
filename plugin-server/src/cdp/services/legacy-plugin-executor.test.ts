@@ -33,7 +33,7 @@ describe('LegacyPluginExecutorService', () => {
     beforeEach(async () => {
         hub = await createHub()
         await resetTestDatabase()
-        service = new LegacyPluginExecutorService()
+        service = new LegacyPluginExecutorService(hub)
         team = await getFirstTeam(hub)
 
         fn = createHogFunction({
@@ -103,6 +103,8 @@ describe('LegacyPluginExecutorService', () => {
                 service.execute(createInvocation(fn, globals)),
             ])
 
+            expect(service['pluginState'][fn.id]).toBeDefined()
+
             expect(await results).toMatchObject([{ finished: true }, { finished: true }, { finished: true }])
 
             expect(intercomPlugin.setupPlugin).toHaveBeenCalledTimes(1)
@@ -115,6 +117,9 @@ describe('LegacyPluginExecutorService', () => {
                     "useEuropeanDataStorage": "No",
                   },
                   "fetch": [Function],
+                  "geoip": {
+                    "locate": [Function],
+                  },
                   "global": {},
                   "logger": {
                     "debug": [Function],

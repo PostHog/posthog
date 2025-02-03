@@ -83,7 +83,7 @@ function MoreMenu(): JSX.Element {
             }
             maxContentWidth={true}
         >
-            <ToolbarButton title="More options">
+            <ToolbarButton>
                 <IconMenu />
             </ToolbarButton>
         </LemonMenu>
