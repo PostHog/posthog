@@ -106,7 +106,6 @@ export enum AvailableFeature {
     ORGANIZATIONS_PROJECTS = 'organizations_projects',
     ROLE_BASED_ACCESS = 'role_based_access',
     SOCIAL_SSO = 'social_sso',
-    PROJECT_BASED_PERMISSIONING = 'project_based_permissioning',
     SAML = 'saml',
     SSO_ENFORCEMENT = 'sso_enforcement',
     WHITE_LABELLING = 'white_labelling',
@@ -3495,7 +3494,7 @@ interface BreadcrumbBase {
 }
 interface LinkBreadcrumb extends BreadcrumbBase {
     /** Name to display. */
-    name: string | null | undefined
+    name: string | JSX.Element | null | undefined
     symbol?: never
     /** Path to link to. */
     path?: string
@@ -3505,7 +3504,7 @@ interface LinkBreadcrumb extends BreadcrumbBase {
 }
 interface RenamableBreadcrumb extends BreadcrumbBase {
     /** Name to display. */
-    name: string | null | undefined
+    name: string | JSX.Element | null | undefined
     symbol?: never
     path?: never
     /** When this is set, an "Edit" button shows up next to the title */
@@ -4702,7 +4701,7 @@ export type HogFunctionType = {
     status?: HogFunctionStatus
 }
 
-export type HogFunctionTemplateStatus = 'alpha' | 'beta' | 'stable' | 'free' | 'deprecated' | 'client-side'
+export type HogFunctionTemplateStatus = 'stable' | 'alpha' | 'beta' | 'deprecated'
 export type HogFunctionSubTemplateIdType = 'early-access-feature-enrollment' | 'survey-response' | 'activity-log'
 
 export type HogFunctionConfigurationType = Omit<
@@ -4724,6 +4723,7 @@ export type HogFunctionTemplateType = Pick<
     'id' | 'type' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking' | 'mappings'
 > & {
     status: HogFunctionTemplateStatus
+    free: boolean
     sub_templates?: HogFunctionSubTemplateType[]
     mapping_templates?: HogFunctionMappingTemplateType[]
 }
