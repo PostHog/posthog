@@ -80,7 +80,7 @@ export function DistributionModal({ experimentId }: { experimentId: Experiment['
 
                 <div>
                     <div className="flex justify-between items-center mb-2">
-                        <h3 className="font-semibold mb-0">Variant Distribution</h3>
+                        <h3 className="font-semibold mb-0">Variant distribution</h3>
                         <LemonButton
                             size="small"
                             onClick={distributeVariantsEqually}
