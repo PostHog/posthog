@@ -18,6 +18,7 @@ from posthog.schema import (
     ChartDisplayType,
     DataWarehouseNode,
     EventsNode,
+    IntervalType,
 )
 
 
@@ -285,8 +286,12 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         if self.series.math in (
             BaseMathType.WEEKLY_ACTIVE,
             BaseMathType.MONTHLY_ACTIVE,
-        ):
-            lookahead = self._interval_placeholders()["inclusive_lookback"]
+        ) and self.query_date_range.interval_type in (IntervalType.WEEK, IntervalType.MONTH):
+            lookahead = (
+                ast.Call(name="toIntervalDay", args=[ast.Constant(value=7)])
+                if self.query_date_range.interval_type == IntervalType.WEEK
+                else ast.Call(name="toIntervalDay", args=[ast.Constant(value=30)])
+            )
 
         query = cast(
             ast.SelectQuery,
