@@ -32,35 +32,36 @@ typeTestCases.forEach(({ type, selector }) => {
 })
 
 // skipping things because we want to get a single passing test in
-test.skip('can navigate to insight by query', async ({ page }) => {
-    const insight = new InsightPage(page)
-    const url = urls.insightNew(undefined, undefined, {
-        kind: NodeKind.InsightVizNode,
-        source: {
-            kind: 'TrendsQuery',
-            series: [
-                {
-                    kind: 'EventsNode',
-                    event: '$autocapture',
-                    name: 'Autocapture',
-                    math: 'total',
-                },
-            ],
-            interval: 'day',
-            trendsFilter: {
-                display: 'ActionsLineGraph',
-            },
-        },
-        full: true,
-    })
-
-    await page.goto(url)
-
-    // test series labels
-    await insight.waitForDetailsTable()
-    const labels = await insight.detailsLabels.allInnerTexts()
-    expect(labels).toEqual(['Autocapture'])
-})
+// commented out because the query spec is incorrect
+// test.skip('can navigate to insight by query', async ({ page }) => {
+//     const insight = new InsightPage(page)
+//     const url = urls.insightNew(undefined, undefined, {
+//         kind: NodeKind.InsightVizNode,
+//         source: {
+//             kind: 'TrendsQuery',
+//             series: [
+//                 {
+//                     kind: 'EventsNode',
+//                     event: '$autocapture',
+//                     name: 'Autocapture',
+//                     math: 'total',
+//                 },
+//             ],
+//             interval: 'day',
+//             trendsFilter: {
+//                 display: 'ActionsLineGraph',
+//             },
+//         },
+//         full: true,
+//     })
+//
+//     await page.goto(url)
+//
+//     // test series labels
+//     await insight.waitForDetailsTable()
+//     const labels = await insight.detailsLabels.allInnerTexts()
+//     expect(labels).toEqual(['Autocapture'])
+// })
 
 test('can open event explorer as an insight', async ({ page }) => {
     const navigation = new Navigation(page)
