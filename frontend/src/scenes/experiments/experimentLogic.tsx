@@ -1069,7 +1069,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     )
                     actions.setExperimentManualErrors({
                         ...existingErrors,
-                        feature_flag_key: values.featureFlagValidationError,
+                        feature_flag_key: values.featureFlagValidationError || undefined,
                     })
                     return
                 }
@@ -1079,14 +1079,14 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.setFeatureFlagValidationError(validateFeatureFlagKey(featureFlagKey) || '')
             actions.setExperimentManualErrors({
                 ...existingErrors,
-                feature_flag_key: values.featureFlagValidationError,
+                feature_flag_key: values.featureFlagValidationError || undefined,
             })
         },
         touchExperimentField: ({ key }) => {
             // :KLUDGE: Persist the existing feature_flag_key validation when the field is blurred.
             if (key === 'feature_flag_key') {
                 actions.setExperimentManualErrors({
-                    feature_flag_key: values.featureFlagValidationError,
+                    feature_flag_key: values.featureFlagValidationError || undefined,
                 })
             }
         },
