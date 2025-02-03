@@ -47,7 +47,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebGoalsQueryRunner.test_many_users_and_actions
@@ -105,7 +106,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebGoalsQueryRunner.test_no_comparison
@@ -163,7 +165,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebGoalsQueryRunner.test_no_crash_when_no_data_and_some_actions
@@ -221,7 +224,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebGoalsQueryRunner.test_one_user_one_action
@@ -279,7 +283,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebGoalsQueryRunner.test_one_user_two_different_actions
@@ -337,7 +342,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebGoalsQueryRunner.test_one_user_two_similar_actions_across_sessions
@@ -395,7 +401,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebGoalsQueryRunner.test_one_users_one_action_each
@@ -453,6 +460,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_sort=0
   '''
 # ---

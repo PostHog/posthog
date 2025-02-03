@@ -64,7 +64,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestSessionsTimelineQueryRunner.test_before_and_after_defaults
@@ -132,7 +133,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestSessionsTimelineQueryRunner.test_event_limit_and_has_more
@@ -200,7 +202,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestSessionsTimelineQueryRunner.test_formal_and_informal_sessions_global
@@ -268,7 +271,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestSessionsTimelineQueryRunner.test_formal_session_with_recording
@@ -336,7 +340,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestSessionsTimelineQueryRunner.test_formal_sessions_for_person
@@ -404,7 +409,8 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestSessionsTimelineQueryRunner.test_formal_sessions_global
@@ -472,6 +478,7 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     max_bytes_before_external_sort=0
   '''
 # ---

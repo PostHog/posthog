@@ -53,7 +53,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_bounce_rate
@@ -139,7 +140,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_bounce_rate_one_user
@@ -225,7 +227,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_bounce_rate_path_cleaning
@@ -311,7 +314,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_bounce_rate_with_property
@@ -397,7 +401,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_breakdown_channel_type_doesnt_throw
@@ -444,7 +449,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_cohort_test_filters
@@ -524,7 +530,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_comparison
@@ -570,7 +577,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_conversion_goal_no_conversions
@@ -623,7 +631,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_conversion_goal_one_autocapture_conversion
@@ -674,7 +683,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_conversion_goal_one_custom_action_conversion
@@ -725,7 +735,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_conversion_goal_one_custom_event_conversion
@@ -776,7 +787,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_conversion_goal_one_pageview_conversion
@@ -829,7 +841,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_conversion_goal_one_pageview_conversion.1
@@ -882,7 +895,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_conversion_rate
@@ -935,7 +949,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_dont_filter_test_accounts
@@ -981,7 +996,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_entry_bounce_rate
@@ -1040,7 +1056,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_entry_bounce_rate_one_user
@@ -1099,7 +1116,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_entry_bounce_rate_path_cleaning
@@ -1158,7 +1176,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_entry_bounce_rate_with_property
@@ -1217,7 +1236,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_filter_test_accounts
@@ -1273,7 +1293,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_increase_in_users
@@ -1319,7 +1340,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_increase_in_users_on_mobile
@@ -1365,7 +1387,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_is_not_set_filter
@@ -1423,7 +1446,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_language_filter
@@ -1491,7 +1515,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_limit
@@ -1548,7 +1573,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_limit.2
@@ -1605,7 +1631,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_no_crash_when_no_data
@@ -1651,7 +1678,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_no_session_id
@@ -1709,7 +1737,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_no_session_id.2
@@ -1767,7 +1796,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_no_session_id.4
@@ -1824,7 +1854,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_null_in_utm_tags
@@ -1882,7 +1913,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_filters
@@ -1939,7 +1971,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_filters_with_cleanable_path_property
@@ -1997,7 +2030,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_filters_with_cleaned_path_property
@@ -2055,7 +2089,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_path_cleaning_filters_with_cleaned_path_property.2
@@ -2113,7 +2148,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_same_user_multiple_sessions
@@ -2171,7 +2207,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_same_user_multiple_sessions.2
@@ -2228,7 +2265,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_same_user_multiple_sessions.4
@@ -2314,7 +2352,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_same_user_multiple_sessions.6
@@ -2427,7 +2466,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_scroll_depth_bounce_rate
@@ -2540,7 +2580,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_scroll_depth_bounce_rate_one_user
@@ -2653,7 +2694,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_scroll_depth_bounce_rate_path_cleaning
@@ -2766,7 +2808,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_scroll_depth_bounce_rate_with_filter
@@ -2879,7 +2922,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_source_medium_campaign
@@ -2940,7 +2984,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_timezone_filter_dst_change
@@ -2997,7 +3042,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_timezone_filter_general
@@ -3043,7 +3089,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_timezone_filter_with_empty_timezone
@@ -3100,7 +3147,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
 # name: TestWebStatsTableQueryRunner.test_timezone_filter_with_invalid_timezone
@@ -3157,6 +3205,7 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    max_bytes_before_external_sort=0
   '''
 # ---
