@@ -30,7 +30,7 @@ export function DistributionModal({ experimentId }: { experimentId: Experiment['
     const { setFeatureFlagFilters, distributeVariantsEqually } = useActions(_featureFlagLogic)
 
     const handleRolloutPercentageChange = (index: number, value: number | undefined): void => {
-        if (!featureFlag?.filters?.multivariate || !value) {
+        if (!featureFlag?.filters?.multivariate || value === undefined) {
             return
         }
 
