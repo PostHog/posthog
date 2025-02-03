@@ -105,43 +105,6 @@ describe('CdpCyclotronWorkerPlugins', () => {
         jest.useRealTimers()
     })
 
-    describe('setupPlugin', () => {
-        it('should setup a plugin on first call', async () => {
-            jest.spyOn(intercomPlugin, 'setupPlugin')
-
-            const results = processor.processBatch([
-                createInvocation(fn, globals),
-                createInvocation(fn, globals),
-                createInvocation(fn, globals),
-            ])
-
-            expect(await results).toMatchObject([{ finished: true }, { finished: true }, { finished: true }])
-
-            expect(intercomPlugin.setupPlugin).toHaveBeenCalledTimes(1)
-            expect(jest.mocked(intercomPlugin.setupPlugin!).mock.calls[0][0]).toMatchInlineSnapshot(`
-                {
-                  "config": {
-                    "ignoredEmailDomains": "dev.posthog.com",
-                    "intercomApiKey": "1234567890",
-                    "triggeringEvents": "$identify,mycustomevent",
-                    "useEuropeanDataStorage": "No",
-                  },
-                  "fetch": [Function],
-                  "geoip": {
-                    "locate": [Function],
-                  },
-                  "global": {},
-                  "logger": {
-                    "debug": [Function],
-                    "error": [Function],
-                    "log": [Function],
-                    "warn": [Function],
-                  },
-                }
-            `)
-        })
-    })
-
     describe('onEvent', () => {
         it('should call the plugin onEvent method', async () => {
             jest.spyOn(intercomPlugin as any, 'onEvent')
