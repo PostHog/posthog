@@ -12,6 +12,7 @@ export const template: HogFunctionTemplate = {
     inputs_schema: [
         {
             key: 'parameters',
+            templating: false,
             label: 'URL query parameters to convert',
             type: 'string',
             default: '',
@@ -20,6 +21,7 @@ export const template: HogFunctionTemplate = {
         },
         {
             key: 'prefix',
+            templating: false,
             label: 'Prefix',
             type: 'string',
             default: '',
@@ -28,6 +30,7 @@ export const template: HogFunctionTemplate = {
         },
         {
             key: 'suffix',
+            templating: false,
             label: 'Suffix',
             type: 'string',
             default: '',
@@ -36,6 +39,7 @@ export const template: HogFunctionTemplate = {
         },
         {
             key: 'ignoreCase',
+            templating: false,
             label: 'Ignore the case of URL parameters',
             type: 'choice',
             choices: [
@@ -48,6 +52,7 @@ export const template: HogFunctionTemplate = {
         },
         {
             key: 'setAsUserProperties',
+            templating: false,
             label: 'Add to user properties',
             type: 'choice',
             choices: [
@@ -59,6 +64,7 @@ export const template: HogFunctionTemplate = {
         },
         {
             key: 'setAsInitialUserProperties',
+            templating: false,
             label: 'Add to user initial properties',
             type: 'choice',
             choices: [
@@ -71,6 +77,7 @@ export const template: HogFunctionTemplate = {
         },
         {
             key: 'alwaysJson',
+            templating: false,
             label: 'Always JSON stringify the property data',
             type: 'choice',
             choices: [

@@ -4,7 +4,6 @@ import { Response } from '~/src/utils/fetch'
 
 import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from '../../types'
 import metadata from './plugin.json'
-
 type IntercomMeta = LegacyDestinationPluginMeta & {
     global: {
         intercomUrl: string
@@ -191,7 +190,7 @@ function getTimestamp(meta: IntercomMeta, event: ProcessedPluginEvent): number {
 
 export const intercomPlugin: LegacyDestinationPlugin = {
     id: 'posthog-intercom-plugin',
-    metadata: metadata as any,
+    metadata,
     onEvent,
     setupPlugin: () => Promise.resolve(),
 }

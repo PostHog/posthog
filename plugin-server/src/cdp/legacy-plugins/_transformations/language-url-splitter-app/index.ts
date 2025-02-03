@@ -21,6 +21,6 @@ export function processEvent(event: PluginEvent, { config }: LegacyTransformatio
 
 export const languageUrlSplitterApp: LegacyTransformationPlugin = {
     id: 'language-url-splitter-app',
-    metadata: metadata as any,
+    metadata,
     processEvent,
 }

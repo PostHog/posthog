@@ -13,6 +13,7 @@ export const template: HogFunctionTemplate = {
     inputs_schema: [
         {
             key: 'overrideUserAgentDetails',
+            templating: false,
             label: 'Can override existing browser related properties of event?',
             type: 'string',
             description:
@@ -22,6 +23,7 @@ export const template: HogFunctionTemplate = {
         },
         {
             key: 'enableSegmentAnalyticsJs',
+            templating: false,
             label: 'Automatically read segment_userAgent property, automatically sent by Segment via analytics.js?',
             type: 'choice',
             description:
@@ -35,6 +37,7 @@ export const template: HogFunctionTemplate = {
         },
         {
             key: 'debugMode',
+            templating: false,
             type: 'choice',
             description: 'Enable debug mode to log when the plugin is unable to extract values from the user agent',
             choices: [
