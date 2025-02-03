@@ -69,6 +69,9 @@ export function OutputPane(): JSX.Element {
                         name: column,
                         resizable: true,
                         renderCell: (props: any) => {
+                            if (props.row[column] === null) {
+                                return null
+                            }
                             return props.row[column].toString()
                         },
                     }
@@ -111,7 +114,7 @@ export function OutputPane(): JSX.Element {
             <div className="flex flex-row justify-between align-center py-2 px-4 w-full h-[55px]">
                 <LemonTabs
                     activeKey={activeTab}
-                    onChange={(tab) => setActiveTab(tab as OutputTab)}
+                    onChange={(tab) => setActiveTab(tab)}
                     tabs={[
                         {
                             key: OutputTab.Results,

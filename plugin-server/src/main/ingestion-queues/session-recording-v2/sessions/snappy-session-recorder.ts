@@ -38,6 +38,8 @@ export class SnappySessionRecorder {
     private rawBytesWritten: number = 0
     private ended = false
 
+    constructor(public readonly sessionId: string, public readonly teamId: number) {}
+
     /**
      * Records a message containing events for this session
      * Events are buffered until end() is called

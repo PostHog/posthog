@@ -292,3 +292,19 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         validated = validate_inputs(inputs_schema, inputs)
         # Only A is present, so A=0
         assert validated["A"]["order"] == 0
+
+    def test_validate_inputs_no_bytcode_if_not_hog(self):
+        # A depends on a non-existing input X
+        # This should ignore X since it's not defined.
+        # So no error, but A has no real dependencies that matter.
+        inputs_schema = [
+            {"key": "A", "type": "string", "required": True, "templating": False},
+        ]
+        inputs = {
+            "A": {"value": "{inputs.X} + A"},
+        }
+
+        validated = validate_inputs(inputs_schema, inputs)
+        assert validated["A"].get("bytecode") is None
+        assert validated["A"].get("transpiled") is None
+        assert validated["A"].get("value") == "{inputs.X} + A"
