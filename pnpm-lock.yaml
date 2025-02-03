@@ -54,8 +54,8 @@ dependencies:
     specifier: 4.6.0
     version: 4.6.0(monaco-editor@0.49.0)(react-dom@18.2.0)(react@18.2.0)
   '@posthog/hedgehog-mode':
-    specifier: ^0.0.1
-    version: 0.0.1
+    specifier: ^0.0.2
+    version: 0.0.2
   '@posthog/hogvm':
     specifier: ^1.0.66
     version: 1.0.66(luxon@3.5.0)
@@ -5428,8 +5428,8 @@ packages:
     resolution: {integrity: sha512-50/17A98tWUfQ176raKiOGXuYpLyyVMkxxG6oylzL3BPOlA6ADGdK7EYunSa4I064xerltq9TGXs8HmOk5E+vw==}
     dev: false
 
-  /@posthog/hedgehog-mode@0.0.1:
-    resolution: {integrity: sha512-xyINW75SEFLHbRqRRsog5j6QtosdeCh4NLX6dweCg15adEbnpJLmSvUhpNv6kNwaF+uI5ZVYK2LhUDagqjb5/w==}
+  /@posthog/hedgehog-mode@0.0.2:
+    resolution: {integrity: sha512-FT3nUzF5kOCYtiaefd6ImUE1dgBZdfjvbsWugRQOMCdhQFZPD5xnxGHKzvYb4z9PPP8fjre+GwwVfJkMpO9hiQ==}
     engines: {node: '>=18'}
     dependencies:
       gsap: 3.12.7
