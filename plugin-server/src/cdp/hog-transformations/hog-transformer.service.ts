@@ -43,7 +43,7 @@ export class HogTransformerService {
         this.hub = hub
         this.hogFunctionManager = new HogFunctionManagerService(hub)
         this.hogExecutor = new HogExecutorService(hub, this.hogFunctionManager)
-        this.pluginExecutor = new LegacyPluginExecutorService()
+        this.pluginExecutor = new LegacyPluginExecutorService(hub)
     }
 
     private getTransformationFunctions() {
