@@ -159,7 +159,7 @@ const Content = ({
                                 <div
                                     className="absolute top-0 left-0 h-full"
                                     // eslint-disable-next-line react/forbid-dom-props
-                                    style={{ width, backgroundColor: 'var(--text-secondary)', opacity: 0.5 }}
+                                    style={{ width, backgroundColor: 'var(--bg-surface-primary)', opacity: 0.5 }}
                                 />
                                 <span
                                     title={path}

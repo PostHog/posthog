@@ -198,6 +198,9 @@ $xxl: 1600px;
     --text-primary-inverse: light-dark(var(--primitive-neutral-100), var(--primitive-neutral-950));
     --text-secondary: light-dark(var(--primitive-neutral-750), var(--primitive-neutral-350));
     --text-tertiary: light-dark(var(--primitive-neutral-600), var(--primitive-neutral-400));
+    --text-success: light-dark(var(--color-green-600), var(--color-green-400));
+    --text-warning: light-dark(var(--color-yellow-700), var(--color-yellow-400));
+    --text-error: light-dark(var(--color-red-600), var(--color-red-400));
 
     // Fills
     // Small colourful areas: banners, pills, buttons, etc.
@@ -713,6 +716,9 @@ $xxl: 1600px;
     --text-color-primary-inverse: var(--text-primary-inverse);
     --text-color-secondary: var(--text-secondary);
     --text-color-tertiary: var(--text-tertiary);
+    --text-color-success: var(--text-success);
+    --text-color-warning: var(--text-warning);
+    --text-color-error: var(--text-error);
     --text-color-info-on-bg-fill: var(--text-info-on-bg-fill);
     --text-color-warning-on-bg-fill: var(--text-warning-on-bg-fill);
     --text-color-error-on-bg-fill: var(--text-error-on-bg-fill);
@@ -1287,7 +1293,7 @@ $xxl: 1600px;
     .Toastify__toast {
         align-items: center;
         padding: 0.75rem;
-        margin-bottom: 0.5rem;
+        margin-bottom: 0.5rem !important;
         font-family: var(--font-sans);
         font-size: 1rem;
         cursor: unset;

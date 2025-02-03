@@ -100,6 +100,7 @@ export function SDKs({
                     )}
                     {sdks?.map((sdk) => (
                         <React.Fragment key={`sdk-${sdk.key}`}>
+                            {/* // TODO: Make light/dark version of the logos */}
                             <LemonButton
                                 data-attr={`onboarding-sdk-${sdk.key}`}
                                 active={selectedSDK?.key === sdk.key}
