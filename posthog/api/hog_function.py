@@ -168,9 +168,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 # Currently we do not allow modifying the core transformation templates when transformations are disabled
                 attrs["hog"] = template.hog
                 attrs["inputs_schema"] = template.inputs_schema
-
-        if not has_addon:
-            # In this case they are only allowed to create or update the function with free templates
+        elif not has_addon:
+            # In this case they are only allowed to create or update the function with free templates for destinations
             if not template:
                 raise serializers.ValidationError(
                     {"template_id": "The Data Pipelines addon is required to create custom functions."}
