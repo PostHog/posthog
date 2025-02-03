@@ -272,7 +272,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                                         <LemonButton
                                             type="secondary"
                                             onClick={() => setIsPropertiesOpen(true)}
-                                            className="mx-auto mt-2"
+                                            className="mx-auto !mt-2"
                                         >
                                             Select properties
                                         </LemonButton>

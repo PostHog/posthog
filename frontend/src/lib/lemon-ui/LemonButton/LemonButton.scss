@@ -213,7 +213,7 @@
     &.LemonButton--status-danger,
     &.LemonButton--primary.LemonButton--status-danger,
     &.LemonButton--secondary.LemonButton--status-danger {
-        --lemon-button-color: var(--danger-3000-button-border-hover);
+        --lemon-button-color: var(--danger-3000-button-border-hover) !important;
         --button-border-color: var(--danger-3000-button-border);
         --lemon-button-border-color-hover: var(--danger-3000-button-border-hover);
         --lemon-button-frame-bg-color: var(--danger-3000-frame-bg);

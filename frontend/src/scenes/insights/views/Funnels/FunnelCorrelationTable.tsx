@@ -292,7 +292,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                                         <LemonButton
                                             onClick={() => loadEventCorrelations({})}
                                             type="secondary"
-                                            className="mx-auto mt-2"
+                                            className="mx-auto !mt-2"
                                         >
                                             Load results
                                         </LemonButton>
