@@ -661,11 +661,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
-    @action(
-        methods=["POST"],
-        detail=True,
-        permission_classes=[IsAuthenticated],
-    )
+    @action(methods=["POST"], detail=True)
     def change_organization(self, request: request.Request, id: str, **kwargs) -> response.Response:
         project = self.get_object()
         user = cast(User, request.user)
