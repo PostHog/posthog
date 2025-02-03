@@ -386,15 +386,24 @@ def drop_snapshot_dictionary(
 def drop_snapshot_table(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     table: PersonOverridesSnapshotTable,
-) -> None:
+) -> bool:
     """Drop the snapshot table on all hosts."""
     cluster.map_all_hosts(table.drop).result()
+    return True
+
+
+@dagster.op(out={"timestamp": dagster.Out(str)})
+def pass_the_torch(
+    config: PopulateSnapshotTableConfig,
+    drop_snapshot_table: bool,
+) -> str:
+    return config.timestamp
 
 
 # Job Definition
 
 
-@dagster.job
+@dagster.job()
 def squash_person_overrides():
     prepared_snapshot_table = wait_for_snapshot_table_replication(populate_snapshot_table(create_snapshot_table()))
     prepared_dictionary = load_and_verify_snapshot_dictionary(create_snapshot_dictionary(prepared_snapshot_table))
@@ -404,5 +413,5 @@ def squash_person_overrides():
     dictionary_after_override_delete_mutations = wait_for_overrides_delete_mutations(
         start_overrides_delete_mutations(dictionary_after_person_id_update_mutations)
     )
-
-    drop_snapshot_table(drop_snapshot_dictionary(dictionary_after_override_delete_mutations))
+    finished = drop_snapshot_table(drop_snapshot_dictionary(dictionary_after_override_delete_mutations))
+    pass_the_torch(finished)
