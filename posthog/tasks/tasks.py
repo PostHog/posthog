@@ -496,22 +496,7 @@ def clickhouse_mutation_count() -> None:
 @shared_task(ignore_result=True)
 def clickhouse_clear_removed_data() -> None:
     from posthog.models.async_deletion.delete_cohorts import AsyncCohortDeletion
-    from posthog.models.async_deletion.delete_events import AsyncEventDeletion
     from posthog.pagerduty.pd import create_incident
-
-    runner = AsyncEventDeletion()
-
-    try:
-        runner.mark_deletions_done()
-    except Exception as e:
-        logger.error("Failed to mark deletions done", error=e, exc_info=True)
-        create_incident("Failed to mark deletions done", "clickhouse_clear_removed_data", severity="error")
-
-    try:
-        runner.run()
-    except Exception as e:
-        logger.error("Failed to run deletions", error=e, exc_info=True)
-        create_incident("Failed to run deletions", "clickhouse_clear_removed_data", severity="error")
 
     cohort_runner = AsyncCohortDeletion()
 
@@ -580,11 +565,11 @@ def monitoring_check_clickhouse_schema_drift() -> None:
     check_clickhouse_schema_drift()
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
+@shared_task(ignore_result=True)
 def calculate_cohort(parallel_count: int) -> None:
-    from posthog.tasks.calculate_cohort import calculate_cohorts
+    from posthog.tasks.calculate_cohort import enqueue_cohorts_to_calculate
 
-    calculate_cohorts(parallel_count)
+    enqueue_cohorts_to_calculate(parallel_count)
 
 
 class Polling:
