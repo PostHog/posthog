@@ -82,6 +82,6 @@ const standardizeName = (name: string, desiredPattern: Transformation) => {
 
 export const taxonomyPlugin: LegacyTransformationPlugin = {
     id: 'taxonomy-plugin',
-    metadata: metadata as any,
+    metadata,
     processEvent,
 }
