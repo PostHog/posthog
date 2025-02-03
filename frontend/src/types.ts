@@ -3896,7 +3896,6 @@ export type APIScopeObject =
     | 'survey'
     | 'user'
     | 'webhook'
-    | 'web_vitals'
 
 export interface AccessControlTypeBase {
     created_by: UserBasicType | null
