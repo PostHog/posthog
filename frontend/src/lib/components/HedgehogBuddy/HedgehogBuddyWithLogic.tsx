@@ -20,7 +20,6 @@ export function HedgehogBuddyWithLogic(): JSX.Element {
 
     useEffect(() => {
         if (ref) {
-            console.log('Setting up hedgehog mode')
             const hedgeHogMode = new HedgeHogMode({
                 assetsUrl: '/static/hedgehog-mode/',
                 platformSelector:
@@ -36,6 +35,14 @@ export function HedgehogBuddyWithLogic(): JSX.Element {
                 })
         }
     }, [ref])
+
+    useEffect(() => {
+        if (!game) {
+            return
+        }
+        game.spawnHedgehog(hedgehogConfig)
+        game.isDebugging = true
+    }, [game])
 
     useEffect(() => ensureAllMembersLoaded(), [hedgehogConfig.enabled])
 
