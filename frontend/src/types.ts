@@ -4898,3 +4898,8 @@ export type UserGroup = {
     name: string
     members: UserBasicType[]
 }
+
+export interface CoreMemory {
+    id: string
+    text: string
+}
