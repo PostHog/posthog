@@ -12,20 +12,19 @@
 # and therefore reconcile the events to be associated with the same Person.
 
 
+from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_PERSON_OVERRIDE
 from posthog.settings.data_stores import (
-    CLICKHOUSE_CLUSTER,
     CLICKHOUSE_DATABASE,
     KAFKA_HOSTS,
 )
 
-ON_CLUSTER_CLAUSE = lambda: f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
 
 PERSON_OVERRIDES_CREATE_TABLE_SQL = (
     lambda on_cluster=True: f"""
     CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides`
-    {ON_CLUSTER_CLAUSE() if on_cluster else ""} (
+    {ON_CLUSTER_CLAUSE(on_cluster)} (
         team_id INT NOT NULL,
 
         -- When we merge two people `old_person_id` and `override_person_id`, we
@@ -92,7 +91,7 @@ PERSON_OVERRIDES_CREATE_TABLE_SQL = (
 # ClickHouse MergeTree table `person_overrides`
 KAFKA_PERSON_OVERRIDES_TABLE_SQL = f"""
     CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`kafka_person_overrides`
-    ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+    {ON_CLUSTER_CLAUSE()}
 
     ENGINE = Kafka(
         '{",".join(KAFKA_HOSTS)}', -- Kafka hosts
@@ -121,7 +120,7 @@ KAFKA_PERSON_OVERRIDES_TABLE_SQL = f"""
 
 DROP_KAFKA_PERSON_OVERRIDES_TABLE_SQL = f"""
     DROP TABLE IF EXISTS `{CLICKHOUSE_DATABASE}`.`kafka_person_overrides`
-    ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+    {ON_CLUSTER_CLAUSE()}
     SYNC
 """
 
@@ -129,7 +128,7 @@ DROP_KAFKA_PERSON_OVERRIDES_TABLE_SQL = f"""
 # `person_overrides` table.
 PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL = f"""
     CREATE MATERIALIZED VIEW IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides_mv`
-    ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+    {ON_CLUSTER_CLAUSE()}
     TO `{CLICKHOUSE_DATABASE}`.`person_overrides`
     AS SELECT
         team_id,
@@ -146,7 +145,7 @@ PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL = f"""
 
 DROP_PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL = f"""
     DROP VIEW IF EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides_mv`
-    ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+    {ON_CLUSTER_CLAUSE()}
     SYNC
 """
 
@@ -165,7 +164,7 @@ GROUP BY
 # ClickHouse dictionaries allow us to JOIN events with their new override_person_ids (if any).
 PERSON_OVERRIDES_CREATE_DICTIONARY_SQL = f"""
     CREATE DICTIONARY IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides_dict`
-    ON CLUSTER '{CLICKHOUSE_CLUSTER}' (
+    {ON_CLUSTER_CLAUSE()} (
         team_id INT,
         old_person_id UUID,
         override_person_id UUID
@@ -182,5 +181,5 @@ PERSON_OVERRIDES_CREATE_DICTIONARY_SQL = f"""
 
 DROP_PERSON_OVERRIDES_CREATE_DICTIONARY_SQL = f"""
     DROP DICTIONARY IF EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides_dict`
-    ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+    {ON_CLUSTER_CLAUSE()}
 """

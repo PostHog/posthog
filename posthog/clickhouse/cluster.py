@@ -21,6 +21,9 @@ from clickhouse_pool import ChPool
 from posthog import settings
 from posthog.clickhouse.client.connection import NodeRole, _make_ch_pool, default_client
 from posthog.settings import CLICKHOUSE_PER_TEAM_SETTINGS
+from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
+
+ON_CLUSTER_CLAUSE = lambda on_cluster=True: f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if on_cluster else ""
 
 K = TypeVar("K")
 V = TypeVar("V")

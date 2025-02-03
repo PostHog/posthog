@@ -7,8 +7,8 @@ from posthog.clickhouse.table_engines import (
     MergeTreeEngine,
 )
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_HEATMAP_EVENTS
+from posthog.session_recordings.sql.session_recording_event_sql import ON_CLUSTER_CLAUSE
 
-ON_CLUSTER_CLAUSE = lambda: f"ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 
 HEATMAPS_DATA_TABLE = lambda: "sharded_heatmaps"
 
@@ -96,7 +96,7 @@ HEATMAPS_TABLE_SQL = lambda on_cluster=True: (
 """
 ).format(
     table_name=HEATMAPS_DATA_TABLE(),
-    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
+    on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
     engine=HEATMAPS_DATA_TABLE_ENGINE(),
     ttl_period=ttl_period("timestamp", 90, unit="DAY"),
 )
@@ -144,7 +144,7 @@ FROM {database}.kafka_heatmaps
 # This table is responsible for writing to sharded_heatmaps based on a sharding key.
 WRITABLE_HEATMAPS_TABLE_SQL = lambda on_cluster=True: HEATMAPS_TABLE_BASE_SQL.format(
     table_name="writable_heatmaps",
-    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
+    on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
     engine=Distributed(
         data_table=HEATMAPS_DATA_TABLE(),
         sharding_key="cityHash64(concat(toString(team_id), '-', session_id, '-', toString(toDate(timestamp))))",
@@ -154,7 +154,7 @@ WRITABLE_HEATMAPS_TABLE_SQL = lambda on_cluster=True: HEATMAPS_TABLE_BASE_SQL.fo
 # This table is responsible for reading from heatmaps on a cluster setting
 DISTRIBUTED_HEATMAPS_TABLE_SQL = lambda on_cluster=True: HEATMAPS_TABLE_BASE_SQL.format(
     table_name="heatmaps",
-    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
+    on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
     engine=Distributed(
         data_table=HEATMAPS_DATA_TABLE(),
         sharding_key="cityHash64(concat(toString(team_id), '-', session_id, '-', toString(toDate(timestamp))))",

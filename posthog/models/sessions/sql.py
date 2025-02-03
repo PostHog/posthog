@@ -1,22 +1,36 @@
 from django.conf import settings
 
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
+from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import (
     Distributed,
     ReplicationScheme,
     AggregatingMergeTree,
 )
 
-ON_CLUSTER_CLAUSE = lambda: f"ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
-
 # V1 Sessions table
 TABLE_BASE_NAME = "sessions"
-SESSIONS_DATA_TABLE = lambda: f"sharded_{TABLE_BASE_NAME}"
 
-TRUNCATE_SESSIONS_TABLE_SQL = lambda: f"TRUNCATE TABLE IF EXISTS {SESSIONS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
-DROP_SESSION_TABLE_SQL = lambda: f"DROP TABLE IF EXISTS {SESSIONS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
-DROP_SESSION_MATERIALIZED_VIEW_SQL = lambda: f"DROP TABLE IF EXISTS {TABLE_BASE_NAME}_mv {ON_CLUSTER_CLAUSE()}"
-DROP_SESSION_VIEW_SQL = lambda: f"DROP VIEW IF EXISTS {TABLE_BASE_NAME}_v {ON_CLUSTER_CLAUSE()}"
+
+def SESSIONS_DATA_TABLE():
+    return f"sharded_{TABLE_BASE_NAME}"
+
+
+def TRUNCATE_SESSIONS_TABLE_SQL():
+    return f"TRUNCATE TABLE IF EXISTS {SESSIONS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
+
+
+def DROP_SESSION_TABLE_SQL():
+    return f"DROP TABLE IF EXISTS {SESSIONS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
+
+
+def DROP_SESSION_MATERIALIZED_VIEW_SQL():
+    return f"DROP TABLE IF EXISTS {TABLE_BASE_NAME}_mv {ON_CLUSTER_CLAUSE()}"
+
+
+def DROP_SESSION_VIEW_SQL():
+    return f"DROP VIEW IF EXISTS {TABLE_BASE_NAME}_v {ON_CLUSTER_CLAUSE()}"
+
 
 # Only teams that were grandfathered into the V1 sessions table are allowed to use it. Everyone else should use V2,
 # i.e. raw_sessions. These teams were those who were seen to have changed their session table version in these metabase
@@ -95,11 +109,15 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 ) ENGINE = {engine}
 """
 
-SESSIONS_DATA_TABLE_ENGINE = lambda: AggregatingMergeTree(TABLE_BASE_NAME, replication_scheme=ReplicationScheme.SHARDED)
 
-SESSIONS_TABLE_SQL = lambda on_cluster=True: (
-    SESSIONS_TABLE_BASE_SQL
-    + """
+def SESSIONS_DATA_TABLE_ENGINE():
+    return AggregatingMergeTree(TABLE_BASE_NAME, replication_scheme=ReplicationScheme.SHARDED)
+
+
+def SESSIONS_TABLE_SQL(on_cluster=True):
+    return (
+        SESSIONS_TABLE_BASE_SQL
+        + """
     PARTITION BY toYYYYMM(min_timestamp)
     -- order by is used by the aggregating merge tree engine to
     -- identify candidates to merge, e.g. toDate(min_timestamp)
@@ -114,11 +132,11 @@ SESSIONS_TABLE_SQL = lambda on_cluster=True: (
     ORDER BY (toStartOfDay(min_timestamp), team_id, session_id)
 SETTINGS index_granularity=512
 """
-).format(
-    table_name=SESSIONS_DATA_TABLE(),
-    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
-    engine=SESSIONS_DATA_TABLE_ENGINE(),
-)
+    ).format(
+        table_name=SESSIONS_DATA_TABLE(),
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=SESSIONS_DATA_TABLE_ENGINE(),
+    )
 
 
 def source_column(column_name: str) -> str:
@@ -223,25 +241,33 @@ ALTER TABLE {table_name} MODIFY QUERY
 # Distributed engine tables are only created if CLICKHOUSE_REPLICATED
 
 # This table is responsible for writing to sharded_sessions based on a sharding key.
-WRITABLE_SESSIONS_TABLE_SQL = lambda on_cluster=True: SESSIONS_TABLE_BASE_SQL.format(
-    table_name=f"writable_{TABLE_BASE_NAME}",
-    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
-    engine=Distributed(
-        data_table=SESSIONS_DATA_TABLE(),
-        # shard via session_id so that all events for a session are on the same shard
-        sharding_key="sipHash64(session_id)",
-    ),
-)
+
+
+def WRITABLE_SESSIONS_TABLE_SQL(on_cluster=True):
+    return SESSIONS_TABLE_BASE_SQL.format(
+        table_name=f"writable_{TABLE_BASE_NAME}",
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=Distributed(
+            data_table=SESSIONS_DATA_TABLE(),
+            # shard via session_id so that all events for a session are on the same shard
+            sharding_key="sipHash64(session_id)",
+        ),
+    )
+
 
 # This table is responsible for reading from sessions on a cluster setting
-DISTRIBUTED_SESSIONS_TABLE_SQL = lambda on_cluster=True: SESSIONS_TABLE_BASE_SQL.format(
-    table_name=TABLE_BASE_NAME,
-    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
-    engine=Distributed(
-        data_table=SESSIONS_DATA_TABLE(),
-        sharding_key="sipHash64(session_id)",
-    ),
-)
+
+
+def DISTRIBUTED_SESSIONS_TABLE_SQL(on_cluster=True):
+    return SESSIONS_TABLE_BASE_SQL.format(
+        table_name=TABLE_BASE_NAME,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=Distributed(
+            data_table=SESSIONS_DATA_TABLE(),
+            sharding_key="sipHash64(session_id)",
+        ),
+    )
+
 
 # This is the view that can be queried directly, that handles aggregation of potentially multiple rows per session.
 # Most queries won't use this directly as they will want to pre-filter rows before aggregation, but it's useful for

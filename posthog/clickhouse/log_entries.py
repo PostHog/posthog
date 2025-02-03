@@ -1,9 +1,8 @@
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, kafka_engine, ttl_period
 from posthog.clickhouse.table_engines import ReplacingMergeTree
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
+from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
-
-ON_CLUSTER_CLAUSE = lambda: f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
 
 LOG_ENTRIES_TABLE = "log_entries"
 LOG_ENTRIES_TTL_DAYS = 90
@@ -34,27 +33,35 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 ) ENGINE = {engine}
 """
 
-LOG_ENTRIES_TABLE_ENGINE = lambda: ReplacingMergeTree(LOG_ENTRIES_TABLE, ver="_timestamp")
-LOG_ENTRIES_TABLE_SQL = lambda on_cluster=True: (
-    LOG_ENTRIES_TABLE_BASE_SQL
-    + """PARTITION BY toStartOfHour(timestamp) ORDER BY (team_id, log_source, log_source_id, instance_id, timestamp)
+
+def LOG_ENTRIES_TABLE_ENGINE():
+    return ReplacingMergeTree(LOG_ENTRIES_TABLE, ver="_timestamp")
+
+
+def LOG_ENTRIES_TABLE_SQL(on_cluster=True):
+    return (
+        LOG_ENTRIES_TABLE_BASE_SQL
+        + """PARTITION BY toStartOfHour(timestamp) ORDER BY (team_id, log_source, log_source_id, instance_id, timestamp)
 {ttl_period}
 SETTINGS index_granularity=512
 """
-).format(
-    table_name=LOG_ENTRIES_TABLE,
-    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
-    extra_fields=KAFKA_COLUMNS,
-    engine=LOG_ENTRIES_TABLE_ENGINE(),
-    ttl_period=ttl_period("timestamp", LOG_ENTRIES_TTL_DAYS, unit="DAY"),
-)
+    ).format(
+        table_name=LOG_ENTRIES_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        extra_fields=KAFKA_COLUMNS,
+        engine=LOG_ENTRIES_TABLE_ENGINE(),
+        ttl_period=ttl_period("timestamp", LOG_ENTRIES_TTL_DAYS, unit="DAY"),
+    )
 
-KAFKA_LOG_ENTRIES_TABLE_SQL = lambda on_cluster=True: LOG_ENTRIES_TABLE_BASE_SQL.format(
-    table_name="kafka_" + LOG_ENTRIES_TABLE,
-    on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
-    engine=kafka_engine(topic=KAFKA_LOG_ENTRIES),
-    extra_fields="",
-)
+
+def KAFKA_LOG_ENTRIES_TABLE_SQL(on_cluster=True):
+    return LOG_ENTRIES_TABLE_BASE_SQL.format(
+        table_name="kafka_" + LOG_ENTRIES_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=kafka_engine(topic=KAFKA_LOG_ENTRIES),
+        extra_fields="",
+    )
+
 
 LOG_ENTRIES_TABLE_MV_SQL = """
 CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name}_mv ON CLUSTER '{cluster}'
@@ -81,4 +88,4 @@ INSERT_LOG_ENTRY_SQL = """
 INSERT INTO log_entries SELECT %(team_id)s, %(log_source)s, %(log_source_id)s, %(instance_id)s, %(timestamp)s, %(level)s, %(message)s, now(), 0
 """
 
-TRUNCATE_LOG_ENTRIES_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS {LOG_ENTRIES_TABLE} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+TRUNCATE_LOG_ENTRIES_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS {LOG_ENTRIES_TABLE} {ON_CLUSTER_CLAUSE()}"

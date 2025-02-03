@@ -2,13 +2,12 @@ import json
 import os
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import (
     MergeTreeEngine,
     ReplicationScheme,
 )
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_PASSWORD
-
-ON_CLUSTER_CLAUSE = lambda: f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
 
 CHANNEL_DEFINITION_TABLE_NAME = "channel_definition"
 CHANNEL_DEFINITION_DICTIONARY_NAME = "channel_definition_dict"
@@ -26,7 +25,7 @@ ORDER BY (domain, kind);
 """.format(
         table_name=CHANNEL_DEFINITION_TABLE_NAME,
         engine=MergeTreeEngine("channel_definition", replication_scheme=ReplicationScheme.REPLICATED),
-        on_cluster_clause=ON_CLUSTER_CLAUSE() if on_cluster else "",
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
     )
 )
 
@@ -66,7 +65,7 @@ INSERT INTO channel_definition (domain, kind, domain_type, type_if_paid, type_if
 # Use COMPLEX_KEY_HASHED, as we have a composite key
 CHANNEL_DEFINITION_DICTIONARY_SQL = (
     lambda on_cluster=True: f"""
-CREATE DICTIONARY IF NOT EXISTS {CHANNEL_DEFINITION_DICTIONARY_NAME} {ON_CLUSTER_CLAUSE() if on_cluster else ""} (
+CREATE DICTIONARY IF NOT EXISTS {CHANNEL_DEFINITION_DICTIONARY_NAME} {ON_CLUSTER_CLAUSE(on_cluster)} (
     domain String,
     kind String,
     domain_type Nullable(String),
