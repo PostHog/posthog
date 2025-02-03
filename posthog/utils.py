@@ -367,8 +367,8 @@ def render_template(
         api_token = get_self_capture_api_token(request.user)
 
         if api_token:
-            context["js_posthog_api_key"] = f"'{api_token}'"
-            context["js_posthog_host"] = "window.location.origin"
+            context["js_posthog_api_key"] = api_token
+            context["js_posthog_host"] = None
     else:
         context["js_posthog_api_key"] = "'sTMFPsFhdP1Ssg'"
         context["js_posthog_host"] = "'https://internal-t.posthog.com'"
