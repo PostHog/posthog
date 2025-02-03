@@ -20,6 +20,6 @@ function processEvent(event: PluginEvent, _meta: LegacyTransformationPluginMeta)
 
 export const timestampParserPlugin: LegacyTransformationPlugin = {
     id: 'timestamp-parser-plugin',
-    metadata: metadata as any,
+    metadata,
     processEvent,
 }
