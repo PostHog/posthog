@@ -12,12 +12,11 @@ EXPECT_HOSTS=(
 FAILED_COUNT=0
 
 for DOMAIN in "${EXPECT_HOSTS[@]}"; do
-    # Use nslookup to check the domain (checking only once)
   if ! nslookup "$DOMAIN" &>/dev/null; then
-    echo "Error: Domain '$DOMAIN' could not be resolved."
+    echo "❌ Error: Domain '$DOMAIN' could not be resolved."
     FAILED_COUNT=$((FAILED_COUNT + 1))
   else
-    echo "Domain '$DOMAIN' resolved successfully." # Optional: Show successful resolutions
+    echo "✅ Domain '$DOMAIN' resolved successfully."
   fi
 done
 
