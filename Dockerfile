@@ -70,9 +70,7 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
     corepack enable && \
     pnpm --filter=@posthog/plugin-server install --frozen-lockfile --store-dir /tmp/pnpm-store && \
     pnpm --filter=@posthog/plugin-transpiler install --frozen-lockfile --store-dir /tmp/pnpm-store && \
-    pnpm --filter=@posthog/plugin-transpiler build && \
-    pnpm --filter=@posthog/cyclotron-node install --frozen-lockfile --store-dir /tmp/pnpm-store && \
-    pnpm --filter=@posthog/cyclotron-node build
+    pnpm --filter=@posthog/plugin-transpiler build
 
 WORKDIR /code/plugin-server
 
@@ -82,7 +80,7 @@ WORKDIR /code/plugin-server
 # the cache hit ratio of the layers above.
 COPY ./plugin-server/src/ ./src/
 COPY ./plugin-server/tests/ ./tests/
-RUN pnpm --filter=@posthog/plugin-server build
+RUN pnpm run build:cyclotron && pnpm build
 
 #
 # ---------------------------------------------------------
