@@ -2,7 +2,6 @@ import './WebVitalsTab.scss'
 
 import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { WEB_VITALS_THRESHOLDS } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { WebVitalsMetric } from '~/queries/schema'
 
@@ -20,8 +19,7 @@ type WebVitalsTabProps = {
 export function WebVitalsTab({ value, label, metric, isActive, setTab }: WebVitalsTabProps): JSX.Element {
     const { value: parsedValue, unit } = getValueWithUnit(value, metric)
 
-    const threshold = WEB_VITALS_THRESHOLDS[metric]
-    const thresholdColor = getThresholdColor(value, threshold)
+    const thresholdColor = getThresholdColor(value, metric)
 
     return (
         <div
@@ -42,7 +40,7 @@ export function WebVitalsTab({ value, label, metric, isActive, setTab }: WebVita
             </div>
 
             <div className="w-full mt-2 hidden sm:block">
-                <WebVitalsProgressBar value={value} threshold={threshold} />
+                <WebVitalsProgressBar value={value} metric={metric} />
             </div>
         </div>
     )
