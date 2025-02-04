@@ -82,6 +82,13 @@ COPY ./plugin-server/src/ ./src/
 COPY ./plugin-server/tests/ ./tests/
 RUN pnpm run build:cyclotron && pnpm build
 
+# As the plugin-server is now built, let’s keep
+# only prod dependencies in the node_module folder
+# as we will copy it to the last image.
+RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
+    corepack enable && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --prod
+
 #
 # ---------------------------------------------------------
 #
@@ -190,6 +197,7 @@ RUN echo $COMMIT_HASH > /code/commit.txt
 # Add in the compiled plugin-server & its runtime dependencies from the plugin-server-build stage.
 COPY --from=plugin-server-build --chown=posthog:posthog /code/common/plugin_transpiler/dist /code/common/plugin_transpiler/dist
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/dist /code/plugin-server/dist
+COPY --from=plugin-server-build --chown=posthog:posthog /code/node_modules /code/node_modules
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/node_modules /code/plugin-server/node_modules
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/package.json /code/plugin-server/package.json
 
