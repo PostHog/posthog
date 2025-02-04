@@ -21,7 +21,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { Query } from '~/queries/Query/Query'
-import { ErrorTrackingIssue } from '~/queries/schema'
+import { ErrorTrackingIssue, ErrorTrackingIssueAggregations } from '~/queries/schema'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
@@ -54,7 +54,7 @@ export function ErrorTrackingScene(): JSX.Element {
                 render: CustomGroupTitleColumn,
             },
             occurrences: { align: 'center', render: CountColumn },
-            sessions: { align: 'center', render: SessionCountColumn },
+            sessions: { align: 'center', render: CountColumn },
             users: { align: 'center', render: CountColumn },
             volume: { renderTitle: VolumeColumnHeader, render: VolumeColumn },
             assignee: { render: AssigneeColumn },
@@ -186,19 +186,17 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     )
 }
 
-const SessionCountColumn: QueryContextColumnComponent = ({ children, ...props }) => {
-    const count = props.value as number
-    return count === 0 ? (
+const CountColumn = ({ record, columnName }: { record: unknown; columnName: string }): JSX.Element => {
+    const aggregations = (record as ErrorTrackingIssue).aggregations as ErrorTrackingIssueAggregations
+    const count = aggregations[columnName as 'occurrences' | 'sessions' | 'users']
+
+    return columnName === 'sessions' && count === 0 ? (
         <Tooltip title="No $session_id was set for any event in this issue" delayMs={0}>
             -
         </Tooltip>
     ) : (
-        <CountColumn {...props} />
+        <>{humanFriendlyLargeNumber(count)}</>
     )
-}
-
-const CountColumn: QueryContextColumnComponent = ({ value }) => {
-    return <>{humanFriendlyLargeNumber(value as number)}</>
 }
 
 const AssigneeColumn: QueryContextColumnComponent = (props) => {

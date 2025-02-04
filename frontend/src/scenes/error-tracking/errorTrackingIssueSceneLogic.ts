@@ -50,7 +50,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     key((props) => props.id),
 
     connect({
-        values: [errorTrackingLogic, ['dateRange', 'filterTestAccounts', 'filterGroup']],
+        values: [errorTrackingLogic, ['dateRange', 'filterTestAccounts', 'filterGroup', 'customSparklineConfig']],
     }),
 
     actions({
@@ -83,6 +83,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                         errorTrackingIssueQuery({
                             issueId: props.id,
                             dateRange: generateIssueDateRange(firstSeen, values.issue?.last_seen),
+                            customVolume: values.customSparklineConfig,
                         }),
                         {},
                         undefined,

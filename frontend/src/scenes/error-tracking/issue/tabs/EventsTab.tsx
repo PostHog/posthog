@@ -16,7 +16,7 @@ export const EventsTab = (): JSX.Element => {
         columns: {
             'recording_button(properties.$session_id)': {
                 title: 'Recording',
-                width: '132px',
+                width: '134px',
             },
         },
         showOpenEditorButton: false,

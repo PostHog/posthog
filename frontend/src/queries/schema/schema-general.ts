@@ -1666,7 +1666,7 @@ export interface ErrorTrackingIssueAggregations {
     users: number
     volumeDay: number[]
     volumeMonth: number[]
-    customVolume?: number[]
+    customVolume: number[] | null
 }
 
 export interface ErrorTrackingRelationalIssue {

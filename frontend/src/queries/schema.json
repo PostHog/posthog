@@ -5993,10 +5993,17 @@
             "additionalProperties": false,
             "properties": {
                 "customVolume": {
-                    "items": {
-                        "type": "number"
-                    },
-                    "type": "array"
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "number"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "occurrences": {
                     "type": "number"
@@ -6020,7 +6027,7 @@
                     "type": "array"
                 }
             },
-            "required": ["occurrences", "sessions", "users", "volumeDay", "volumeMonth"],
+            "required": ["occurrences", "sessions", "users", "volumeDay", "volumeMonth", "customVolume"],
             "type": "object"
         },
         "ErrorTrackingIssueAssignee": {

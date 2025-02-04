@@ -47,15 +47,18 @@ export const errorTrackingQuery = ({
 export const errorTrackingIssueQuery = ({
     issueId,
     dateRange,
+    customVolume,
 }: {
     issueId: string
     dateRange: DateRange
+    customVolume?: ErrorTrackingSparklineConfig | null
 }): ErrorTrackingQuery => {
     return {
         kind: NodeKind.ErrorTrackingQuery,
-        issueId: issueId,
-        dateRange: dateRange,
+        issueId,
+        dateRange,
         filterTestAccounts: false,
+        customVolume,
     }
 }
 
