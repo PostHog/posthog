@@ -1,6 +1,5 @@
 import fs from 'node:fs/promises'
 
-import tailwindcss from '@tailwindcss'
 import tailwindPostCss from '@tailwindcss/postcss'
 import autoprefixer from 'autoprefixer'
 import * as ps from 'child_process'
@@ -16,6 +15,7 @@ import fse from 'fs-extra'
 import * as path from 'path'
 import postcss from 'postcss'
 import postcssPresetEnv from 'postcss-preset-env'
+import tailwindcss from 'tailwindcss'
 import ts from 'typescript'
 
 const defaultHost = process.argv.includes('--host') && process.argv.includes('0.0.0.0') ? '0.0.0.0' : 'localhost'
