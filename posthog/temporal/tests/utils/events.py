@@ -145,9 +145,17 @@ async def insert_event_values_in_clickhouse(
             for event in events
         ],
     )
+
+    generate_sessions_query = RAW_SESSION_TABLE_BACKFILL_SELECT_SQL()
+    if table == "events_recent":
+        generate_sessions_query = generate_sessions_query.replace("posthog_test.events", "posthog_test.events_recent")
+        generate_sessions_query = generate_sessions_query.replace(
+            "`$session_id`", "JSONExtractString(properties, '$session_id')"
+        )
+
     await client.execute_query(f"""
     INSERT INTO raw_sessions
-    {RAW_SESSION_TABLE_BACKFILL_SELECT_SQL()}
+    {generate_sessions_query}
     """)
 
 

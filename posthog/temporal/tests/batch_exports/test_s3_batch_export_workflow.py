@@ -969,7 +969,7 @@ async def test_s3_export_workflow_with_minio_bucket(
     records to the MinIO bucket.
 
     We use a BatchExport model to provide accurate inputs to the Workflow and because the Workflow
-    will require its prescense in the database when running. This model is indirectly parametrized
+    will require its presence in the database when running. This model is indirectly parameterized
     by several fixtures. Refer to them for more information.
     """
     if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
