@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises'
 
-import tailwindcss from '@tailwindcss/postcss'
+import tailwindcss from '@tailwindcss'
+import tailwindPostCss from '@tailwindcss/postcss'
 import autoprefixer from 'autoprefixer'
 import * as ps from 'child_process'
 import chokidar from 'chokidar'
@@ -135,7 +136,7 @@ export const commonConfig = {
         sassPlugin({
             async transform(source, resolveDir, filePath) {
                 // Sync the plugins list with postcss.config.js
-                const plugins = [tailwindcss, autoprefixer, postcssPresetEnv({ stage: 0 })]
+                const plugins = [tailwindcss, tailwindPostCss, autoprefixer, postcssPresetEnv({ stage: 0 })]
                 if (!isDev) {
                     plugins.push(cssnano({ preset: 'default' }))
                 }

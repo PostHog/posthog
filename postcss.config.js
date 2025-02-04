@@ -4,7 +4,6 @@ const config = {
     // Sync the plugins list with utils.mjs
     plugins: [
         require('@tailwindcss/postcss'),
-        require('autoprefixer'),
         require('postcss-preset-env')({ stage: 0 }),
         require('cssnano')({ preset: 'default' }),
     ],
