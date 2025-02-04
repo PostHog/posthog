@@ -429,41 +429,6 @@ export async function startPluginsServer(
             await syncInlinePlugins(hub)
         }
 
-        if (serverInstance.hub) {
-            const hub = serverInstance.hub
-            pubSub = new PubSub(hub, {
-                [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
-                    status.info('⚡', 'Reloading plugins!')
-                    await reloadPlugins(hub)
-
-                    if (hub?.capabilities.pluginScheduledTasks && piscina) {
-                        await loadSchedule(hub)
-                        hub.pluginSchedule = await loadPluginSchedule(piscina)
-                    }
-                },
-                'reset-available-product-features-cache': (message) => {
-                    hub.organizationManager.resetAvailableProductFeaturesCache(JSON.parse(message).organization_id)
-                },
-                'populate-plugin-capabilities': async (message) => {
-                    // We need this to be done in only once
-                    if (hub?.capabilities.appManagementSingleton) {
-                        await populatePluginCapabilities(hub, Number(JSON.parse(message).plugin_id))
-                    }
-                },
-            })
-
-            await pubSub.start()
-
-            if (capabilities.preflightSchedules) {
-                startPreflightSchedules(hub)
-            }
-
-            serverInstance.stop = closeJobs
-
-            pluginServerStartupTimeMs.inc(Date.now() - timer.valueOf())
-            status.info('🚀', 'All systems go')
-        }
-
         if (capabilities.sessionRecordingBlobIngestion) {
             const hub = serverInstance.hub
             const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
@@ -574,6 +539,41 @@ export async function startPluginsServer(
             httpServer = app.listen(serverConfig.HTTP_SERVER_PORT, () => {
                 status.info('🩺', `Status server listening on port ${serverConfig.HTTP_SERVER_PORT}`)
             })
+        }
+
+        if (serverInstance.hub) {
+            const hub = serverInstance.hub
+            pubSub = new PubSub(hub, {
+                [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
+                    status.info('⚡', 'Reloading plugins!')
+                    await reloadPlugins(hub)
+
+                    if (hub?.capabilities.pluginScheduledTasks && piscina) {
+                        await loadSchedule(hub)
+                        hub.pluginSchedule = await loadPluginSchedule(piscina)
+                    }
+                },
+                'reset-available-product-features-cache': (message) => {
+                    hub.organizationManager.resetAvailableProductFeaturesCache(JSON.parse(message).organization_id)
+                },
+                'populate-plugin-capabilities': async (message) => {
+                    // We need this to be done in only once
+                    if (hub?.capabilities.appManagementSingleton) {
+                        await populatePluginCapabilities(hub, Number(JSON.parse(message).plugin_id))
+                    }
+                },
+            })
+
+            await pubSub.start()
+
+            if (capabilities.preflightSchedules) {
+                startPreflightSchedules(hub)
+            }
+
+            serverInstance.stop = closeJobs
+
+            pluginServerStartupTimeMs.inc(Date.now() - timer.valueOf())
+            status.info('🚀', 'All systems go')
         }
 
         // If join rejects or throws, then the consumer is unhealthy and we should shut down the process.
