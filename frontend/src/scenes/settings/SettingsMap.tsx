@@ -399,8 +399,9 @@ export const SETTINGS_MAP: SettingSection[] = [
         settings: [
             {
                 id: 'project-move',
-                title: 'Move environment',
-                component: <ProjectMove />,
+                title: 'Move project',
+                flag: '!ENVIRONMENTS',
+                component: <ProjectMove />, // There isn't EnvironmentMove yet
                 allowForTeam: () =>
                     (organizationLogic.findMounted()?.values.currentOrganization?.teams.length ?? 0) > 1,
             },
