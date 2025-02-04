@@ -1901,7 +1901,7 @@ export function getPropertyKey(value: string, type: TaxonomicFilterGroupType): s
     // Find the key by looking through the mapping
     const group = CORE_FILTER_DEFINITIONS_BY_GROUP[type]
     if (group) {
-        const foundKey = Object.entries(group).find(([_, def]) => def.label === value || _ === value)?.[0]
+        const foundKey = Object.entries(group).find(([_, def]) => (def as any).label === value || _ === value)?.[0]
         return foundKey || value
     }
     return value
