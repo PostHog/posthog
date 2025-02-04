@@ -65,15 +65,14 @@ COPY ./plugin-server/package.json ./plugin-server/tsconfig.json ./plugin-server/
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # Compile and install Node.js dependencies.
+# NOTE: we don't actually use the plugin-transpiler with the plugin-server, it's just here for the build.
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
     corepack enable && \
-    pnpm --version && \
-    pnpm --filter=@posthog/plugin-server install --frozen-lockfile --store-dir /tmp/pnpm-store
-
-# Build plugin-transpiler
-RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
+    pnpm --filter=@posthog/plugin-server install --frozen-lockfile --store-dir /tmp/pnpm-store && \
     pnpm --filter=@posthog/plugin-transpiler install --frozen-lockfile --store-dir /tmp/pnpm-store && \
-    pnpm --filter=@posthog/plugin-transpiler build
+    pnpm --filter=@posthog/plugin-transpiler build && \
+    pnpm --filter=@posthog/cyclotron-node install --frozen-lockfile --store-dir /tmp/pnpm-store && \
+    pnpm --filter=@posthog/cyclotron-node build
 
 WORKDIR /code/plugin-server
 
@@ -83,7 +82,7 @@ WORKDIR /code/plugin-server
 # the cache hit ratio of the layers above.
 COPY ./plugin-server/src/ ./src/
 COPY ./plugin-server/tests/ ./tests/
-RUN pnpm run build:cyclotron && pnpm build
+RUN pnpm --filter=@posthog/plugin-server build
 
 #
 # ---------------------------------------------------------
