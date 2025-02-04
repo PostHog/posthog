@@ -8,14 +8,14 @@ from posthog.settings.data_stores import CLICKHOUSE_MIGRATIONS_CLUSTER
 
 logger = logging.getLogger("migrations")
 
+cluster = get_cluster(cluster=CLICKHOUSE_MIGRATIONS_CLUSTER)
 
-def run_sql_with_exceptions(sql: str, settings=None, node_role: NodeRole = NodeRole.WORKER):
+
+def run_sql_with_exceptions(sql: str, node_role: NodeRole = NodeRole.WORKER):
     """
     migrations.RunSQL does not raise exceptions, so we need to wrap it in a function that does.
     node_role is set to WORKER by default to keep compatibility with the old migrations.
     """
-
-    cluster = get_cluster(client_settings=settings, cluster=CLICKHOUSE_MIGRATIONS_CLUSTER)
 
     def run_migration():
         if node_role == NodeRole.ALL:

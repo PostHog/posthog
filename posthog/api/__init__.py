@@ -59,6 +59,7 @@ from . import (
     uploaded_media,
     user,
     user_group,
+    web_vitals,
 )
 import products.early_access_features.backend.api as early_access_feature
 from ..taxonomy import property_definition_api
@@ -588,4 +589,11 @@ projects_router.register(r"search", search.SearchViewSet, "project_search", ["pr
 
 register_grandfathered_environment_nested_viewset(
     r"data_color_themes", data_color_theme.DataColorThemeViewSet, "environment_data_color_themes", ["team_id"]
+)
+
+environments_router.register(
+    r"web_vitals",
+    web_vitals.WebVitalsViewSet,
+    "environment_web_vitals",
+    ["team_id"],
 )

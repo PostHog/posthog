@@ -1,7 +1,7 @@
 from unittest.mock import patch
 
-from django.test import override_settings
 from langchain_core.messages import (
+    AIMessage as LangchainAIMessage,
     HumanMessage as LangchainHumanMessage,
 )
 from langchain_core.runnables import RunnableLambda
@@ -15,13 +15,13 @@ from posthog.schema import (
     AssistantTrendsEventsNode,
     AssistantTrendsQuery,
     HumanMessage,
+    QueryStatus,
     VisualizationMessage,
 )
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 
-@override_settings(IN_UNIT_TESTING=True)
-class TestSummarizerNode(ClickhouseTestMixin, APIBaseTest):
+class TestSummarizerNode(ClickhouseTestMixin, BaseTest):
     maxDiff = None
 
     @patch("ee.hogai.summarizer.nodes.process_query_dict", side_effect=process_query_dict)
@@ -179,3 +179,43 @@ class TestSummarizerNode(ClickhouseTestMixin, APIBaseTest):
                 ("human", SUMMARIZER_INSTRUCTION_PROMPT),
             ],
         )
+
+    def test_fallback_to_json(self):
+        node = SummarizerNode(self.team)
+        with (
+            patch.object(SummarizerNode, "_model") as generator_model_mock,
+            patch("ee.hogai.summarizer.nodes.process_query_dict") as mock_process_query_dict,
+        ):
+
+            def assert_input(input):
+                self.assertIn("JSON", input.messages[0].content)
+                self.assertIn('"test"', input.messages[2].content)
+                return LangchainAIMessage(content="The results indicate foobar.")
+
+            generator_model_mock.return_value = RunnableLambda(assert_input)
+
+            mock_process_query_dict.return_value = QueryStatus(
+                id="test", team_id=self.team.pk, query_async=True, complete=True, results=[{"test": "test"}]
+            )
+
+            new_state = node.run(
+                AssistantState(
+                    messages=[
+                        HumanMessage(content="Text", id="test"),
+                        VisualizationMessage(
+                            answer=AssistantTrendsQuery(series=[AssistantTrendsEventsNode()]),
+                            plan="Plan",
+                            id="test2",
+                            initiator="test",
+                        ),
+                    ],
+                    plan="Plan",
+                    start_id="test",
+                ),
+                {},
+            )
+            mock_process_query_dict.assert_called_once()  # Query processing started
+            msg = new_state.messages[0]
+            self.assertEqual(msg.content, "The results indicate foobar.")
+            self.assertEqual(msg.type, "ai")
+            self.assertIsNotNone(msg.id)
