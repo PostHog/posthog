@@ -27,10 +27,9 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY patches/ patches/
-RUN corepack enable && pnpm --version && \
-    mkdir /tmp/pnpm-store && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --filter=@posthog/frontend --prod && \
-    rm -rf /tmp/pnpm-store
+RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
+    corepack enable && pnpm --version && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --filter=@posthog/frontend --prod
 
 COPY frontend/ frontend/
 COPY products/ products/
@@ -53,7 +52,8 @@ COPY ./plugin-server/package.json ./plugin-server/tsconfig.json ./plugin-server/
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # Compile and install Node.js dependencies.
-RUN apt-get update && \
+RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
+    apt-get update && \
     apt-get install -y --no-install-recommends \
     "make" \
     "g++" \
@@ -64,12 +64,10 @@ RUN apt-get update && \
     && \
     rm -rf /var/lib/apt/lists/* && \
     corepack enable && \
-    mkdir /tmp/pnpm-store && \
     pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --filter=@posthog/plugin-server && \
     pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --filter=@posthog/plugin-transpiler && \
     cd ./common/plugin_transpiler && \
-    pnpm build && \
-    rm -rf /tmp/pnpm-store
+    pnpm build
 
 WORKDIR /code/plugin-server
 
