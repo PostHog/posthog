@@ -152,7 +152,7 @@ class IntegrationViewSet(
                 "id": conversionRule["id"],
                 "name": conversionRule["name"],
             }
-            for conversionRule in (response if isinstance(response, list) else [])
+            for conversionRule in response.get("elements", [])
         ]
 
         return Response({"conversionRules": conversion_rules})
