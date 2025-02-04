@@ -29,7 +29,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY patches/ patches/
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
     corepack enable && pnpm --version && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --filter=@posthog/frontend --prod
+    pnpm --filter=@posthog/frontend install --frozen-lockfile --store-dir /tmp/pnpm-store --prod
 
 COPY frontend/ frontend/
 COPY products/ products/
@@ -67,7 +67,7 @@ RUN apt-get update && \
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
     corepack enable && \
     pnpm --version && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --filter=@posthog/plugin-server
+    pnpm --filter=@posthog/plugin-server install --frozen-lockfile --store-dir /tmp/pnpm-store
 
 WORKDIR /code/plugin-server
 
