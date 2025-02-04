@@ -29,7 +29,7 @@ COPY package.json pnpm-lock.yaml ./
 COPY patches/ patches/
 RUN corepack enable && pnpm --version && \
     mkdir /tmp/pnpm-store && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --filter=@posthog/frontend --prod && \
     rm -rf /tmp/pnpm-store
 
 COPY frontend/ frontend/
@@ -64,9 +64,9 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/* && \
     corepack enable && \
     mkdir /tmp/pnpm-store && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --filter=@posthog/plugin-server && \
     cd ../common/plugin_transpiler && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --filter=@posthog/plugin-transpiler && \
     pnpm build && \
     rm -rf /tmp/pnpm-store
 

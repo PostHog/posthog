@@ -115,10 +115,10 @@ jobs:
                   cache: pnpm
 
             - name: Install package.json dependencies with pnpm
-              run: pnpm install --frozen-lockfile
+              run: pnpm install --frozen-lockfile --filter=@posthog/frontend
 
             - name: Install CI utilities with pnpm
-              run: pnpm install http-server wait-on
+              run: pnpm install http-server wait-on -g
 
             - name: Build Storybook
               run: pnpm build-storybook --test --quiet # Silence since progress logging results in a massive wall of spam
