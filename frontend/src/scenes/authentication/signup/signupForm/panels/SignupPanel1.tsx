@@ -6,6 +6,7 @@ import { SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLogin
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { useEffect, useRef } from 'react'
+import RegionSelect from 'scenes/authentication/RegionSelect'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { signupLogic } from '../signupLogic'
@@ -22,6 +23,7 @@ export function SignupPanel1(): JSX.Element | null {
 
     return (
         <div className="space-y-4 Signup__panel__1">
+            <RegionSelect />
             {!preflight?.demo && socialAuthAvailable && (
                 <>
                     <SocialLoginButtons caption="Sign up with" bottomDivider className="mt-6" />
