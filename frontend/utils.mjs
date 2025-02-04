@@ -16,9 +16,12 @@ import postcss from 'postcss'
 import postcssPresetEnv from 'postcss-preset-env'
 import tailwindcss from 'tailwindcss'
 import ts from 'typescript'
+import { fileURLToPath } from 'url'
 
 const defaultHost = process.argv.includes('--host') && process.argv.includes('0.0.0.0') ? '0.0.0.0' : 'localhost'
 const defaultPort = 8234
+
+export const absWorkingDir = path.dirname(fileURLToPath(import.meta.url))
 
 export const isDev = process.argv.includes('--dev')
 
@@ -505,8 +508,8 @@ export function gatherProductUrls(products) {
     const sourceFiles = []
     for (const product of products) {
         try {
-            if (fse.readFileSync(`products/${product}/frontend/urls.ts`)) {
-                sourceFiles.push(`products/${product}/frontend/urls.ts`)
+            if (fse.readFileSync(path.resolve(absWorkingDir, `../products/${product}/frontend/urls.ts`))) {
+                sourceFiles.push(path.resolve(absWorkingDir, `../products/${product}/frontend/urls.ts`))
             }
         } catch (e) {
             // ignore
@@ -552,7 +555,9 @@ export function gatherProductUrls(products) {
 }
 
 export function gatherProductManifests() {
-    const products = fse.readdirSync('products').filter((p) => !['__pycache__', 'README.md'].includes(p))
+    const products = fse
+        .readdirSync(path.resolve(absWorkingDir, '../products'))
+        .filter((p) => !['__pycache__', 'README.md'].includes(p))
     const allScenes = {}
     const allRoutes = {}
     const allRedirects = {}
@@ -560,7 +565,9 @@ export function gatherProductManifests() {
 
     for (const product of products) {
         try {
-            const manifest = JSON.parse(fse.readFileSync(`products/${product}/manifest.json`, 'utf-8'))
+            const manifest = JSON.parse(
+                fse.readFileSync(path.resolve(absWorkingDir, `../products/${product}/manifest.json`))
+            )
             const scenes = Object.fromEntries(
                 Object.entries(manifest.scenes ?? {}).map(([key, value]) => [key, { name: manifest.name, ...value }])
             )
@@ -578,7 +585,7 @@ export function gatherProductManifests() {
                     )
                     .join(',\n') + ',\n'
         } catch (e) {
-            console.error(`Could not read "products/${product}/manifest.json"`, e)
+            console.error(`Could not read "../products/${product}/manifest.json"`, e)
         }
     }
 
@@ -610,7 +617,7 @@ export function gatherProductManifests() {
         /** This const is auto-generated, as is the whole file */
         export const productUrls = ${productUrls}
     `
-    fse.writeFileSync('frontend/src/products.ts', productsTsx)
+    fse.writeFileSync('src/products.ts', productsTsx)
 
-    ps.execSync('prettier --write frontend/src/products.ts')
+    ps.execSync('prettier --write src/products.ts')
 }

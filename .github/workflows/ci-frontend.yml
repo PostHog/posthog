@@ -82,9 +82,11 @@ jobs:
                   key: ${{ runner.os }}-pnpm-cypress-${{ hashFiles('pnpm-lock.yaml') }}
                   restore-keys: ${{ runner.os }}-pnpm-cypress-
 
-            - name: Install package.json dependencies with pnpm
+            - name: Build and install frontend build dependencies
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm install --frozen-lockfile
+              run: |
+                  pnpm install --frozen-lockfile --filter @posthog/frontend...
+                  bin/turbo run deps --filter=@posthog/frontend
 
             - name: Check formatting with prettier
               if: needs.changes.outputs.frontend == 'true'
@@ -151,9 +153,11 @@ jobs:
                   node-version: 18.12.1
                   cache: pnpm
 
-            - name: Install package.json dependencies with pnpm
+            - name: Build and install frontend build dependencies
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm install --frozen-lockfile
+              run: |
+                  pnpm install --frozen-lockfile --filter @posthog/frontend...
+                  bin/turbo run deps --filter=@posthog/frontend
 
             - name: Test with Jest
               # set maxWorkers or Jest only uses 1 CPU in GitHub Actions

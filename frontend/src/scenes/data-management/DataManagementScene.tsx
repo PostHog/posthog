@@ -194,7 +194,7 @@ export function DataManagementScene(): JSX.Element {
     const { setTab } = useActions(dataManagementSceneLogic)
 
     const lemonTabs: LemonTab<DataManagementTab>[] = enabledTabs.map((key) => ({
-        key: key as DataManagementTab,
+        key: key,
         label: <span data-attr={`data-management-${key}-tab`}>{tabs[key].label}</span>,
         content: tabs[key].content,
     }))

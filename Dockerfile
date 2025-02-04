@@ -25,33 +25,39 @@ FROM node:18.19.1-bookworm-slim AS frontend-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
-COPY package.json pnpm-lock.yaml ./
-COPY patches/ patches/
-RUN corepack enable && pnpm --version && \
-    mkdir /tmp/pnpm-store && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
-    rm -rf /tmp/pnpm-store
+# Install all build dpes
+COPY package.json pnpm-lock.yaml turbo.json pnpm-workspace.yaml .npmrc ./
+COPY common/ common/
+COPY frontend/package.json frontend/pnpm-lock.yaml frontend/
+COPY frontend/patches/ frontend/patches/
+ENV PNPM_HOME /tmp/pnpm-store
+RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
+    corepack enable && pnpm --version && \
+    pnpm install --frozen-lockfile --filter @posthog/frontend... --store-dir /tmp/pnpm-store
 
+# Build the frontend.
 COPY frontend/ frontend/
 COPY products/ products/
 COPY ee/frontend/ ee/frontend/
-COPY ./bin/ ./bin/
+COPY bin/ bin/
 COPY babel.config.js tsconfig.json webpack.config.js tailwind.config.js ./
-RUN pnpm build
+RUN bin/turbo run build --filter=@posthog/frontend
 
 #
 # ---------------------------------------------------------
 #
 FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.80.1-node_18.19.1 AS plugin-server-build
 WORKDIR /code
+# Workspace settings
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json .npmrc ./
+COPY ./bin/ ./bin/
 COPY ./rust ./rust
-COPY ./common/plugin_transpiler/ ./common/plugin_transpiler/
-WORKDIR /code/plugin-server
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # Compile and install Node.js dependencies.
-COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./
-COPY ./plugin-server/patches/ ./patches/
+COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./plugin-server/
+COPY ./plugin-server/patches/ ./plugin-server/patches/
+ENV PNPM_HOME /tmp/pnpm-store
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     "make" \
@@ -61,22 +67,21 @@ RUN apt-get update && \
     "libssl-dev" \
     "zlib1g-dev" \
     && \
-    rm -rf /var/lib/apt/lists/* && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY ./common/ ./common/
+
+RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
     corepack enable && \
-    mkdir /tmp/pnpm-store && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
-    cd ../common/plugin_transpiler && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
-    pnpm build && \
-    rm -rf /tmp/pnpm-store
+    pnpm install --frozen-lockfile --filter @posthog/plugin-server... --store-dir /tmp/pnpm-store
 
 # Build the plugin server.
 #
 # Note: we run the build as a separate action to increase
 # the cache hit ratio of the layers above.
-COPY ./plugin-server/src/ ./src/
-COPY ./plugin-server/tests/ ./tests/
-RUN pnpm build
+COPY ./plugin-server/src/ ./plugin-server/src/
+COPY ./plugin-server/tests/ ./plugin-server/tests/
+RUN bin/turbo run build --filter=@posthog/plugin-server
 
 #
 # ---------------------------------------------------------

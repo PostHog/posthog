@@ -1,0 +1,25 @@
+{
+    "$schema": "https://json.schemastore.org/nx",
+    "name": "plugin-server",
+    "sourceRoot": "{projectRoot}/src",
+    "projectType": "library",
+    "targets": {
+        "deps:build": {
+            "executor": "nx:run-commands",
+            "options": {
+                "commands": ["echo 'Building dependencies'"]
+            },
+            "dependsOn": ["^build"]
+        },
+        "build": {
+            "executor": "nx:run-commands",
+            "options": {
+                "commands": ["pnpm run build"],
+                "cwd": "{projectRoot}"
+            },
+            "inputs": ["{projectRoot}/src", "{projectRoot}/package.json"],
+            "outputs": ["{projectRoot}/dist"],
+            "dependsOn": ["deps:build"]
+        }
+    }
+}

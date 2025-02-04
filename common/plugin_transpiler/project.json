@@ -1,0 +1,17 @@
+{
+    "$schema": "https://json.schemastore.org/nx",
+    "name": "plugin-transpiler",
+    "sourceRoot": "{projectRoot}/src",
+    "projectType": "library",
+    "targets": {
+        "build": {
+            "executor": "nx:run-commands",
+            "options": {
+                "commands": ["pnpm run build"],
+                "cwd": "{projectRoot}"
+            },
+            "inputs": ["{projectRoot}/src/**/*"],
+            "outputs": ["{projectRoot}/dist"]
+        }
+    }
+}

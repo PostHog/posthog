@@ -158,7 +158,7 @@ export class HogQLPrinter {
         this.indentLevel += 1
 
         let result: string
-        const nodeType = node.get('__hx_ast') as string
+        const nodeType = node?.get('__hx_ast') as string | undefined
 
         if (!nodeType) {
             throw new Error('Node type is missing or undefined.')

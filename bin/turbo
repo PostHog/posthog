@@ -1,0 +1,11 @@
+#!/bin/bash
+
+TURBO_PATH=./node_modules/.bin/turbo
+
+# if nx is not installed, install it from npm globally
+if [ ! -f $TURBO_PATH ]; then
+  pnpm install --filter @posthog/build
+fi
+
+# run nx with the cli arguments
+$TURBO_PATH "$@"

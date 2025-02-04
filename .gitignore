@@ -58,7 +58,6 @@ gen/
 upgrade/
 common/hogvm/typescript/dist
 common/hogvm/typescript/.parcel-cache
-.wokeignore
 common/plugin_transpiler/dist
 *-esbuild-meta.json
 *-esbuild-bundle-visualization.html
@@ -68,7 +67,7 @@ common/plugin_transpiler/dist
 *.log
 # pyright config (keep this until we have a standardized one)
 pyrightconfig.json
-
+.parcel-cache
 # Max-specific entries
 ee/support_sidebar_max/max-venv/
 ee/support_sidebar_max/.vscode
@@ -83,8 +82,7 @@ ee/support_sidebar_max/.env
 temp_test_run_data.json
 .temp-deepeval-cache.json
 .eslintcache
-
 # ignore all dagster tmp directories that may be created
 tmp*/
-
-frontend/@posthog/apps-common/dist/
+.turbo
+.dmypy.json

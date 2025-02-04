@@ -1172,7 +1172,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
         cache.pausedMediaElements = []
         cache.fullScreenListener = () => {
-            actions.setIsFullScreen(document.fullscreenElement !== null)
+            actions.setIsFullScreen(document.fullscreenElement !== null) // eslint-disable-line compat/compat
         }
 
         document.addEventListener('fullscreenchange', cache.fullScreenListener)

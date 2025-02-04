@@ -19,7 +19,7 @@ const E2E_TESTING = Cypress.env('E2E_TESTING')
 Cypress.on('window:before:load', (win) => {
     cy.spy(win.console, 'error')
     cy.spy(win.console, 'warn')
-    ;(win as any)._cypress_posthog_captures = []
+    win._cypress_posthog_captures = []
 })
 
 Cypress.on('window:load', (win) => {
@@ -118,7 +118,7 @@ afterEach(function () {
 
     if (E2E_TESTING) {
         cy.window().then((win) => {
-            ;(win as any).posthog?.capture(event, { state, duration })
+            win.posthog?.capture(event, { state, duration })
         })
     }
 })

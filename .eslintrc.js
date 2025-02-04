@@ -24,6 +24,9 @@ module.exports = {
                 extensions: ['.js', '.jsx', '.ts', '.tsx'], // Ensure ESLint resolves both JS and TS files
             },
         },
+        jest: {
+            version: 'latest'
+        },
     },
     extends: [
         'eslint:recommended',

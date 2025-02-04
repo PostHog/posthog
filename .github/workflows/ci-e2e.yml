@@ -141,9 +141,11 @@ jobs:
                   restore-keys: |
                       ${{ runner.os }}-pnpm-cypress-
 
-            - name: Install package.json dependencies with pnpm
+            - name: Build and install frontend build dependencies
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
-              run: pnpm install --frozen-lockfile
+              run: |
+                  pnpm install --frozen-lockfile --filter @posthog/frontend...
+                  bin/turbo run deps --filter=@posthog/frontend
 
             - name: Stop/Start stack with Docker Compose
               # these are required checks so, we can't skip entire sections
