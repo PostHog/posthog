@@ -313,7 +313,7 @@ class RedshiftConsumer(Consumer):
         self.heartbeat_details.track_done_range(last_date_range, self.data_interval_start)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(kw_only=True)
 class RedshiftInsertInputs(PostgresInsertInputs):
     """Inputs for Redshift insert activity.
 

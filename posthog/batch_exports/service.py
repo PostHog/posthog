@@ -74,99 +74,87 @@ class BatchExportModel:
     filters: list[dict[str, str | list[str]]] | None = None
 
 
-@dataclass
-class S3BatchExportInputs:
-    """Inputs for S3 export workflow.
+@dataclass(kw_only=True)
+class BaseBatchExportInputs:
+    """Base class for all batch export inputs containing common fields.
 
     Attributes:
         batch_export_id: The ID of the parent BatchExport.
         team_id: The ID of the team that contains the BatchExport whose data we are exporting.
         interval: The range of data we are exporting.
-        bucket_name: The S3 bucket we are exporting to.
-        region: The AWS region where the bucket is located.
-        prefix: A prefix for the file name to be created in S3.
-            For example, for one hour batches, this should be 3600.
-        max_file_size_mb: The maximum file size in MB for each file to be uploaded.
         data_interval_end: For manual runs, the end date of the batch. This should be set to `None` for regularly
             scheduled runs and for backfills.
     """
 
     batch_export_id: str
     team_id: int
+    interval: str = "hour"
+    data_interval_end: str | None = None
+    exclude_events: list[str] | None = None
+    include_events: list[str] | None = None
+    is_backfill: bool = False
+    is_earliest_backfill: bool = False
+    batch_export_model: BatchExportModel | None = None
+    batch_export_schema: BatchExportSchema | None = None
+
+
+@dataclass(kw_only=True)
+class S3BatchExportInputs(BaseBatchExportInputs):
+    """Inputs for S3 export workflow.
+
+    Attributes:
+        bucket_name: The S3 bucket we are exporting to.
+        region: The AWS region where the bucket is located.
+        prefix: A prefix for the file name to be created in S3.
+        max_file_size_mb: The maximum file size in MB for each file to be uploaded.
+    """
+
     bucket_name: str
     region: str
     prefix: str
-    interval: str = "hour"
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
-    data_interval_end: str | None = None
     compression: str | None = None
-    exclude_events: list[str] | None = None
-    include_events: list[str] | None = None
     encryption: str | None = None
     kms_key_id: str | None = None
     endpoint_url: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
-    is_backfill: bool = False
-    is_earliest_backfill: bool = False
-    batch_export_model: BatchExportModel | None = None
-    batch_export_schema: BatchExportSchema | None = None
 
     def __post_init__(self):
         if self.max_file_size_mb:
             self.max_file_size_mb = int(self.max_file_size_mb)
 
 
-@dataclass
-class SnowflakeBatchExportInputs:
+@dataclass(kw_only=True)
+class SnowflakeBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Snowflake export workflow."""
 
-    batch_export_id: str
-    team_id: int
     account: str
     user: str
     database: str
     warehouse: str
     schema: str
-    interval: str = "hour"
     table_name: str = "events"
     authentication_type: str = "password"
     password: str | None = None
     private_key: str | None = None
     private_key_passphrase: str | None = None
-    data_interval_end: str | None = None
     role: str | None = None
-    exclude_events: list[str] | None = None
-    include_events: list[str] | None = None
-    is_backfill: bool = False
-    is_earliest_backfill: bool = False
-    batch_export_model: BatchExportModel | None = None
-    batch_export_schema: BatchExportSchema | None = None
 
 
-@dataclass
-class PostgresBatchExportInputs:
+@dataclass(kw_only=True)
+class PostgresBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Postgres export workflow."""
 
-    batch_export_id: str
-    team_id: int
     user: str
     password: str
     host: str
     database: str
-    has_self_signed_cert: bool = False
-    interval: str = "hour"
     schema: str = "public"
     table_name: str = "events"
     port: int = 5432
-    data_interval_end: str | None = None
-    exclude_events: list[str] | None = None
-    include_events: list[str] | None = None
-    is_backfill: bool = False
-    is_earliest_backfill: bool = False
-    batch_export_model: BatchExportModel | None = None
-    batch_export_schema: BatchExportSchema | None = None
+    has_self_signed_cert: bool = False
 
     def __post_init__(self):
         if self.has_self_signed_cert == "True":  # type: ignore
@@ -177,36 +165,25 @@ class PostgresBatchExportInputs:
         self.port = int(self.port)
 
 
-@dataclass
+@dataclass(kw_only=True)
 class RedshiftBatchExportInputs(PostgresBatchExportInputs):
     """Inputs for Redshift export workflow."""
 
     properties_data_type: str = "varchar"
 
 
-@dataclass
-class BigQueryBatchExportInputs:
+@dataclass(kw_only=True)
+class BigQueryBatchExportInputs(BaseBatchExportInputs):
     """Inputs for BigQuery export workflow."""
 
-    batch_export_id: str
-    team_id: int
     project_id: str
     dataset_id: str
+    table_id: str = "events"
     private_key: str
     private_key_id: str
     token_uri: str
     client_email: str
-    interval: str = "hour"
-    table_id: str = "events"
-    data_interval_end: str | None = None
-    exclude_events: list[str] | None = None
-    include_events: list[str] | None = None
     use_json_type: bool = False
-    is_backfill: bool = False
-    is_earliest_backfill: bool = False
-
-    batch_export_model: BatchExportModel | None = None
-    batch_export_schema: BatchExportSchema | None = None
 
     def __post_init__(self):
         if self.use_json_type == "True":  # type: ignore
@@ -215,35 +192,19 @@ class BigQueryBatchExportInputs:
             self.use_json_type = False
 
 
-@dataclass
-class HttpBatchExportInputs:
+@dataclass(kw_only=True)
+class HttpBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Http export workflow."""
 
-    batch_export_id: str
-    team_id: int
     url: str
     token: str
-    interval: str = "hour"
-    data_interval_end: str | None = None
-    exclude_events: list[str] | None = None
-    include_events: list[str] | None = None
-    is_backfill: bool = False
-    is_earliest_backfill: bool = False
-    batch_export_model: BatchExportModel | None = None
-    batch_export_schema: BatchExportSchema | None = None
 
 
-@dataclass
-class NoOpInputs:
+@dataclass(kw_only=True)
+class NoOpInputs(BaseBatchExportInputs):
     """NoOp Workflow is used for testing, it takes a single argument to echo back."""
 
-    batch_export_id: str
-    team_id: int
-    interval: str = "hour"
     arg: str = ""
-    is_backfill: bool = False
-    batch_export_model: BatchExportModel | None = None
-    batch_export_schema: BatchExportSchema | None = None
 
 
 DESTINATION_WORKFLOWS = {
@@ -930,3 +891,19 @@ def fetch_earliest_backfill_start_at(
         return min(results)
     else:
         raise ValueError(f"Invalid model: {model}")
+
+
+@dataclass(kw_only=True)
+class BatchExportInsertInputs:
+    """Base dataclass for batch export insert inputs containing common fields."""
+
+    team_id: int
+    data_interval_start: str | None
+    data_interval_end: str
+    exclude_events: list[str] | None = None
+    include_events: list[str] | None = None
+    run_id: str | None = None
+    is_backfill: bool = False
+    batch_export_model: BatchExportModel | None = None
+    # TODO: Remove after updating existing batch exports
+    batch_export_schema: BatchExportSchema | None = None

@@ -17,6 +17,7 @@ from temporalio.common import RetryPolicy
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import (
     BatchExportField,
+    BatchExportInsertInputs,
     BatchExportModel,
     BatchExportSchema,
     BigQueryBatchExportInputs,
@@ -137,11 +138,10 @@ class BigQueryHeartbeatDetails(BatchExportRangeHeartbeatDetails):
     pass
 
 
-@dataclasses.dataclass
-class BigQueryInsertInputs:
+@dataclasses.dataclass(kw_only=True)
+class BigQueryInsertInputs(BatchExportInsertInputs):
     """Inputs for BigQuery."""
 
-    team_id: int
     project_id: str
     dataset_id: str
     table_id: str
@@ -149,16 +149,7 @@ class BigQueryInsertInputs:
     private_key_id: str
     token_uri: str
     client_email: str
-    data_interval_start: str | None
-    data_interval_end: str
-    exclude_events: list[str] | None = None
-    include_events: list[str] | None = None
     use_json_type: bool = False
-    run_id: str | None = None
-    is_backfill: bool = False
-    batch_export_model: BatchExportModel | None = None
-    # TODO: Remove after updating existing batch exports
-    batch_export_schema: BatchExportSchema | None = None
 
 
 class BigQueryQuotaExceededError(Exception):

@@ -11,8 +11,7 @@ from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.service import (
     BatchExportField,
-    BatchExportModel,
-    BatchExportSchema,
+    BatchExportInsertInputs,
     HttpBatchExportInputs,
 )
 from posthog.models import BatchExportRun
@@ -94,21 +93,12 @@ class HeartbeatDetails:
         return HeartbeatDetails(last_uploaded_timestamp)
 
 
-@dataclasses.dataclass
-class HttpInsertInputs:
+@dataclasses.dataclass(kw_only=True)
+class HttpInsertInputs(BatchExportInsertInputs):
     """Inputs for HTTP insert activity."""
 
-    team_id: int
     url: str
     token: str
-    data_interval_start: str | None
-    data_interval_end: str
-    exclude_events: list[str] | None = None
-    include_events: list[str] | None = None
-    run_id: str | None = None
-    is_backfill: bool = False
-    batch_export_model: BatchExportModel | None = None
-    batch_export_schema: BatchExportSchema | None = None
 
 
 async def maybe_resume_from_heartbeat(inputs: HttpInsertInputs) -> str | None:

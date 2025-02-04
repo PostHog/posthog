@@ -19,6 +19,7 @@ from temporalio.common import RetryPolicy
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import (
     BatchExportField,
+    BatchExportInsertInputs,
     BatchExportModel,
     BatchExportSchema,
     S3BatchExportInputs,
@@ -91,8 +92,8 @@ COMPRESSION_EXTENSIONS = {
 }
 
 
-@dataclasses.dataclass
-class S3InsertInputs:
+@dataclasses.dataclass(kw_only=True)
+class S3InsertInputs(BatchExportInsertInputs):
     """Inputs for S3 exports."""
 
     # TODO: do _not_ store credentials in temporal inputs. It makes it very hard
@@ -102,25 +103,15 @@ class S3InsertInputs:
     bucket_name: str
     region: str
     prefix: str
-    team_id: int
-    data_interval_start: str | None
-    data_interval_end: str
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
     compression: str | None = None
-    exclude_events: list[str] | None = None
-    include_events: list[str] | None = None
     encryption: str | None = None
     kms_key_id: str | None = None
     endpoint_url: str | None = None
     # TODO: In Python 3.11, this could be a enum.StrEnum.
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
-    run_id: str | None = None
-    is_backfill: bool = False
-    batch_export_model: BatchExportModel | None = None
-    # TODO: Remove after updating existing batch exports
-    batch_export_schema: BatchExportSchema | None = None
 
 
 def get_allowed_template_variables(inputs) -> dict[str, str]:

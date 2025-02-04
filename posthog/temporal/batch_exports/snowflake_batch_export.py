@@ -22,6 +22,7 @@ from temporalio.common import RetryPolicy
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import (
     BatchExportField,
+    BatchExportInsertInputs,
     BatchExportModel,
     BatchExportSchema,
     SnowflakeBatchExportInputs,
@@ -133,34 +134,25 @@ class SnowflakeHeartbeatDetails(BatchExportRangeHeartbeatDetails):
     pass
 
 
-@dataclasses.dataclass
-class SnowflakeInsertInputs:
+@dataclasses.dataclass(kw_only=True)
+class SnowflakeInsertInputs(BatchExportInsertInputs):
     """Inputs for Snowflake."""
 
     # TODO: do _not_ store credentials in temporal inputs. It makes it very hard
     # to keep track of where credentials are being stored and increases the
     # attach surface for credential leaks.
 
-    team_id: int
     user: str
     account: str
     database: str
     warehouse: str
     schema: str
     table_name: str
-    data_interval_start: str | None
-    data_interval_end: str
     authentication_type: str = "password"
     password: str | None = None
     private_key: str | None = None
     private_key_passphrase: str | None = None
     role: str | None = None
-    exclude_events: list[str] | None = None
-    include_events: list[str] | None = None
-    run_id: str | None = None
-    is_backfill: bool = False
-    batch_export_model: BatchExportModel | None = None
-    batch_export_schema: BatchExportSchema | None = None
 
 
 SnowflakeField = tuple[str, str]

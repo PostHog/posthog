@@ -17,6 +17,7 @@ from temporalio.common import RetryPolicy
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import (
     BatchExportField,
+    BatchExportInsertInputs,
     BatchExportModel,
     BatchExportSchema,
     PostgresBatchExportInputs,
@@ -68,27 +69,18 @@ class MissingPrimaryKeyError(Exception):
         super().__init__(f"An operation could not be completed as '{table}' is missing a primary key on {primary_key}")
 
 
-@dataclasses.dataclass
-class PostgresInsertInputs:
-    """Inputs for Postgres insert activity."""
+@dataclasses.dataclass(kw_only=True)
+class PostgresInsertInputs(BatchExportInsertInputs):
+    """Inputs for Postgres."""
 
-    team_id: int
     user: str
     password: str
     host: str
-    database: str
-    table_name: str
-    data_interval_start: str | None
-    data_interval_end: str
-    has_self_signed_cert: bool = False
-    schema: str = "public"
     port: int = 5432
-    exclude_events: list[str] | None = None
-    include_events: list[str] | None = None
-    run_id: str | None = None
-    is_backfill: bool = False
-    batch_export_model: BatchExportModel | None = None
-    batch_export_schema: BatchExportSchema | None = None
+    database: str
+    schema: str = "public"
+    table_name: str
+    has_self_signed_cert: bool = False
 
 
 class PostgreSQLClient:
