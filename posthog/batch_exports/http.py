@@ -314,7 +314,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             ):
                 raise PermissionDenied("Higher frequency batch exports are not enabled for this team.")
 
-        if validated_data["model"] == "sessions":
+        if validated_data.get("model", "events") == "sessions":
             team = Team.objects.get(id=team_id)
 
             if not posthoganalytics.feature_enabled(
