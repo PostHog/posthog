@@ -75,6 +75,7 @@
         "fernet-nodejs": "^1.0.6",
         "generic-pool": "^3.7.1",
         "graphile-worker": "0.13.0",
+        "husky": "^7.0.4",
         "ioredis": "^4.27.6",
         "ipaddr.js": "^2.1.0",
         "js-big-decimal": "^2.2.0",

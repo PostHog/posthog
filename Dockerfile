@@ -51,9 +51,8 @@ COPY ./common/hogvm/typescript/ ./common/hogvm/typescript/
 COPY ./plugin-server/package.json ./plugin-server/tsconfig.json ./plugin-server/
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
-# Compile and install Node.js dependencies.
-RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
-    apt-get update && \
+# Compile and install system dependencies
+RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     "make" \
     "g++" \
@@ -62,12 +61,13 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
     "libssl-dev" \
     "zlib1g-dev" \
     && \
-    rm -rf /var/lib/apt/lists/* && \
+    rm -rf /var/lib/apt/lists/*
+
+# Compile and install Node.js dependencies.
+RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
     corepack enable && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --filter=@posthog/plugin-server && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --filter=@posthog/plugin-transpiler && \
-    cd ./common/plugin_transpiler && \
-    pnpm build
+    pnpm --version && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --filter=@posthog/plugin-server
 
 WORKDIR /code/plugin-server
 

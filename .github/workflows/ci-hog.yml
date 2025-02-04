@@ -132,6 +132,7 @@ jobs:
             - name: Run Hog tests
               run: |
                   cd common/hogvm/typescript
+                  pnpm install --frozen-lockfile --filter=@posthog/hogvm
                   pnpm run build 
                   cd ../
                   ./test.sh && git diff --exit-code
