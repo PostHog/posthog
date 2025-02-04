@@ -927,17 +927,17 @@ importers:
         specifier: 1.1.1
         version: 1.1.1
       '@sentry/node':
-        specifier: 7.49.0
-        version: 7.49.0
+        specifier: 7.112.1
+        version: 7.112.1
       '@sentry/profiling-node':
-        specifier: ^0.3.0
-        version: 0.3.0
+        specifier: 7.112.1
+        version: 7.112.1
       '@sentry/tracing':
-        specifier: 7.49.0
-        version: 7.49.0
+        specifier: 7.112.1
+        version: 7.112.1
       '@sentry/utils':
-        specifier: 7.49.0
-        version: 7.49.0
+        specifier: 7.112.1
+        version: 7.112.1
       '@types/lru-cache':
         specifier: ^5.1.0
         version: 5.1.1
@@ -1075,8 +1075,8 @@ importers:
         specifier: ^7.20.2
         version: 7.26.3
       '@sentry/types':
-        specifier: 7.49.0
-        version: 7.49.0
+        specifier: 7.112.1
+        version: 7.112.1
       '@swc-node/register':
         specifier: ^1.5.1
         version: 1.6.5(@swc/core@1.3.93(@swc/helpers@0.5.15))(typescript@4.9.5)
@@ -5086,10 +5086,6 @@ packages:
     resolution: {integrity: sha512-pZVIOB6+t4HlgU3mCRtIbvo//t8uQY9tnBjbJJ2nEv8nTu8A7/dZ5ebrLOWStV3bNp/+uCqLuLuuimJeNNn6vQ==}
     engines: {node: '>=8'}
 
-  '@sentry-internal/tracing@7.49.0':
-    resolution: {integrity: sha512-ESh3+ZneQk/3HESTUmIPNrW5GVPu/HrRJU+eAJJto74vm+6vP7zDn2YV2gJ1w18O/37nc7W/bVCgZJlhZ3cwew==}
-    engines: {node: '>=8'}
-
   '@sentry/browser@7.112.1':
     resolution: {integrity: sha512-NRTo3mJbhiCd9GEFEWL8SplFJhTCPjiAlOhjUw8MnJb7pkxWm2xhC7PVi6SUE8hF/g1rrEwgUr9SX5v8+xwK6g==}
     engines: {node: '>=8'}
@@ -5098,29 +5094,18 @@ packages:
     resolution: {integrity: sha512-ZhOxt4sZVLqHurWqIY1ExWYZ20ViFTbqgW2GdJGHz4XwJhBln0ZVpHD+tKXy3GBEY+2Ee4qoqHi6tDrFgPvJqw==}
     engines: {node: '>=8'}
 
-  '@sentry/core@7.49.0':
-    resolution: {integrity: sha512-AlSnCYgfEbvK8pkNluUkmdW/cD9UpvOVCa+ERQswXNRkAv5aDGCL6Ihv6fnIajE++BYuwZh0+HwZUBVKTFzoZg==}
-    engines: {node: '>=8'}
-
-  '@sentry/core@7.53.0':
-    resolution: {integrity: sha512-TKMWWEvwT8tSqyIWuCexUk+fIoMA8ZAzGJdOfPW9XRL38RrXA9O+7V5xxK98X/bPHQ6UQF/QceookGOqqpmQyQ==}
-    engines: {node: '>=8'}
-
-  '@sentry/hub@7.53.0':
-    resolution: {integrity: sha512-lMWyELUtsomXiQOn5DI77ZOeYOmE5VbqSZ+fPrhnvey5NDxyHozEl5KBpyWIiC5Kc++lmjWQK6gH7FUA/vhO2A==}
-    engines: {node: '>=8'}
-
   '@sentry/integrations@7.112.1':
     resolution: {integrity: sha512-jIgXT+ahUS7zmhDMAzsgQHCNA6ZwZAp0Bwjoz0tcuGzNcv7mOCnjHz5YooJVQgXuREV653RmEuGGTklrpn6S2w==}
     engines: {node: '>=8'}
 
-  '@sentry/node@7.49.0':
-    resolution: {integrity: sha512-KLIrqcbKk4yR3g8fjl87Eyv4M9j4YI6b7sqVAZYj3FrX3mC6JQyGdlDfUpSKy604n1iAdr6OuUp5f9x7jPJaeQ==}
+  '@sentry/node@7.112.1':
+    resolution: {integrity: sha512-4nGqP133jDNgPADJMR+pTroo9TTYyrXuGVI1RO2lhZpLbRu7ksR6hgsQE00+0L/EhPM4IiW75iwwHePFwqWY6A==}
     engines: {node: '>=8'}
 
-  '@sentry/profiling-node@0.3.0':
-    resolution: {integrity: sha512-zodtr8JgI3m7GOoELEiE+zokEhyVoP6I4PvfPOTA6Etud4CUZ1B6uM7Ls8VgWAwlrPxJzaP+GJUJevZ0P2jfOQ==}
+  '@sentry/profiling-node@7.112.1':
+    resolution: {integrity: sha512-NKAcGJQde97EGtx7YYaJQPuZ8K/RXyv/BCh7AOHm9EgLTV4oCG8BAYzSd/euVJWmNDLX1mT7ejYRXKsg9HJ1/w==}
     engines: {node: '>=8.0.0'}
+    hasBin: true
 
   '@sentry/react@7.112.1':
     resolution: {integrity: sha512-q0fDW3omq/NPaL7yRqWA1USxGtEAcdFZOngIMsr9Bc4fJBGXDO+xLwPWjo1MIVvdDBJJYL/9Z56ppqTb3kiGXw==}
@@ -5132,32 +5117,16 @@ packages:
     resolution: {integrity: sha512-4lobxfgmbB2C7ZHk1inWt9IRIvlQa2Sczau5ngE4Qd4mZSKIgIYGtIJC52uOuGvBcP8gHiIbA7ACihkd7834Ew==}
     engines: {node: '>=12'}
 
-  '@sentry/tracing@7.49.0':
-    resolution: {integrity: sha512-RtyTt1DvX7s1M2ca9qnevOkuwn8HjbKXrSVHtMbQYoT3uGvjT8Pm71D5WtWMWH2QLpFgcqQq/1ifZBUAG4Y7qA==}
+  '@sentry/tracing@7.112.1':
+    resolution: {integrity: sha512-/ScTA0RxHbtg8axsXtYqGba8Qq9rpSgCPh2L4XSKiszYKlq+po4c0YeoFQOdYVHUmMQZDkXBxLWZPxd/Oz1N+g==}
     engines: {node: '>=8'}
 
   '@sentry/types@7.112.1':
     resolution: {integrity: sha512-5dLIxWZfCXH5kExrsWc+R6loMr3RR6OQuonVNL3Fa8Dw37Q7aExCrjRmocOHeQKhHwNBd3QhYm7phjnbxS6Oaw==}
     engines: {node: '>=8'}
 
-  '@sentry/types@7.49.0':
-    resolution: {integrity: sha512-9yXXh7iv76+O6h2ONUVx0wsL1auqJFWez62mTjWk4350SgMmWp/zUkBxnVXhmcYqscz/CepC+Loz9vITLXtgxg==}
-    engines: {node: '>=8'}
-
-  '@sentry/types@7.53.0':
-    resolution: {integrity: sha512-hqlbrCL8nfDfjlF6wh4NHNW9plhWJ1m2BSqRyspcxOC44e293BPfwjUzr0aQapJK/aRkHROnfAtzsEu2awNPzg==}
-    engines: {node: '>=8'}
-
   '@sentry/utils@7.112.1':
     resolution: {integrity: sha512-/AMGDD6OMvT2cpfL5KuDC10oTS8yOt7BAPomXJNS/xn1TRcEEEZ1TWbYZiGT5ijggQEL1OXSojpeQU8XEW8dcQ==}
-    engines: {node: '>=8'}
-
-  '@sentry/utils@7.49.0':
-    resolution: {integrity: sha512-JdC9yGnOgev4ISJVwmIoFsk8Zx0psDZJAj2DV7x4wMZsO6QK+YjC7G3mUED/S5D5lsrkBZ/3uvQQhr8DQI4UcQ==}
-    engines: {node: '>=8'}
-
-  '@sentry/utils@7.53.0':
-    resolution: {integrity: sha512-T3F2DkXB9fDjUIAcrOMrGCnquyTQxTyTb5Mh+NbFBevQn32fHehQ62VraLhe20HTVy8YBFkXisvLu6HeOZ5Mog==}
     engines: {node: '>=8'}
 
   '@sideway/address@4.1.4':
@@ -8630,8 +8599,8 @@ packages:
     engines: {node: '>=0.10'}
     hasBin: true
 
-  detect-libc@2.0.1:
-    resolution: {integrity: sha512-463v3ZeIrcWtdgIg6vI6XUncguvr2TnGl4SzDXinkt9mSLpBJKXT3mW6xT3VQdDN11+WVs29pgvivTc4Lp8v+w==}
+  detect-libc@2.0.3:
+    resolution: {integrity: sha512-bwy0MGW55bG41VqxxypOsdSdGqLwXPI/focwgTYCFMbdUiBAxLg9CFzG08sz2aqzknwiX7Hkl0bQENjg8iLByw==}
     engines: {node: '>=8'}
 
   detect-newline@3.1.0:
@@ -11601,9 +11570,6 @@ packages:
     resolution: {integrity: sha512-jumlc0BIUrS3qJGgIkWZsyfAM7NCWiBcCDhnd+3NNM5KbBmLTgHVfWBcg6W+rLUsIpzpERPsvwUP7CckAQSOoA==}
     engines: {node: '>=12'}
 
-  lru_map@0.3.3:
-    resolution: {integrity: sha512-Pn9cox5CsMYngeDbmChANltQl+5pi6XmTrraMSzhPmMBbmgcxmqWry0U3PGapCU1yB4/LqCcom7qhHZiF/jGfQ==}
-
   luxon@3.5.0:
     resolution: {integrity: sha512-rh+Zjr6DNfUYR3bPwJEnuwDdqMbxZW7LOQfUN4B54+Cl+0o5zaU9RJ6bcidfDtC1cWCZXQ+nvX8bf6bAji37QQ==}
     engines: {node: '>=12'}
@@ -12036,8 +12002,8 @@ packages:
   no-case@3.0.4:
     resolution: {integrity: sha512-fgAN3jGAh+RoxUGZHTSOLJIqUc2wmoBwGR4tbpNAKmmovFoWq0OdRkb0VkldReO2a2iBT/OEulG9XSUc10r3zg==}
 
-  node-abi@3.40.0:
-    resolution: {integrity: sha512-zNy02qivjjRosswoYmPi8hIKJRr8MpQyeKT6qlcq/OnOgA3Rhoae+IYOqsM9V5+JnHWmxKnWOT2GxvtqdtOCXA==}
+  node-abi@3.74.0:
+    resolution: {integrity: sha512-c5XK0MjkGBrQPGYG24GBADZud0NCbznxNx0ZkS+ebUTrmV1qTDxPxSL8zEAPURXSbLRWVexxmP4986BziahL5w==}
     engines: {node: '>=10'}
 
   node-abort-controller@3.1.1:
@@ -14373,10 +14339,6 @@ packages:
     resolution: {integrity: sha512-HehCEsotFqbPW9sJ8WVYB6UbmIMv7kUUORIF2Nncq4VQvBfNBLibW9YZR5dlYCSUhwcD628pRllm7n+E+YTzJw==}
     engines: {node: '>= 14'}
 
-  socks@2.7.1:
-    resolution: {integrity: sha512-7maUZy1N7uo6+WVEX6psASxtNlKaNVMlGQKkG/63nEDdLOWNbiUMoLK7X4uYoLhQstau72mLgfEWcXcwsaHbYQ==}
-    engines: {node: '>= 10.13.0', npm: '>= 3.0.0'}
-
   socks@2.8.3:
     resolution: {integrity: sha512-l5x7VUUWbjVFbafGLxPWkYsHIhEvmF85tbIeFZWc8ZPtoMyybuEhL7Jye/ooC4/d48FgOjSJXgsF/AJPYCW8Zw==}
     engines: {node: '>= 10.0.0', npm: '>= 3.0.0'}
@@ -14862,10 +14824,6 @@ packages:
   tar-stream@2.2.0:
     resolution: {integrity: sha512-ujeqbceABgwMZxEJnk2HDY2DlnUZ+9oEcb1KzTVfYHio0UE6dG71n60d8D2I4qNvleWrrXpmjpt7vZeF1LnMZQ==}
     engines: {node: '>=6'}
-
-  tar@6.1.15:
-    resolution: {integrity: sha512-/zKt9UyngnxIT/EAGYuxaMYgOIJiP81ab9ZfkILq4oNLPFX50qyYmu7jRj9qeXoxmJHjGlbH0+cm2uy1WCs10A==}
-    engines: {node: '>=10'}
 
   tar@6.2.1:
     resolution: {integrity: sha512-DZ4yORTwrbTj/7MZYq2w+/ZFdI6OZ/f9SFHR+71gIVUZhOQPHzVCLpvRnPgyaMpfWxxk/4ONva3GQSyNIKRv6A==}
@@ -20251,7 +20209,7 @@ snapshots:
       '@open-draft/until': 1.0.3
       '@types/debug': 4.1.7
       '@xmldom/xmldom': 0.8.6
-      debug: 4.3.4(supports-color@8.1.1)
+      debug: 4.4.0
       headers-polyfill: 3.2.5
       outvariant: 1.4.0
       strict-event-emitter: 0.2.8
@@ -20414,15 +20372,13 @@ snapshots:
     transitivePeerDependencies:
       - '@parcel/core'
 
-  '@parcel/cache@2.12.0(@parcel/core@2.13.3(@swc/helpers@0.5.15))(@swc/helpers@0.5.15)':
+  '@parcel/cache@2.12.0(@parcel/core@2.13.3(@swc/helpers@0.5.15))':
     dependencies:
       '@parcel/core': 2.13.3(@swc/helpers@0.5.15)
-      '@parcel/fs': 2.12.0(@parcel/core@2.13.3(@swc/helpers@0.5.15))(@swc/helpers@0.5.15)
+      '@parcel/fs': 2.12.0(@parcel/core@2.13.3(@swc/helpers@0.5.15))
       '@parcel/logger': 2.12.0
       '@parcel/utils': 2.12.0
       lmdb: 2.8.5
-    transitivePeerDependencies:
-      - '@swc/helpers'
 
   '@parcel/cache@2.13.3(@parcel/core@2.13.3(@swc/helpers@0.5.15))':
     dependencies:
@@ -20590,7 +20546,7 @@ snapshots:
 
   '@parcel/feature-flags@2.13.3': {}
 
-  '@parcel/fs@2.12.0(@parcel/core@2.13.3(@swc/helpers@0.5.15))(@swc/helpers@0.5.15)':
+  '@parcel/fs@2.12.0(@parcel/core@2.13.3(@swc/helpers@0.5.15))':
     dependencies:
       '@parcel/core': 2.13.3(@swc/helpers@0.5.15)
       '@parcel/rust': 2.12.0
@@ -20598,8 +20554,6 @@ snapshots:
       '@parcel/utils': 2.12.0
       '@parcel/watcher': 2.5.1
       '@parcel/workers': 2.12.0(@parcel/core@2.13.3(@swc/helpers@0.5.15))(@swc/helpers@0.5.15)
-    transitivePeerDependencies:
-      - '@swc/helpers'
 
   '@parcel/fs@2.13.3(@parcel/core@2.13.3(@swc/helpers@0.5.15))':
     dependencies:
@@ -20659,7 +20613,7 @@ snapshots:
     dependencies:
       '@mischnic/json-sourcemap': 0.1.1
       '@parcel/diagnostic': 2.12.0
-      '@parcel/fs': 2.12.0(@parcel/core@2.13.3(@swc/helpers@0.5.15))(@swc/helpers@0.5.15)
+      '@parcel/fs': 2.12.0(@parcel/core@2.13.3(@swc/helpers@0.5.15))
       '@parcel/rust': 2.12.0
       '@parcel/utils': 2.12.0
       nullthrows: 1.1.1
@@ -20809,7 +20763,7 @@ snapshots:
     dependencies:
       '@parcel/core': 2.13.3(@swc/helpers@0.5.15)
       '@parcel/diagnostic': 2.12.0
-      '@parcel/fs': 2.12.0(@parcel/core@2.13.3(@swc/helpers@0.5.15))(@swc/helpers@0.5.15)
+      '@parcel/fs': 2.12.0(@parcel/core@2.13.3(@swc/helpers@0.5.15))
       '@parcel/logger': 2.12.0
       '@parcel/node-resolver-core': 3.3.0(@parcel/core@2.13.3(@swc/helpers@0.5.15))
       '@parcel/types': 2.12.0(@parcel/core@2.13.3(@swc/helpers@0.5.15))(@swc/helpers@0.5.15)
@@ -21391,9 +21345,9 @@ snapshots:
 
   '@parcel/types@2.12.0(@parcel/core@2.13.3(@swc/helpers@0.5.15))(@swc/helpers@0.5.15)':
     dependencies:
-      '@parcel/cache': 2.12.0(@parcel/core@2.13.3(@swc/helpers@0.5.15))(@swc/helpers@0.5.15)
+      '@parcel/cache': 2.12.0(@parcel/core@2.13.3(@swc/helpers@0.5.15))
       '@parcel/diagnostic': 2.12.0
-      '@parcel/fs': 2.12.0(@parcel/core@2.13.3(@swc/helpers@0.5.15))(@swc/helpers@0.5.15)
+      '@parcel/fs': 2.12.0(@parcel/core@2.13.3(@swc/helpers@0.5.15))
       '@parcel/package-manager': 2.12.0(@parcel/core@2.13.3(@swc/helpers@0.5.15))(@swc/helpers@0.5.15)
       '@parcel/source-map': 2.1.1
       '@parcel/workers': 2.12.0(@parcel/core@2.13.3(@swc/helpers@0.5.15))(@swc/helpers@0.5.15)
@@ -22125,13 +22079,6 @@ snapshots:
       '@sentry/types': 7.112.1
       '@sentry/utils': 7.112.1
 
-  '@sentry-internal/tracing@7.49.0':
-    dependencies:
-      '@sentry/core': 7.49.0
-      '@sentry/types': 7.49.0
-      '@sentry/utils': 7.49.0
-      tslib: 1.14.1
-
   '@sentry/browser@7.112.1':
     dependencies:
       '@sentry-internal/feedback': 7.112.1
@@ -22148,25 +22095,6 @@ snapshots:
       '@sentry/types': 7.112.1
       '@sentry/utils': 7.112.1
 
-  '@sentry/core@7.49.0':
-    dependencies:
-      '@sentry/types': 7.49.0
-      '@sentry/utils': 7.49.0
-      tslib: 1.14.1
-
-  '@sentry/core@7.53.0':
-    dependencies:
-      '@sentry/types': 7.53.0
-      '@sentry/utils': 7.53.0
-      tslib: 1.14.1
-
-  '@sentry/hub@7.53.0':
-    dependencies:
-      '@sentry/core': 7.53.0
-      '@sentry/types': 7.53.0
-      '@sentry/utils': 7.53.0
-      tslib: 1.14.1
-
   '@sentry/integrations@7.112.1':
     dependencies:
       '@sentry/core': 7.112.1
@@ -22174,32 +22102,18 @@ snapshots:
       '@sentry/utils': 7.112.1
       localforage: 1.10.0
 
-  '@sentry/node@7.49.0':
+  '@sentry/node@7.112.1':
     dependencies:
-      '@sentry-internal/tracing': 7.49.0
-      '@sentry/core': 7.49.0
-      '@sentry/types': 7.49.0
-      '@sentry/utils': 7.49.0
-      cookie: 0.4.2
-      https-proxy-agent: 5.0.1
-      lru_map: 0.3.3
-      tslib: 1.14.1
-    transitivePeerDependencies:
-      - supports-color
-
-  '@sentry/profiling-node@0.3.0':
-    dependencies:
-      '@sentry/hub': 7.53.0
-      '@sentry/node': 7.49.0
-      '@sentry/tracing': 7.49.0
+      '@sentry-internal/tracing': 7.112.1
+      '@sentry/core': 7.112.1
+      '@sentry/integrations': 7.112.1
       '@sentry/types': 7.112.1
-      '@sentry/utils': 7.49.0
-      detect-libc: 2.0.1
-      nan: 2.17.0
-      node-abi: 3.40.0
-      node-gyp: 9.4.0
-    transitivePeerDependencies:
-      - supports-color
+      '@sentry/utils': 7.112.1
+
+  '@sentry/profiling-node@7.112.1':
+    dependencies:
+      detect-libc: 2.0.3
+      node-abi: 3.74.0
 
   '@sentry/react@7.112.1(react@18.2.0)':
     dependencies:
@@ -22217,29 +22131,15 @@ snapshots:
       '@sentry/types': 7.112.1
       '@sentry/utils': 7.112.1
 
-  '@sentry/tracing@7.49.0':
+  '@sentry/tracing@7.112.1':
     dependencies:
-      '@sentry-internal/tracing': 7.49.0
+      '@sentry-internal/tracing': 7.112.1
 
   '@sentry/types@7.112.1': {}
-
-  '@sentry/types@7.49.0': {}
-
-  '@sentry/types@7.53.0': {}
 
   '@sentry/utils@7.112.1':
     dependencies:
       '@sentry/types': 7.112.1
-
-  '@sentry/utils@7.49.0':
-    dependencies:
-      '@sentry/types': 7.49.0
-      tslib: 1.14.1
-
-  '@sentry/utils@7.53.0':
-    dependencies:
-      '@sentry/types': 7.53.0
-      tslib: 1.14.1
 
   '@sideway/address@4.1.4':
     dependencies:
@@ -24782,7 +24682,7 @@ snapshots:
       npmlog: 5.0.1
       rimraf: 3.0.2
       semver: 7.5.4
-      tar: 6.1.15
+      tar: 6.2.1
     transitivePeerDependencies:
       - bluebird
       - encoding
@@ -25752,7 +25652,7 @@ snapshots:
       promise-inflight: 1.0.1
       rimraf: 3.0.2
       ssri: 9.0.1
-      tar: 6.1.15
+      tar: 6.2.1
       unique-filename: 2.0.1
     transitivePeerDependencies:
       - bluebird
@@ -25769,7 +25669,7 @@ snapshots:
       minipass-pipeline: 1.2.4
       p-map: 4.0.0
       ssri: 10.0.5
-      tar: 6.1.15
+      tar: 6.2.1
       unique-filename: 3.0.0
 
   cacache@18.0.4:
@@ -27029,7 +26929,7 @@ snapshots:
 
   detect-libc@1.0.3: {}
 
-  detect-libc@2.0.1: {}
+  detect-libc@2.0.3: {}
 
   detect-newline@3.1.0: {}
 
@@ -28532,7 +28432,7 @@ snapshots:
       mri: 1.2.0
       node-fetch-native: 1.2.0
       pathe: 1.1.1
-      tar: 6.1.15
+      tar: 6.2.1
     transitivePeerDependencies:
       - supports-color
 
@@ -31026,8 +30926,6 @@ snapshots:
 
   lru-cache@7.18.3: {}
 
-  lru_map@0.3.3: {}
-
   luxon@3.5.0: {}
 
   lz-string@1.4.4: {}
@@ -31040,7 +30938,7 @@ snapshots:
     dependencies:
       buffer: 5.7.1
       cuint: 0.2.2
-      nan: 2.17.0
+      nan: 2.22.0
       xxhashjs: 0.2.2
 
   magic-string@0.23.2:
@@ -31567,7 +31465,7 @@ snapshots:
       lower-case: 2.0.2
       tslib: 2.8.1
 
-  node-abi@3.40.0:
+  node-abi@3.74.0:
     dependencies:
       semver: 7.5.4
 
@@ -31599,11 +31497,11 @@ snapshots:
 
   node-gyp-build-optional-packages@5.1.1:
     dependencies:
-      detect-libc: 2.0.1
+      detect-libc: 2.0.3
 
   node-gyp-build-optional-packages@5.2.2:
     dependencies:
-      detect-libc: 2.0.1
+      detect-libc: 2.0.3
     optional: true
 
   node-gyp@10.3.1:
@@ -31631,7 +31529,7 @@ snapshots:
       npmlog: 6.0.2
       rimraf: 3.0.2
       semver: 7.5.4
-      tar: 6.1.15
+      tar: 6.2.1
       which: 2.0.2
     transitivePeerDependencies:
       - bluebird
@@ -31648,7 +31546,7 @@ snapshots:
       npmlog: 6.0.2
       rimraf: 3.0.2
       semver: 7.5.4
-      tar: 6.1.15
+      tar: 6.2.1
       which: 2.0.2
     transitivePeerDependencies:
       - supports-color
@@ -32131,7 +32029,7 @@ snapshots:
   path-scurry@1.10.1:
     dependencies:
       lru-cache: 10.4.3
-      minipass: 7.0.3
+      minipass: 7.1.2
 
   path-scurry@1.11.1:
     dependencies:
@@ -34238,7 +34136,7 @@ snapshots:
     dependencies:
       agent-base: 6.0.2
       debug: 4.4.0
-      socks: 2.7.1
+      socks: 2.8.3
     transitivePeerDependencies:
       - supports-color
 
@@ -34249,11 +34147,6 @@ snapshots:
       socks: 2.8.3
     transitivePeerDependencies:
       - supports-color
-
-  socks@2.7.1:
-    dependencies:
-      ip: 2.0.0
-      smart-buffer: 4.2.0
 
   socks@2.8.3:
     dependencies:
@@ -34877,15 +34770,6 @@ snapshots:
       fs-constants: 1.0.0
       inherits: 2.0.4
       readable-stream: 3.6.2
-
-  tar@6.1.15:
-    dependencies:
-      chownr: 2.0.0
-      fs-minipass: 2.1.0
-      minipass: 5.0.0
-      minizlib: 2.1.2
-      mkdirp: 1.0.4
-      yallist: 4.0.0
 
   tar@6.2.1:
     dependencies:
