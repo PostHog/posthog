@@ -1,5 +1,6 @@
 import * as d3 from 'd3'
 import * as Sankey from 'd3-sankey'
+import { link } from 'fs'
 import { stripHTTP } from 'lib/utils'
 import { Dispatch, RefObject, SetStateAction } from 'react'
 
@@ -32,6 +33,10 @@ interface InitializedD3PathsLink extends D3PathsLink {
 
 const isInitializedPathsLink = (d: D3PathsLink): d is InitializedD3PathsLink => {
     return typeof d.source === 'object' && d.source !== null && 'value' in d.source
+}
+
+function isinitializedLinkArray(links: D3PathsLink[]): links is InitializedD3PathsLink[] {
+    return links.every((link) => typeof link.source === 'object' && link.source !== null && 'value' in link.source)
 }
 
 const createCanvas = (canvasRef: RefObject<HTMLDivElement>, width: number, height: number): D3SelectorSvg => {
@@ -230,11 +235,13 @@ export function renderPaths(
     funnelPathsFilter: FunnelPathsFilter,
     setNodeCards: Dispatch<SetStateAction<D3PathsNode[]>>
 ): void {
+    console.debug('renderings', paths)
     if (!paths || paths.nodes.length === 0) {
         return
     }
 
     const maxLayer = paths.links.reduce((prev, curr) => {
+        console.debug('curr.target:', curr, curr.target)
         return Math.max(prev, Number(curr.target.match(/[^_]*/)))
     }, 0)
 
@@ -245,12 +252,19 @@ export function renderPaths(
 
     const svg = createCanvas(canvasRef, width, height)
     const sankey = createSankey(width, height)
-    const { nodes, links } = sankey(paths)
+    const { nodes, links } = sankey(JSON.parse(JSON.stringify(paths)))
 
-    setNodeCards(nodes.map((node) => ({ ...node, visible: node.y1! - node.y0! > HIDE_PATH_CARD_HEIGHT })))
+    if (isinitializedLinkArray(links)) {
+        // TypeScript now knows links is SankeyLinkStrict<N, L>[]
+        console.log('All links are strict:', links)
+    } else {
+        throw new Error('Some links do not have a SankeyNode as their source!')
+    }
 
-    appendPathNodes(svg, nodes, pathsFilter, funnelPathsFilter, setNodeCards)
-    appendDropoffs(svg)
-    appendPathLinks(svg, links, nodes, setNodeCards)
-    addChartAxisLines(svg, height, nodes, maxLayer)
+    // setNodeCards(nodes.map((node) => ({ ...node, visible: node.y1! - node.y0! > HIDE_PATH_CARD_HEIGHT })))
+
+    // appendPathNodes(svg, nodes, pathsFilter, funnelPathsFilter, setNodeCards)
+    // appendDropoffs(svg)
+    // appendPathLinks(svg, links, nodes, setNodeCards)
+    // addChartAxisLines(svg, height, nodes, maxLayer)
 }
