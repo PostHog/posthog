@@ -1,4 +1,7 @@
 procs:
+    backend:
+        shell: 'bin/check_hosts && bin/check_kafka_clickhouse_up && ./bin/start-backend'
+
     celery-worker:
         shell: 'bin/check_kafka_clickhouse_up && ./bin/start-celery worker'
 
@@ -7,9 +10,6 @@ procs:
 
     plugin-server:
         shell: 'bin/check_kafka_clickhouse_up && ./bin/plugin-server'
-
-    backend:
-        shell: 'bin/check_kafka_clickhouse_up && ./bin/start-backend'
 
     frontend:
         shell: 'bin/check_kafka_clickhouse_up && ./bin/start-frontend'
