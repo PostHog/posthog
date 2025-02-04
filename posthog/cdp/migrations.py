@@ -24,6 +24,7 @@ def migrate_legacy_plugins(dry_run=True, team_ids=None, test_mode=True, kind=str
             "plugin__capabilities",
             "plugin__config_schema",
             "plugin__icon",
+            "order",
             # Order by order asc but with nulls last
         )
         .filter(enabled=True)
@@ -66,6 +67,12 @@ def migrate_legacy_plugins(dry_run=True, team_ids=None, test_mode=True, kind=str
 
         plugin_id = url.replace("inline://", "").replace("https://github.com/PostHog/", "")
         plugin_name = plugin_config["plugin__name"]
+
+        # Inline plugins are named slightly differently so we fix it here
+        if plugin_id == "semver-flattener":
+            plugin_id = "semver-flattener-plugin"
+        if plugin_id == "user-agent":
+            plugin_id = "user-agent-plugin"
 
         if test_mode:
             plugin_name = f"[CDP-TEST-HIDDEN] {plugin_name}"
@@ -146,6 +153,7 @@ def migrate_legacy_plugins(dry_run=True, team_ids=None, test_mode=True, kind=str
             "enabled": True,
             "hog": "return event",
             "icon_url": icon_url,
+            "execution_order": plugin_config["order"],
         }
 
         print("Attempting to create hog function...")  # noqa: T201
