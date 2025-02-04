@@ -24,6 +24,7 @@ def migrate_legacy_plugins(dry_run=True, team_ids=None, test_mode=True, kind=str
             "plugin__capabilities",
             "plugin__config_schema",
             "plugin__icon",
+            "order",
             # Order by order asc but with nulls last
         )
         .filter(enabled=True)
@@ -146,6 +147,7 @@ def migrate_legacy_plugins(dry_run=True, team_ids=None, test_mode=True, kind=str
             "enabled": True,
             "hog": "return event",
             "icon_url": icon_url,
+            "execution_order": plugin_config["order"],
         }
 
         print("Attempting to create hog function...")  # noqa: T201

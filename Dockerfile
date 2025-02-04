@@ -78,15 +78,6 @@ COPY ./plugin-server/src/ ./src/
 COPY ./plugin-server/tests/ ./tests/
 RUN pnpm build
 
-# As the plugin-server is now built, let’s keep
-# only prod dependencies in the node_module folder
-# as we will copy it to the last image.
-RUN corepack enable && \
-    mkdir /tmp/pnpm-store && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
-    rm -rf /tmp/pnpm-store
-
-
 #
 # ---------------------------------------------------------
 #

@@ -4,10 +4,43 @@ exports[`LegacyPluginExecutorService smoke tests should run the destination plug
 [
   "Executing plugin customerio-plugin",
   "Successfully authenticated with Customer.io. Completing setupPlugin.",
-  "Detected email:, test@posthog.com",
-  "{"status":{},"email":"test@posthog.com"}",
-  "Should customer be tracked:, true",
   "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'hubspot-plugin', plugin: [Object] } 1`] = `
+[
+  "Executing plugin hubspot-plugin",
+  "Created Hubspot Contact for test@posthog.com",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'posthog-avo-plugin', plugin: [Object] } 1`] = `
+[
+  "Executing plugin posthog-avo-plugin",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'posthog-braze-app', plugin: [Object] } 1`] = `
+[
+  "Executing plugin posthog-braze-app",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'posthog-engage-so-plugin', plugin: [Object] } 1`] = `
+[
+  "Executing plugin posthog-engage-so-plugin",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'posthog-gcs-plugin', plugin: [Object] } 1`] = `
+[
+  "Executing plugin posthog-gcs-plugin",
+  "Plugin execution failed: Plugin posthog-gcs-plugin setup failed: Cannot read properties of undefined (reading 'googleCloudKeyJson')",
 ]
 `;
 
@@ -16,6 +49,56 @@ exports[`LegacyPluginExecutorService smoke tests should run the destination plug
   "Executing plugin posthog-intercom-plugin",
   "Contact test@posthog.com in Intercom not found",
   "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'posthog-laudspeaker-app', plugin: [Object] } 1`] = `
+[
+  "Executing plugin posthog-laudspeaker-app",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'posthog-patterns-app', plugin: [Object] } 1`] = `
+[
+  "Executing plugin posthog-patterns-app",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'posthog-plugin-replicator', plugin: [Object] } 1`] = `
+[
+  "Executing plugin posthog-plugin-replicator",
+  "Skipping 1 event, rejected by test: 200 undefined",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'pubsub-plugin', plugin: [Object] } 1`] = `
+[
+  "Executing plugin pubsub-plugin",
+  "Plugin execution failed: Plugin pubsub-plugin setup failed: Cannot read properties of undefined (reading 'googleCloudKeyJson')",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'rudderstack-posthog-plugin', plugin: [Object] } 1`] = `
+[
+  "Executing plugin rudderstack-posthog-plugin",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'salesforce-plugin', plugin: [Object] } 1`] = `
+[
+  "Executing plugin salesforce-plugin",
+  "Plugin execution failed: Plugin salesforce-plugin setup failed: host not a valid URL!",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'sendgrid-plugin', plugin: [Object] } 1`] = `
+[
+  "Executing plugin sendgrid-plugin",
+  "Plugin execution failed: Plugin sendgrid-plugin setup failed: Custom field with name test is not defined in Sendgrid",
 ]
 `;
 

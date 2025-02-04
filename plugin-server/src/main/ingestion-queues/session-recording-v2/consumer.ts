@@ -1,4 +1,4 @@
-import { S3Client } from '@aws-sdk/client-s3'
+import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
 import { captureException } from '@sentry/node'
 import {
     CODES,
@@ -83,11 +83,20 @@ export class SessionRecordingIngester {
             config.SESSION_RECORDING_V2_S3_BUCKET &&
             config.SESSION_RECORDING_V2_S3_PREFIX
         ) {
-            s3Client = new S3Client({
+            const s3Config: S3ClientConfig = {
                 region: config.SESSION_RECORDING_V2_S3_REGION,
                 endpoint: config.SESSION_RECORDING_V2_S3_ENDPOINT,
                 forcePathStyle: true,
-            })
+            }
+
+            if (config.SESSION_RECORDING_V2_S3_ACCESS_KEY_ID && config.SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY) {
+                s3Config.credentials = {
+                    accessKeyId: config.SESSION_RECORDING_V2_S3_ACCESS_KEY_ID,
+                    secretAccessKey: config.SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY,
+                }
+            }
+
+            s3Client = new S3Client(s3Config)
         }
 
         this.kafkaParser = new KafkaMessageParser()
