@@ -47,14 +47,9 @@ export const compareEvents = (pluginEvent: PluginEvent, hogEvent: PluginEvent): 
 export async function compareToHogTransformStep(
     hogTransformer: HogTransformerService | null,
     prePluginsEvent: PluginEvent,
-    postPluginsEvent: PluginEvent | null,
-    samplePercentage?: number
+    postPluginsEvent: PluginEvent | null
 ): Promise<void> {
     if (!hogTransformer) {
-        return
-    }
-
-    if (!samplePercentage || Math.random() > samplePercentage) {
         return
     }
 
