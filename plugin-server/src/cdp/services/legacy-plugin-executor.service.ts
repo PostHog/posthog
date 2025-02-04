@@ -135,7 +135,8 @@ export class LegacyPluginExecutorService {
                         // Destination plugin can use fetch and is async
                         setupPromise = plugin.setupPlugin({
                             ...meta,
-                            fetch,
+                            // Setup receives the real fetch always
+                            fetch: this.fetch,
                         })
                     }
                 }
