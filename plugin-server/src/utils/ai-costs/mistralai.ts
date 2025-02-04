@@ -74,8 +74,8 @@ export const costs: ModelRow[] = [
     {
         model: 'mistral-7b-instruct:free',
         cost: {
-            prompt_token: 0.0,
-            completion_token: 0.0,
+            prompt_token: 0,
+            completion_token: 0,
         },
     },
     {

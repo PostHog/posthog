@@ -25,8 +25,8 @@ export const costs: ModelRow[] = [
     {
         model: 'deepseek-r1-distill-llama-70b:free',
         cost: {
-            prompt_token: 0.0,
-            completion_token: 0.0,
+            prompt_token: 0,
+            completion_token: 0,
         },
     },
     {
@@ -39,8 +39,8 @@ export const costs: ModelRow[] = [
     {
         model: 'deepseek-r1:free',
         cost: {
-            prompt_token: 0.0,
-            completion_token: 0.0,
+            prompt_token: 0,
+            completion_token: 0,
         },
     },
     {

@@ -1,5 +1,6 @@
 import dotenv from 'dotenv'
 import fs from 'fs'
+import bigDecimal from 'js-big-decimal'
 import path from 'path'
 
 dotenv.config()
@@ -7,8 +8,8 @@ dotenv.config()
 interface ModelRow {
     model: string
     cost: {
-        prompt_token: number
-        completion_token: number
+        prompt_token: string
+        completion_token: string
     }
 }
 
@@ -23,28 +24,20 @@ const supportedProviderList = [
     'meta-llama',
 ]
 
-/**
- * Convert a number into a string using fixed notation.
- * We use toFixed(10) and then trim any trailing zeros,
- * ensuring we output floats like "0.0000011" rather than "1.1e-6".
- */
-function formatNumber(num: number): string {
-    let s = num.toFixed(10)
-    // Remove trailing zeros (but leave at least one digit after the decimal point)
-    s = s.replace(/0+$/, '')
-    if (s.endsWith('.')) {
-        s += '0'
-    }
-    return s
-}
 function serializeModels(models: ModelRow[]): string {
     let output = '[\n'
     models.forEach((model, index) => {
         output += '  {\n'
         output += `    model: ${JSON.stringify(model.model)},\n`
         output += '    cost: {\n'
-        output += `      prompt_token: ${formatNumber(model.cost.prompt_token)},\n`
-        output += `      completion_token: ${formatNumber(model.cost.completion_token)}\n`
+        output += `      prompt_token: ${new bigDecimal(model.cost.prompt_token)
+            .round(10)
+            .stripTrailingZero()
+            .getValue()},\n`
+        output += `      completion_token: ${new bigDecimal(model.cost.completion_token)
+            .round(10)
+            .stripTrailingZero()
+            .getValue()}\n`
         output += '    }\n'
         output += '  }'
         output += index < models.length - 1 ? ',\n' : '\n'
@@ -99,14 +92,14 @@ const main = async () => {
         }
 
         // Convert pricing values to numbers before using toFixed(10)
-        const promptPrice = Number(model.pricing.prompt)
-        const completionPrice = Number(model.pricing.completion)
+        const promptPrice = new bigDecimal(model.pricing.prompt).getValue()
+        const completionPrice = new bigDecimal(model.pricing.completion).getValue()
 
         const modelRow: ModelRow = {
             model: modelParts.join('/'), // Only include the part after the provider
             cost: {
-                prompt_token: Number(promptPrice.toFixed(10)),
-                completion_token: Number(completionPrice.toFixed(10)),
+                prompt_token: promptPrice,
+                completion_token: completionPrice,
             },
         }
 
@@ -115,10 +108,6 @@ const main = async () => {
 
     // Generate files for each provider using our custom serializer
     for (const [provider, models] of providerModels.entries()) {
-        if (!fs.existsSync(baseDir)) {
-            fs.mkdirSync(baseDir)
-        }
-
         const fileContent = `import type { ModelRow } from './types';\n\nexport const costs: ModelRow[] = ${serializeModels(
             models
         )};\n`

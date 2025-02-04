@@ -11,8 +11,8 @@ export const costs: ModelRow[] = [
     {
         model: 'llama-3.2-3b-instruct:free',
         cost: {
-            prompt_token: 0.0,
-            completion_token: 0.0,
+            prompt_token: 0,
+            completion_token: 0,
         },
     },
     {
@@ -25,8 +25,8 @@ export const costs: ModelRow[] = [
     {
         model: 'llama-3.2-1b-instruct:free',
         cost: {
-            prompt_token: 0.0,
-            completion_token: 0.0,
+            prompt_token: 0,
+            completion_token: 0,
         },
     },
     {
@@ -39,8 +39,8 @@ export const costs: ModelRow[] = [
     {
         model: 'llama-3.2-90b-vision-instruct:free',
         cost: {
-            prompt_token: 0.0,
-            completion_token: 0.0,
+            prompt_token: 0,
+            completion_token: 0,
         },
     },
     {
@@ -53,8 +53,8 @@ export const costs: ModelRow[] = [
     {
         model: 'llama-3.2-11b-vision-instruct:free',
         cost: {
-            prompt_token: 0.0,
-            completion_token: 0.0,
+            prompt_token: 0,
+            completion_token: 0,
         },
     },
     {
@@ -74,8 +74,8 @@ export const costs: ModelRow[] = [
     {
         model: 'llama-3.1-405b-instruct:free',
         cost: {
-            prompt_token: 0.0,
-            completion_token: 0.0,
+            prompt_token: 0,
+            completion_token: 0,
         },
     },
     {
@@ -95,8 +95,8 @@ export const costs: ModelRow[] = [
     {
         model: 'llama-3.1-8b-instruct:free',
         cost: {
-            prompt_token: 0.0,
-            completion_token: 0.0,
+            prompt_token: 0,
+            completion_token: 0,
         },
     },
     {
@@ -116,8 +116,8 @@ export const costs: ModelRow[] = [
     {
         model: 'llama-3.1-70b-instruct:free',
         cost: {
-            prompt_token: 0.0,
-            completion_token: 0.0,
+            prompt_token: 0,
+            completion_token: 0,
         },
     },
     {
@@ -144,8 +144,8 @@ export const costs: ModelRow[] = [
     {
         model: 'llama-3-8b-instruct:free',
         cost: {
-            prompt_token: 0.0,
-            completion_token: 0.0,
+            prompt_token: 0,
+            completion_token: 0,
         },
     },
     {

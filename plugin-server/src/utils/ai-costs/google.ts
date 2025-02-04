@@ -4,50 +4,50 @@ export const costs: ModelRow[] = [
     {
         model: 'gemini-2.0-flash-thinking-exp:free',
         cost: {
-            prompt_token: 0.0,
-            completion_token: 0.0,
+            prompt_token: 0,
+            completion_token: 0,
         },
     },
     {
         model: 'gemini-2.0-flash-thinking-exp-1219:free',
         cost: {
-            prompt_token: 0.0,
-            completion_token: 0.0,
+            prompt_token: 0,
+            completion_token: 0,
         },
     },
     {
         model: 'gemini-2.0-flash-exp:free',
         cost: {
-            prompt_token: 0.0,
-            completion_token: 0.0,
+            prompt_token: 0,
+            completion_token: 0,
         },
     },
     {
         model: 'gemini-exp-1206:free',
         cost: {
-            prompt_token: 0.0,
-            completion_token: 0.0,
+            prompt_token: 0,
+            completion_token: 0,
         },
     },
     {
         model: 'gemini-exp-1121:free',
         cost: {
-            prompt_token: 0.0,
-            completion_token: 0.0,
+            prompt_token: 0,
+            completion_token: 0,
         },
     },
     {
         model: 'learnlm-1.5-pro-experimental:free',
         cost: {
-            prompt_token: 0.0,
-            completion_token: 0.0,
+            prompt_token: 0,
+            completion_token: 0,
         },
     },
     {
         model: 'gemini-exp-1114:free',
         cost: {
-            prompt_token: 0.0,
-            completion_token: 0.0,
+            prompt_token: 0,
+            completion_token: 0,
         },
     },
     {
@@ -60,29 +60,29 @@ export const costs: ModelRow[] = [
     {
         model: 'gemini-flash-1.5-exp:free',
         cost: {
-            prompt_token: 0.0,
-            completion_token: 0.0,
+            prompt_token: 0,
+            completion_token: 0,
         },
     },
     {
         model: 'gemini-flash-1.5-exp',
         cost: {
-            prompt_token: 0.0,
-            completion_token: 0.0,
+            prompt_token: 0,
+            completion_token: 0,
         },
     },
     {
         model: 'gemini-flash-1.5-8b-exp',
         cost: {
-            prompt_token: 0.0,
-            completion_token: 0.0,
+            prompt_token: 0,
+            completion_token: 0,
         },
     },
     {
         model: 'gemini-pro-1.5-exp',
         cost: {
-            prompt_token: 0.0,
-            completion_token: 0.0,
+            prompt_token: 0,
+            completion_token: 0,
         },
     },
     {
@@ -95,8 +95,8 @@ export const costs: ModelRow[] = [
     {
         model: 'gemma-2-9b-it:free',
         cost: {
-            prompt_token: 0.0,
-            completion_token: 0.0,
+            prompt_token: 0,
+            completion_token: 0,
         },
     },
     {
