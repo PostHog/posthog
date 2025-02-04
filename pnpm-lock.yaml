@@ -270,8 +270,8 @@ importers:
         specifier: ^3.1.0
         version: 3.1.0(kea@3.1.5)
       kea-router:
-        specifier: ^3.2.0
-        version: 3.2.0(kea@3.1.5)
+        specifier: ^3.2.1
+        version: 3.2.1(kea@3.1.5)
       kea-subscriptions:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.5)
@@ -820,7 +820,7 @@ importers:
         version: 2.12.0(@parcel/core@2.13.3)(typescript@4.9.5)
       '@swc-node/register':
         specifier: ^1.9.1
-        version: 1.10.9(@swc/core@1.10.14)(@swc/types@0.1.5)(typescript@4.9.5)
+        version: 1.10.9(@swc/core@1.10.14)(@swc/types@0.1.17)(typescript@4.9.5)
       '@swc/core':
         specifier: ^1.5.7
         version: 1.10.14
@@ -2059,11 +2059,6 @@ packages:
     engines: {node: '>=6.9.0'}
     dev: true
 
-  /@babel/compat-data@7.23.5:
-    resolution: {integrity: sha512-uU27kfDRlhfKl+w1U6vp16IuvSLtjAxdArVXPa9BvLkrr7CYIsxH5adpHObeAGY/41+syctUWOZ140a2Rvkgjw==}
-    engines: {node: '>=6.9.0'}
-    dev: true
-
   /@babel/compat-data@7.26.3:
     resolution: {integrity: sha512-nHIxvKPniQXpmQLb0vhY3VaFb3S0YrTAwpOWJZh1wn3oJPjJk9Asva204PsBdmAE8vpzfHudT8DB0scYvy9q0g==}
     engines: {node: '>=6.9.0'}
@@ -2794,11 +2789,6 @@ packages:
 
   /@babel/helper-validator-option@7.22.5:
     resolution: {integrity: sha512-R3oB6xlIVKUnxNUxbmgq7pKjxpru24zlimpE8WK47fACIlM0II/Hm1RS8IaOI7NgCr6LNS+jl5l75m20npAziw==}
-    engines: {node: '>=6.9.0'}
-    dev: true
-
-  /@babel/helper-validator-option@7.23.5:
-    resolution: {integrity: sha512-85ttAOMLsr53VgXkTbkx8oA6YTfT4q7/HzXSLEYmjcSTJPMPQtvq1BD79Byep5xMUYbGRzEpDsjUf3dyp54IKw==}
     engines: {node: '>=6.9.0'}
     dev: true
 
@@ -5508,11 +5498,11 @@ packages:
     peerDependencies:
       '@babel/core': ^7.0.0-0
     dependencies:
-      '@babel/compat-data': 7.23.5
+      '@babel/compat-data': 7.26.3
       '@babel/core': 7.23.5
-      '@babel/helper-compilation-targets': 7.22.15
+      '@babel/helper-compilation-targets': 7.25.9
       '@babel/helper-plugin-utils': 7.24.7
-      '@babel/helper-validator-option': 7.23.5
+      '@babel/helper-validator-option': 7.25.9
       '@babel/plugin-bugfix-safari-id-destructuring-collision-in-function-expression': 7.23.3(@babel/core@7.23.5)
       '@babel/plugin-bugfix-v8-spread-parameters-in-optional-chaining': 7.23.3(@babel/core@7.23.5)
       '@babel/plugin-bugfix-v8-static-class-fields-redefine-readonly': 7.23.3(@babel/core@7.23.5)
@@ -8342,6 +8332,8 @@ packages:
       '@parcel/logger': 2.12.0
       '@parcel/utils': 2.12.0
       lmdb: 2.8.5
+    transitivePeerDependencies:
+      - '@swc/helpers'
     dev: true
 
   /@parcel/cache@2.13.3(@parcel/core@2.13.3):
@@ -9352,8 +9344,6 @@ packages:
       '@parcel/types': 2.12.0(@parcel/core@2.13.3)
       '@parcel/utils': 2.12.0
       nullthrows: 1.1.1
-    transitivePeerDependencies:
-      - '@swc/helpers'
     dev: true
 
   /@parcel/workers@2.13.3(@parcel/core@2.13.3):
@@ -12338,7 +12328,7 @@ packages:
       '@swc/core': 1.3.93
     dev: true
 
-  /@swc-node/core@1.13.3(@swc/core@1.10.14)(@swc/types@0.1.5):
+  /@swc-node/core@1.13.3(@swc/core@1.10.14)(@swc/types@0.1.17):
     resolution: {integrity: sha512-OGsvXIid2Go21kiNqeTIn79jcaX4l0G93X2rAnas4LFoDyA9wAwVK7xZdm+QsKoMn5Mus2yFLCc4OtX2dD/PWA==}
     engines: {node: '>= 10'}
     peerDependencies:
@@ -12346,16 +12336,16 @@ packages:
       '@swc/types': '>= 0.1'
     dependencies:
       '@swc/core': 1.10.14
-      '@swc/types': 0.1.5
+      '@swc/types': 0.1.17
     dev: true
 
-  /@swc-node/register@1.10.9(@swc/core@1.10.14)(@swc/types@0.1.5)(typescript@4.9.5):
+  /@swc-node/register@1.10.9(@swc/core@1.10.14)(@swc/types@0.1.17)(typescript@4.9.5):
     resolution: {integrity: sha512-iXy2sjP0phPEpK2yivjRC3PAgoLaT4sjSk0LDWCTdcTBJmR4waEog0E6eJbvoOkLkOtWw37SB8vCkl/bbh4+8A==}
     peerDependencies:
       '@swc/core': '>= 1.4.13'
       typescript: ~4.9.5
     dependencies:
-      '@swc-node/core': 1.13.3(@swc/core@1.10.14)(@swc/types@0.1.5)
+      '@swc-node/core': 1.13.3(@swc/core@1.10.14)(@swc/types@0.1.17)
       '@swc-node/sourcemap-support': 0.5.1
       '@swc/core': 1.10.14
       colorette: 2.0.20
@@ -23255,8 +23245,8 @@ packages:
       kea: 3.1.5(react@18.2.0)
     dev: false
 
-  /kea-router@3.2.0(kea@3.1.5):
-    resolution: {integrity: sha512-TZVHrQQNhD7tSL05xEXoNCeYu/vwwvxBc316pgwi5z8cH61MtCcUBUEZnWr2Nd7jSBDgxA/GRHpqai0YXq0T8w==}
+  /kea-router@3.2.1(kea@3.1.5):
+    resolution: {integrity: sha512-uW9Pgo4J/Oz9dqikaKem2rf03KR0RiGElD6lrBU1JKW/BM11YG468JLh5UI0NSwWniFjWh9M7ah1nV0TXu9FjQ==}
     peerDependencies:
       kea: '>= 3'
     dependencies:
