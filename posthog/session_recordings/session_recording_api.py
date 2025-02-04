@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from json import JSONDecodeError
 from typing import Any, Optional, cast
-from openai import OpenAI
+from posthoganalytics.ai.openai import OpenAI
 
 import posthoganalytics
 import requests
@@ -830,7 +830,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         messages = serializer.validated_data["messages"]
 
-        client = OpenAI()
+        client = OpenAI(posthog_client=posthoganalytics.default_client)
 
         completion = client.chat.completions.create(
             model="gpt-4o-mini",
