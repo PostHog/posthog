@@ -708,7 +708,64 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         print_ast(parse_select("SELECT person_id FROM warehouse_table"), context, dialect="clickhouse")
 
-    def test_database_warehouse_experiments_optimized_events_join_resolve_field_through_linear_joins(self):
+    def test_database_warehouse_resolve_field_through_linear_joins_basic_join(self):
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="subscriptions",
+            columns={
+                "id": "String",
+                "customer_id": "String",
+            },
+            credential=credentials,
+            url_pattern="s3://test/*",
+            format=DataWarehouseTable.TableFormat.Parquet,
+        )
+
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="customers",
+            columns={
+                "id": "String",
+                "email": "String",
+            },
+            credential=credentials,
+            url_pattern="s3://test/*",
+            format=DataWarehouseTable.TableFormat.Parquet,
+        )
+
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="subscriptions",
+            source_table_key="customer_id",
+            joining_table_name="customers",
+            joining_table_key="id",
+            field_name="customer",
+        )
+
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="customers",
+            source_table_key="email",
+            joining_table_name="events",
+            joining_table_key="person.properties.$email",
+            field_name="events",
+        )
+
+        db = create_hogql_database(team_id=self.team.pk)
+
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=db,
+        )
+
+        print_ast(parse_select("SELECT customer.events.distinct_id FROM subscriptions"), context, dialect="clickhouse")
+
+    def test_database_warehouse_resolve_field_through_linear_joins_experiments_optimized_events_join(self):
         credentials = DataWarehouseCredential.objects.create(
             access_key="test_key", access_secret="test_secret", team=self.team
         )
@@ -766,7 +823,64 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         print_ast(parse_select("SELECT customer.events.distinct_id FROM subscriptions"), context, dialect="clickhouse")
 
-    def test_database_warehouse_experiments_optimized_events_join_resolve_field_through_nested_joins(self):
+    def test_database_warehouse_resolve_field_through_nested_joins_basic_join(self):
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="subscriptions",
+            columns={
+                "id": "String",
+                "customer_id": "String",
+            },
+            credential=credentials,
+            url_pattern="s3://test/*",
+            format=DataWarehouseTable.TableFormat.Parquet,
+        )
+
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="customers",
+            columns={
+                "id": "String",
+                "email": "String",
+            },
+            credential=credentials,
+            url_pattern="s3://test/*",
+            format=DataWarehouseTable.TableFormat.Parquet,
+        )
+
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="subscriptions",
+            source_table_key="customer_id",
+            joining_table_name="customers",
+            joining_table_key="id",
+            field_name="customer",
+        )
+
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="subscriptions",
+            source_table_key="customer.email",
+            joining_table_name="events",
+            joining_table_key="person.properties.$email",
+            field_name="events",
+        )
+
+        db = create_hogql_database(team_id=self.team.pk)
+
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=db,
+        )
+
+        print_ast(parse_select("SELECT events.distinct_id FROM subscriptions"), context, dialect="clickhouse")
+
+    def test_database_warehouse_resolve_field_through_nested_joins_experiments_optimized_events_join(self):
         credentials = DataWarehouseCredential.objects.create(
             access_key="test_key", access_secret="test_secret", team=self.team
         )
