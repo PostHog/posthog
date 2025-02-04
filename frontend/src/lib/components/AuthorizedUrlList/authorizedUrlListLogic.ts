@@ -85,7 +85,7 @@ export const validateProposedUrl = (
 
     if (
         hasWildCard &&
-        !/^https?:\/\/(\*\.?)?localhost(:\d+)?$/.test(proposedUrl) && // Allow http://*.localhost and localhost with ports
+        !/^https?:\/\/((\*\.)?localhost|localhost)(:\d+)?$/.test(proposedUrl) && // Allow http://*.localhost and localhost with ports
         !proposedUrl.match(/^(.*)\*[^*]*\.[^*]+\.[^*]+$/)
     ) {
         return 'Wildcards can only be used for subdomains'
