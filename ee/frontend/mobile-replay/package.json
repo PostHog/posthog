@@ -32,6 +32,7 @@
         "kea-forms": "*",
         "react": "*",
         "@posthog/icons": "*",
+        "@posthog/rrweb-types": "*",
         "fuse.js": "*",
         "ajv": "*",
         "@sentry/react": "*",

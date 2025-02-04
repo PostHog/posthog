@@ -11,6 +11,9 @@ devDependencies:
   typescript:
     specifier: ^4.7.4
     version: 4.9.5
+  undici-types:
+    specifier: ^7.3.0
+    version: 7.3.0
 
 packages:
 
@@ -28,4 +31,8 @@ packages:
 
   /undici-types@5.26.5:
     resolution: {integrity: sha512-JlCMO+ehdEIKqlFxk6IfVoAUVmgz7cU7zD/h9XZ0qzeosSHmUJVOzSQvvYSYWXkFXC+IfLKSIffhv0sVZup6pA==}
+    dev: true
+
+  /undici-types@7.3.0:
+    resolution: {integrity: sha512-z2pHpkN2BEJl3QlQo0GtfGCyuhuBbWX60vzGwyn7ex/seM2UkvyGEfEV0Qb9pXc5StNfcJpsstgaf2YTEJa63Q==}
     dev: true

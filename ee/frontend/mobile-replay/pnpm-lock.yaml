@@ -8,6 +8,9 @@ dependencies:
   '@posthog/icons':
     specifier: '*'
     version: 0.11.1(react-dom@19.0.0)(react@19.0.0)
+  '@posthog/rrweb-types':
+    specifier: '*'
+    version: 0.0.7
   '@rrweb/types':
     specifier: '*'
     version: 2.0.0-alpha.18
@@ -977,6 +980,10 @@ packages:
     dependencies:
       react: 19.0.0
       react-dom: 19.0.0(react@19.0.0)
+    dev: false
+
+  /@posthog/rrweb-types@0.0.7:
+    resolution: {integrity: sha512-PJzkoVgObXAmHy7tnVEee5rx9bA3GZRsHFhkjrO3IaI+vJdPKNQWDACChvvPsd+czwWzGwL8n/5tsiawxkrigw==}
     dev: false
 
   /@rrweb/types@2.0.0-alpha.18:

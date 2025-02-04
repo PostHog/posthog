@@ -1,5 +1,6 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { EventType, eventWithTime, IncrementalSource } from '@rrweb/types'
+import { playerConfig, Replayer, ReplayPlugin } from '@posthog/rrweb'
+import { EventType, eventWithTime, IncrementalSource } from '@posthog/rrweb-types'
 import { captureException } from '@sentry/react'
 import {
     actions,
@@ -25,8 +26,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { wrapConsole } from 'lib/utils/wrapConsole'
 import posthog from 'posthog-js'
 import { RefObject } from 'react'
-import { Replayer } from 'rrweb'
-import { playerConfig, ReplayPlugin } from 'rrweb/typings/types'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import {
@@ -1173,7 +1172,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
         cache.pausedMediaElements = []
         cache.fullScreenListener = () => {
-            actions.setIsFullScreen(document.fullscreenElement !== null)
+            actions.setIsFullScreen(document.fullscreenElement !== null) // eslint-disable-line compat/compat
         }
 
         document.addEventListener('fullscreenchange', cache.fullScreenListener)
