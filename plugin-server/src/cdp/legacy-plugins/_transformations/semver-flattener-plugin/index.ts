@@ -55,9 +55,3 @@ export function processEvent(event: PluginEvent, meta: LegacyTransformationPlugi
 
     return event
 }
-
-export const semverFlattenerPlugin: LegacyTransformationPlugin = {
-    id: 'semver-flattener-plugin',
-    metadata,
-    processEvent,
-}

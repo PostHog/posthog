@@ -126,10 +126,3 @@ const parseFiltersAndMigrate = (filters: Filter[][] | Filter[]): Filter[][] => {
     }
     return filters as Filter[][]
 }
-
-export const posthogFilterOutPlugin: LegacyTransformationPlugin = {
-    id: 'posthog-filter-out-plugin',
-    metadata,
-    processEvent,
-    setupPlugin,
-}

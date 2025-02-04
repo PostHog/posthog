@@ -178,10 +178,3 @@ function getEmailFromEvent(event: ProcessedPluginEvent): string | null {
 
     return null
 }
-
-export const hubspotPlugin: LegacyDestinationPlugin = {
-    id: 'hubspot-plugin',
-    metadata: metadata as any,
-    setupPlugin,
-    onEvent,
-}
