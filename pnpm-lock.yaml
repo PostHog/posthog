@@ -63,8 +63,6 @@ dependencies:
     specifier: 0.0.8
     version: 0.0.8
   '@posthog/rrweb-plugin-console-record':
-    specifier: 0.0.7
-    version: 0.0.7(@posthog/rrweb-utils@0.0.8)(@posthog/rrweb@0.0.7)
     specifier: 0.0.8
     version: 0.0.8(@posthog/rrweb-utils@0.0.4)(@posthog/rrweb@0.0.8)
   '@posthog/rrweb-types':
