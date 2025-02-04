@@ -34,7 +34,7 @@ export const billingProductAddonLogic = kea<billingProductAddonLogicType>([
                 {
                     type: BillingGaugeItemKind.CurrentUsage,
                     text: 'Current',
-                    value: addon.current_usage || 0,
+                    value: addon.current_usage ?? 0,
                     top: false,
                 },
             ],
