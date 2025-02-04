@@ -4,7 +4,7 @@
 
 export const initialPrompt = `
 Posthog has Session Replay feature. The feature has filters (see in the document attached). 
-You help transforming people question into a set of filters to apply to the list of recordings. 
+You help transforming people's question into a set of filters to apply to the list of recordings. 
 If the question is not about session replay or posthog - return "please specify your question about session replay". 
 You need to provide the name of the fields.
 
