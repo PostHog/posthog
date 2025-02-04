@@ -2,51 +2,112 @@ import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { IconOpenInApp } from 'lib/lemon-ui/icons'
+import { IconOpenInApp, IconRefresh } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { useMemo } from 'react'
 
 import { ExperimentIdType } from '~/types'
 
-import { authorizedUrlListLogic, AuthorizedUrlListType } from './authorizedUrlListLogic'
+import { authorizedUrlListLogic, AuthorizedUrlListType, KeyedAppUrl } from './authorizedUrlListLogic'
 
 function EmptyState({
-    numberOfResults,
-    isSearching,
-    isAddingEntry,
+    experimentId,
+    actionId,
     type,
 }: {
-    numberOfResults: number
-    isSearching: boolean
-    isAddingEntry: boolean
     type: AuthorizedUrlListType
+    actionId?: number | null
+    experimentId?: ExperimentIdType | null
 }): JSX.Element | null {
-    if (numberOfResults > 0) {
-        return null
-    }
+    const logic = authorizedUrlListLogic({ experimentId: experimentId ?? null, actionId: actionId ?? null, type })
+    const { urlsKeyed, searchTerm, suggestionsLoading, isAddUrlFormVisible } = useValues(logic)
+    const { loadSuggestions } = useActions(logic)
 
-    return isSearching || !isAddingEntry ? (
-        <div className="border rounded p-4 text-muted-alt">
-            {isSearching ? (
+    const domainOrUrl = type === AuthorizedUrlListType.RECORDING_DOMAINS ? 'domain' : 'URL'
+
+    // Split suggestions and non-suggestions
+    const [suggestionURLs, authorizedURLs] = urlsKeyed.reduce(
+        ([suggestions, nonSuggestions], url) => {
+            if (url.type === 'suggestion') {
+                suggestions.push(url)
+            } else {
+                nonSuggestions.push(url)
+            }
+            return [suggestions, nonSuggestions]
+        },
+        [[], []] as KeyedAppUrl[][]
+    )
+
+    const children = useMemo(() => {
+        // If there are authorized URLs, never display this empty state
+        if (authorizedURLs.length > 0) {
+            return null
+        }
+
+        // If the add URL form is visible, don't show the empty state either
+        if (isAddUrlFormVisible) {
+            return null
+        }
+
+        // This means no suggested URLs and no search term
+        if (searchTerm.length > 0 && suggestionURLs.length === 0) {
+            return <>There are no authorized {domainOrUrl}s that match your search.</>
+        }
+
+        if (suggestionURLs.length > 0) {
+            return (
                 <>
-                    There are no authorized{' '}
-                    <span>{type === AuthorizedUrlListType.RECORDING_DOMAINS ? 'domains' : 'URLs'}</span> that match your
-                    search.
+                    There are no authorized {domainOrUrl}s that match your search We've found some URLs you've used
+                    PostHog from in the last 3 days. Consider authorizing them.
+                    {type === AuthorizedUrlListType.RECORDING_DOMAINS &&
+                        ' When no domains are specified, recordings will be authorized on all domains.'}
                 </>
-            ) : (
-                <span>
-                    {type === AuthorizedUrlListType.RECORDING_DOMAINS
-                        ? 'No domains are specified, so recordings will be authorized on all domains.'
-                        : 'There are no authorized urls. Add one to get started.'}
-                </span>
-            )}
-        </div>
-    ) : null
+            )
+        }
+
+        return (
+            <div className="flex flex-row items-center justify-between w-full">
+                <p>
+                    <span className="font-bold">There are no authorized urls.</span>
+                    <br />
+                    Add one to get started. When you send us events we'll suggest the ones that you should authorize.
+                    <br />
+                    <span>
+                        {type === AuthorizedUrlListType.RECORDING_DOMAINS &&
+                            ' When no domains are specified, recordings will be authorized on all domains.'}
+                    </span>
+                </p>
+                <div className="flex flex-col items-end gap-2">
+                    <LemonButton
+                        onClick={loadSuggestions}
+                        disabled={suggestionsLoading}
+                        type="secondary"
+                        icon={<IconRefresh />}
+                        data-attr="toolbar-add-url"
+                    >
+                        {suggestionsLoading ? 'Fetching...' : 'Fetch suggestions'}
+                    </LemonButton>
+                    <span className="text-small text-muted-alt">Sent an event? Refetch suggestions.</span>
+                </div>
+            </div>
+        )
+    }, [
+        authorizedURLs.length,
+        isAddUrlFormVisible,
+        searchTerm.length,
+        suggestionURLs.length,
+        suggestionsLoading,
+        type,
+        domainOrUrl,
+        loadSuggestions,
+    ])
+
+    return children ? <div className="border rounded p-4 text-muted-alt">{children}</div> : null
 }
 
 export interface AuthorizedUrlFormProps {
@@ -121,16 +182,10 @@ export function AuthorizedUrlList({
         allowWildCards,
     })
 
-    const {
-        urlsKeyed,
-        suggestionsLoading,
-        searchTerm,
-        launchUrl,
-        editUrlIndex,
-        isAddUrlFormVisible,
-        onlyAllowDomains,
-    } = useValues(logic)
+    const { urlsKeyed, searchTerm, launchUrl, editUrlIndex, isAddUrlFormVisible, onlyAllowDomains } = useValues(logic)
     const { addUrl, removeUrl, setSearchTerm, newUrl, setEditUrlIndex } = useActions(logic)
+
+    const noAuthorizedUrls = !urlsKeyed.some((url) => url.type === 'authorized')
 
     return (
         <div>
@@ -145,113 +200,107 @@ export function AuthorizedUrlList({
                     {addText}
                 </LemonButton>
             </div>
-            {suggestionsLoading ? (
-                <div className="border rounded p-4 bg-bg-light" key={-1}>
-                    <Spinner className="text-xl" />
-                </div>
-            ) : (
-                <div className="space-y-2">
-                    {isAddUrlFormVisible && (
+            <div className="space-y-2">
+                <EmptyState experimentId={experimentId} actionId={actionId} type={type} />
+
+                {isAddUrlFormVisible && (
+                    <div className="border rounded p-2 bg-bg-light">
+                        <AuthorizedUrlForm type={type} actionId={actionId} experimentId={experimentId} />
+                    </div>
+                )}
+
+                {urlsKeyed.map((keyedURL, index) => {
+                    return editUrlIndex === index ? (
                         <div className="border rounded p-2 bg-bg-light">
-                            <AuthorizedUrlForm type={type} actionId={actionId} experimentId={experimentId} allowWildCards={allowWildCards} />
+                            <AuthorizedUrlForm type={type} actionId={actionId} />
                         </div>
-                    )}
-                    <EmptyState
-                        numberOfResults={urlsKeyed.length}
-                        isSearching={searchTerm.length > 0}
-                        isAddingEntry={isAddUrlFormVisible}
-                        type={type}
-                    />
-                    {urlsKeyed.map((keyedURL, index) => {
-                        return editUrlIndex === index ? (
-                            <div className="border rounded p-2 bg-bg-light">
-                                <AuthorizedUrlForm type={type} actionId={actionId} allowWildCards={allowWildCards} />
-                            </div>
-                        ) : (
-                            <div key={index} className={clsx('border rounded flex items-center p-2 pl-4 bg-bg-light')}>
-                                {keyedURL.type === 'suggestion' && (
-                                    <Tooltip title={'Seen in ' + keyedURL.count + ' events in the last 3 days'}>
-                                        <LemonTag type="highlight" className="mr-4 uppercase cursor-pointer">
-                                            Suggestion
-                                        </LemonTag>
-                                    </Tooltip>
-                                )}
-                                <span title={keyedURL.url} className="flex-1 truncate">
-                                    {keyedURL.url}
-                                </span>
-                                <div className="Actions flex space-x-2 shrink-0">
-                                    {keyedURL.type === 'suggestion' ? (
+                    ) : (
+                        <div key={index} className={clsx('border rounded flex items-center p-2 pl-4 bg-bg-light')}>
+                            {keyedURL.type === 'suggestion' && (
+                                <Tooltip title={'Seen in ' + keyedURL.count + ' events in the last 3 days'}>
+                                    <LemonTag type="highlight" className="mr-4 uppercase cursor-pointer">
+                                        Suggestion
+                                    </LemonTag>
+                                </Tooltip>
+                            )}
+                            <span title={keyedURL.url} className="flex-1 truncate">
+                                {keyedURL.url}
+                            </span>
+                            <div className="Actions flex space-x-2 shrink-0">
+                                {keyedURL.type === 'suggestion' ? (
+                                    <LemonButton
+                                        onClick={() => addUrl(keyedURL.url)}
+                                        icon={<IconPlus />}
+                                        data-attr="toolbar-apply-suggestion"
+                                        // If there are no authorized urls, highglight this button
+                                        type={noAuthorizedUrls ? 'primary' : undefined}
+                                        active={noAuthorizedUrls}
+                                    >
+                                        Apply suggestion
+                                    </LemonButton>
+                                ) : (
+                                    <>
                                         <LemonButton
-                                            onClick={() => addUrl(keyedURL.url)}
-                                            icon={<IconPlus />}
-                                            data-attr="toolbar-apply-suggestion"
+                                            icon={<IconOpenInApp />}
+                                            to={
+                                                // toolbar urls are sent through the backend to be validated
+                                                // and have toolbar auth information added
+                                                type === AuthorizedUrlListType.TOOLBAR_URLS
+                                                    ? launchUrl(keyedURL.url)
+                                                    : // other urls are simply opened directly
+                                                    `${keyedURL.url}${query ?? ''}`
+                                            }
+                                            targetBlank
+                                            tooltip={
+                                                type === AuthorizedUrlListType.TOOLBAR_URLS
+                                                    ? 'Launch toolbar'
+                                                    : 'Launch url'
+                                            }
+                                            center
+                                            data-attr="toolbar-open"
+                                            disabledReason={
+                                                keyedURL.url.includes('*')
+                                                    ? 'Wildcard domains cannot be launched'
+                                                    : undefined
+                                            }
                                         >
-                                            Apply suggestion
+                                            Launch
                                         </LemonButton>
-                                    ) : (
-                                        <>
-                                            <LemonButton
-                                                icon={<IconOpenInApp />}
-                                                to={
-                                                    // toolbar urls are sent through the backend to be validated
-                                                    // and have toolbar auth information added
-                                                    type === AuthorizedUrlListType.TOOLBAR_URLS
-                                                        ? launchUrl(keyedURL.url)
-                                                        : // other urls are simply opened directly
-                                                        `${keyedURL.url}${query ?? ''}`
-                                                }
-                                                targetBlank
-                                                tooltip={
-                                                    type === AuthorizedUrlListType.TOOLBAR_URLS
-                                                        ? 'Launch toolbar'
-                                                        : 'Launch url'
-                                                }
-                                                center
-                                                data-attr="toolbar-open"
-                                                disabledReason={
-                                                    keyedURL.url.includes('*')
-                                                        ? 'Wildcard domains cannot be launched'
-                                                        : undefined
-                                                }
-                                            >
-                                                Launch
-                                            </LemonButton>
 
-                                            <LemonButton
-                                                icon={<IconPencil />}
-                                                onClick={() => setEditUrlIndex(keyedURL.originalIndex)}
-                                                tooltip="Edit"
-                                                center
-                                            />
+                                        <LemonButton
+                                            icon={<IconPencil />}
+                                            onClick={() => setEditUrlIndex(keyedURL.originalIndex)}
+                                            tooltip="Edit"
+                                            center
+                                        />
 
-                                            <LemonButton
-                                                icon={<IconTrash />}
-                                                tooltip={`Remove ${onlyAllowDomains ? 'domain' : 'URL'}`}
-                                                center
-                                                onClick={() => {
-                                                    LemonDialog.open({
-                                                        title: <>Remove {keyedURL.url} ?</>,
-                                                        description: `Are you sure you want to remove this authorized ${onlyAllowDomains ? 'domain' : 'URL'
-                                                            }?`,
-                                                        primaryButton: {
-                                                            status: 'danger',
-                                                            children: 'Remove',
-                                                            onClick: () => removeUrl(index),
-                                                        },
-                                                        secondaryButton: {
-                                                            children: 'Cancel',
-                                                        },
-                                                    })
-                                                }}
-                                            />
-                                        </>
-                                    )}
-                                </div>
+                                        <LemonButton
+                                            icon={<IconTrash />}
+                                            tooltip={`Remove ${onlyAllowDomains ? 'domain' : 'URL'}`}
+                                            center
+                                            onClick={() => {
+                                                LemonDialog.open({
+                                                    title: <>Remove {keyedURL.url} ?</>,
+                                                    description: `Are you sure you want to remove this authorized ${onlyAllowDomains ? 'domain' : 'URL'
+                                                        }?`,
+                                                    primaryButton: {
+                                                        status: 'danger',
+                                                        children: 'Remove',
+                                                        onClick: () => removeUrl(index),
+                                                    },
+                                                    secondaryButton: {
+                                                        children: 'Cancel',
+                                                    },
+                                                })
+                                            }}
+                                        />
+                                    </>
+                                )}
                             </div>
-                        )
-                    })}
-                </div>
-            )}
+                        </div>
+                    )
+                })}
+            </div>
         </div>
     )
 }
