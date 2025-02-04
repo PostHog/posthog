@@ -9,12 +9,13 @@ import { PathsFilter } from '~/queries/schema'
 import { AvailableFeature } from '~/types'
 
 import { pathsDataLogicType } from './pathsDataLogicType'
-import { pageUrl, PathNodeData } from './pathUtils'
+import { pageUrl } from './pathUtils'
+import { D3PathsNode } from './renderPaths'
 
 type PathNodeCardButton = {
     name: string
     count: number
-    node: PathNodeData
+    node: D3PathsNode
     viewPathToFunnel: pathsDataLogicType['actions']['viewPathToFunnel']
     openPersonsModal: pathsDataLogicType['actions']['openPersonsModal']
     filter: PathsFilter

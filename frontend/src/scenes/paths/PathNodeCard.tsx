@@ -8,11 +8,12 @@ import { PATH_NODE_CARD_LEFT_OFFSET, PATH_NODE_CARD_TOP_OFFSET, PATH_NODE_CARD_W
 import { PathNodeCardButton } from './PathNodeCardButton'
 import { PathNodeCardMenu } from './PathNodeCardMenu'
 import { pathsDataLogic } from './pathsDataLogic'
-import { isSelectedPathStartOrEnd, pageUrl, PathNodeData } from './pathUtils'
+import { isSelectedPathStartOrEnd, pageUrl } from './pathUtils'
+import { D3PathsNode } from './renderPaths'
 
 export type PathNodeCardProps = {
     insightProps: InsightLogicProps
-    node: PathNodeData
+    node: D3PathsNode
 }
 
 export function PathNodeCard({ insightProps, node }: PathNodeCardProps): JSX.Element | null {
@@ -62,12 +63,12 @@ export function PathNodeCard({ insightProps, node }: PathNodeCardProps): JSX.Ele
                     style={{
                         width: PATH_NODE_CARD_WIDTH,
                         left: !isPathEnd
-                            ? node.x0 + PATH_NODE_CARD_LEFT_OFFSET
-                            : node.x0 + PATH_NODE_CARD_LEFT_OFFSET - PATH_NODE_CARD_WIDTH,
+                            ? node.x0! + PATH_NODE_CARD_LEFT_OFFSET
+                            : node.x0! + PATH_NODE_CARD_LEFT_OFFSET - PATH_NODE_CARD_WIDTH,
                         top: !isPathEnd
-                            ? node.y0 + PATH_NODE_CARD_TOP_OFFSET
+                            ? node.y0! + PATH_NODE_CARD_TOP_OFFSET
                             : // use middle for end nodes
-                              node.y0 + (node.y1 - node.y0) / 2,
+                              node.y0! + (node.y1! - node.y0!) / 2,
                         border: `1px solid ${
                             isSelectedPathStartOrEnd(pathsFilter, funnelPathsFilter, node) ? 'purple' : 'var(--border)'
                         }`,

@@ -10,8 +10,7 @@ import { FunnelPathsFilter } from '~/queries/schema'
 
 import { PathNodeCard } from './PathNodeCard'
 import { pathsDataLogic } from './pathsDataLogic'
-import type { PathNodeData } from './pathUtils'
-import { renderPaths } from './renderPaths'
+import { D3PathsNode, renderPaths } from './renderPaths'
 
 const DEFAULT_PATHS_ID = 'default_paths'
 export const HIDE_PATH_CARD_HEIGHT = 30
@@ -23,7 +22,7 @@ export function Paths(): JSX.Element {
     const canvasContainerRef = useRef<HTMLDivElement>(null)
     const { width: canvasWidth = FALLBACK_CANVAS_WIDTH, height: canvasHeight = FALLBACK_CANVAS_HEIGHT } =
         useResizeObserver({ ref: canvasRef })
-    const [nodeCards, setNodeCards] = useState<PathNodeData[]>([])
+    const [nodeCards, setNodeCards] = useState<D3PathsNode[]>([])
 
     const { insight, insightProps } = useValues(insightLogic)
     const { insightQuery, paths, pathsFilter, funnelPathsFilter, insightDataLoading, insightDataError, theme } =

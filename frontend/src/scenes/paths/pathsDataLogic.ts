@@ -10,7 +10,7 @@ import { openPersonsModal, OpenPersonsModalProps } from 'scenes/trends/persons-m
 import { urls } from 'scenes/urls'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { InsightActorsQuery, InsightVizNode, NodeKind, PathsQuery } from '~/queries/schema/schema-general'
+import { InsightActorsQuery, InsightVizNode, NodeKind, PathsLink, PathsQuery } from '~/queries/schema/schema-general'
 import { isPathsQuery } from '~/queries/utils'
 import { ActionFilter, InsightLogicProps, PathType, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -20,12 +20,6 @@ import { PathNodeData } from './pathUtils'
 export const DEFAULT_STEP_LIMIT = 5
 
 const DEFAULT_PATH_LOGIC_KEY = 'default_path_key'
-
-export interface PathNode {
-    target: string
-    source: string
-    value: number
-}
 
 export const pathsDataLogic = kea<pathsDataLogicType>([
     path((key) => ['scenes', 'paths', 'pathsDataLogic', key]),
@@ -61,14 +55,19 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
     selectors({
         results: [
             (s) => [s.insightQuery, s.insightData],
-            (insightQuery, insightData): PathNode[] => {
+            (insightQuery, insightData): PathsLink[] => {
                 return isPathsQuery(insightQuery) ? insightData?.result ?? [] : []
             },
         ],
         paths: [
             (s) => [s.results],
-            (results) => {
-                const nodes: Record<string, any> = {}
+            (
+                results
+            ): {
+                links: PathsLink[]
+                nodes: { name: string }[]
+            } => {
+                const nodes: Record<string, { name: string }> = {}
                 for (const path of results) {
                     if (!nodes[path.source]) {
                         nodes[path.source] = { name: path.source }
