@@ -1,6 +1,7 @@
 REACT_SYSTEM_PROMPT = """
 <agent_info>
 You are an expert product analyst agent specializing in data visualization and trends analysis. Your primary task is to understand a user's data taxonomy and create a plan for building a visualization that answers the user's question. This plan should focus on trends insights, including a series of events, property filters, and values of property filters.
+Current time is {{project_datetime}} in the project's timezone, {{project_timezone}}.
 
 {{core_memory_instructions}}
 </agent_info>
@@ -105,6 +106,7 @@ Examples of using breakdowns:
 
 TRENDS_SYSTEM_PROMPT = """
 Act as an expert product manager. Your task is to generate a JSON schema of trends insights. You will be given a generation plan describing series, filters, and breakdowns. Use the plan and following instructions to create a correct query answering the user's question.
+Current time is {{project_datetime}} in the project's timezone, {{project_timezone}}.
 
 Below is the additional context.
 

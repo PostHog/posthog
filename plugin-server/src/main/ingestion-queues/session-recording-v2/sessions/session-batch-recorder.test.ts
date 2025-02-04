@@ -416,7 +416,7 @@ describe('SessionBatchRecorder', () => {
             expect(lines2).toEqual([['window1', message2.message.eventsByWindowId.window1[0]]])
         })
 
-        it('should not output anything on second flush if no new events', async () => {
+        it('should not create file on second flush if no new events', async () => {
             const { openMock: firstNewBatch, finishMock: firstFinish } = createOpenMock()
             mockWriter.newBatch = firstNewBatch
 
@@ -434,17 +434,32 @@ describe('SessionBatchRecorder', () => {
             expect(firstNewBatch).toHaveBeenCalledTimes(1)
             expect(firstFinish).toHaveBeenCalledTimes(1)
 
-            const { openMock: secondNewBatch, finishMock: secondFinish, stream: secondStream } = createOpenMock()
-            mockWriter.newBatch = secondNewBatch
-
-            const outputPromise = captureOutput(secondStream)
+            // Second flush with no new events
             await recorder.flush()
-            const output = await outputPromise
 
-            expect(output).toBe('')
-            expect(secondNewBatch).toHaveBeenCalledTimes(1)
-            expect(firstFinish).toHaveBeenCalledTimes(1)
-            expect(secondFinish).toHaveBeenCalledTimes(1)
+            // Should not create a new batch or write any data
+            expect(firstNewBatch).toHaveBeenCalledTimes(1) // Only from first flush
+            expect(firstFinish).toHaveBeenCalledTimes(1) // Only from first flush
+
+            // Should still commit offsets
+            expect(mockOffsetManager.commit).toHaveBeenCalledTimes(2)
+        })
+
+        it('should not increment metrics when no events are flushed', async () => {
+            await recorder.flush()
+
+            // Should not create a new batch or write any data
+            expect(mockNewBatch).not.toHaveBeenCalled()
+            expect(mockFinish).not.toHaveBeenCalled()
+
+            // Should still commit offsets
+            expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
+
+            // Should not increment any metrics
+            expect(SessionBatchMetrics.incrementBatchesFlushed).not.toHaveBeenCalled()
+            expect(SessionBatchMetrics.incrementSessionsFlushed).not.toHaveBeenCalled()
+            expect(SessionBatchMetrics.incrementEventsFlushed).not.toHaveBeenCalled()
+            expect(SessionBatchMetrics.incrementBytesWritten).not.toHaveBeenCalled()
         })
     })
 
@@ -627,11 +642,9 @@ describe('SessionBatchRecorder', () => {
         it('should not increment metrics when no events are flushed', async () => {
             await recorder.flush()
 
-            expect(SessionBatchMetrics.incrementBatchesFlushed).toHaveBeenCalledTimes(1)
-            expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenCalledTimes(1)
-            expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenCalledTimes(1)
-            expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenLastCalledWith(0)
-            expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenLastCalledWith(0)
+            expect(SessionBatchMetrics.incrementBatchesFlushed).toHaveBeenCalledTimes(0)
+            expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenCalledTimes(0)
+            expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenCalledTimes(0)
         })
 
         it('should not count events from discarded partitions', async () => {
@@ -712,11 +725,9 @@ describe('SessionBatchRecorder', () => {
 
             await recorder.flush()
 
-            expect(SessionBatchMetrics.incrementBatchesFlushed).toHaveBeenCalledTimes(2)
-            expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenCalledTimes(2)
-            expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenCalledTimes(2)
-            expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenLastCalledWith(0) // No sessions
-            expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenLastCalledWith(0) // No events
+            expect(SessionBatchMetrics.incrementBatchesFlushed).toHaveBeenCalledTimes(1)
+            expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenCalledTimes(1)
+            expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenCalledTimes(1)
 
             recorder.record(
                 createMessage('session3', [
@@ -729,9 +740,9 @@ describe('SessionBatchRecorder', () => {
             )
             await recorder.flush()
 
-            expect(SessionBatchMetrics.incrementBatchesFlushed).toHaveBeenCalledTimes(3)
-            expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenCalledTimes(3)
-            expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenCalledTimes(3)
+            expect(SessionBatchMetrics.incrementBatchesFlushed).toHaveBeenCalledTimes(2)
+            expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenCalledTimes(2)
+            expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenCalledTimes(2)
             expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenLastCalledWith(1) // Only the new session
             expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenLastCalledWith(1) // Only the new event
         })

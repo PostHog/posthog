@@ -121,7 +121,7 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
         combinedSnippetAndLiveEventsHosts.length > 0
 
     const showSessionReplayStep =
-        useFeatureFlag('ONBOARDING_SESSION_REPLAY_SEPERATE_STEP', 'test') &&
+        useFeatureFlag('ONBOARDING_SESSION_REPLAY_SEPARATE_STEP', 'test') &&
         !selectedProducts.includes(ProductKey.SESSION_REPLAY)
 
     const options: ProductConfigOption[] = [
