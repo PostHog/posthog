@@ -10,6 +10,7 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.service import (
+    BackfillDetails,
     BatchExportField,
     BatchExportInsertInputs,
     HttpBatchExportInputs,
@@ -175,6 +176,8 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> RecordsComplete
 
         interval_start = await maybe_resume_from_heartbeat(inputs)
 
+        is_backfill = inputs.get_is_backfill()
+
         record_iterator = iter_records(
             client=client,
             team_id=inputs.team_id,
@@ -184,7 +187,8 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> RecordsComplete
             include_events=inputs.include_events,
             fields=fields,
             extra_query_parameters=None,
-            is_backfill=inputs.is_backfill,
+            backfill_details=inputs.backfill_details,
+            is_backfill=is_backfill,
         )
 
         last_uploaded_timestamp: str | None = None
@@ -309,8 +313,10 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: HttpBatchExportInputs):
         """Workflow implementation to export data to an HTTP Endpoint."""
+        is_backfill = inputs.get_is_backfill()
+        is_earliest_backfill = inputs.get_is_earliest_backfill()
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
-        should_backfill_from_beginning = inputs.is_backfill and inputs.is_earliest_backfill
+        should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
@@ -319,7 +325,7 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
-            is_backfill=inputs.is_backfill,
+            backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
         )
         run_id = await workflow.execute_activity(
             start_batch_export_run,
@@ -350,7 +356,12 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
             include_events=inputs.include_events,
             batch_export_schema=inputs.batch_export_schema,
             run_id=run_id,
-            is_backfill=inputs.is_backfill,
+            backfill_details=BackfillDetails(
+                backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
+                is_earliest_backfill=is_earliest_backfill,
+                start_at=inputs.backfill_details.start_at if inputs.backfill_details else None,
+                end_at=inputs.backfill_details.end_at if inputs.backfill_details else None,
+            ),
             batch_export_model=inputs.batch_export_model,
         )
 

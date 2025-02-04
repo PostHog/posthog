@@ -268,7 +268,7 @@ async def test_iter_records_with_single_field_and_alias(clickhouse_client, field
             client=clickhouse_client,
             model=BatchExportModel(name="events", schema={"fields": [field], "values": {}}),
             team_id=team_id,
-            is_backfill=False,
+            backfill_details=None,
             interval_start=data_interval_start.isoformat(),
             interval_end=data_interval_end.isoformat(),
         )

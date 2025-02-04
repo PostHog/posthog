@@ -17,7 +17,11 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog import constants
-from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
+from posthog.batch_exports.service import (
+    BackfillDetails,
+    BatchExportModel,
+    BatchExportSchema,
+)
 from posthog.temporal.batch_exports.batch_exports import (
     finish_batch_export_run,
     iter_model_records,
@@ -72,7 +76,7 @@ async def assert_clickhouse_records_in_postgres(
     exclude_events: list[str] | None = None,
     include_events: list[str] | None = None,
     sort_key: str = "event",
-    is_backfill: bool = False,
+    backfill_details: BackfillDetails | None = None,
     expected_fields: list[str] | None = None,
 ):
     """Assert expected records are written to a given PostgreSQL table.
@@ -128,7 +132,7 @@ async def assert_clickhouse_records_in_postgres(
         exclude_events=exclude_events,
         include_events=include_events,
         destination_default_fields=postgres_default_fields(),
-        is_backfill=is_backfill,
+        backfill_details=backfill_details,
         use_latest_schema=True,
     ):
         for record in record_batch.select(schema_column_names).to_pylist():
@@ -690,8 +694,12 @@ async def test_postgres_export_workflow_backfill_earliest_persons(
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
         batch_export_model=model,
-        is_backfill=True,
-        is_earliest_backfill=True,
+        backfill_details=BackfillDetails(
+            backfill_id=str(uuid.uuid4()),
+            is_earliest_backfill=True,
+            start_at=None,
+            end_at=data_interval_end.isoformat(),
+        ),
         **postgres_batch_export.destination.config,
     )
     _, persons = generate_test_data

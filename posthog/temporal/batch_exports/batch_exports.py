@@ -14,6 +14,7 @@ from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.models import BatchExportBackfill, BatchExportRun
 from posthog.batch_exports.service import (
+    BackfillDetails,
     BatchExportField,
     BatchExportModel,
     BatchExportSchema,
@@ -31,7 +32,10 @@ from posthog.temporal.batch_exports.metrics import (
     get_export_finished_metric,
     get_export_started_metric,
 )
-from posthog.temporal.batch_exports.spmc import compose_filters_clause
+from posthog.temporal.batch_exports.spmc import (
+    compose_filters_clause,
+    use_distributed_events_recent_table,
+)
 from posthog.temporal.batch_exports.sql import (
     SELECT_FROM_DISTRIBUTED_EVENTS_RECENT,
     SELECT_FROM_EVENTS_VIEW,
@@ -41,7 +45,10 @@ from posthog.temporal.batch_exports.sql import (
 )
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
-from posthog.temporal.common.logger import bind_temporal_worker_logger
+from posthog.temporal.common.logger import (
+    bind_temporal_worker_logger,
+    get_internal_logger,
+)
 from posthog.warehouse.util import database_sync_to_async
 
 logger = structlog.get_logger()
@@ -170,14 +177,18 @@ async def iter_model_records(
     client: ClickHouseClient,
     model: BatchExportModel | BatchExportSchema | None,
     team_id: int,
-    is_backfill: bool,
     interval_start: str | None,
     interval_end: str,
     destination_default_fields: list[BatchExportField] | None = None,
     # TODO - remove this once all batch exports are using the latest schema
     use_latest_schema: bool = False,
+    # TODO: this can be removed once all backfill inputs are migrated
+    is_backfill: bool = False,
+    backfill_details: BackfillDetails | None = None,
     **parameters,
 ) -> AsyncRecordsGenerator:
+    # TODO: this can be simplified once all backfill inputs are migrated
+    is_backfill = (backfill_details is not None) or is_backfill
     if not is_backfill and interval_start is None:
         raise ValueError("'interval_start' is required if not backfilling")
 
@@ -192,6 +203,7 @@ async def iter_model_records(
             model_name=model.name,
             team_id=team_id,
             is_backfill=is_backfill,
+            backfill_details=backfill_details,
             fields=model.schema["fields"] if model.schema is not None else batch_export_default_fields,
             filters=model.filters,
             extra_query_parameters=model.schema["values"] if model.schema is not None else None,
@@ -207,6 +219,7 @@ async def iter_model_records(
             client,
             team_id=team_id,
             is_backfill=is_backfill,
+            backfill_details=backfill_details,
             fields=model["fields"] if model is not None else batch_export_default_fields,
             extra_query_parameters=model["values"] if model is not None else None,
             interval_start=interval_start,
@@ -219,13 +232,14 @@ async def iter_model_records(
 async def iter_records_from_model_view(
     client: ClickHouseClient,
     model_name: str,
-    is_backfill: bool,
     team_id: int,
     interval_start: str | None,
     interval_end: str,
     fields: list[BatchExportField],
     # TODO - remove this once all batch exports are using the latest schema
     use_latest_schema: bool = False,
+    backfill_details: BackfillDetails | None = None,
+    is_backfill: bool = False,
     **parameters,
 ) -> AsyncRecordsGenerator:
     extra_query_parameters = parameters.pop("extra_query_parameters", {}) or {}
@@ -240,6 +254,9 @@ async def iter_records_from_model_view(
 
     if filters_str:
         filters_str = f"AND {filters_str}"
+
+    # TODO: this can be simplified once all backfill inputs are migrated
+    is_backfill = (backfill_details is not None) or is_backfill
 
     if model_name == "persons":
         if is_backfill and interval_start is None:
@@ -264,6 +281,7 @@ async def iter_records_from_model_view(
             client,
             team_id=team_id,
             is_backfill=is_backfill,
+            backfill_details=backfill_details,
             interval_start=interval_start,
             interval_end=interval_end,
             fields=fields,
@@ -411,21 +429,6 @@ def generate_query_ranges(
         yield (candidate_start_at, candidate_end_at)
 
 
-def use_distributed_events_recent_table(is_backfill: bool, team_id: int) -> bool:
-    if is_backfill:
-        return False
-
-    events_recent_rollout: float = settings.BATCH_EXPORT_DISTRIBUTED_EVENTS_RECENT_ROLLOUT
-    # sanity check
-    if events_recent_rollout < 0:
-        events_recent_rollout = 0
-    elif events_recent_rollout > 1:
-        events_recent_rollout = 1
-
-    bucket = team_id % 10
-    return bucket < events_recent_rollout * 10
-
-
 def iter_records(
     client: ClickHouseClient,
     team_id: int,
@@ -437,6 +440,7 @@ def iter_records(
     filters_str: str | None = None,
     extra_query_parameters: dict[str, typing.Any] | None = None,
     is_backfill: bool = False,
+    backfill_details: BackfillDetails | None = None,
 ) -> RecordsGenerator:
     """Iterate over Arrow batch records for a batch export.
 
@@ -491,6 +495,9 @@ def iter_records(
 
     start_at = dt.datetime.fromisoformat(interval_start) if interval_start is not None else None
     end_at = dt.datetime.fromisoformat(interval_end)
+
+    # TODO: this can be simplified once all backfill inputs are migrated
+    is_backfill = (backfill_details is not None) or is_backfill
 
     if start_at:
         is_5_min_batch_export = (end_at - start_at) == dt.timedelta(seconds=300)
@@ -604,7 +611,9 @@ class StartBatchExportRunInputs:
     data_interval_end: str
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
+    # this can be removed once all backfills are finished
     is_backfill: bool = False
+    backfill_id: str | None = None
 
 
 BatchExportRunId = str
@@ -623,6 +632,16 @@ async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> BatchExpo
         inputs.data_interval_start,
         inputs.data_interval_end,
     )
+
+    # TODO - this internal logging can be removed once we're happy with the migration of the inputs
+    internal_logger = get_internal_logger()
+    internal_logger.info(
+        "Backfill inputs migration: is_backfill=%s, backfill_id=%s",
+        inputs.is_backfill,
+        inputs.backfill_id,
+    )
+
+    # TODO - add backfill_id to the model
 
     run = await database_sync_to_async(create_batch_export_run)(
         batch_export_id=uuid.UUID(inputs.batch_export_id),
@@ -871,7 +890,7 @@ async def create_batch_export_backfill_model(inputs: CreateBatchExportBackfillIn
         inputs.start_at,
         inputs.end_at,
     )
-    run = await database_sync_to_async(create_batch_export_backfill)(
+    backfill = await database_sync_to_async(create_batch_export_backfill)(
         batch_export_id=uuid.UUID(inputs.batch_export_id),
         start_at=inputs.start_at,
         end_at=inputs.end_at,
@@ -879,7 +898,7 @@ async def create_batch_export_backfill_model(inputs: CreateBatchExportBackfillIn
         team_id=inputs.team_id,
     )
 
-    return str(run.id)
+    return str(backfill.id)
 
 
 @dataclasses.dataclass
@@ -892,7 +911,7 @@ class UpdateBatchExportBackfillStatusInputs:
 
 @activity.defn
 async def update_batch_export_backfill_model_status(inputs: UpdateBatchExportBackfillStatusInputs) -> None:
-    """Activity that updates the status of an BatchExportRun."""
+    """Activity that updates the status of an BatchExportBackfill."""
     backfill = await database_sync_to_async(update_batch_export_backfill_status)(
         backfill_id=uuid.UUID(inputs.id),
         status=inputs.status,

@@ -21,6 +21,7 @@ from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import (
+    BackfillDetails,
     BatchExportField,
     BatchExportInsertInputs,
     BatchExportModel,
@@ -765,7 +766,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
         producer_task = await producer.start(
             queue=queue,
             model_name=model_name,
-            is_backfill=inputs.is_backfill,
+            is_backfill=inputs.get_is_backfill(),
             team_id=inputs.team_id,
             full_range=full_range,
             done_ranges=done_ranges,
@@ -892,8 +893,10 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: SnowflakeBatchExportInputs):
         """Workflow implementation to export data to Snowflake table."""
+        is_backfill = inputs.get_is_backfill()
+        is_earliest_backfill = inputs.get_is_earliest_backfill()
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
-        should_backfill_from_beginning = inputs.is_backfill and inputs.is_earliest_backfill
+        should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
@@ -902,7 +905,7 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
-            is_backfill=inputs.is_backfill,
+            backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
         )
         run_id = await workflow.execute_activity(
             start_batch_export_run,
@@ -941,7 +944,12 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             run_id=run_id,
-            is_backfill=inputs.is_backfill,
+            backfill_details=BackfillDetails(
+                backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
+                is_earliest_backfill=is_earliest_backfill,
+                start_at=inputs.backfill_details.start_at if inputs.backfill_details else None,
+                end_at=inputs.backfill_details.end_at if inputs.backfill_details else None,
+            ),
             batch_export_model=inputs.batch_export_model,
             batch_export_schema=inputs.batch_export_schema,
         )

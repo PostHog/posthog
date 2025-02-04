@@ -10,18 +10,18 @@ import pyarrow as pa
 import temporalio.common
 from django.conf import settings
 
+from posthog.batch_exports.service import BackfillDetails
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.property import property_to_expr
-from posthog.schema import (
-    EventPropertyFilter,
-    HogQLQueryModifiers,
-    MaterializationMode,
+from posthog.schema import EventPropertyFilter, HogQLQueryModifiers, MaterializationMode
+from posthog.temporal.batch_exports.heartbeat import (
+    BatchExportRangeHeartbeatDetails,
+    DateRange,
 )
-from posthog.temporal.batch_exports.heartbeat import BatchExportRangeHeartbeatDetails, DateRange
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
     get_rows_exported_metric,
@@ -553,7 +553,9 @@ class Producer:
         self,
         queue: RecordBatchQueue,
         model_name: str,
+        # TODO: remove once all backfill inputs are migrated
         is_backfill: bool,
+        backfill_details: BackfillDetails | None,
         team_id: int,
         full_range: tuple[dt.datetime | None, dt.datetime],
         done_ranges: list[tuple[dt.datetime, dt.datetime]],
@@ -579,6 +581,9 @@ class Producer:
             )
         else:
             filters_str, extra_query_parameters = "", extra_query_parameters
+
+        # TODO: this can be simplified once all backfill inputs are migrated
+        is_backfill = (backfill_details is not None) or is_backfill
 
         if model_name == "persons":
             if is_backfill and full_range[0] is None:

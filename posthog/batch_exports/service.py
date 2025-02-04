@@ -74,6 +74,14 @@ class BatchExportModel:
     filters: list[dict[str, str | list[str]]] | None = None
 
 
+@dataclass
+class BackfillDetails:
+    backfill_id: str | None
+    start_at: str | None
+    end_at: str | None
+    is_earliest_backfill: bool = False
+
+
 @dataclass(kw_only=True)
 class BaseBatchExportInputs:
     """Base class for all batch export inputs containing common fields.
@@ -92,10 +100,37 @@ class BaseBatchExportInputs:
     data_interval_end: str | None = None
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
+    # TODO: Remove 'is_backfill' and 'is_earliest_backfill' after ensuring no existing backfills are running
     is_backfill: bool = False
     is_earliest_backfill: bool = False
+    backfill_details: BackfillDetails | None = None
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
+
+    def get_is_backfill(self) -> bool:
+        """Needed for backwards compatibility with existing batch exports.
+
+        TODO: remove once all existing backfills are finished.
+        """
+        # to check status of migration
+        if self.is_backfill and not self.backfill_details:
+            logger.info(
+                "Backfill inputs migration: BatchExport %s has is_backfill set to True but no backfill_details",
+                self.batch_export_id,
+            )
+
+        if self.backfill_details is not None:
+            return True
+        return self.is_backfill
+
+    def get_is_earliest_backfill(self) -> bool:
+        """Needed for backwards compatibility with existing batch exports.
+
+        TODO: remove once all existing backfills are finished.
+        """
+        if self.backfill_details is not None:
+            return self.backfill_details.is_earliest_backfill
+        return self.is_earliest_backfill
 
 
 @dataclass(kw_only=True)
@@ -903,7 +938,25 @@ class BatchExportInsertInputs:
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
     run_id: str | None = None
+    # TODO: Remove after updating existing batch exports to use backfill_details
     is_backfill: bool = False
+    backfill_details: BackfillDetails | None = None
     batch_export_model: BatchExportModel | None = None
     # TODO: Remove after updating existing batch exports
     batch_export_schema: BatchExportSchema | None = None
+
+    def get_is_backfill(self) -> bool:
+        """Needed for backwards compatibility with existing batch exports.
+
+        TODO: remove once all existing backfills are finished.
+        """
+        # to check status of migration
+        if self.is_backfill and not self.backfill_details:
+            logger.info(
+                "Backfill inputs migration: BatchExport for team %s has is_backfill set to True but no backfill_details",
+                self.team_id,
+            )
+
+        if self.backfill_details is not None:
+            return True
+        return self.is_backfill

@@ -25,7 +25,11 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog import constants
-from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
+from posthog.batch_exports.service import (
+    BackfillDetails,
+    BatchExportModel,
+    BatchExportSchema,
+)
 from posthog.temporal.batch_exports.batch_exports import (
     finish_batch_export_run,
     iter_model_records,
@@ -859,7 +863,7 @@ async def assert_clickhouse_records_in_snowflake(
     exclude_events: list[str] | None = None,
     include_events: list[str] | None = None,
     batch_export_model: BatchExportModel | BatchExportSchema | None = None,
-    is_backfill: bool = False,
+    backfill_details: BackfillDetails | None = None,
     sort_key: str = "event",
     expected_fields: list[str] | None = None,
 ):
@@ -923,7 +927,7 @@ async def assert_clickhouse_records_in_snowflake(
         exclude_events=exclude_events,
         include_events=include_events,
         destination_default_fields=snowflake_default_fields(),
-        is_backfill=is_backfill,
+        backfill_details=backfill_details,
         use_latest_schema=True,
     ):
         for record in record_batch.to_pylist():
@@ -1485,8 +1489,12 @@ async def test_snowflake_export_workflow_backfill_earliest_persons(
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
         batch_export_model=model,
-        is_backfill=True,
-        is_earliest_backfill=True,
+        backfill_details=BackfillDetails(
+            backfill_id=str(uuid.uuid4()),
+            is_earliest_backfill=True,
+            start_at=None,
+            end_at=data_interval_end.isoformat(),
+        ),
         **snowflake_batch_export.destination.config,
     )
     _, persons = generate_test_data

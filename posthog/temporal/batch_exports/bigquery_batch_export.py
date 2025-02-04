@@ -16,6 +16,7 @@ from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import (
+    BackfillDetails,
     BatchExportField,
     BatchExportInsertInputs,
     BatchExportModel,
@@ -658,7 +659,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         producer_task = await producer.start(
             queue=queue,
             model_name=model_name,
-            is_backfill=inputs.is_backfill,
+            is_backfill=inputs.get_is_backfill(),
             team_id=inputs.team_id,
             full_range=full_range,
             done_ranges=done_ranges,
@@ -796,8 +797,10 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: BigQueryBatchExportInputs):
         """Workflow implementation to export data to BigQuery."""
+        is_backfill = inputs.get_is_backfill()
+        is_earliest_backfill = inputs.get_is_earliest_backfill()
         data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
-        should_backfill_from_beginning = inputs.is_backfill and inputs.is_earliest_backfill
+        should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
             team_id=inputs.team_id,
@@ -806,7 +809,7 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
-            is_backfill=inputs.is_backfill,
+            backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
         )
         run_id = await workflow.execute_activity(
             start_batch_export_run,
@@ -842,7 +845,12 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             include_events=inputs.include_events,
             use_json_type=inputs.use_json_type,
             run_id=run_id,
-            is_backfill=inputs.is_backfill,
+            backfill_details=BackfillDetails(
+                backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
+                is_earliest_backfill=is_earliest_backfill,
+                start_at=inputs.backfill_details.start_at if inputs.backfill_details else None,
+                end_at=inputs.backfill_details.end_at if inputs.backfill_details else None,
+            ),
             batch_export_model=inputs.batch_export_model,
             # TODO: Remove after updating existing batch exports.
             batch_export_schema=inputs.batch_export_schema,

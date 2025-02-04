@@ -50,7 +50,7 @@ async def test_payloads_are_encrypted():
         arg=input_str,
         batch_export_id="123",
         team_id=1,
-        is_backfill=False,
+        backfill_details=None,
     )
 
     # The no-op Workflow can only produce a limited set of results, so we'll check if the events match any of these.

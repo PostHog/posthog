@@ -22,7 +22,11 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog import constants
-from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
+from posthog.batch_exports.service import (
+    BackfillDetails,
+    BatchExportModel,
+    BatchExportSchema,
+)
 from posthog.temporal.batch_exports.batch_exports import (
     finish_batch_export_run,
     iter_model_records,
@@ -219,7 +223,7 @@ async def assert_clickhouse_records_in_s3(
     batch_export_model: BatchExportModel | BatchExportSchema | None = None,
     compression: str | None = None,
     file_format: str = "JSONLines",
-    is_backfill: bool = False,
+    backfill_details: BackfillDetails | None = None,
     allow_duplicates: bool = False,
 ):
     """Assert ClickHouse records are written to JSON in key_prefix in S3 bucket_name.
@@ -278,7 +282,7 @@ async def assert_clickhouse_records_in_s3(
         exclude_events=exclude_events,
         include_events=include_events,
         destination_default_fields=s3_default_fields(),
-        is_backfill=is_backfill,
+        backfill_details=backfill_details,
         use_latest_schema=True,
     ):
         for record in record_batch.to_pylist():
@@ -426,7 +430,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
         include_events=None,
         compression=compression,
         file_format=file_format,
-        is_backfill=False,
+        backfill_details=None,
     )
 
 
@@ -778,7 +782,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3_using_async(
         include_events=None,
         compression=compression,
         file_format=file_format,
-        is_backfill=False,
+        backfill_details=None,
     )
 
 
@@ -1005,8 +1009,12 @@ async def test_s3_export_workflow_backfill_earliest_persons_with_minio_bucket(
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
         batch_export_model=model,
-        is_backfill=True,
-        is_earliest_backfill=True,
+        backfill_details=BackfillDetails(
+            backfill_id=str(uuid.uuid4()),
+            is_earliest_backfill=True,
+            start_at=None,
+            end_at=data_interval_end.isoformat(),
+        ),
         **s3_batch_export.destination.config,
     )
     _, persons = generate_test_data
@@ -2223,5 +2231,5 @@ async def test_insert_into_s3_activity_when_using_distributed_events_recent_tabl
             include_events=None,
             compression=compression,
             file_format=file_format,
-            is_backfill=False,
+            backfill_details=None,
         )
