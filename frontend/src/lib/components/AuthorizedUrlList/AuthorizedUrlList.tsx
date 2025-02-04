@@ -49,25 +49,27 @@ function EmptyState({
     ) : null
 }
 
-function AuthorizedUrlForm({
-    actionId,
-    experimentId,
-    query,
-    type,
-    allowWildCards,
-}: AuthorizedUrlListProps): JSX.Element {
+export interface AuthorizedUrlFormProps {
+    type: AuthorizedUrlListType
+    actionId?: number
+    experimentId?: ExperimentIdType
+    allowWildCards?: boolean
+}
+
+function AuthorizedUrlForm({ actionId, experimentId, type, allowWildCards }: AuthorizedUrlFormProps): JSX.Element {
     const logic = authorizedUrlListLogic({
         actionId: actionId ?? null,
         experimentId: experimentId ?? null,
-        query: query,
         type,
+        allowWildCards,
     })
     const { isProposedUrlSubmitting } = useValues(logic)
     const { cancelProposingUrl } = useActions(logic)
+
     return (
         <Form
             logic={authorizedUrlListLogic}
-            props={{ actionId, type, experimentId, query, allowWildCards }}
+            props={{ actionId, type, experimentId, allowWildCards }}
             formKey="proposedUrl"
             enableFormOnSubmit
             className="w-full space-y-2"
@@ -118,6 +120,7 @@ export function AuthorizedUrlList({
         query,
         allowWildCards,
     })
+
     const {
         urlsKeyed,
         suggestionsLoading,
@@ -150,13 +153,7 @@ export function AuthorizedUrlList({
                 <div className="space-y-2">
                     {isAddUrlFormVisible && (
                         <div className="border rounded p-2 bg-bg-light">
-                            <AuthorizedUrlForm
-                                type={type}
-                                actionId={actionId}
-                                experimentId={experimentId}
-                                query={query}
-                                allowWildCards={allowWildCards}
-                            />
+                            <AuthorizedUrlForm type={type} actionId={actionId} experimentId={experimentId} allowWildCards={allowWildCards} />
                         </div>
                     )}
                     <EmptyState
@@ -201,7 +198,7 @@ export function AuthorizedUrlList({
                                                     type === AuthorizedUrlListType.TOOLBAR_URLS
                                                         ? launchUrl(keyedURL.url)
                                                         : // other urls are simply opened directly
-                                                          `${keyedURL.url}${query ? query : ''}`
+                                                        `${keyedURL.url}${query ?? ''}`
                                                 }
                                                 targetBlank
                                                 tooltip={
@@ -234,9 +231,8 @@ export function AuthorizedUrlList({
                                                 onClick={() => {
                                                     LemonDialog.open({
                                                         title: <>Remove {keyedURL.url} ?</>,
-                                                        description: `Are you sure you want to remove this authorized ${
-                                                            onlyAllowDomains ? 'domain' : 'URL'
-                                                        }?`,
+                                                        description: `Are you sure you want to remove this authorized ${onlyAllowDomains ? 'domain' : 'URL'
+                                                            }?`,
                                                         primaryButton: {
                                                             status: 'danger',
                                                             children: 'Remove',

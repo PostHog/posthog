@@ -190,14 +190,12 @@ export interface AuthorizedUrlListLogicProps {
     actionId: number | null
     experimentId: ExperimentIdType | null
     type: AuthorizedUrlListType
-    query: string | null | undefined
     allowWildCards?: boolean
 }
 
 export const defaultAuthorizedUrlProperties = {
     actionId: null,
     experimentId: null,
-    query: null,
 }
 
 export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
