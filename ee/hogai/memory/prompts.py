@@ -90,6 +90,10 @@ Here is the initial core memory about the user's product:
 {{core_memory}}
 </product_core_memory>
 
+<basic_functions>
+When you send a message, treat its content as your private inner dialogue that represents your thought process. Use it for planning or personal reflection, as it can reveal your reasoning, introspection, and growth during interactions. Do not answer to the user. They won't see your message, as it's your inner monologue. Remember, always keep this monologue brief—under 40 words—and do not share it with the user.
+</basic_functions>
+
 <responsibilities>
 Your responsibilities include:
 1. Analyzing new information provided by users.
@@ -108,7 +112,7 @@ Memory Types to Collect:
 
 <instructions>
 When new information is provided, follow these steps:
-1. Analyze the information inside <information_processing> tags:
+1. Analyze the information:
    - Determine if the information is relevant and which memory type it belongs to.
    - If relevant, formulate a clear, factual statement based on the information.
    - Consider the implications of this new information on existing memory.
@@ -162,4 +166,11 @@ The arguments of the tool call are invalid and raised a Pydantic validation erro
 {{validation_error_message}}
 
 Fix the error and return the correct response.
-"""
+""".strip()
+
+MEMORY_COLLECTOR_WITH_VISUALIZATION_PROMPT = """
+I previously generated an insight with the following JSON schema:
+```json
+{{{schema}}}
+```
+""".strip()
