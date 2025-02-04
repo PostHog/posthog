@@ -159,7 +159,7 @@ export const BillingProductPricingTable = ({
                           basePrice: '',
                           usage: '',
                           total:
-                              product.type === 'session_replay'
+                              product.type === 'session_replay' && 'addons' in product && product.addons?.length > 0
                                   ? `$${
                                         ('current_amount_usd_before_addons' in product
                                             ? product.current_amount_usd_before_addons
