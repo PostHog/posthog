@@ -159,3 +159,9 @@ export const LoadingMessages: StoryFn = () => {
         </ul>
     )
 }
+LoadingMessages.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+        waitForSelector: undefined, // Unset the default selector or else this won't ever finish running
+    },
+}
