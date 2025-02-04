@@ -161,16 +161,20 @@ class TestPlugin(BaseTest):
 
     @override_settings(HOG_TRANSFORMATIONS_ENABLED=True, DISABLE_MMDB=False)
     def test_geoip_transformation_created_when_enabled(self):
-        team = Team.objects.create_with_data(organization=self.organization)
+        team = Team.objects.create_with_data(
+            organization=self.organization, name="Test Team", initiating_user=self.user
+        )
 
         # Verify GeoIP transformation was created
         transformations = HogFunction.objects.filter(team=team, type="transformation")
         self.assertEqual(transformations.count(), 1)
 
         geoip = transformations.first()
-        self.assertEqual(geoip.name, "GeoIP")
-        self.assertEqual(geoip.enabled, True)
-        self.assertEqual(geoip.execution_order, 1)
+        self.assertIsNotNone(geoip, "GeoIP transformation should exist")
+        if geoip:  # Make type checker happy
+            self.assertEqual(geoip.name, "GeoIP")
+            self.assertEqual(geoip.enabled, True)
+            self.assertEqual(geoip.execution_order, 1)
 
         # Verify no plugins were enabled
         plugin_configs = PluginConfig.objects.filter(team=team)
@@ -178,7 +182,9 @@ class TestPlugin(BaseTest):
 
     @override_settings(HOG_TRANSFORMATIONS_ENABLED=True, DISABLE_MMDB=True)
     def test_no_geoip_created_when_mmdb_disabled(self):
-        team = Team.objects.create_with_data(organization=self.organization)
+        team = Team.objects.create_with_data(
+            organization=self.organization, name="Test Team", initiating_user=self.user
+        )
 
         # Verify no transformations were created
         transformations = HogFunction.objects.filter(team=team, type="transformation")
@@ -190,7 +196,9 @@ class TestPlugin(BaseTest):
 
     @override_settings(HOG_TRANSFORMATIONS_ENABLED=False)
     def test_plugins_enabled_when_transformations_disabled(self):
-        team = Team.objects.create_with_data(organization=self.organization)
+        team = Team.objects.create_with_data(
+            organization=self.organization, name="Test Team", initiating_user=self.user
+        )
 
         # Create a GeoIP plugin that should be enabled
         geoip_plugin = Plugin.objects.create(
@@ -203,7 +211,11 @@ class TestPlugin(BaseTest):
         # Verify plugin was enabled for team
         plugin_configs = PluginConfig.objects.filter(team=team, plugin=geoip_plugin)
         self.assertEqual(plugin_configs.count(), 1)
-        self.assertTrue(plugin_configs.first().enabled)
+
+        config = plugin_configs.first()
+        self.assertIsNotNone(config, "Plugin config should exist")
+        if config:  # Make type checker happy
+            self.assertTrue(config.enabled)
 
 
 class TestPluginSourceFile(BaseTest, QueryMatchingTest):
