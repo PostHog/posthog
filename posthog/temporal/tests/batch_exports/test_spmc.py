@@ -266,8 +266,8 @@ async def test_sessions_record_batch_model(ateam, data_interval_start, data_inte
     printed_query, _ = await model.as_query_with_parameters(data_interval_start, data_interval_end)
 
     assert hogql_query.where is not None
-    assert isinstance(hogql_query.prewhere, ast.And)
-    assert team_id_filter in hogql_query.prewhere.exprs
+    assert isinstance(hogql_query.where, ast.And)
+    assert team_id_filter in hogql_query.where.exprs
 
     assert f"equals(raw_sessions.team_id, {ateam.id})" in printed_query
     assert "FORMAT ArrowStream" in printed_query
