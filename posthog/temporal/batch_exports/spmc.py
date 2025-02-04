@@ -540,7 +540,7 @@ class SessionsRecordBatchModel(RecordBatchModel):
                 ),
             ]
         )
-        if not data_interval_start:
+        if data_interval_start is not None:
             where_and.exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
