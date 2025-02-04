@@ -237,9 +237,7 @@ export class EventPipelineRunner {
 
         try {
             const shouldCompareToHogFunctions =
-                this.hogTransformer &&
-                (!this.hub.HOG_TRANSFORMATIONS_COMPARISON_PERCENTAGE ||
-                    Math.random() < this.hub.HOG_TRANSFORMATIONS_COMPARISON_PERCENTAGE)
+                this.hogTransformer && Math.random() < (this.hub.HOG_TRANSFORMATIONS_COMPARISON_PERCENTAGE ?? 0)
 
             if (!shouldCompareToHogFunctions) {
                 clonedSourceEvent = cloneObject(postCookielessEvent)
