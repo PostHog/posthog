@@ -68,6 +68,16 @@ async def truncate_persons(clickhouse_client):
     await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS `person_distinct_id2`")
 
 
+@pytest_asyncio.fixture(autouse=True)
+async def truncate_sessions(clickhouse_client):
+    """Fixture to automatically truncate raw_sessions after a test.
+
+    This is useful if during the test setup we insert a lot of sessions we wish to clean-up.
+    """
+    yield
+    await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS `raw_sessions`")
+
+
 @pytest.fixture
 def batch_export_schema(request) -> dict | None:
     """A parametrizable fixture to configure a batch export schema.
