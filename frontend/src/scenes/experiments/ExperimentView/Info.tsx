@@ -17,8 +17,7 @@ import { ExperimentDates } from './ExperimentDates'
 
 export function Info(): JSX.Element {
     const { experiment, featureFlags, metricResults } = useValues(experimentLogic)
-    const { updateExperiment, setExperimentStatsVersion, loadMetricResults, loadSecondaryMetricResults } =
-        useActions(experimentLogic)
+    const { updateExperiment, setExperimentStatsVersion, refreshExperimentResults } = useActions(experimentLogic)
 
     const { created_by } = experiment
 
@@ -119,8 +118,7 @@ export function Info(): JSX.Element {
                                         type="secondary"
                                         size="xsmall"
                                         onClick={() => {
-                                            loadMetricResults(true)
-                                            loadSecondaryMetricResults(true)
+                                            refreshExperimentResults(true)
                                         }}
                                         data-attr="refresh-experiment"
                                         icon={<IconRefresh />}

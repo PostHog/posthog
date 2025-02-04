@@ -1,6 +1,7 @@
 import { HogFunctionTemplate } from '~/src/cdp/templates/types'
 
 export const template: HogFunctionTemplate = {
+    free: true,
     status: 'alpha',
     type: 'transformation',
     id: 'plugin-posthog-filter-out-plugin',
@@ -12,13 +13,15 @@ export const template: HogFunctionTemplate = {
     inputs_schema: [
         {
             key: 'filters',
+            templating: false,
             label: 'Filters to apply',
-            type: 'string',
+            type: 'json',
             description: 'A JSON file containing an array of filters to apply. See the README for more information.',
             required: false,
         },
         {
             key: 'eventsToDrop',
+            templating: false,
             label: 'Events to filter out',
             type: 'string',
             description: 'A comma-separated list of event names to filter out (e.g. $pageview,$autocapture)',
@@ -26,6 +29,7 @@ export const template: HogFunctionTemplate = {
         },
         {
             key: 'keepUndefinedProperties',
+            templating: false,
             label: 'Keep event if any of the filtered properties are undefined?',
             type: 'choice',
             choices: [

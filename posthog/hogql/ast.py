@@ -1,3 +1,5 @@
+import inspect
+import sys
 from enum import StrEnum
 from typing import Any, Literal, Optional, Union, get_args
 from collections.abc import Sequence
@@ -884,3 +886,18 @@ class HogQLXTag(AST):
             "kind": self.kind,
             **{a.name: a.value for a in self.attributes},
         }
+
+
+def create_ast_classes_mapping() -> dict[str, AST]:
+    current_module = sys.modules[__name__]
+    ast_classes: dict[str, AST] = {}
+
+    for name, obj in inspect.getmembers(current_module, inspect.isclass):
+        if issubclass(obj, AST) and obj is not AST:
+            ast_classes[name] = obj
+
+    return ast_classes
+
+
+# Call the function to dynamically generate AST_CLASSES
+AST_CLASSES = create_ast_classes_mapping()

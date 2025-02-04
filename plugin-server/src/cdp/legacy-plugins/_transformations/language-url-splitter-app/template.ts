@@ -1,12 +1,13 @@
 import { HogFunctionTemplate } from '~/src/cdp/templates/types'
 
 export const template: HogFunctionTemplate = {
+    free: true,
     status: 'alpha',
     type: 'transformation',
     id: 'plugin-language-url-splitter-app',
     name: 'Language URL splitter',
     description: 'Splits the language from the URL',
-    icon_url: 'https://raw.githubusercontent.com/posthog/language-url-splitter-app/main/logo.png',
+    icon_url: '/static/hedgehog/builder-hog-01.png',
     category: ['Transformation'],
     hog: `return event`,
     inputs_schema: [
@@ -17,6 +18,7 @@ export const template: HogFunctionTemplate = {
             default: '^/([a-z]{2})(?=/|#|\\?|$)',
             description: 'Ininitalized with `const regexp = new RegExp($pattern)`',
             required: true,
+            templating: false,
         },
         {
             key: 'matchGroup',
@@ -25,6 +27,7 @@ export const template: HogFunctionTemplate = {
             default: '1',
             description: 'Used in: `const value = regexp.match($pathname)[$matchGroup]`',
             required: true,
+            templating: false,
         },
         {
             key: 'property',
@@ -33,6 +36,7 @@ export const template: HogFunctionTemplate = {
             default: 'locale',
             description: 'Name of the event property we will store the matched value in',
             required: true,
+            templating: false,
         },
         {
             key: 'replacePattern',
@@ -41,6 +45,7 @@ export const template: HogFunctionTemplate = {
             default: '^(/[a-z]{2})(/|(?=/|#|\\?|$))',
             description: 'Initialized with `new RegExp($pattern)`, leave empty to disable path cleanup.',
             required: true,
+            templating: false,
         },
         {
             key: 'replaceKey',
@@ -49,6 +54,7 @@ export const template: HogFunctionTemplate = {
             default: '$pathname',
             description: 'Where to store the updated path. Keep as `$pathname` to override.',
             required: true,
+            templating: false,
         },
         {
             key: 'replaceValue',
@@ -57,6 +63,7 @@ export const template: HogFunctionTemplate = {
             default: '/',
             description: '`properties[key] = $pathname.replace(pattern, value)`',
             required: true,
+            templating: false,
         },
     ],
 }

@@ -1014,8 +1014,6 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             expected_errors = json.dumps(
                 {
                     ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
-                    ExperimentNoResultsErrorKeys.NO_EVENTS: True,
-                    ExperimentNoResultsErrorKeys.NO_FLAG_INFO: True,
                     ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
                     ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
                 }
@@ -1568,8 +1566,6 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             expected_errors = json.dumps(
                 {
                     ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
-                    ExperimentNoResultsErrorKeys.NO_EVENTS: True,
-                    ExperimentNoResultsErrorKeys.NO_FLAG_INFO: True,
                     ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
                     ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
                 }

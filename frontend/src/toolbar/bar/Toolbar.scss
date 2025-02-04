@@ -61,7 +61,7 @@
         bottom: 0;
         display: flex;
         flex-direction: column;
-        width: 30rem;
+        width: 35rem;
         max-height: 0;
         margin-left: -15rem;
         overflow: hidden;
@@ -139,8 +139,13 @@
         transform: var(--toolbar-translate) scale(1.1);
     }
 
-    &--with-experiments {
+    &--with-experiments,
+    &--with-web-vitals {
         --toolbar-width-expanded: 334px;
+    }
+
+    &--with-experiments-and-web-vitals {
+        --toolbar-width-expanded: 376px;
     }
 
     &--minimized {

@@ -1,0 +1,34 @@
+{
+    "name": "Engage",
+    "url": "https://github.com/engage-so/posthog-plugin",
+    "description": "Send user and event data to Engage for personalized  engagement.",
+    "main": "index.js",
+    "config": [
+        {
+            "key": "publicKey",
+            "name": "Public key",
+            "type": "string",
+            "default": "",
+            "hint": "Get your public key from your Engage dashboard (Settings -> Account)",
+            "required": true,
+            "secret": true
+        },
+        {
+            "key": "secret",
+            "name": "Private key",
+            "type": "string",
+            "default": "",
+            "hint": "Get your private key from your Engage dashboard (Settings -> Account)",
+            "required": true,
+            "secret": true
+        },
+        {
+            "key": "filter",
+            "name": "Event filter",
+            "type": "choice",
+            "default": "Send events for all users",
+            "hint": "Sending events for only identified users ensures user and event data for anonymous users are not sent to Engage. However, note that if they are later identified, you will miss the leading events before identification.",
+            "choices": ["Send events for all users", "Only send events for identified users"]
+        }
+    ]
+}

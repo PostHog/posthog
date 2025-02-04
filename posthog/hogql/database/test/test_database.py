@@ -106,7 +106,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("table_1"))
         assert table is not None
-        assert len(table.fields.keys()) == 2
+        assert len(table.fields.keys()) == 1
         assert table.source is None
         assert table.schema_ is None
 
@@ -197,7 +197,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("table_1"))
         assert table is not None
-        assert len(table.fields.keys()) == 2
+        assert len(table.fields.keys()) == 1
 
         assert table.source is not None
         assert table.source.id == source.source_id
