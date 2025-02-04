@@ -3,7 +3,6 @@ from collections.abc import Generator, Iterator
 from typing import Any, Optional, cast
 from uuid import UUID, uuid4
 
-import posthoganalytics
 from langchain_core.callbacks.base import BaseCallbackHandler
 from langchain_core.messages import AIMessageChunk
 from langchain_core.runnables.config import RunnableConfig
@@ -89,18 +88,13 @@ class Assistant:
         self._graph = AssistantGraph(team).compile_full_graph()
         self._chunks = AIMessageChunk(content="")
         self._state = None
-        self._callback_handler = (
-            CallbackHandler(
-                posthoganalytics.default_client,
-                distinct_id=user.distinct_id if user else None,
-                properties={
-                    "conversation_id": str(self._conversation.id),
-                    "is_first_conversation": is_new_conversation,
-                },
-                trace_id=trace_id,
-            )
-            if posthoganalytics.default_client
-            else None
+        self._callback_handler = CallbackHandler(
+            distinct_id=user.distinct_id if user else None,
+            properties={
+                "conversation_id": str(self._conversation.id),
+                "is_first_conversation": is_new_conversation,
+            },
+            trace_id=trace_id,
         )
 
     def stream(self):
@@ -267,7 +261,9 @@ class Assistant:
                         return AssistantMessage(
                             content=MemoryInitializerNode.format_message(cast(str, self._chunks.content))
                         )
-                return AssistantMessage(content=self._chunks.content)
+                if self._chunks.content:
+                    # Only return an in-progress message if there is already some content (and not e.g. just tool calls)
+                    return AssistantMessage(content=self._chunks.content)
         return None
 
     def _process_task_started_update(self, update: GraphTaskStartedUpdateTuple) -> BaseModel | None:
