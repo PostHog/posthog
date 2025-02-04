@@ -290,6 +290,10 @@ async def generate_test_data(
     else:
         table = "sharded_events"
 
+    # Really clean up tables before generating new data.
+    await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS `raw_sessions`")
+    await clickhouse_client.execute_query(f"TRUNCATE TABLE IF EXISTS `{table}`")
+
     events_to_export_created, _, _ = await generate_test_events_in_clickhouse(
         client=clickhouse_client,
         team_id=ateam.pk,
