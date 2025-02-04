@@ -147,7 +147,6 @@ const PathCleaningToggle = (): JSX.Element => {
                 icon={<IconBranch />}
                 onClick={() => setIsPathCleaningEnabled(!isPathCleaningEnabled)}
                 type={isPathCleaningEnabled ? 'primary' : 'secondary'}
-                active={isPathCleaningEnabled}
                 size="small"
             >
                 Path cleaning: <strong className="ml-1">{isPathCleaningEnabled ? 'On' : 'Off'}</strong>
