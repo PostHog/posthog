@@ -340,6 +340,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     SESSION_RECORDING_V2_S3_PREFIX: string
     SESSION_RECORDING_V2_S3_ENDPOINT: string
     SESSION_RECORDING_V2_S3_REGION: string
+    SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: string
+    SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: string
 }
 
 export interface Hub extends PluginsServerConfig {
