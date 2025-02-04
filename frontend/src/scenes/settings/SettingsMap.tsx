@@ -1,3 +1,4 @@
+import { LemonTag } from '@posthog/lemon-ui'
 import { ErrorTrackingAlerting } from 'scenes/error-tracking/configuration/alerting/ErrorTrackingAlerting'
 import { ErrorTrackingSymbolSets } from 'scenes/error-tracking/configuration/symbol-sets/ErrorTrackingSymbolSets'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
@@ -8,8 +9,8 @@ import { DeadClicksAutocaptureSettings } from 'scenes/settings/environment/DeadC
 import { PersonsJoinMode } from 'scenes/settings/environment/PersonsJoinMode'
 import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
 import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
-import { RevenueEventsSettings } from 'scenes/settings/environment/RevenueEventsSettings'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
+import { urls } from 'scenes/urls'
 
 import { Realm } from '~/types'
 
@@ -167,7 +168,14 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'data-theme',
-                title: 'Data colors',
+                title: (
+                    <>
+                        Chart color themes
+                        <LemonTag type="warning" className="ml-1 uppercase">
+                            Beta
+                        </LemonTag>
+                    </>
+                ),
                 component: <DataColorThemes />,
                 flag: 'INSIGHT_COLORS',
             },
@@ -248,12 +256,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Bounce rate page view mode',
                 component: <BounceRatePageViewModeSetting />,
                 flag: 'SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE',
-            },
-            {
-                id: 'web-revenue-events',
-                title: 'Revenue tracking',
-                component: <RevenueEventsSettings />,
-                flag: 'WEB_REVENUE_TRACKING',
             },
         ],
     },
@@ -495,6 +497,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <RoleBasedAccess />,
             },
         ],
+    },
+    {
+        level: 'organization',
+        id: 'organization-billing',
+        hideSelfHost: true,
+        title: 'Billing',
+        to: urls.organizationBilling(),
+        settings: [],
     },
     {
         level: 'organization',

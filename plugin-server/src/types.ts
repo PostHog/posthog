@@ -323,9 +323,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
 
     // HOG Transformations (Alpha feature)
     HOG_TRANSFORMATIONS_ENABLED: boolean
-
-    SESSION_RECORDING_MAX_BATCH_SIZE_KB: number | undefined
-    SESSION_RECORDING_MAX_BATCH_AGE_MS: number | undefined
+    HOG_TRANSFORMATIONS_COMPARISON_PERCENTAGE: number | undefined
 
     // cookieless
     COOKIELESS_DISABLED: boolean
@@ -336,9 +334,12 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     COOKIELESS_SESSION_INACTIVITY_MS: number
     COOKIELESS_IDENTIFIES_TTL_SECONDS: number
 
-    SESSION_RECORDING_V2_S3_BUCKET?: string
-    SESSION_RECORDING_V2_S3_PREFIX?: string
-    SESSION_RECORDING_V2_S3_REGION?: string
+    SESSION_RECORDING_MAX_BATCH_SIZE_KB: number
+    SESSION_RECORDING_MAX_BATCH_AGE_MS: number
+    SESSION_RECORDING_V2_S3_BUCKET: string
+    SESSION_RECORDING_V2_S3_PREFIX: string
+    SESSION_RECORDING_V2_S3_ENDPOINT: string
+    SESSION_RECORDING_V2_S3_REGION: string
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -1005,6 +1006,7 @@ export enum PropertyOperator {
     IsNotSet = 'is_not_set',
     IsDateBefore = 'is_date_before',
     IsDateAfter = 'is_date_after',
+    IsCleanedPathExact = 'is_cleaned_path_exact',
 }
 
 /** Sync with posthog/frontend/src/types.ts */
@@ -1315,61 +1317,6 @@ export type AppMetric2Type = {
         | 'inputs_failed'
         | 'fetch'
     count: number
-}
-
-interface TextOperator {
-    operator: 'equals' | 'startsWith' | 'includes'
-    value: string
-}
-
-export interface ModelDetails {
-    matches: string[]
-    searchTerms: string[]
-    info: {
-        releaseDate: string
-        maxTokens?: number
-        description: string
-        tradeOffs: string[]
-        benchmarks: {
-            [key: string]: number
-        }
-        capabilities: string[]
-        strengths: string[]
-        weaknesses: string[]
-        recommendations: string[]
-    }
-}
-
-export type ModelDetailsMap = {
-    [key: string]: ModelDetails
-}
-
-export interface ModelRow {
-    model: TextOperator
-    cost: {
-        prompt_token: number
-        completion_token: number
-    }
-    showInPlayground?: boolean
-    targetUrl?: string
-    dateRange?: {
-        start: string
-        end: string
-    }
-}
-
-export interface ModelRow {
-    model: TextOperator
-    cost: {
-        prompt_token: number
-        completion_token: number
-    }
-    showInPlayground?: boolean
-    targetUrl?: string
-    dateRange?: {
-        start: string
-        end: string
-    }
 }
 
 export interface CookielessConfig {

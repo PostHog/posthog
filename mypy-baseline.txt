@@ -484,9 +484,6 @@ posthog/tasks/exports/test/test_csv_exporter_renders.py:0: error: Item "None" of
 posthog/hogql_queries/test/test_query_runner.py:0: error: Variable "TestQueryRunner" is not valid as a type  [valid-type]
 posthog/hogql_queries/test/test_query_runner.py:0: note: See https://mypy.readthedocs.io/en/stable/common_issues.html#variables-vs-type-aliases
 posthog/hogql_queries/test/test_query_runner.py:0: error: Invalid base class "TestQueryRunner"  [misc]
-posthog/hogql_queries/test/test_hogql_query_runner.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "SelectQuery")  [assignment]
-posthog/hogql_queries/test/test_hogql_query_runner.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "SelectQuery")  [assignment]
-posthog/hogql_queries/test/test_hogql_query_runner.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "SelectQuery")  [assignment]
 posthog/hogql_queries/legacy_compatibility/test/test_filter_to_query.py:0: error: Need type annotation for "properties_0" (hint: "properties_0: list[<type>] = ...")  [var-annotated]
 posthog/hogql_queries/legacy_compatibility/test/test_filter_to_query.py:0: error: Need type annotation for "properties_3" (hint: "properties_3: dict[<type>, <type>] = ...")  [var-annotated]
 posthog/hogql_queries/legacy_compatibility/test/test_filter_to_query.py:0: error: Need type annotation for "filter" (hint: "filter: dict[<type>, <type>] = ...")  [var-annotated]

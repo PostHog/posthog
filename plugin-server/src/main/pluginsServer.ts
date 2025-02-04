@@ -39,8 +39,12 @@ import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
 import { OrganizationManager } from '../worker/ingestion/organization-manager'
 import { TeamManager } from '../worker/ingestion/team-manager'
 import Piscina, { makePiscina as defaultMakePiscina } from '../worker/piscina'
+import { loadSchedule } from '../worker/plugins/loadSchedule'
+import { teardownPlugins } from '../worker/plugins/teardown'
 import { RustyHook } from '../worker/rusty-hook'
+import { reloadPlugins } from '../worker/tasks'
 import { syncInlinePlugins } from '../worker/vm/inline/inline'
+import { populatePluginCapabilities } from '../worker/vm/lazy'
 import { GraphileWorker } from './graphile-worker/graphile-worker'
 import { loadPluginSchedule } from './graphile-worker/schedule'
 import { startGraphileWorker } from './graphile-worker/worker-setup'
@@ -132,11 +136,12 @@ export async function startPluginsServer(
             posthog.shutdownAsync(),
         ])
 
-        if (piscina) {
-            await stopPiscina(piscina)
-        }
-
         if (serverInstance.hub) {
+            // Wait *up to* 5 seconds to shut down VMs.
+            await Promise.race([teardownPlugins(serverInstance.hub), delay(5000)])
+            // Wait 2 seconds to flush the last queues and caches
+            await Promise.all([serverInstance.hub?.kafkaProducer.flush(), delay(2000)])
+
             await closeHub(serverInstance.hub)
         }
     }
@@ -298,6 +303,8 @@ export async function startPluginsServer(
                     INGESTION_CONSUMER_CONSUME_TOPIC: consumerOption.topic,
                     INGESTION_CONSUMER_GROUP_ID: consumerOption.group_id,
                 }
+                piscina = piscina ?? (await makePiscina(serverConfig, hub))
+
                 const consumer = new IngestionConsumer(modifiedHub)
                 await consumer.start()
                 services.push(consumer.service)
@@ -305,6 +312,9 @@ export async function startPluginsServer(
         } else {
             if (capabilities.ingestionV2) {
                 const hub = await setupHub()
+                // NOTE: Piscina is only needed whilst we have legacy plugins running. Once we have all
+                // moved to hog functions we can remove this.
+                piscina = piscina ?? (await makePiscina(serverConfig, hub))
                 const consumer = new IngestionConsumer(hub)
                 await consumer.start()
                 services.push(consumer.service)
@@ -419,44 +429,6 @@ export async function startPluginsServer(
             await syncInlinePlugins(hub)
         }
 
-        if (serverInstance.hub) {
-            const hub = serverInstance.hub
-            pubSub = new PubSub(hub, {
-                [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
-                    status.info('⚡', 'Reloading plugins!')
-                    await piscina?.broadcastTask({ task: 'reloadPlugins' })
-
-                    if (hub?.capabilities.pluginScheduledTasks && piscina) {
-                        await piscina.broadcastTask({ task: 'reloadSchedule' })
-                        hub.pluginSchedule = await loadPluginSchedule(piscina)
-                    }
-                },
-                'reset-available-product-features-cache': async (message) => {
-                    await piscina?.broadcastTask({
-                        task: 'resetAvailableProductFeaturesCache',
-                        args: JSON.parse(message),
-                    })
-                },
-                'populate-plugin-capabilities': async (message) => {
-                    // We need this to be done in only once
-                    if (hub?.capabilities.appManagementSingleton && piscina) {
-                        await piscina?.broadcastTask({ task: 'populatePluginCapabilities', args: JSON.parse(message) })
-                    }
-                },
-            })
-
-            await pubSub.start()
-
-            if (capabilities.preflightSchedules) {
-                startPreflightSchedules(hub)
-            }
-
-            serverInstance.stop = closeJobs
-
-            pluginServerStartupTimeMs.inc(Date.now() - timer.valueOf())
-            status.info('🚀', 'All systems go')
-        }
-
         if (capabilities.sessionRecordingBlobIngestion) {
             const hub = serverInstance.hub
             const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
@@ -569,6 +541,41 @@ export async function startPluginsServer(
             })
         }
 
+        if (serverInstance.hub) {
+            const hub = serverInstance.hub
+            pubSub = new PubSub(hub, {
+                [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
+                    status.info('⚡', 'Reloading plugins!')
+                    await reloadPlugins(hub)
+
+                    if (hub?.capabilities.pluginScheduledTasks && piscina) {
+                        await loadSchedule(hub)
+                        hub.pluginSchedule = await loadPluginSchedule(piscina)
+                    }
+                },
+                'reset-available-product-features-cache': (message) => {
+                    hub.organizationManager.resetAvailableProductFeaturesCache(JSON.parse(message).organization_id)
+                },
+                'populate-plugin-capabilities': async (message) => {
+                    // We need this to be done in only once
+                    if (hub?.capabilities.appManagementSingleton) {
+                        await populatePluginCapabilities(hub, Number(JSON.parse(message).plugin_id))
+                    }
+                },
+            })
+
+            await pubSub.start()
+
+            if (capabilities.preflightSchedules) {
+                startPreflightSchedules(hub)
+            }
+
+            serverInstance.stop = closeJobs
+
+            pluginServerStartupTimeMs.inc(Date.now() - timer.valueOf())
+            status.info('🚀', 'All systems go')
+        }
+
         // If join rejects or throws, then the consumer is unhealthy and we should shut down the process.
         // Ideally we would also join all the other background tasks as well to ensure we stop the
         // server if we hit any errors and don't end up with zombie instances, but I'll leave that
@@ -605,13 +612,6 @@ const startPreflightSchedules = (hub: Hub) => {
             jsonSerialize: false,
         })
     })
-}
-
-export async function stopPiscina(piscina: Piscina): Promise<void> {
-    // Wait *up to* 5 seconds to shut down VMs.
-    await Promise.race([piscina.broadcastTask({ task: 'teardownPlugins' }), delay(5000)])
-    // Wait 2 seconds to flush the last queues and caches
-    await Promise.all([piscina.broadcastTask({ task: 'flushKafkaMessages' }), delay(2000)])
 }
 
 const kafkaProtocolErrors = new Counter({
