@@ -671,7 +671,17 @@ export default function SurveyEdit(): JSX.Element {
                                                         </LemonField.Pure>
                                                         <LemonField.Pure
                                                             label="Device Types"
-                                                            info="Add the device types to show the survey on. Supported values: 'Desktop', 'Mobile', 'Tablet'. Requires at least version 1.214 of posthog-js"
+                                                            info={
+                                                                <>
+                                                                    Add the device types to show the survey on. Possible
+                                                                    values: 'Desktop', 'Mobile', 'Tablet'. For the full
+                                                                    list and caveats,{' '}
+                                                                    <Link to="https://posthog.com/docs/surveys/creating-surveys#display-conditions">
+                                                                        check the documentation here
+                                                                    </Link>
+                                                                    . Requires at least version 1.214 of posthog-js
+                                                                </>
+                                                            }
                                                         >
                                                             <div className="flex flex-row gap-2 items-center">
                                                                 Device Types
