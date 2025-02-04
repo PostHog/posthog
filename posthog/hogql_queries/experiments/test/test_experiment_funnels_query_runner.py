@@ -3,6 +3,7 @@ from posthog.hogql_queries.experiments.experiment_funnels_query_runner import Ex
 from posthog.models.experiment import Experiment, ExperimentHoldout
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.schema import (
+    BreakdownAttributionType,
     EventsNode,
     ExperimentFunnelsQuery,
     ExperimentSignificanceCode,
@@ -10,6 +11,7 @@ from posthog.schema import (
 )
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from freezegun import freeze_time
+from parameterized import parameterized
 from django.utils import timezone
 from datetime import timedelta
 from rest_framework.exceptions import ValidationError
@@ -294,6 +296,154 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(result.variants), 2)
         self.assertAlmostEqual(result.expected_loss, 1.0, places=1)
 
+    @parameterized.expand(
+        [
+            [
+                BreakdownAttributionType.FIRST_TOUCH,
+                # 8 total
+                {
+                    "control_success": 3,
+                    "control_failure": 1,
+                    "test_success": 3,
+                    "test_failure": 1,
+                },
+            ],
+            [
+                BreakdownAttributionType.LAST_TOUCH,
+                # 8 total
+                {
+                    "control_success": 3,
+                    "control_failure": 1,
+                    "test_success": 3,
+                    "test_failure": 1,
+                },
+            ],
+            [
+                BreakdownAttributionType.ALL_EVENTS,
+                # 9 total (one duplicated)
+                {
+                    "control_success": 3,
+                    "control_failure": 1,
+                    "test_success": 3,
+                    "test_failure": 2,
+                },
+            ],
+            [
+                BreakdownAttributionType.STEP,
+                # 7 total
+                {
+                    "control_success": 3,
+                    "control_failure": 0,
+                    "test_success": 4,
+                    "test_failure": 1,
+                },
+            ],
+        ]
+    )
+    @freeze_time("2020-01-01T00:00:00Z")
+    def test_query_runner_attribution(self, attribution_type, expected_counts):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+
+        # use the second step when testing step attribution
+        attribution_value = 1 if attribution_type == BreakdownAttributionType.STEP else 0
+
+        ff_property = f"$feature/{feature_flag.key}"
+        funnels_query = FunnelsQuery(
+            series=[EventsNode(event="seen"), EventsNode(event="signup"), EventsNode(event="purchase")],
+            dateRange={"date_from": "2020-01-01", "date_to": "2020-01-14"},
+            funnelsFilter={
+                "breakdownAttributionType": attribution_type,
+                "breakdownAttributionValue": attribution_value,
+                "funnelVizType": "steps",
+                "funnelWindowInterval": "14",
+                "funnelWindowIntervalUnit": "day",
+                "layout": "horizontal",
+            },
+        )
+        experiment_query = ExperimentFunnelsQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentFunnelsQuery",
+            funnels_query=funnels_query,
+        )
+
+        experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
+        experiment.save()
+
+        journeys_for(
+            {
+                # control success always
+                "user_control_1": [
+                    {"event": "seen", "timestamp": "2020-01-02", "properties": {ff_property: "control"}},
+                    {"event": "signup", "timestamp": "2020-01-03", "properties": {ff_property: "control"}},
+                    {"event": "purchase", "timestamp": "2020-01-04", "properties": {ff_property: "control"}},
+                ],
+                # control failure for "first_touch", "last_touch", and "all_events"
+                # dropped for "steps"
+                "user_control_2": [
+                    {"event": "seen", "timestamp": "2020-01-02", "properties": {ff_property: "control"}},
+                    # Doesn't sign up or make a purchase
+                ],
+                # control success always
+                "user_control_3": [
+                    {"event": "seen", "timestamp": "2020-01-02", "properties": {ff_property: "control"}},
+                    {"event": "signup", "timestamp": "2020-01-03", "properties": {ff_property: "control"}},
+                    {"event": "purchase", "timestamp": "2020-01-04", "properties": {ff_property: "control"}},
+                ],
+                # control success for "first_touch", "last_touch"
+                # counted twice for for "all_events"
+                # test success for "steps"
+                "user_mixed_4": [
+                    {"event": "seen", "timestamp": "2020-01-02", "properties": {ff_property: "control"}},
+                    {"event": "seen", "timestamp": "2020-01-03", "properties": {ff_property: "test"}},
+                    {"event": "signup", "timestamp": "2020-01-04", "properties": {ff_property: "control"}},
+                    {"event": "signup", "timestamp": "2020-01-05", "properties": {ff_property: "test"}},
+                    {"event": "purchase", "timestamp": "2020-01-06", "properties": {ff_property: "control"}},
+                ],
+                # test success always
+                "user_test_5": [
+                    {"event": "seen", "timestamp": "2020-01-02", "properties": {ff_property: "test"}},
+                    {"event": "signup", "timestamp": "2020-01-03", "properties": {ff_property: "test"}},
+                    {"event": "purchase", "timestamp": "2020-01-04", "properties": {ff_property: "test"}},
+                ],
+                # test success always
+                "user_test_6": [
+                    {"event": "seen", "timestamp": "2020-01-02", "properties": {ff_property: "test"}},
+                    {"event": "signup", "timestamp": "2020-01-03", "properties": {ff_property: "test"}},
+                    {"event": "purchase", "timestamp": "2020-01-04", "properties": {ff_property: "test"}},
+                ],
+                # test failure always
+                "user_test_7": [
+                    {"event": "seen", "timestamp": "2020-01-02", "properties": {ff_property: "test"}},
+                    {"event": "signup", "timestamp": "2020-01-03", "properties": {ff_property: "test"}},
+                    # Doesn't make a purchase
+                ],
+                # test success always
+                "user_test_8": [
+                    {"event": "seen", "timestamp": "2020-01-02", "properties": {ff_property: "test"}},
+                    {"event": "signup", "timestamp": "2020-01-03", "properties": {ff_property: "test"}},
+                    {"event": "purchase", "timestamp": "2020-01-04", "properties": {ff_property: "test"}},
+                ],
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentFunnelsQueryRunner(
+            query=ExperimentFunnelsQuery(**experiment.metrics[0]["query"]), team=self.team
+        )
+        result = query_runner.calculate()
+
+        self.assertEqual(len(result.variants), 2)
+        control_variant = next(v for v in result.variants if v.key == "control")
+        test_variant = next(v for v in result.variants if v.key == "test")
+
+        self.assertEqual(control_variant.success_count, expected_counts["control_success"])
+        self.assertEqual(control_variant.failure_count, expected_counts["control_failure"])
+        self.assertEqual(test_variant.success_count, expected_counts["test_success"])
+        self.assertEqual(test_variant.failure_count, expected_counts["test_failure"])
+
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner_with_holdout(self):
         feature_flag = self.create_feature_flag()
@@ -363,35 +513,6 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertIn(f"holdout-{holdout.id}", result.credible_intervals)
 
     @freeze_time("2020-01-01T12:00:00Z")
-    def test_validate_event_variants_no_events(self):
-        feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag)
-
-        funnels_query = FunnelsQuery(
-            series=[EventsNode(event="$pageview"), EventsNode(event="purchase")],
-            dateRange={"date_from": "2020-01-01", "date_to": "2020-01-14"},
-        )
-        experiment_query = ExperimentFunnelsQuery(
-            experiment_id=experiment.id,
-            kind="ExperimentFunnelsQuery",
-            funnels_query=funnels_query,
-        )
-
-        query_runner = ExperimentFunnelsQueryRunner(query=experiment_query, team=self.team)
-        with self.assertRaises(ValidationError) as context:
-            query_runner.calculate()
-
-        expected_errors = json.dumps(
-            {
-                ExperimentNoResultsErrorKeys.NO_EVENTS: True,
-                ExperimentNoResultsErrorKeys.NO_FLAG_INFO: True,
-                ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
-                ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
-            }
-        )
-        self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
-
-    @freeze_time("2020-01-01T12:00:00Z")
     def test_validate_event_variants_no_control(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
@@ -425,8 +546,6 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         expected_errors = json.dumps(
             {
-                ExperimentNoResultsErrorKeys.NO_EVENTS: False,
-                ExperimentNoResultsErrorKeys.NO_FLAG_INFO: False,
                 ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
                 ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: False,
             }
@@ -467,53 +586,7 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         expected_errors = json.dumps(
             {
-                ExperimentNoResultsErrorKeys.NO_EVENTS: False,
-                ExperimentNoResultsErrorKeys.NO_FLAG_INFO: False,
                 ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: False,
-                ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
-            }
-        )
-        self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
-
-    @freeze_time("2020-01-01T12:00:00Z")
-    def test_validate_event_variants_no_flag_info(self):
-        feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag)
-
-        journeys_for(
-            {
-                "user_no_flag_1": [
-                    {"event": "$pageview", "timestamp": "2020-01-02"},
-                    {"event": "purchase", "timestamp": "2020-01-03"},
-                ],
-                "user_no_flag_2": [
-                    {"event": "$pageview", "timestamp": "2020-01-03"},
-                ],
-            },
-            self.team,
-        )
-
-        flush_persons_and_events()
-
-        funnels_query = FunnelsQuery(
-            series=[EventsNode(event="$pageview"), EventsNode(event="purchase")],
-            dateRange={"date_from": "2020-01-01", "date_to": "2020-01-14"},
-        )
-        experiment_query = ExperimentFunnelsQuery(
-            experiment_id=experiment.id,
-            kind="ExperimentFunnelsQuery",
-            funnels_query=funnels_query,
-        )
-
-        query_runner = ExperimentFunnelsQueryRunner(query=experiment_query, team=self.team)
-        with self.assertRaises(ValidationError) as context:
-            query_runner.calculate()
-
-        expected_errors = json.dumps(
-            {
-                ExperimentNoResultsErrorKeys.NO_EVENTS: False,
-                ExperimentNoResultsErrorKeys.NO_FLAG_INFO: True,
-                ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
                 ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
             }
         )

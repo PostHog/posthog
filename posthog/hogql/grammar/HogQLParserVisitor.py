@@ -429,6 +429,11 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by HogQLParser#ColumnExprCallSelect.
+    def visitColumnExprCallSelect(self, ctx:HogQLParser.ColumnExprCallSelectContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by HogQLParser#ColumnExprIsNull.
     def visitColumnExprIsNull(self, ctx:HogQLParser.ColumnExprIsNullContext):
         return self.visitChildren(ctx)
@@ -561,6 +566,11 @@ class HogQLParserVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by HogQLParser#columnLambdaExpr.
     def visitColumnLambdaExpr(self, ctx:HogQLParser.ColumnLambdaExprContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by HogQLParser#hogqlxChildElement.
+    def visitHogqlxChildElement(self, ctx:HogQLParser.HogqlxChildElementContext):
         return self.visitChildren(ctx)
 
 

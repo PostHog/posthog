@@ -25,6 +25,7 @@ pub fn captured_parse_fn(
             now: timestamp,
             sent_at: None, // We don't know when it was sent at, since it's a historical import
             token: context.token.clone(),
+            is_cookieless_mode: false,
         };
 
         Ok(InternallyCapturedEvent {

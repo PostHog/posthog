@@ -33,7 +33,7 @@ import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInputs } from './HogFunctionInputs'
 import { HogFunctionStatusIndicator } from './HogFunctionStatusIndicator'
-import { HogFunctionTest, HogFunctionTestPlaceholder } from './HogFunctionTest'
+import { HogFunctionTest } from './HogFunctionTest'
 import { HogFunctionMappings } from './mapping/HogFunctionMappings'
 import { HogFunctionEventEstimates } from './metrics/HogFunctionEventEstimates'
 
@@ -100,6 +100,8 @@ export function HogFunctionConfiguration({
         return <NotFound object="Hog function" />
     }
 
+    const isLegacyPlugin = (template?.id || hogFunction?.template?.id)?.startsWith('plugin-')
+
     const headerButtons = (
         <>
             {!templateId && (
@@ -107,9 +109,11 @@ export function HogFunctionConfiguration({
                     <More
                         overlay={
                             <>
-                                <LemonButton fullWidth onClick={() => duplicate()}>
-                                    Duplicate
-                                </LemonButton>
+                                {!isLegacyPlugin && (
+                                    <LemonButton fullWidth onClick={() => duplicate()}>
+                                        Duplicate
+                                    </LemonButton>
+                                )}
                                 <LemonDivider />
                                 <LemonButton status="danger" fullWidth onClick={() => deleteHogFunction()}>
                                     Delete
@@ -163,7 +167,7 @@ export function HogFunctionConfiguration({
 
     const showFilters =
         displayOptions.showFilters ??
-        ['destination', 'internal_destination', 'site_destination', 'broadcast', 'transformation'].includes(type)
+        ['destination', 'internal_destination', 'site_destination', 'broadcast'].includes(type)
     const showExpectedVolume = displayOptions.showExpectedVolume ?? ['destination', 'site_destination'].includes(type)
     const showStatus =
         displayOptions.showStatus ?? ['destination', 'internal_destination', 'email', 'transformation'].includes(type)
@@ -174,7 +178,7 @@ export function HogFunctionConfiguration({
         )
     const canEditSource =
         displayOptions.canEditSource ??
-        ['destination', 'email', 'site_destination', 'site_app', 'transformation'].includes(type)
+        (['destination', 'email', 'site_destination', 'site_app'].includes(type) && !isLegacyPlugin)
     const showPersonsCount = displayOptions.showPersonsCount ?? ['broadcast'].includes(type)
     const showTesting =
         displayOptions.showTesting ??
@@ -191,14 +195,6 @@ export function HogFunctionConfiguration({
                         </>
                     }
                 />
-
-                {type === 'destination' ? (
-                    <LemonBanner type="info">
-                        Hog Functions are in <b>beta</b> and are the next generation of our data pipeline destinations.
-                        You can use pre-existing templates or modify the source Hog code to create your own custom
-                        functions.
-                    </LemonBanner>
-                ) : null}
 
                 {hogFunction?.filters?.bytecode_error ? (
                     <div>
@@ -259,7 +255,8 @@ export function HogFunctionConfiguration({
                                     <LemonTextArea disabled={loading} />
                                 </LemonField>
 
-                                {hogFunction?.template && !hogFunction.template.id.startsWith('template-blank-') ? (
+                                {isLegacyPlugin ? null : hogFunction?.template &&
+                                  !hogFunction.template.id.startsWith('template-blank-') ? (
                                     <LemonDropdown
                                         showArrow
                                         overlay={
@@ -460,13 +457,7 @@ export function HogFunctionConfiguration({
                                     ) : null}
                                 </div>
                             )}
-                            {showTesting ? (
-                                !id || id === 'new' ? (
-                                    <HogFunctionTestPlaceholder />
-                                ) : (
-                                    <HogFunctionTest id={id} />
-                                )
-                            ) : null}
+                            {showTesting ? <HogFunctionTest /> : null}
                             <div className="flex justify-end gap-2">{saveButtons}</div>
                         </div>
                     </div>

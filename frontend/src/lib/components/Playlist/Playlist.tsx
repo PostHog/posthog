@@ -97,11 +97,11 @@ export function Playlist({
             .find((i) => i.id === activeItemId) || null
 
     return (
-        <div className="flex flex-col lg:flex-row w-full gap-2 h-full">
+        <div className="flex flex-col xl:flex-row w-full gap-2 h-full">
             <div
                 ref={playlistRef}
                 data-attr={dataAttr}
-                className={clsx('Playlist w-full lg:max-w-80 min-h-96', {
+                className={clsx('Playlist w-full xl:max-w-80 min-w-60 min-h-96', {
                     'Playlist--wide': size !== 'small',
                     'Playlist--embedded': embedded,
                 })}
@@ -128,7 +128,7 @@ export function Playlist({
                 </div>
             </div>
             <div
-                className={clsx('Playlist h-full min-h-96 w-full min-w-96 order-first lg:order-none', {
+                className={clsx('Playlist h-full min-h-96 w-full min-w-96 lg:min-w-[560px] order-first xl:order-none', {
                     'Playlist--wide': size !== 'small',
                     'Playlist--embedded': embedded,
                 })}
@@ -168,6 +168,30 @@ const TitleWithCount = ({ title, count }: { title?: string; count: number }): JS
                 </span>
             )}
         </div>
+    )
+}
+
+function SectionContent({
+    section,
+    loading,
+    activeItemId,
+    setActiveItemId,
+    emptyState,
+}: {
+    section: PlaylistSection
+    loading: boolean
+    activeItemId: SessionRecordingType['id'] | null
+    setActiveItemId: (item: SessionRecordingType) => void
+    emptyState: PlaylistProps['listEmptyState']
+}): JSX.Element {
+    return 'content' in section ? (
+        <>{section.content}</>
+    ) : 'items' in section && !!section.items.length ? (
+        <ListSection {...section} onClick={setActiveItemId} activeItemId={activeItemId} />
+    ) : loading ? (
+        <LoadingState />
+    ) : (
+        emptyState
     )
 }
 
@@ -218,6 +242,7 @@ const List = ({
         lastScrollPositionRef.current = e.currentTarget.scrollTop
     }
 
+    const sectionCount = sections.length
     const itemsCount = sections
         .filter((s): s is PlaylistRecordingPreviewBlock => 'items' in s)
         .flatMap((s) => s.items).length
@@ -235,32 +260,43 @@ const List = ({
                 </div>
             </DraggableToNotebook>
             <div className="overflow-y-auto flex-1" onScroll={handleScroll} ref={contentRef}>
-                <LemonCollapse
-                    defaultActiveKeys={initiallyOpenSections}
-                    panels={sections.map((s) => {
-                        const content =
-                            'content' in s ? (
-                                s.content
-                            ) : 'items' in s && !!s.items.length ? (
-                                <ListSection {...s} onClick={setActiveItemId} activeItemId={activeItemId} />
-                            ) : loading ? (
-                                <LoadingState />
-                            ) : (
-                                emptyState
-                            )
-
-                        return {
-                            key: s.key,
-                            header: s.title ?? '',
-                            content,
-                            className: 'p-0',
-                        }
-                    })}
-                    onChange={onChangeSections}
-                    multiple
-                    embedded
-                    size="small"
-                />
+                {sectionCount > 1 ? (
+                    <LemonCollapse
+                        defaultActiveKeys={initiallyOpenSections}
+                        panels={sections.map((s) => {
+                            return {
+                                key: s.key,
+                                header: s.title ?? '',
+                                content: (
+                                    <SectionContent
+                                        section={s}
+                                        loading={!!loading}
+                                        setActiveItemId={setActiveItemId}
+                                        activeItemId={activeItemId}
+                                        emptyState={emptyState}
+                                    />
+                                ),
+                                className: 'p-0',
+                            }
+                        })}
+                        onChange={onChangeSections}
+                        multiple
+                        embedded
+                        size="small"
+                    />
+                ) : sectionCount === 1 ? (
+                    <SectionContent
+                        section={sections[0]}
+                        loading={!!loading}
+                        setActiveItemId={setActiveItemId}
+                        activeItemId={activeItemId}
+                        emptyState={emptyState}
+                    />
+                ) : loading ? (
+                    <LoadingState />
+                ) : (
+                    emptyState
+                )}
             </div>
             <div className="shrink-0 relative flex justify-between items-center gap-0.5 whitespace-nowrap">
                 {footerActions}

@@ -18,6 +18,7 @@ import {
     EventsQuery,
     FunnelsQuery,
     GoalLine,
+    HogQLASTQuery,
     HogQLMetadata,
     HogQLQuery,
     HogQuery,
@@ -57,6 +58,7 @@ export function isDataNode(node?: Record<string, any> | null): node is EventsQue
         isEventsQuery(node) ||
         isActorsQuery(node) ||
         isHogQLQuery(node) ||
+        isHogQLASTQuery(node) ||
         isHogQLMetadata(node)
     )
 }
@@ -120,6 +122,10 @@ export function isHogQuery(node?: Record<string, any> | null): node is HogQuery 
 
 export function isHogQLQuery(node?: Record<string, any> | null): node is HogQLQuery {
     return node?.kind === NodeKind.HogQLQuery
+}
+
+export function isHogQLASTQuery(node?: Record<string, any> | null): node is HogQLASTQuery {
+    return node?.kind === NodeKind.HogQLASTQuery
 }
 
 export function isHogQLMetadata(node?: Record<string, any> | null): node is HogQLMetadata {
@@ -511,4 +517,8 @@ export function isValidBreakdown(breakdownFilter?: BreakdownFilter | null): brea
         ((breakdownFilter.breakdown && breakdownFilter.breakdown_type) ||
             (breakdownFilter.breakdowns && breakdownFilter.breakdowns.length > 0))
     )
+}
+
+export function isValidQueryForExperiment(query: Node): boolean {
+    return isNodeWithSource(query) && isFunnelsQuery(query.source) && query.source.series.length >= 2
 }

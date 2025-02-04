@@ -246,6 +246,10 @@ export const stickinessOperatorMap: Record<string, string> = {
     lte: 'At most (but at least once)',
 }
 
+export const cleanedPathOperatorMap: Record<string, string> = {
+    is_cleaned_path_exact: '= equals',
+}
+
 export const allOperatorsMapping: Record<string, string> = {
     ...stickinessOperatorMap,
     ...dateTimeOperatorMap,
@@ -256,6 +260,7 @@ export const allOperatorsMapping: Record<string, string> = {
     ...durationOperatorMap,
     ...selectorOperatorMap,
     ...cohortOperatorMap,
+    ...cleanedPathOperatorMap,
     // slight overkill to spread all of these into the map
     // but gives freedom for them to diverge more over time
 }
@@ -1935,4 +1940,8 @@ export function debounce<F extends (...args: Parameters<F>) => ReturnType<F>>(
         clearTimeout(timeout)
         timeout = setTimeout(() => func(...args), waitFor)
     }
+}
+
+export function interleaveArray<T1, T2>(arr: T1[], separator: T2): (T1 | T2)[] {
+    return arr.flatMap((item, index, _arr) => (_arr.length - 1 !== index ? [item, separator] : [item]))
 }

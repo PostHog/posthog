@@ -7,7 +7,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { UserBasicType } from '~/types'
 
-import { getDefaultTrendsMetric } from '../experimentLogic'
+import { getDefaultTrendsMetric } from '../utils'
 import type { sharedMetricLogicType } from './sharedMetricLogicType'
 import { sharedMetricsLogic } from './sharedMetricsLogic'
 
@@ -23,12 +23,14 @@ export interface SharedMetric {
     created_by: UserBasicType | null
     created_at: string | null
     updated_at: string | null
+    tags: string[]
 }
 
 export const NEW_SHARED_METRIC: Partial<SharedMetric> = {
     name: '',
     description: '',
     query: getDefaultTrendsMetric(),
+    tags: [],
 }
 
 export const sharedMetricLogic = kea<sharedMetricLogicType>([
@@ -64,7 +66,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
             const response = await api.create(`api/projects/@current/experiment_saved_metrics/`, values.sharedMetric)
             if (response.id) {
                 lemonToast.success('Shared metric created successfully')
-                actions.reportExperimentSharedMetricCreated(response)
+                actions.reportExperimentSharedMetricCreated(response as SharedMetric)
                 actions.loadSharedMetrics()
                 router.actions.push('/experiments/shared-metrics')
             }

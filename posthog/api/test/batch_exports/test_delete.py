@@ -1,4 +1,5 @@
 import asyncio
+import datetime as dt
 
 import pytest
 import temporalio.client
@@ -20,6 +21,7 @@ from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule
+from posthog.test.base import _create_event
 
 pytestmark = [
     pytest.mark.django_db,
@@ -141,6 +143,14 @@ def test_delete_batch_export_cancels_backfills(client: HttpClient):
 
         start_at = "2023-10-23T00:00:00+00:00"
         end_at = "2023-10-24T00:00:00+00:00"
+
+        # ensure there is data to backfill, otherwise validation will fail
+        _create_event(
+            team=team,
+            event="$pageview",
+            distinct_id="person_1",
+            timestamp=dt.datetime(2023, 10, 23, 0, 0, 0, tzinfo=dt.UTC),
+        )
         batch_export_backfill = backfill_batch_export_ok(client, team.pk, batch_export_id, start_at, end_at)
 
         # In order for the backfill to be cancelable, it needs to be running and requesting backfills.

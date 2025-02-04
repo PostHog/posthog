@@ -18,6 +18,7 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
+import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
 import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
 import { Table } from '~/queries/nodes/DataVisualization/Components/Table'
@@ -68,6 +69,9 @@ export function OutputPane(): JSX.Element {
                         name: column,
                         resizable: true,
                         renderCell: (props: any) => {
+                            if (props.row[column] === null) {
+                                return null
+                            }
                             return props.row[column].toString()
                         },
                     }
@@ -89,7 +93,12 @@ export function OutputPane(): JSX.Element {
         return response?.results?.map((row: any[]) => {
             const rowObject: Record<string, any> = {}
             response.columns.forEach((column: string, i: number) => {
-                rowObject[column] = row[i]
+                // Handling objects here as other viz methods can accept objects. Data grid does not for now
+                if (typeof row[i] === 'object' && row[i] !== null) {
+                    rowObject[column] = JSON.stringify(row[i])
+                } else {
+                    rowObject[column] = row[i]
+                }
             })
             return rowObject
         })
@@ -218,7 +227,8 @@ export function OutputPane(): JSX.Element {
                     />
                 </BindLogic>
             </div>
-            <div className="flex justify-end pr-2 border-t">
+            <div className="flex justify-between pr-2 border-t">
+                <div>{response ? <LoadPreviewText /> : <></>}</div>
                 <ElapsedTime />
             </div>
         </div>
@@ -270,7 +280,7 @@ function InternalDataTableVisualization(
     }
 
     return (
-        <div className="h-full hide-scrollbar flex flex-1 gap-2">
+        <div className="DataVisualization h-full hide-scrollbar flex flex-1 gap-2">
             <div className="relative w-full flex flex-col gap-4 flex-1">
                 <div className="flex flex-1 flex-row gap-4 overflow-scroll hide-scrollbar">
                     {isChartSettingsPanelOpen && (
