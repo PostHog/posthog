@@ -115,6 +115,14 @@ export const experimentsLogic = kea<experimentsLogicType>([
             },
         ],
     })),
+    reducers({
+        experimentsLoaded: [
+            false,
+            {
+                loadExperimentsSuccess: () => true,
+            },
+        ],
+    }),
     selectors(({ values }) => ({
         filteredExperiments: [
             (s) => [s.experiments, s.searchTerm, s.searchStatus, s.userFilter, s.tab],

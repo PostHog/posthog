@@ -222,6 +222,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "default_data_theme",
             "revenue_tracking_config",
             "access_control_version",
+            "onboarding_tasks",
         )
         read_only_fields = (
             "id",

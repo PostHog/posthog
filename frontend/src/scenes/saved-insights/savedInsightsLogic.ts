@@ -165,6 +165,12 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 results: [insight, ...state.results],
             }),
         },
+        insightsLoaded: [
+            false,
+            {
+                loadInsightsSuccess: () => true,
+            },
+        ],
         rawFilters: [
             null as Partial<SavedInsightFilters> | null,
             {

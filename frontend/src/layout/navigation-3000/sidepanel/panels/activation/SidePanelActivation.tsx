@@ -27,7 +27,7 @@ export const SidePanelActivation = (): JSX.Element | null => {
     return (
         <>
             <SidePanelPaneHeader title="Quick start" />
-            <div className="py-4 space-y-2 overflow-y-auto">
+            <div className="py-4 space-y-2 overflow-y-auto no-scrollbar">
                 <div className="flex flex-col px-4 space-y-2">
                     <div className="flex">
                         <p>

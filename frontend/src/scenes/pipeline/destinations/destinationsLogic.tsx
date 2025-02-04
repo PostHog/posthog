@@ -240,6 +240,40 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             },
         ],
     })),
+    reducers({
+        reorderTransformationsModalOpen: [
+            false as boolean,
+            {
+                openReorderTransformationsModal: () => true,
+                closeReorderTransformationsModal: () => false,
+                saveTransformationsOrder: () => false,
+            },
+        ],
+        pluginsLoaded: [
+            false,
+            {
+                loadPluginsSuccess: () => true,
+            },
+        ],
+        pluginConfigsLoaded: [
+            false,
+            {
+                loadPluginConfigsSuccess: () => true,
+            },
+        ],
+        batchExportConfigsLoaded: [
+            false,
+            {
+                loadBatchExportsSuccess: () => true,
+            },
+        ],
+        hogFunctionsLoaded: [
+            false,
+            {
+                loadHogFunctionsSuccess: () => true,
+            },
+        ],
+    }),
     selectors({
         paidHogFunctions: [
             (s) => [s.hogFunctions],
@@ -252,6 +286,11 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             (s) => [s.pluginsLoading, s.pluginConfigsLoading, s.batchExportConfigsLoading, s.hogFunctionsLoading],
             (pluginsLoading, pluginConfigsLoading, batchExportConfigsLoading, hogFunctionsLoading) =>
                 pluginsLoading || pluginConfigsLoading || batchExportConfigsLoading || hogFunctionsLoading,
+        ],
+        destinationsLoaded: [
+            (s) => [s.pluginsLoaded, s.pluginConfigsLoaded, s.batchExportConfigsLoaded, s.hogFunctionsLoaded],
+            (pluginsLoaded, pluginConfigsLoaded, batchExportConfigsLoaded, hogFunctionsLoaded) =>
+                pluginsLoaded && pluginConfigsLoaded && batchExportConfigsLoaded && hogFunctionsLoaded,
         ],
         destinations: [
             (s) => [s.pluginConfigs, s.plugins, s.batchExportConfigs, s.hogFunctions, s.user, s.featureFlags],
@@ -329,16 +368,6 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             (s) => [s.destinations, s.filteredDestinations],
             (destinations, filteredDestinations): (Destination | Transformation | SiteApp)[] => {
                 return destinations.filter((dest) => !filteredDestinations.includes(dest))
-            },
-        ],
-    }),
-    reducers({
-        reorderTransformationsModalOpen: [
-            false as boolean,
-            {
-                openReorderTransformationsModal: () => true,
-                closeReorderTransformationsModal: () => false,
-                saveTransformationsOrder: () => false,
             },
         ],
     }),

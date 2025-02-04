@@ -31,6 +31,7 @@ import { urls } from 'scenes/urls'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import {
+    ActivationTaskStatus,
     EventDefinitionType,
     type Experiment,
     PipelineStage,
@@ -150,27 +151,29 @@ export const activationLogic = kea<activationLogicType>([
             membersLogic,
             ['memberCount'],
             inviteLogic,
-            ['invites', 'invitesLoading'],
+            ['invites', 'invitesLoaded'],
             savedInsightsLogic,
-            ['insights', 'insightsLoading'],
+            ['insights', 'insightsLoaded'],
             dashboardsModel,
-            ['rawDashboards', 'dashboardsLoading'],
+            ['rawDashboards', 'dashboardsLoaded'],
             reverseProxyCheckerLogic,
             ['hasReverseProxy'],
             featureFlagsLogic,
-            ['featureFlags', 'featureFlagsLoading'],
+            ['featureFlags', 'featureFlagsLoaded'],
             experimentsLogic,
-            ['experiments', 'experimentsLoading'],
+            ['experiments', 'experimentsLoaded'],
             dataWarehouseSettingsLogic,
-            ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
+            ['dataWarehouseSources', 'dataWarehouseSourcesLoaded'],
             surveysLogic,
-            ['surveys', 'surveysResponsesCount', 'surveysLoading', 'surveysResponsesCountLoading'],
+            ['surveys', 'surveysResponsesCount', 'surveysLoaded', 'surveysResponsesCountLoaded'],
             sidePanelStateLogic,
             ['modalMode'],
             pipelineDestinationsLogic({ types: DESTINATION_TYPES }),
-            ['destinations', 'loading'],
+            ['destinations', 'destinationsLoaded'],
         ],
         actions: [
+            teamLogic,
+            ['updateCurrentTeam'],
             inviteLogic,
             ['showInviteModal', 'loadInvites'],
             sidePanelStateLogic,
@@ -241,6 +244,12 @@ export const activationLogic = kea<activationLogicType>([
                 toggleShowHiddenSections: (state) => !state,
             },
         ],
+        customEventsCountLoaded: [
+            false,
+            {
+                loadCustomEventsSuccess: () => true,
+            },
+        ],
     })),
     loaders(({ cache }) => ({
         customEventsCount: [
@@ -271,44 +280,42 @@ export const activationLogic = kea<activationLogicType>([
             (s) => [
                 s.currentTeam,
                 s.memberCount,
-                s.invitesLoading,
-                s.dashboardsLoading,
-                s.customEventsCountLoading,
-                s.insightsLoading,
-                s.featureFlagsLoading,
-                s.experimentsLoading,
-                s.dataWarehouseSourcesLoading,
-                s.surveysLoading,
-                s.surveysResponsesCountLoading,
-                s.loading,
+                s.invitesLoaded,
+                s.dashboardsLoaded,
+                s.customEventsCountLoaded,
+                s.insightsLoaded,
+                s.featureFlagsLoaded,
+                s.experimentsLoaded,
+                s.dataWarehouseSourcesLoaded,
+                s.surveysLoaded,
+                s.surveysResponsesCountLoaded,
+                s.destinationsLoaded,
             ],
             (
                 currentTeam,
-                memberCount,
-                invitesLoading,
-                dashboardsLoading,
-                customEventsCountLoading,
-                insightsLoading,
-                featureFlagsLoading,
-                experimentsLoading,
-                dataWarehouseSourcesLoading,
-                surveysLoading,
-                surveysResponsesCountLoading,
-                loading
+                invitesLoaded,
+                dashboardsLoaded,
+                customEventsCountLoaded,
+                insightsLoaded,
+                featureFlagsLoaded,
+                experimentsLoaded,
+                dataWarehouseSourcesLoaded,
+                surveysLoaded,
+                surveysResponsesCountLoaded,
+                destinationsLoaded
             ): boolean => {
                 return (
                     !!currentTeam &&
-                    !!memberCount &&
-                    !invitesLoading &&
-                    !dashboardsLoading &&
-                    !customEventsCountLoading &&
-                    !insightsLoading &&
-                    !featureFlagsLoading &&
-                    !experimentsLoading &&
-                    !dataWarehouseSourcesLoading &&
-                    !surveysLoading &&
-                    !surveysResponsesCountLoading &&
-                    !loading
+                    invitesLoaded &&
+                    dashboardsLoaded &&
+                    customEventsCountLoaded &&
+                    insightsLoaded &&
+                    featureFlagsLoaded &&
+                    experimentsLoaded &&
+                    dataWarehouseSourcesLoaded &&
+                    surveysLoaded &&
+                    surveysResponsesCountLoaded &&
+                    destinationsLoaded
                 )
             },
         ],
@@ -525,7 +532,10 @@ export const activationLogic = kea<activationLogicType>([
             },
         ],
         /** 5) Filter tasks for display. */
-        activeTasks: [(s) => [s.tasks], (tasks) => tasks.filter((t) => !t.completed && !t.skipped)],
+        activeTasks: [
+            (s) => [s.tasks, s.sections],
+            (tasks, sections) => tasks.filter((t) => !t.completed && !t.skipped && sections.includes(t.section)),
+        ],
         completedTasks: [(s) => [s.tasks], (tasks) => tasks.filter((t) => t.completed || t.skipped)],
         completionPercent: [
             (s) => [s.completedTasks, s.activeTasks],
@@ -615,17 +625,26 @@ export const activationLogic = kea<activationLogicType>([
                     break
             }
         },
-        skipTask: ({ id }) => {
+        markTaskAsSkipped: ({ id }) => {
             posthog.capture('activation sidebar task skipped', {
                 task: id,
             })
-            if (values.currentTeam?.id) {
-                actions.addSkippedTask(values.currentTeam.id, id)
+
+            const skipped = values.currentTeam?.onboarding_tasks?.[id] === ActivationTaskStatus.SKIPPED
+
+            if (skipped) {
+                return
             }
+
+            actions.updateCurrentTeam({
+                onboarding_tasks: {
+                    ...(values.currentTeam?.onboarding_tasks ?? {}),
+                    [id]: ActivationTaskStatus.SKIPPED,
+                },
+            })
         },
         markTaskAsCompleted: ({ id }) => {
-            // check if completed
-            const completed = values.tasks.find((task) => task.id === id)?.completed
+            const completed = values.currentTeam?.onboarding_tasks?.[id] === ActivationTaskStatus.COMPLETED
 
             if (completed) {
                 return
@@ -635,9 +654,12 @@ export const activationLogic = kea<activationLogicType>([
                 task: id,
             })
 
-            if (values.currentTeam?.id) {
-                actions.addCompletedTask(values.currentTeam.id, id)
-            }
+            actions.updateCurrentTeam({
+                onboarding_tasks: {
+                    ...(values.currentTeam?.onboarding_tasks ?? {}),
+                    [id]: ActivationTaskStatus.COMPLETED,
+                },
+            })
         },
         addIntentForSection: ({ section }) => {
             const productKey = Object.values(ProductKey).find((key) => String(key) === String(section))
@@ -667,6 +689,7 @@ export const activationLogic = kea<activationLogicType>([
     events(({ actions }) => ({
         afterMount: () => {
             actions.loadCustomEvents()
+            actions.loadInsights()
         },
     })),
     permanentlyMount(),
