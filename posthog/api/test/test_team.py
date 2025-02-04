@@ -28,7 +28,6 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule
 from posthog.test.base import APIBaseTest
 from posthog.utils import get_instance_realm
-from posthog.models.hog_functions.hog_function import HogFunction
 
 
 def team_api_test_factory():
@@ -1185,58 +1184,6 @@ def team_api_test_factory():
                 team=self.team,
             )
 
-        def _create_other_org_and_team(
-            self, membership_level: OrganizationMembership.Level = OrganizationMembership.Level.ADMIN
-        ):
-            other_org, other_org_membership, _ = Organization.objects.bootstrap(self.user)
-            if not other_org_membership:
-                raise Exception("Failed to create other org and team")
-            other_org_membership.level = membership_level
-            other_org_membership.save()
-            return other_org, other_org_membership
-
-        def test_cant_change_organization_if_not_admin_of_target_org(self):
-            other_org, _ = self._create_other_org_and_team(OrganizationMembership.Level.MEMBER)
-            res = self.client.post(
-                f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
-            )
-
-            assert res.status_code == status.HTTP_400_BAD_REQUEST
-            assert (
-                res.json()["detail"]
-                == "You must be an admin of both the source and target organizations to move a project."
-            )
-
-        def test_cant_change_organization_if_not_admin_of_source_org(self):
-            other_org, _ = self._create_other_org_and_team(OrganizationMembership.Level.OWNER)
-            self.organization_membership.level = OrganizationMembership.Level.MEMBER
-            self.organization_membership.save()
-            res = self.client.post(
-                f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
-            )
-
-            assert res.status_code == status.HTTP_400_BAD_REQUEST
-            assert (
-                res.json()["detail"]
-                == "You must be an admin of both the source and target organizations to move a project."
-            )
-
-        def test_can_change_organization(self):
-            other_org, _ = self._create_other_org_and_team(OrganizationMembership.Level.ADMIN)
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-            res = self.client.post(
-                f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
-            )
-
-            assert res.status_code == status.HTTP_200_OK, res.json()
-            assert res.json()["id"] == self.team.id
-            assert res.json()["organization"] == str(other_org.id)
-            self.project.refresh_from_db()
-            self.team.refresh_from_db()
-            assert self.project.organization == other_org
-            assert self.team.organization == other_org
-
         def _assert_replay_config_is(self, expected: dict[str, Any] | None) -> HttpResponse:
             return self._assert_config_is("session_replay_config", expected)
 
@@ -1323,42 +1270,6 @@ def create_team(organization: Organization, name: str = "Test team", timezone: s
 
 
 class TestTeamAPI(team_api_test_factory()):  # type: ignore
-    def test_team_creation_creates_geoip_transformation(self):
-        mock_template = {
-            "id": "template-geoip",
-            "name": "GeoIP",
-            "description": "Adds geoip data to the event",
-            "type": "transformation",
-            "icon_url": "/static/transformations/geoip.png",
-            "hog": "return event",
-            "inputs_schema": [],
-        }
-
-        with self.settings(DISABLE_MMDB=False):  # Explicitly enable MMDB
-            with patch("posthog.plugins.plugin_server_api.get_hog_function_template") as mock_get:
-                mock_get.return_value.json.return_value = mock_template
-                mock_get.return_value.raise_for_status.return_value = None
-
-                team = Team.objects.create_with_data(
-                    organization=self.organization, name="Test Team", initiating_user=self.user
-                )
-
-                # Verify the API was called with the correct template ID
-                mock_get.assert_called_once_with("template-geoip")
-
-                transformations = HogFunction.objects.filter(team=team, type="transformation")
-                self.assertEqual(transformations.count(), 1)
-
-                geoip = transformations.first()
-                self.assertEqual(geoip.name, mock_template["name"])
-                self.assertEqual(geoip.description, mock_template["description"])
-                self.assertEqual(geoip.icon_url, mock_template["icon_url"])
-                self.assertEqual(geoip.hog, mock_template["hog"])
-                self.assertEqual(geoip.inputs_schema, mock_template["inputs_schema"])
-                self.assertEqual(geoip.enabled, True)
-                self.assertEqual(geoip.execution_order, 1)
-                self.assertEqual(geoip.created_by, self.user)
-
     def test_teams_outside_personal_api_key_scoped_teams_not_listed(self):
         other_team_in_project = Team.objects.create(organization=self.organization, project=self.project)
         _, team_in_other_project = Project.objects.create_with_team(
@@ -1461,25 +1372,3 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         response = self.client.post("/api/projects/@current/environments/", {"name": "New Project 2"})
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Team.objects.count(), 3)
-
-    def test_geoip_not_created_when_mmdb_disabled(self):
-        with self.settings(DISABLE_MMDB=True):
-            team = Team.objects.create_with_data(
-                organization=self.organization, name="Test Team", initiating_user=self.user
-            )
-
-            # Check that no transformations were created
-            transformations = HogFunction.objects.filter(team=team, type="transformation")
-            self.assertEqual(transformations.count(), 0)
-
-    def test_geoip_plugin_not_preinstalled(self):
-        # Create a new team
-        Team.objects.create_with_data(organization=self.organization, name="Test Team", initiating_user=self.user)
-
-        # Verify no plugins were installed
-        from posthog.models.plugin import Plugin
-
-        plugins = Plugin.objects.filter(organization=self.organization)
-        geoip_plugins = plugins.filter(url__contains="geoip-plugin")
-
-        self.assertEqual(geoip_plugins.count(), 0)

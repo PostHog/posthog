@@ -33,7 +33,6 @@ from posthog.models.utils import (
     UUIDClassicModel,
     generate_random_token_project,
     sane_repr,
-    validate_rate_limit,
 )
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
@@ -120,29 +119,6 @@ class TeamManager(models.Manager):
                 filters=playlist["filters"],
                 description=str(playlist.get("description", "")),
             )
-
-        # Create GeoIP transformation if MMDB is enabled
-        if not settings.DISABLE_MMDB:
-            from posthog.models.hog_functions.hog_function import HogFunction
-            from posthog.plugins.plugin_server_api import get_hog_function_template
-
-            response = get_hog_function_template("template-geoip")
-            response.raise_for_status()
-            geoip_template = response.json()
-
-            HogFunction.objects.create(
-                team=team,
-                created_by=initiating_user,
-                type="transformation",
-                name=geoip_template["name"],
-                description=geoip_template["description"],
-                icon_url=geoip_template["icon_url"],
-                hog=geoip_template["hog"],
-                inputs_schema=geoip_template["inputs_schema"],
-                enabled=True,
-                execution_order=1,
-            )
-
         team.save()
         return team
 
@@ -345,8 +321,7 @@ class Team(UUIDClassicModel):
     # Switches _most_ queries to using distinct_id as aggregator instead of person_id
     @property
     def aggregate_users_by_distinct_id(self) -> bool:
-        enabled_teams = get_list(get_instance_setting("AGGREGATE_BY_DISTINCT_IDS_TEAMS"))
-        return str(self.pk) in enabled_teams or "all" in enabled_teams
+        return str(self.pk) in get_list(get_instance_setting("AGGREGATE_BY_DISTINCT_IDS_TEAMS"))
 
     # This correlation_config is intended to be used initially for
     # `excluded_person_property_names` but will be used as a general config
@@ -370,14 +345,6 @@ class Team(UUIDClassicModel):
     event_properties_numerical = models.JSONField(default=list, blank=True)
     external_data_workspace_id = models.CharField(max_length=400, null=True, blank=True)
     external_data_workspace_last_synced_at = models.DateTimeField(null=True, blank=True)
-
-    api_query_rate_limit = models.CharField(
-        max_length=32,
-        null=True,
-        blank=True,
-        help_text="Custom rate limit for HogQL API queries in #requests/{sec,min,hour,day}",
-        validators=[validate_rate_limit],
-    )
 
     objects: TeamManager = TeamManager()
 
