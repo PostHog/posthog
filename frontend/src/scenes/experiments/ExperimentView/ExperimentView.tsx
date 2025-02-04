@@ -10,7 +10,7 @@ import { MetricSourceModal } from '../Metrics/MetricSourceModal'
 import { SharedMetricModal } from '../Metrics/SharedMetricModal'
 import { MetricsView } from '../MetricsView/MetricsView'
 import { VariantDeltaTimeseries } from '../MetricsView/VariantDeltaTimeseries'
-import { ExperimentLoadingAnimation, ExploreButton, LoadingState, PageHeaderCustom, ResultsQuery } from './components'
+import { ExploreButton, LoadingState, PageHeaderCustom, ResultsQuery } from './components'
 import { CumulativeExposuresChart } from './CumulativeExposuresChart'
 import { DataCollection } from './DataCollection'
 import { DistributionModal, DistributionTable } from './DistributionTable'
@@ -20,15 +20,20 @@ import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditi
 import { SummaryTable } from './SummaryTable'
 
 const ResultsTab = (): JSX.Element => {
-    const { experiment, metricResults, firstPrimaryMetric, primaryMetricsLengthWithSharedMetrics } =
-        useValues(experimentLogic)
+    const {
+        experiment,
+        metricResults,
+        firstPrimaryMetric,
+        primaryMetricsLengthWithSharedMetrics,
+        metricResultsLoading,
+    } = useValues(experimentLogic)
     const hasSomeResults = metricResults?.some((result) => result?.insight)
 
     const hasSinglePrimaryMetric = primaryMetricsLengthWithSharedMetrics === 1
 
     return (
         <>
-            {!hasSomeResults && (
+            {!hasSomeResults && !metricResultsLoading && (
                 <>
                     {experiment.type === 'web' ? (
                         <WebExperimentImplementationDetails experiment={experiment} />
@@ -76,8 +81,7 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, metricResultsLoading, secondaryMetricResultsLoading, experimentId, tabKey } =
-        useValues(experimentLogic)
+    const { experimentLoading, experimentId, tabKey } = useValues(experimentLogic)
 
     const { setTabKey } = useActions(experimentLogic)
 
@@ -90,33 +94,28 @@ export function ExperimentView(): JSX.Element {
                 ) : (
                     <>
                         <Info />
-                        {metricResultsLoading || secondaryMetricResultsLoading ? (
-                            <ExperimentLoadingAnimation />
-                        ) : (
-                            <>
-                                <div className="xl:flex">
-                                    <div className="w-1/2 mt-8 xl:mt-0">
-                                        <DataCollection />
-                                    </div>
-                                </div>
-                                <LemonTabs
-                                    activeKey={tabKey}
-                                    onChange={(key) => setTabKey(key)}
-                                    tabs={[
-                                        {
-                                            key: 'results',
-                                            label: 'Results',
-                                            content: <ResultsTab />,
-                                        },
-                                        {
-                                            key: 'variants',
-                                            label: 'Variants',
-                                            content: <VariantsTab />,
-                                        },
-                                    ]}
-                                />
-                            </>
-                        )}
+                        <div className="xl:flex">
+                            <div className="w-1/2 mt-8 xl:mt-0">
+                                <DataCollection />
+                            </div>
+                        </div>
+                        <LemonTabs
+                            activeKey={tabKey}
+                            onChange={(key) => setTabKey(key)}
+                            tabs={[
+                                {
+                                    key: 'results',
+                                    label: 'Results',
+                                    content: <ResultsTab />,
+                                },
+                                {
+                                    key: 'variants',
+                                    label: 'Variants',
+                                    content: <VariantsTab />,
+                                },
+                            ]}
+                        />
+
                         <MetricSourceModal experimentId={experimentId} isSecondary={true} />
                         <MetricSourceModal experimentId={experimentId} isSecondary={false} />
 

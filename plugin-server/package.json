@@ -30,7 +30,8 @@
         "services:clean": "cd .. && docker compose -f docker-compose.dev.yml rm -v",
         "services": "pnpm services:stop && pnpm services:clean && pnpm services:start",
         "build:cyclotron": "cd ../rust/cyclotron-node && pnpm run package",
-        "pnpm:devPreinstall": "pnpm run build:cyclotron"
+        "pnpm:devPreinstall": "pnpm run build:cyclotron",
+        "update-ai-costs": "ts-node scripts/update-ai-costs.ts"
     },
     "graphile-worker": {
         "maxContiguousErrors": 300
@@ -54,7 +55,7 @@
         "@maxmind/geoip2-node": "^3.4.0",
         "@posthog/clickhouse": "^1.7.0",
         "@posthog/cyclotron": "file:../rust/cyclotron-node",
-        "@posthog/hogvm": "^1.0.66",
+        "@posthog/hogvm": "^1.0.67",
         "@posthog/plugin-scaffold": "1.4.4",
         "@posthog/siphash": "1.1.1",
         "@sentry/node": "^7.49.0",
@@ -62,6 +63,7 @@
         "@sentry/tracing": "^7.17.4",
         "@sentry/utils": "^7.17.4",
         "@types/lru-cache": "^5.1.0",
+        "@types/node": "^18.11.9",
         "@types/tail": "^2.2.1",
         "asn1.js": "^5.4.1",
         "aws-sdk": "^2.927.0",
@@ -92,8 +94,11 @@
         "prom-client": "^14.2.0",
         "re2": "^1.20.3",
         "safe-stable-stringify": "^2.4.0",
+        "snappy": "^7.2.2",
         "tail": "^2.2.6",
         "tldts": "^6.1.57",
+        "typescript": "^4.7.4",
+        "undici-types": "^7.3.0",
         "uuid": "^9.0.1",
         "v8-profiler-next": "^1.9.0",
         "vm2": "3.9.18",
@@ -117,7 +122,6 @@
         "@types/jest": "^29.5.14",
         "@types/long": "4.x.x",
         "@types/luxon": "^3.4.2",
-        "@types/node": "^16.0.0",
         "@types/node-fetch": "^2.5.10",
         "@types/node-schedule": "^2.1.0",
         "@types/pg": "^8.6.0",
@@ -130,6 +134,7 @@
         "babel-eslint": "^10.1.0",
         "c8": "^7.12.0",
         "deepmerge": "^4.2.2",
+        "dotenv": "^16.4.7",
         "eslint": "^8.53.0",
         "eslint-config-prettier": "^9.1.0",
         "eslint-plugin-eslint-comments": "^3.2.0",
@@ -144,8 +149,7 @@
         "pino-pretty": "^9.1.0",
         "prettier": "^2.8.8",
         "supertest": "^7.0.0",
-        "ts-node": "^10.9.1",
-        "typescript": "^4.7.4"
+        "ts-node": "^10.9.1"
     },
     "pnpm": {
         "patchedDependencies": {

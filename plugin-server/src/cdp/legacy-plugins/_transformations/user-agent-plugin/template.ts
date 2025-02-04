@@ -1,18 +1,20 @@
 import { HogFunctionTemplate } from '~/src/cdp/templates/types'
 
 export const template: HogFunctionTemplate = {
+    free: true,
     status: 'alpha',
     type: 'transformation',
     id: 'plugin-user-agent-plugin',
     name: 'User Agent Populator',
     description:
         "Enhances events with user agent details. User Agent plugin allows you to populate events with the $browser, $browser_version for PostHog Clients that don't  typically populate these properties",
-    icon_url: 'https://raw.githubusercontent.com/posthog/useragent-plugin/main/logo.png',
+    icon_url: '/static/transformations/user-agent.png',
     category: ['Transformation'],
     hog: `return event`,
     inputs_schema: [
         {
             key: 'overrideUserAgentDetails',
+            templating: false,
             label: 'Can override existing browser related properties of event?',
             type: 'string',
             description:
@@ -22,6 +24,7 @@ export const template: HogFunctionTemplate = {
         },
         {
             key: 'enableSegmentAnalyticsJs',
+            templating: false,
             label: 'Automatically read segment_userAgent property, automatically sent by Segment via analytics.js?',
             type: 'choice',
             description:
@@ -35,6 +38,7 @@ export const template: HogFunctionTemplate = {
         },
         {
             key: 'debugMode',
+            templating: false,
             type: 'choice',
             description: 'Enable debug mode to log when the plugin is unable to extract values from the user agent',
             choices: [

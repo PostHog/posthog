@@ -159,6 +159,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setEditExperiment: (editing: boolean) => ({ editing }),
         setFlagImplementationWarning: (warning: boolean) => ({ warning }),
         setExposureAndSampleSize: (exposure: number, sampleSize: number) => ({ exposure, sampleSize }),
+        refreshExperimentResults: (forceRefresh?: boolean) => ({ forceRefresh }),
         updateExperimentGoal: true,
         updateExperimentCollectionGoal: true,
         changeExperimentStartDate: (startDate: string) => ({ startDate }),
@@ -682,8 +683,7 @@ export const experimentLogic = kea<experimentLogicType>([
             experiment && actions.reportExperimentViewed(experiment, duration)
 
             if (experiment?.start_date) {
-                actions.loadMetricResults()
-                actions.loadSecondaryMetricResults()
+                actions.refreshExperimentResults()
             }
         },
         launchExperiment: async () => {
@@ -699,8 +699,7 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.updateExperiment({ stats_config: { version } })
             await breakpoint(100)
             if (values.experiment?.start_date) {
-                actions.loadMetricResults(true)
-                actions.loadSecondaryMetricResults(true)
+                actions.refreshExperimentResults(true)
             }
         },
         endExperiment: async () => {
@@ -718,6 +717,12 @@ export const experimentLogic = kea<experimentLogicType>([
         archiveExperiment: async () => {
             actions.updateExperiment({ archived: true })
             values.experiment && actions.reportExperimentArchived(values.experiment)
+        },
+        refreshExperimentResults: async ({ forceRefresh }) => {
+            actions.loadMetricResultsSuccess([])
+            actions.loadSecondaryMetricResultsSuccess([])
+            actions.loadMetricResults(forceRefresh)
+            actions.loadSecondaryMetricResults(forceRefresh)
         },
         updateExperimentGoal: async () => {
             // Reset MDE to the recommended setting
@@ -763,8 +768,7 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.updateExperiments(experiment)
             if (experiment.start_date) {
                 const forceRefresh = payload?.start_date !== undefined
-                actions.loadMetricResults(forceRefresh)
-                actions.loadSecondaryMetricResults(forceRefresh)
+                actions.refreshExperimentResults(forceRefresh)
             }
         },
         setExperiment: async ({ experiment }) => {
@@ -1624,7 +1628,7 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         tabularExperimentResults: [
-            (s) => [s.experiment, s.metricResults, s.getMetricType],
+            (s) => [s.experiment, s.metricResults, s.secondaryMetricResults, s.getMetricType],
             (
                     experiment,
                     metricResults: (
@@ -1632,12 +1636,19 @@ export const experimentLogic = kea<experimentLogicType>([
                         | CachedExperimentTrendsQueryResponse
                         | null
                     )[],
+                    secondaryMetricResults: (
+                        | CachedExperimentFunnelsQueryResponse
+                        | CachedExperimentTrendsQueryResponse
+                        | null
+                    )[],
                     getMetricType
                 ) =>
-                (metricIndex: number = 0): any[] => {
+                (metricIndex: number = 0, isSecondary: boolean = false): any[] => {
                     const tabularResults = []
-                    const metricType = getMetricType(experiment.metrics[metricIndex])
-                    const result = metricResults?.[metricIndex]
+                    const metricType = isSecondary
+                        ? getMetricType(experiment.metrics_secondary[metricIndex])
+                        : getMetricType(experiment.metrics[metricIndex])
+                    const result = isSecondary ? secondaryMetricResults[metricIndex] : metricResults[metricIndex]
 
                     if (result) {
                         for (const variantObj of result.variants) {

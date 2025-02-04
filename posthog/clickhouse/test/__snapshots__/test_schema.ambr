@@ -1845,13 +1845,7 @@
       -- consider all replicas as the same. See
       -- https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/replication
       -- for details.
-      ENGINE = ReplicatedReplacingMergeTree(
-          -- NOTE: for testing we use a uuid to ensure that we don't get conflicts
-          -- when the tests tear down and recreate the table.
-          '/clickhouse/tables/{uuid}noshard/posthog_test.person_overrides',
-          '{replica}-{shard}',
-          version
-      )
+      ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_overrides', '{replica}-{shard}', version)
   
       -- We partition the table by the `oldest_event` column. This allows us to
       -- handle updating the events table partition by partition, progressing each
@@ -3494,13 +3488,7 @@
       -- consider all replicas as the same. See
       -- https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/replication
       -- for details.
-      ENGINE = ReplicatedReplacingMergeTree(
-          -- NOTE: for testing we use a uuid to ensure that we don't get conflicts
-          -- when the tests tear down and recreate the table.
-          '/clickhouse/tables/{uuid}noshard/posthog_test.person_overrides',
-          '{replica}-{shard}',
-          version
-      )
+      ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_overrides', '{replica}-{shard}', version)
   
       -- We partition the table by the `oldest_event` column. This allows us to
       -- handle updating the events table partition by partition, progressing each

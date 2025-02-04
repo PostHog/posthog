@@ -1,9 +1,12 @@
-import { LemonBanner, LemonTabs, Link } from '@posthog/lemon-ui'
+import { IconArchive } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonTabs, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { FeedbackNotice } from 'lib/components/FeedbackNotice'
+import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
@@ -69,10 +72,6 @@ const Tiles = (): JSX.Element => {
 }
 
 const IngestionStatusCheck = (): JSX.Element | null => {
-    const { hasSentAiGenerationEvent } = useValues(llmObservabilityLogic)
-    if (hasSentAiGenerationEvent !== false) {
-        return null
-    }
     return (
         <LemonBanner type="warning" className="mt-2">
             <p>
@@ -84,10 +83,6 @@ const IngestionStatusCheck = (): JSX.Element | null => {
                     instrument your LLM calls with the PostHog SDK
                 </Link>{' '}
                 (otherwise it'll be a little empty!)
-            </p>
-            <p>
-                To get cost information, you'll also{' '}
-                <Link to="/pipeline/new/transformation">need to enable the "AI Costs" transformation.</Link>
             </p>
         </LemonBanner>
     )
@@ -126,13 +121,46 @@ function LLMObservabilityGenerations(): JSX.Element {
     )
 }
 
+function LLMObservabilityNoEvents(): JSX.Element {
+    return (
+        <div className="w-full flex flex-col items-center justify-center">
+            <div className="flex flex-col items-center justify-center max-w-md w-full">
+                <IconArchive className="text-5xl mb-2 text-muted-alt" />
+                <h2 className="text-xl leading-tight">We haven't detected any LLM generations yet</h2>
+                <p className="text-sm text-center text-balance">
+                    To use the LLM Observability product, please{' '}
+                    <Link to="https://posthog.com/docs/ai-engineering/observability">
+                        instrument your LLM calls with the PostHog SDK
+                    </Link>{' '}
+                </p>
+            </div>
+        </div>
+    )
+}
+
 export function LLMObservabilityScene(): JSX.Element {
-    const { activeTab } = useValues(llmObservabilityLogic)
+    const { activeTab, hasSentAiGenerationEvent, hasSentAiGenerationEventLoading } = useValues(llmObservabilityLogic)
     const { searchParams } = useValues(router)
 
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_OBSERVABILITY_DATA_COLLECTION_NODE_ID }}>
-            <IngestionStatusCheck />
+            <PageHeader
+                buttons={
+                    <LemonButton
+                        to="https://posthog.com/docs/ai-engineering/observability"
+                        type="secondary"
+                        targetBlank
+                    >
+                        Documentation
+                    </LemonButton>
+                }
+            />
+
+            {hasSentAiGenerationEventLoading ? null : hasSentAiGenerationEvent ? (
+                <FeedbackNotice text="LLM observability is currently in beta. Thanks for taking part! We'd love to hear what you think." />
+            ) : (
+                <IngestionStatusCheck />
+            )}
             <LemonTabs
                 activeKey={activeTab}
                 tabs={[
@@ -145,13 +173,17 @@ export function LLMObservabilityScene(): JSX.Element {
                     {
                         key: 'traces',
                         label: 'Traces',
-                        content: <LLMObservabilityTraces />,
+                        content: hasSentAiGenerationEvent ? <LLMObservabilityTraces /> : <LLMObservabilityNoEvents />,
                         link: combineUrl(urls.llmObservabilityTraces(), searchParams).url,
                     },
                     {
                         key: 'generations',
                         label: 'Generations',
-                        content: <LLMObservabilityGenerations />,
+                        content: hasSentAiGenerationEvent ? (
+                            <LLMObservabilityGenerations />
+                        ) : (
+                            <LLMObservabilityNoEvents />
+                        ),
                         link: combineUrl(urls.llmObservabilityGenerations(), searchParams).url,
                     },
                 ]}
