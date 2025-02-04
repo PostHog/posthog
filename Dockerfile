@@ -79,7 +79,7 @@ WORKDIR /code/plugin-server
 # the cache hit ratio of the layers above.
 COPY ./plugin-server/src/ ./src/
 COPY ./plugin-server/tests/ ./tests/
-RUN pnpm build
+RUN pnpm run build:cyclotron && pnpm build
 
 #
 # ---------------------------------------------------------
