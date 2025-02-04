@@ -6,7 +6,6 @@ import supertest from 'supertest'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../../tests/cdp/examples'
 import { createHogFunction, insertHogFunction as _insertHogFunction } from '../../tests/cdp/fixtures'
 import { getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
-import { template as geoipTemplate } from '../cdp/templates/_transformations/geoip/geoip.template'
 import { Hub, Team } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
 import { CdpApi } from './cdp-api'
@@ -511,24 +510,6 @@ describe('CDP API', () => {
             `)
 
             expect(res.body.result).toMatchInlineSnapshot(`null`)
-        })
-    })
-
-    describe('getHogFunctionTemplate', () => {
-        it('returns a specific template by ID', async () => {
-            const res = await supertest(app).get('/api/hog_function_templates/template-geoip')
-
-            expect(res.status).toEqual(200)
-            expect(res.body).toEqual(geoipTemplate)
-        })
-
-        it('returns 404 if template not found', async () => {
-            const res = await supertest(app).get('/api/hog_function_templates/non-existent-template')
-
-            expect(res.status).toEqual(404)
-            expect(res.body).toEqual({
-                error: 'Template non-existent-template not found',
-            })
         })
     })
 })
