@@ -255,11 +255,8 @@ export function HogFunctionConfiguration({
                                     <LemonTextArea disabled={loading} />
                                 </LemonField>
 
-                                {isLegacyPlugin ? (
-                                    <LemonBanner type="warning">
-                                        This is part of our legacy plugins and will eventually be deprecated.
-                                    </LemonBanner>
-                                ) : hogFunction?.template && !hogFunction.template.id.startsWith('template-blank-') ? (
+                                {isLegacyPlugin ? null : hogFunction?.template &&
+                                  !hogFunction.template.id.startsWith('template-blank-') ? (
                                     <LemonDropdown
                                         showArrow
                                         overlay={
