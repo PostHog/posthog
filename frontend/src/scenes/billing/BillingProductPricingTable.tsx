@@ -48,18 +48,11 @@ export const BillingProductPricingTable = ({
     ]
 
     const subscribedAddons =
-        product.type === 'session_replay'
-            ? []
-            : 'addons' in product
-            ? product.addons?.filter((addon: BillingProductV2AddonType) => {
-                  if (!addon.tiers || addon.tiers.length === 0) {
-                      return false
-                  }
-                  if (addon.tiers[0].up_to !== product.tiers?.[0]?.up_to) {
-                      return false
-                  }
-                  return addon.subscribed || addon.inclusion_only
-              })
+        'addons' in product
+            ? product.addons?.filter(
+                  (addon: BillingProductV2AddonType) =>
+                      addon.tiers && addon.tiers?.length > 0 && (addon.subscribed || addon.inclusion_only)
+              )
             : []
 
     // TODO: SUPPORT NON-TIERED PRODUCT TYPES
