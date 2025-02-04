@@ -1,5 +1,5 @@
 import posthogEE from '@posthog/ee/exports'
-import { EventType } from '@rrweb/types'
+import { EventType } from '@posthog/rrweb-types'
 import { ifEeDescribe } from 'lib/ee.test'
 
 import { PostHogEE } from '../../../frontend/@posthog/ee/types'

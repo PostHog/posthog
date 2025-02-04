@@ -182,4 +182,56 @@ describe('SnappySessionRecorder', () => {
             await expect(recorder.end()).rejects.toThrow('end() has already been called')
         })
     })
+
+    describe('timestamps', () => {
+        it('should track start and end timestamps from events range', async () => {
+            const events = [
+                {
+                    type: EventType.FullSnapshot,
+                    timestamp: 1000,
+                    data: { source: 1 },
+                },
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 2000,
+                    data: { source: 2 },
+                },
+            ]
+            const message = createMessage('window1', events)
+
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            expect(result.startTimestamp).toBe(1000)
+            expect(result.endTimestamp).toBe(2000)
+        })
+
+        it('should track min/max timestamps across multiple messages', async () => {
+            const messages = [
+                createMessage('window1', [
+                    { type: EventType.Meta, timestamp: 2000 },
+                    { type: EventType.FullSnapshot, timestamp: 3000 },
+                ]),
+                createMessage('window2', [
+                    { type: EventType.FullSnapshot, timestamp: 1000 },
+                    { type: EventType.IncrementalSnapshot, timestamp: 4000 },
+                ]),
+            ]
+
+            messages.forEach((message) => recorder.recordMessage(message))
+            const result = await recorder.end()
+
+            expect(result.startTimestamp).toBe(1000) // Min from all messages
+            expect(result.endTimestamp).toBe(4000) // Max from all messages
+        })
+
+        it('should handle empty events array', async () => {
+            const message = createMessage('window1', [])
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            expect(result.startTimestamp).toBe(0)
+            expect(result.endTimestamp).toBe(0)
+        })
+    })
 })

@@ -86,10 +86,7 @@ export const teamMembersLogic = kea<teamMembersLogicType>([
             ],
             // Explicit project members joined with organization admins and owner (who get project access by default)
             (currentTeam, hasAvailableFeature, explicitMembers, organizationMembers): FusedTeamMemberType[] => {
-                if (
-                    !currentTeam?.access_control ||
-                    !hasAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING)
-                ) {
+                if (!currentTeam?.access_control || !hasAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS)) {
                     return (organizationMembers ?? []).map(
                         (member) =>
                             ({

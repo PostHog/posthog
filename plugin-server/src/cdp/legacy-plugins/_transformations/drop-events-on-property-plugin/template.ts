@@ -2,6 +2,7 @@ import { HogFunctionTemplate } from '../../../templates/types'
 
 // NOTE: This is a deprecated plugin and should never be shown to new users
 export const template: HogFunctionTemplate = {
+    free: true,
     status: 'alpha',
     type: 'transformation',
     id: 'plugin-drop-events-on-property-plugin',
