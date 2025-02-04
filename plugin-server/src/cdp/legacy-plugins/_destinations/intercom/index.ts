@@ -192,5 +192,4 @@ export const intercomPlugin: LegacyDestinationPlugin = {
     id: 'posthog-intercom-plugin',
     metadata,
     onEvent,
-    setupPlugin: () => Promise.resolve(),
 }
