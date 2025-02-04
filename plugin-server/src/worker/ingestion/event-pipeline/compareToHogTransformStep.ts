@@ -17,6 +17,9 @@ export const counterHogTransformationDiff = new Counter({
     labelNames: ['outcome'], // either same or diff
 })
 
+// We don't care about plugin only properties
+const IGNORE_PROPERTIES = ['$plugins_failed', '$plugins_succeeded']
+
 export const compareEvents = (pluginEvent: PluginEvent, hogEvent: PluginEvent): Diff[] => {
     // Comparing objects is expensive so we will do this instead by iterating over the keys we care about
 
@@ -33,6 +36,10 @@ export const compareEvents = (pluginEvent: PluginEvent, hogEvent: PluginEvent): 
     const diffs: Diff[] = []
     // Compare each property individually
     pluginProperties.forEach((property) => {
+        if (IGNORE_PROPERTIES.includes(property)) {
+            return
+        }
+
         const pluginValue = pluginEvent.properties?.[property]
         const hogValue = hogEvent.properties?.[property]
 
@@ -47,14 +54,9 @@ export const compareEvents = (pluginEvent: PluginEvent, hogEvent: PluginEvent): 
 export async function compareToHogTransformStep(
     hogTransformer: HogTransformerService | null,
     prePluginsEvent: PluginEvent,
-    postPluginsEvent: PluginEvent | null,
-    samplePercentage?: number
+    postPluginsEvent: PluginEvent | null
 ): Promise<void> {
     if (!hogTransformer) {
-        return
-    }
-
-    if (!samplePercentage || Math.random() > samplePercentage) {
         return
     }
 

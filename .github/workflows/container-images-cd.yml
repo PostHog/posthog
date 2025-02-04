@@ -228,7 +228,7 @@ jobs:
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
-            - name: Trigger Data Warehouse V2 Temporal Worker Cloud deployment
+            - name: Trigger Data Warehouse Compaction Temporal Worker Cloud deployment
               if: steps.check_changes_data_warehouse_temporal_worker.outputs.changed == 'true'
               uses: peter-evans/repository-dispatch@v3
               with:
@@ -242,7 +242,7 @@ jobs:
                             "sha": "${{ steps.build.outputs.digest }}"
                           }
                         },
-                        "release": "temporal-worker-data-warehouse-v2",
+                        "release": "temporal-worker-data-warehouse-compaction",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
                         "labels": ${{ steps.labels.outputs.labels }},
