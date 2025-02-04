@@ -710,12 +710,7 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
                     kind: NodeKind.DataTableNode,
                     source: {
                         kind: NodeKind.EventsQuery,
-                        select: [
-                            ...defaultDataTableColumns(NodeKind.EventsQuery),
-                            featureFlag.filters.multivariate
-                                ? 'properties.$feature_flag_response'
-                                : "if(toString(properties.$feature_flag_response) IN ['1', 'true'], 'true', properties.$feature_flag_response) -- Feature Flag Response",
-                        ],
+                        select: [...defaultDataTableColumns(NodeKind.EventsQuery), 'properties.$feature_flag_response'],
                         event: '$feature_flag_called',
                         properties: propertyFilter,
                         after: '-30d',
@@ -1046,7 +1041,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                     <LemonField name="true">
                                         <JSONEditorInput
                                             readOnly={readOnly}
-                                            placeholder={'Examples: "A string", 2500, {"key": "value"}'}
+                                            placeholder='Examples: "A string", 2500, {"key": "value"}'
                                         />
                                     </LemonField>
                                 </Group>
@@ -1153,7 +1148,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                     <JSONEditorInput
                                                         onChange={onChange}
                                                         value={value}
-                                                        placeholder={'{"key": "value"}'}
+                                                        placeholder='{"key": "value"}'
                                                     />
                                                 )
                                             }}

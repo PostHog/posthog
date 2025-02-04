@@ -844,7 +844,7 @@ export function DeltaChart({
                 <div className="flex justify-end">
                     <ExploreButton result={result} />
                 </div>
-                <LemonBanner type="info" className="mb-4">
+                <LemonBanner type={result?.significant ? 'success' : 'info'} className="mb-4">
                     <div className="items-center inline-flex flex-wrap">
                         <WinningVariantText result={result} experimentId={experimentId} />
                         <SignificanceText metricIndex={metricIndex} />
