@@ -20,6 +20,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
@@ -91,6 +92,7 @@ export function HogFunctionConfiguration({
         setConfigurationValue,
         deleteHogFunction,
     } = useActions(logic)
+    const canEditTransformationHogCode = useFeatureFlag('HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED')
 
     if (loading && !loaded) {
         return <SpinnerOverlay />
@@ -178,7 +180,8 @@ export function HogFunctionConfiguration({
         )
     const canEditSource =
         displayOptions.canEditSource ??
-        (['destination', 'email', 'site_destination', 'site_app'].includes(type) && !isLegacyPlugin)
+        ((['destination', 'email', 'site_destination', 'site_app'].includes(type) && !isLegacyPlugin) ||
+            (type === 'transformation' && canEditTransformationHogCode))
     const showPersonsCount = displayOptions.showPersonsCount ?? ['broadcast'].includes(type)
     const showTesting =
         displayOptions.showTesting ??
@@ -255,11 +258,8 @@ export function HogFunctionConfiguration({
                                     <LemonTextArea disabled={loading} />
                                 </LemonField>
 
-                                {isLegacyPlugin ? (
-                                    <LemonBanner type="warning">
-                                        This is part of our legacy plugins and will eventually be deprecated.
-                                    </LemonBanner>
-                                ) : hogFunction?.template && !hogFunction.template.id.startsWith('template-blank-') ? (
+                                {isLegacyPlugin ? null : hogFunction?.template &&
+                                  !hogFunction.template.id.startsWith('template-blank-') ? (
                                     <LemonDropdown
                                         showArrow
                                         overlay={

@@ -1,4 +1,4 @@
-name: Build and cache Docker image
+name: Build and cache Docker image test
 
 inputs:
     actions-id-token-request-url:

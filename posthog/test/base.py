@@ -1041,7 +1041,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 SESSION_REPLAY_EVENTS_TABLE_SQL(),
                 CHANNEL_DEFINITION_TABLE_SQL(),
-                CHANNEL_DEFINITION_DICTIONARY_SQL,
+                CHANNEL_DEFINITION_DICTIONARY_SQL(),
                 SESSIONS_TABLE_SQL(),
                 RAW_SESSIONS_TABLE_SQL(),
             ]
@@ -1098,7 +1098,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 SESSION_REPLAY_EVENTS_TABLE_SQL(),
                 CHANNEL_DEFINITION_TABLE_SQL(),
-                CHANNEL_DEFINITION_DICTIONARY_SQL,
+                CHANNEL_DEFINITION_DICTIONARY_SQL(),
                 SESSIONS_TABLE_SQL(),
                 RAW_SESSIONS_TABLE_SQL(),
             ]

@@ -1,6 +1,7 @@
 import { HogFunctionTemplate } from '~/src/cdp/templates/types'
 
 export const template: HogFunctionTemplate = {
+    free: true,
     status: 'alpha',
     type: 'transformation',
     id: 'plugin-posthog-filter-out-plugin',
@@ -14,7 +15,7 @@ export const template: HogFunctionTemplate = {
             key: 'filters',
             templating: false,
             label: 'Filters to apply',
-            type: 'string',
+            type: 'json',
             description: 'A JSON file containing an array of filters to apply. See the README for more information.',
             required: false,
         },
