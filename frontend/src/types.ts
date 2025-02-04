@@ -753,6 +753,7 @@ export enum PipelineStage {
 }
 
 export enum PipelineNodeTab {
+    Backfills = 'backfills',
     Configuration = 'configuration',
     Runs = 'runs',
     Logs = 'logs',
@@ -4386,6 +4387,46 @@ export type GroupedBatchExportRuns = {
     data_interval_start: Dayjs
     data_interval_end: Dayjs
     runs: BatchExportRun[]
+}
+
+export type RawBatchExportBackfill = {
+    id: string
+    status:
+        | 'Cancelled'
+        | 'Completed'
+        | 'ContinuedAsNew'
+        | 'Failed'
+        | 'FailedRetryable'
+        | 'Terminated'
+        | 'TimedOut'
+        | 'Running'
+        | 'Starting'
+    created_at: string
+    finished_at?: string
+    start_at?: string
+    end_at?: string
+    last_updated_at?: string
+    total_runs?: number
+}
+
+export type BatchExportBackfill = {
+    id: string
+    status:
+        | 'Cancelled'
+        | 'Completed'
+        | 'ContinuedAsNew'
+        | 'Failed'
+        | 'FailedRetryable'
+        | 'Terminated'
+        | 'TimedOut'
+        | 'Running'
+        | 'Starting'
+    created_at?: Dayjs
+    finished_at?: Dayjs
+    start_at?: Dayjs
+    end_at?: Dayjs
+    last_updated_at?: Dayjs
+    total_runs?: number
 }
 
 export type SDK = {

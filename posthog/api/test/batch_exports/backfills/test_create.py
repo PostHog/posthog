@@ -23,12 +23,20 @@ pytestmark = [
 ]
 
 
+@pytest.mark.parametrize("legacy_endpoint", [False, True])
 @pytest.mark.parametrize("model", ["events", "persons"])
-def test_batch_export_backfill(client: HttpClient, model):
+def test_batch_export_backfill(client: HttpClient, model, legacy_endpoint: bool):
     """Test a BatchExport can be backfilled.
 
     We should be able to create a Batch Export, then request that the Schedule
     handles backfilling all runs between two dates.
+
+    We currently have two endpoints for creating backfills:
+    - /api/projects/{team_id}/batch_exports/{batch_export_id}/backfills (new)
+    - /api/projects/{team_id}/batch_exports/{batch_export_id}/backfill (old, deprecated)
+
+    This test checks that both endpoints work as expected.
+    We can remove the legacy endpoint once we're confident that nobody is using it.
     """
     temporal = sync_connect()
 
@@ -76,11 +84,12 @@ def test_batch_export_backfill(client: HttpClient, model):
         batch_export_id = batch_export["id"]
 
         response = backfill_batch_export(
-            client,
-            team.pk,
-            batch_export_id,
-            "2021-01-01T00:00:00+00:00",
-            "2021-01-01T01:00:00+00:00",
+            client=client,
+            team_id=team.pk,
+            batch_export_id=batch_export_id,
+            start_at="2021-01-01T00:00:00+00:00",
+            end_at="2021-01-01T01:00:00+00:00",
+            legacy_endpoint=legacy_endpoint,
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
 

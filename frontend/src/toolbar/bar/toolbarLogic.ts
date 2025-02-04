@@ -15,7 +15,17 @@ import type { toolbarLogicType } from './toolbarLogicType'
 
 const MARGIN = 2
 
-export type MenuState = 'none' | 'heatmap' | 'actions' | 'flags' | 'inspect' | 'hedgehog' | 'debugger' | 'experiments'
+export type MenuState =
+    | 'none'
+    | 'heatmap'
+    | 'actions'
+    | 'flags'
+    | 'inspect'
+    | 'hedgehog'
+    | 'debugger'
+    | 'experiments'
+    | 'web-vitals'
+
 export type ToolbarPositionType =
     | 'top-left'
     | 'top-center'

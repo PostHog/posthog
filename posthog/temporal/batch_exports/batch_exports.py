@@ -894,7 +894,10 @@ class UpdateBatchExportBackfillStatusInputs:
 async def update_batch_export_backfill_model_status(inputs: UpdateBatchExportBackfillStatusInputs) -> None:
     """Activity that updates the status of an BatchExportRun."""
     backfill = await database_sync_to_async(update_batch_export_backfill_status)(
-        backfill_id=uuid.UUID(inputs.id), status=inputs.status
+        backfill_id=uuid.UUID(inputs.id),
+        status=inputs.status,
+        # we currently only call this once the backfill is finished, so we can set the finished_at here
+        finished_at=dt.datetime.now(dt.UTC),
     )
     logger = await bind_temporal_worker_logger(team_id=backfill.team_id)
 
