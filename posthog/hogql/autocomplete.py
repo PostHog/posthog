@@ -38,7 +38,6 @@ from posthog.schema import (
     AutocompleteCompletionItem,
     AutocompleteCompletionItemKind,
     HogLanguage,
-    HogQLQuery,
 )
 from common.hogvm.python.stl import STL
 from common.hogvm.python.stl.bytecode import BYTECODE_STL
@@ -373,10 +372,8 @@ def get_hogql_autocomplete(
 
     context = HogQLContext(team_id=team.pk, team=team, database=database)
     if query.sourceQuery:
-        if (
-            isinstance(query.sourceQuery, HogQLQuery)
-            and query.sourceQuery.query is not None
-            and query.sourceQuery.query != ""
+        if query.sourceQuery.kind == "HogQLQuery" and (
+            query.sourceQuery.query is None or query.sourceQuery.query == ""
         ):
             source_query = parse_select("select 1")
         else:
