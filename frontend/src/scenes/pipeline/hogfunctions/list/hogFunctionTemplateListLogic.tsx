@@ -121,7 +121,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             (s) => [s.canEnableNewDestinations],
             (canEnableNewDestinations): ((template: HogFunctionTemplateType) => boolean) => {
                 return (template: HogFunctionTemplateType) => {
-                    return template?.status === 'free' || canEnableNewDestinations
+                    return template?.free || canEnableNewDestinations
                 }
             },
         ],
