@@ -5,8 +5,10 @@ def migrate_show_mean_from_boolean_to_string(apps, schema_editor):
     Insight = apps.get_model("posthog", "Insight")
 
     # Get all retention insights
-    retention_insights = Insight.objects.filter(filters__insight="RETENTION", deleted=False).exclude(
-        filters__show_mean__isnull=True
+    retention_insights = Insight.objects.filter(
+        filters__insight="RETENTION", deleted=False, filters__has_key="show_mean"
+    ).exclude(
+        filters__show_mean__isnull=True,
     )
 
     for insight in retention_insights:
