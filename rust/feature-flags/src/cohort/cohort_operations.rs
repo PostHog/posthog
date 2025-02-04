@@ -44,7 +44,7 @@ impl Cohort {
         };
 
         let cohort_property: CohortProperty =
-            serde_json::from_value(filters.clone()).map_err(|e| {
+            serde_json::from_value(filters.to_owned()).map_err(|e| {
                 tracing::error!("Failed to parse filters for cohort {}: {}", self.id, e);
                 FlagError::CohortFiltersParsingError
             })?;

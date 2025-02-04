@@ -5,7 +5,6 @@ use async_trait::async_trait;
 use redis::{AsyncCommands, RedisError};
 use thiserror::Error;
 use tokio::time::timeout;
-use tracing;
 
 // average for all commands is <10ms, check grafana
 const REDIS_TIMEOUT_MILLISECS: u64 = 10;
@@ -62,7 +61,7 @@ impl Client for RedisClient {
         let mut conn = self.client.get_async_connection().await?;
 
         let results = conn.zrangebyscore(k, min, max);
-        let fut = timeout(Duration::from_secs(REDIS_TIMEOUT_MILLISECS), results).await?;
+        let fut = timeout(Duration::from_millis(REDIS_TIMEOUT_MILLISECS), results).await?;
 
         Ok(fut?)
     }
@@ -77,18 +76,17 @@ impl Client for RedisClient {
 
         let count = count.unwrap_or(1);
         let results = conn.hincr(k, v, count);
-        let fut = timeout(Duration::from_secs(REDIS_TIMEOUT_MILLISECS), results).await?;
+        let fut = timeout(Duration::from_millis(REDIS_TIMEOUT_MILLISECS), results).await?;
 
         fut.map_err(CustomRedisError::from)
     }
 
     async fn get(&self, k: String) -> Result<String, CustomRedisError> {
-        tracing::debug!(?k, "attempting to fetch key from redis");
         let mut conn = self.client.get_async_connection().await?;
 
         let results = conn.get(k);
         let fut: Result<Vec<u8>, RedisError> =
-            timeout(Duration::from_secs(REDIS_TIMEOUT_MILLISECS), results).await?;
+            timeout(Duration::from_millis(REDIS_TIMEOUT_MILLISECS), results).await?;
 
         // return NotFound error when empty or not found
         if match &fut {
@@ -99,16 +97,6 @@ impl Client for RedisClient {
         }
 
         let raw_bytes = fut?;
-        tracing::debug!(
-            raw_string = ?String::from_utf8_lossy(&raw_bytes),
-            "raw bytes from redis before pickle deserialization"
-        );
-
-        let string_response: String = serde_pickle::from_slice(&raw_bytes, Default::default())?;
-        tracing::debug!(
-            string_response = ?string_response,
-            "string response from redis"
-        );
 
         // TRICKY: We serialise data to json, then django pickles it.
         // Here we deserialize the bytes using serde_pickle, to get the json string.
@@ -125,7 +113,7 @@ impl Client for RedisClient {
         let mut conn = self.client.get_async_connection().await?;
 
         let results = conn.set(k, bytes);
-        let fut = timeout(Duration::from_secs(REDIS_TIMEOUT_MILLISECS), results).await?;
+        let fut = timeout(Duration::from_millis(REDIS_TIMEOUT_MILLISECS), results).await?;
 
         Ok(fut?)
     }
@@ -134,7 +122,7 @@ impl Client for RedisClient {
         let mut conn = self.client.get_async_connection().await?;
 
         let results = conn.del(k);
-        let fut = timeout(Duration::from_secs(REDIS_TIMEOUT_MILLISECS), results).await?;
+        let fut = timeout(Duration::from_millis(REDIS_TIMEOUT_MILLISECS), results).await?;
 
         fut.map_err(CustomRedisError::from)
     }
@@ -144,7 +132,7 @@ impl Client for RedisClient {
 
         let results = conn.hget(k, field);
         let fut: Result<Option<String>, RedisError> =
-            timeout(Duration::from_secs(REDIS_TIMEOUT_MILLISECS), results).await?;
+            timeout(Duration::from_millis(REDIS_TIMEOUT_MILLISECS), results).await?;
 
         match fut? {
             Some(value) => Ok(value),
