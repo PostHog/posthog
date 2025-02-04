@@ -234,13 +234,18 @@ export class EventPipelineRunner {
 
         // Setup a cloned event so we can compare the post-plugins event to the pre-plugins event
         let clonedSourceEvent: PluginEvent | null = null
-        const shouldCompareToHogFunctions =
-            this.hogTransformer &&
-            (!this.hub.HOG_TRANSFORMATIONS_COMPARISON_PERCENTAGE ||
-                Math.random() > this.hub.HOG_TRANSFORMATIONS_COMPARISON_PERCENTAGE)
 
-        if (!shouldCompareToHogFunctions) {
-            clonedSourceEvent = cloneObject(postCookielessEvent)
+        try {
+            const shouldCompareToHogFunctions =
+                this.hogTransformer &&
+                (!this.hub.HOG_TRANSFORMATIONS_COMPARISON_PERCENTAGE ||
+                    Math.random() > this.hub.HOG_TRANSFORMATIONS_COMPARISON_PERCENTAGE)
+
+            if (!shouldCompareToHogFunctions) {
+                clonedSourceEvent = cloneObject(postCookielessEvent)
+            }
+        } catch (error) {
+            status.error('🔔', 'Error cloning event for hog transform comparison', { error })
         }
 
         const processedEvent = await this.runStep(pluginsProcessEventStep, [this, postCookielessEvent], event.team_id)
