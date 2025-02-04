@@ -1,14 +1,11 @@
 {
-    "name": "@posthog/early-access-features",
+    "name": "@posthog-products/early-access-features",
     "version": "0.0.0",
     "private": true,
-    "dependencies": {
-        "kea": "^3.1.5",
-        "kea-forms": "^3.2.0",
-        "kea-loaders": "^3.0.0",
-        "kea-router": "^3.2.0",
-        "react": "^18.2.0"
+    "scripts": {
+        "build": "echo 'Not building products into single bundles yet'"
     },
+    "dependencies": {},
     "devDependencies": {
         "autoprefixer": "^10.4.13",
         "chokidar": "^3.5.3",

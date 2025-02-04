@@ -12,22 +12,22 @@ dependencies:
     specifier: '*'
     version: 6.6.2
   kea:
-    specifier: ^3.1.5
+    specifier: '*'
     version: 3.1.6(react@18.3.1)
   kea-forms:
-    specifier: ^3.2.0
+    specifier: '*'
     version: 3.2.0(kea@3.1.6)
   kea-loaders:
-    specifier: ^3.0.0
+    specifier: '*'
     version: 3.0.1(kea@3.1.6)
   kea-router:
-    specifier: ^3.2.0
+    specifier: '*'
     version: 3.2.1(kea@3.1.6)
   monaco-editor:
     specifier: '*'
     version: 0.52.2
   react:
-    specifier: ^18.2.0
+    specifier: '*'
     version: 18.3.1
 
 devDependencies:

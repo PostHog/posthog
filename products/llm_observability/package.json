@@ -1,10 +1,9 @@
 {
-    "name": "@posthog/llm-observability",
+    "name": "@posthog-products/llm-observability",
     "version": "0.0.0",
     "private": true,
     "scripts": {
-        "build": "DEBUG=0 node build.mjs",
-        "clean": "rm -rf dist"
+        "build": "echo 'Not building products into single bundles yet'"
     },
     "dependencies": {},
     "devDependencies": {
