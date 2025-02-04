@@ -16,7 +16,8 @@ import { StatusTag } from './components'
 import { ExperimentDates } from './ExperimentDates'
 
 export function Info(): JSX.Element {
-    const { experiment, featureFlags, metricResults } = useValues(experimentLogic)
+    const { experiment, featureFlags, metricResults, metricsResultsLoading, secondaryMetricResultsLoading } =
+        useValues(experimentLogic)
     const { updateExperiment, setExperimentStatsVersion, refreshExperimentResults } = useActions(experimentLogic)
 
     const { created_by } = experiment
@@ -112,7 +113,11 @@ export function Info(): JSX.Element {
                                                 : ''
                                         }`}
                                     >
-                                        {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
+                                        {metricsResultsLoading || secondaryMetricResultsLoading
+                                            ? 'Loading…'
+                                            : lastRefresh
+                                            ? dayjs(lastRefresh).fromNow()
+                                            : 'a while ago'}
                                     </span>
                                     <LemonButton
                                         type="secondary"
