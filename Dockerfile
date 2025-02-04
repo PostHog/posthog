@@ -44,6 +44,7 @@ RUN pnpm build
 #
 FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.80.1-node_18.19.1 AS plugin-server-build
 WORKDIR /code
+COPY ./patches ./patches
 COPY ./rust ./rust
 COPY ./common/plugin_transpiler/ ./common/plugin_transpiler/
 WORKDIR /code/plugin-server
@@ -51,7 +52,6 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # Compile and install Node.js dependencies.
 COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./
-COPY ./plugin-server/patches/ ./patches/
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     "make" \
