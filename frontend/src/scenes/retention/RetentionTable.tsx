@@ -1,7 +1,7 @@
 import './RetentionTable.scss'
 
 import clsx from 'clsx'
-import { mean } from 'd3'
+import { mean, sum } from 'd3'
 import { useActions, useValues } from 'kea'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { gradateColor, range } from 'lib/utils'
@@ -17,7 +17,7 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
     const { openModal } = useActions(retentionModalLogic(insightProps))
     const backgroundColor = theme?.['preset-1'] || '#000000' // Default to black if no color found
     const backgroundColorMean = theme?.['preset-2'] || '#000000' // Default to black if no color found
-    const showMean = retentionFilter?.showMean || false
+    const showMean = retentionFilter?.showMean || null
 
     return (
         <table
@@ -37,7 +37,51 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                     ))}
                 </tr>
 
-                {showMean && tableRows.length > 0 ? (
+                {showMean === 'weighted' && tableRows.length > 0 ? (
+                    <tr className="border-b" key={-2}>
+                        {range(0, tableRows[0].length).map((columnIndex) => (
+                            <td key={columnIndex} className="pb-2">
+                                {columnIndex <= (hideSizeColumn ? 0 : 1) ? (
+                                    columnIndex == 0 ? (
+                                        <span className="RetentionTable__TextTab">Weighted Mean</span>
+                                    ) : null
+                                ) : (
+                                    <CohortDay
+                                        percentage={
+                                            (() => {
+                                                const validRows = tableRows.filter((row) => {
+                                                    return !(
+                                                        (columnIndex >= row.length - 1 && isLatestPeriod) ||
+                                                        !row[columnIndex] ||
+                                                        row[columnIndex].count <= 0
+                                                    )
+                                                })
+                                                if (validRows.length === 0) {
+                                                    return 0
+                                                }
+                                                const weights = validRows.map((row) =>
+                                                    parseInt(row[1]?.toString() || '0')
+                                                )
+                                                const weightedSum = sum(
+                                                    validRows.map(
+                                                        (row, i) => (row[columnIndex]?.percentage || 0) * weights[i]
+                                                    )
+                                                )
+                                                const totalWeight = sum(weights)
+                                                return totalWeight > 0 ? weightedSum / totalWeight : 0
+                                            })() || 0
+                                        }
+                                        latest={isLatestPeriod && columnIndex == tableRows[0].length - 1}
+                                        clickable={false}
+                                        backgroundColor={backgroundColorMean}
+                                    />
+                                )}
+                            </td>
+                        ))}
+                    </tr>
+                ) : undefined}
+
+                {showMean === 'simple' && tableRows.length > 0 ? (
                     <tr className="border-b" key={-1}>
                         {range(0, tableRows[0].length).map((columnIndex) => (
                             <td key={columnIndex} className="pb-2">
@@ -50,10 +94,12 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                         percentage={
                                             mean(
                                                 tableRows.map((row) => {
-                                                    // Stop before the last item in a row, which is an incomplete time period
+                                                    // Don't include the last item in a row, which is an incomplete time period
+                                                    // Also don't include the percentage if the cohort size (count) is 0 or less
                                                     if (
                                                         (columnIndex >= row.length - 1 && isLatestPeriod) ||
-                                                        !row[columnIndex]
+                                                        !row[columnIndex] ||
+                                                        row[columnIndex].count <= 0
                                                     ) {
                                                         return null
                                                     }
