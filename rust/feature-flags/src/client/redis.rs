@@ -104,7 +104,6 @@ impl Client for RedisClient {
             "raw bytes from redis before pickle deserialization"
         );
 
-        // how do I deserialize the bytes to a string?
         let string_response: String = serde_pickle::from_slice(&raw_bytes, Default::default())?;
         tracing::debug!(
             string_response = ?string_response,

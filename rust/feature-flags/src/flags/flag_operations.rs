@@ -81,7 +81,7 @@ impl FeatureFlagList {
             FlagError::DatabaseUnavailable
         })?;
 
-        let query = "SELECT id, team_id, name, key, filters, deleted, active, ensure_experience_continuity FROM posthog_featureflag WHERE team_id = $1 AND deleted = false AND active = true";
+        let query = "SELECT id, team_id, name, key, filters, deleted, active, ensure_experience_continuity FROM posthog_featureflag WHERE team_id = $1 AND deleted = false";
         let flags_row = sqlx::query_as::<_, FeatureFlagRow>(query)
             .bind(team_id)
             .fetch_all(&mut *conn)
@@ -890,109 +890,103 @@ mod tests {
         assert_eq!(pg_properties[2].prop_type, "event");
     }
 
-    // #[tokio::test]
-    // async fn test_deleted_and_inactive_flags() {
-    //     let redis_client = setup_redis_client(None);
-    //     let reader = setup_pg_reader_client(None).await;
+    #[tokio::test]
+    async fn test_deleted_and_inactive_flags() {
+        let redis_client = setup_redis_client(None);
+        let reader = setup_pg_reader_client(None).await;
 
-    //     let team = insert_new_team_in_pg(reader.clone(), None)
-    //         .await
-    //         .expect("Failed to insert team in pg");
+        let team = insert_new_team_in_pg(reader.clone(), None)
+            .await
+            .expect("Failed to insert team in pg");
 
-    //     let deleted_flag = json!({
-    //         "id": 1,
-    //         "team_id": team.id,
-    //         "name": "Deleted Flag",
-    //         "key": "deleted_flag",
-    //         "filters": {"groups": []},
-    //         "active": true,
-    //         "deleted": true
-    //     });
+        let deleted_flag = json!({
+            "id": 1,
+            "team_id": team.id,
+            "name": "Deleted Flag",
+            "key": "deleted_flag",
+            "filters": {"groups": []},
+            "active": true,
+            "deleted": true
+        });
 
-    //     let inactive_flag = json!({
-    //         "id": 2,
-    //         "team_id": team.id,
-    //         "name": "Inactive Flag",
-    //         "key": "inactive_flag",
-    //         "filters": {"groups": []},
-    //         "active": false,
-    //         "deleted": false
-    //     });
+        let inactive_flag = json!({
+            "id": 2,
+            "team_id": team.id,
+            "name": "Inactive Flag",
+            "key": "inactive_flag",
+            "filters": {"groups": []},
+            "active": false,
+            "deleted": false
+        });
 
-    //     // Insert into Redis
-    //     insert_flags_for_team_in_redis(
-    //         redis_client.clone(),
-    //         team.id,
-    //         Some(json!([deleted_flag, inactive_flag]).to_string()),
-    //     )
-    //     .await
-    //     .expect("Failed to insert flags in Redis");
+        // Insert into Redis
+        insert_flags_for_team_in_redis(
+            redis_client.clone(),
+            team.id,
+            Some(json!([deleted_flag, inactive_flag]).to_string()),
+        )
+        .await
+        .expect("Failed to insert flags in Redis");
 
-    //     // Insert into Postgres
-    //     insert_flag_for_team_in_pg(
-    //         reader.clone(),
-    //         team.id,
-    //         Some(FeatureFlagRow {
-    //             id: 0,
-    //             team_id: team.id,
-    //             name: Some("Deleted Flag".to_string()),
-    //             key: "deleted_flag".to_string(),
-    //             filters: deleted_flag["filters"].clone(),
-    //             deleted: true,
-    //             active: true,
-    //             ensure_experience_continuity: false,
-    //         }),
-    //     )
-    //     .await
-    //     .expect("Failed to insert deleted flag in Postgres");
+        // Insert into Postgres
+        insert_flag_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            Some(FeatureFlagRow {
+                id: 0,
+                team_id: team.id,
+                name: Some("Deleted Flag".to_string()),
+                key: "deleted_flag".to_string(),
+                filters: deleted_flag["filters"].clone(),
+                deleted: true,
+                active: true,
+                ensure_experience_continuity: false,
+            }),
+        )
+        .await
+        .expect("Failed to insert deleted flag in Postgres");
 
-    //     insert_flag_for_team_in_pg(
-    //         reader.clone(),
-    //         team.id,
-    //         Some(FeatureFlagRow {
-    //             id: 0,
-    //             team_id: team.id,
-    //             name: Some("Inactive Flag".to_string()),
-    //             key: "inactive_flag".to_string(),
-    //             filters: inactive_flag["filters"].clone(),
-    //             deleted: false,
-    //             active: false,
-    //             ensure_experience_continuity: false,
-    //         }),
-    //     )
-    //     .await
-    //     .expect("Failed to insert inactive flag in Postgres");
+        insert_flag_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            Some(FeatureFlagRow {
+                id: 0,
+                team_id: team.id,
+                name: Some("Inactive Flag".to_string()),
+                key: "inactive_flag".to_string(),
+                filters: inactive_flag["filters"].clone(),
+                deleted: false,
+                active: false,
+                ensure_experience_continuity: false,
+            }),
+        )
+        .await
+        .expect("Failed to insert inactive flag in Postgres");
 
-    //     // Fetch and verify from Redis
-    //     let redis_flags = FeatureFlagList::from_redis(redis_client, team.id)
-    //         .await
-    //         .expect("Failed to fetch flags from Redis");
+        // Fetch and verify from Redis
+        let redis_flags = FeatureFlagList::from_redis(redis_client, team.id)
+            .await
+            .expect("Failed to fetch flags from Redis");
 
-    //     assert_eq!(redis_flags.flags.len(), 2);
-    //     assert!(redis_flags
-    //         .flags
-    //         .iter()
-    //         .any(|f| f.key == "deleted_flag" && f.deleted));
-    //     assert!(redis_flags
-    //         .flags
-    //         .iter()
-    //         .any(|f| f.key == "inactive_flag" && !f.active));
+        assert_eq!(redis_flags.flags.len(), 2);
+        assert!(redis_flags.flags.iter().any(|f| f.deleted));
+        assert!(redis_flags
+            .flags
+            .iter()
+            .any(|f| f.key == "inactive_flag" && !f.active));
 
-    //     // Fetch and verify from Postgres
-    //     let pg_flags = FeatureFlagList::from_pg(reader, team.id)
-    //         .await
-    //         .expect("Failed to fetch flags from Postgres");
+        // Fetch and verify from Postgres
+        let pg_flags = FeatureFlagList::from_pg(reader, team.id)
+            .await
+            .expect("Failed to fetch flags from Postgres");
 
-    //     assert_eq!(pg_flags.flags.len(), 2);
-    //     assert!(pg_flags
-    //         .flags
-    //         .iter()
-    //         .any(|f| f.key == "deleted_flag" && f.deleted));
-    //     assert!(pg_flags
-    //         .flags
-    //         .iter()
-    //         .any(|f| f.key == "inactive_flag" && !f.active));
-    // }
+        assert_eq!(pg_flags.flags.len(), 1);
+        assert!(!pg_flags.flags.iter().any(|f| f.deleted)); // no deleted flags
+        assert!(pg_flags
+            .flags
+            .iter()
+            .any(|f| f.key == "inactive_flag" && !f.active)); // only inactive flag is left
+    }
 
     #[tokio::test]
     async fn test_error_handling() {
