@@ -52,6 +52,8 @@ from posthog.session_recordings.realtime_snapshots import (
 )
 from posthog.storage import object_storage
 from posthog.session_recordings.ai_data.ai_filter_schema import AI_FILTER_SCHEMA
+from posthog.session_recordings.ai_data.ai_regex_schema import AI_REGEX_SCHEMA
+from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
 
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",
@@ -86,13 +88,22 @@ class MessageSerializer(serializers.Serializer):
     content = serializers.CharField()
 
 
-class AiFiltersRequestSerializer(serializers.Serializer):
+class AiRequestSerializer(serializers.Serializer):
     messages = MessageSerializer(many=True)
 
 
 class AiFiltersResponseSerializer(serializers.Serializer):
     result = serializers.CharField()
     data = serializers.JSONField()
+
+
+class RegexRequestSerializer(serializers.Serializer):
+    regex = serializers.CharField()
+
+
+class AiRegexResponseSerializer(serializers.Serializer):
+    result = serializers.ChoiceField(choices=["success", "error"])
+    data = serializers.DictField(child=serializers.CharField())
 
 
 class SurrogatePairSafeJSONEncoder(JSONEncoder):
@@ -810,7 +821,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
     @extend_schema(
         description="Generate session recording filters using AI",
-        request=AiFiltersRequestSerializer,
+        request=AiRequestSerializer,
         responses={200: AiFiltersResponseSerializer},
     )
     @action(methods=["POST"], detail=False, url_path="ai/filters")
@@ -819,23 +830,44 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         if not request.user.is_authenticated:
             raise exceptions.NotAuthenticated()
 
-        if not settings.DEBUG and not is_cloud():
-            raise exceptions.ValidationError("AI filters are only available in PostHog Cloud")
-
-        if not os.environ.get("OPENAI_API_KEY"):
-            raise exceptions.ValidationError("OpenAI API key is not configured")
-
-        serializer = AiFiltersRequestSerializer(data=request.data)
+        serializer = AiRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         messages = serializer.validated_data["messages"]
-
-        client = OpenAI(posthog_client=posthoganalytics.default_client)
+        client = _get_openai_client()
 
         completion = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=messages,
             response_format={"type": "json_schema", "json_schema": AI_FILTER_SCHEMA},
+        )
+
+        response_content = json.loads(completion.choices[0].message.content)
+        return Response(response_content)
+
+    @extend_schema(
+        description="Generate regex patterns using AI",
+        request=RegexRequestSerializer,
+        responses={200: AiRegexResponseSerializer},
+    )
+    @action(methods=["POST"], detail=False, url_path="ai/regex")
+    def ai_regex(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Generate regex patterns using AI."""
+        if not request.user.is_authenticated:
+            raise exceptions.NotAuthenticated()
+
+        serializer = RegexRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        regex = serializer.validated_data["regex"]
+        messages = [AI_REGEX_PROMPTS, {"role": "user", "content": regex}]
+
+        client = _get_openai_client()
+
+        completion = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=messages,
+            response_format={"type": "json_schema", "json_schema": AI_REGEX_SCHEMA},
         )
 
         response_content = json.loads(completion.choices[0].message.content)
@@ -978,3 +1010,14 @@ def _generate_timings(hogql_timings: list[QueryTiming] | None, timer: ServerTimi
         hogql_timings_dict[new_key] = value[1] * 1000
     all_timings = {**timings_dict, **hogql_timings_dict}
     return all_timings
+
+
+def _get_openai_client() -> OpenAI:
+    """Get configured OpenAI client or raise appropriate error."""
+    if not settings.DEBUG and not is_cloud():
+        raise exceptions.ValidationError("AI features are only available in PostHog Cloud")
+
+    if not os.environ.get("OPENAI_API_KEY"):
+        raise exceptions.ValidationError("OpenAI API key is not configured")
+
+    return OpenAI(posthog_client=posthoganalytics.default_client)

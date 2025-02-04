@@ -2178,6 +2178,10 @@ const api = {
         async aiFilters(messages: ChatCompletionUserMessageParam[]): Promise<{ result: string; data: any }> {
             return await new ApiRequest().recordings().withAction('ai/filters').create({ data: { messages } })
         },
+
+        async aiRegex(regex: string): Promise<{ result: string; data: any }> {
+            return await new ApiRequest().recordings().withAction('ai/regex').create({ data: { regex } })
+        },
     },
 
     notebooks: {
