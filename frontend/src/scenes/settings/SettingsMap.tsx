@@ -501,6 +501,7 @@ export const SETTINGS_MAP: SettingSection[] = [
     {
         level: 'organization',
         id: 'organization-billing',
+        hideSelfHost: true,
         title: 'Billing',
         to: urls.organizationBilling(),
         settings: [],

@@ -143,6 +143,7 @@ export interface SettingSection extends Pick<Setting, 'flag'> {
     id: SettingSectionId
     to?: string
     title: JSX.Element | string
+    hideSelfHost?: boolean
     level: SettingLevelId
     settings: Setting[]
     minimumAccessLevel?: EitherMembershipLevel

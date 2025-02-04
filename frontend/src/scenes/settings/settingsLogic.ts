@@ -88,7 +88,7 @@ export const settingsLogic = kea<settingsLogicType>([
             (s) => [s.doesMatchFlags, s.featureFlags, s.isCloudOrDev],
             (doesMatchFlags, featureFlags, isCloudOrDev): SettingSection[] => {
                 const sections = SETTINGS_MAP.filter(doesMatchFlags).filter((section) => {
-                    if (section.id === 'organization-billing' && !isCloudOrDev) {
+                    if (section.hideSelfHost && !isCloudOrDev) {
                         return false
                     }
 
