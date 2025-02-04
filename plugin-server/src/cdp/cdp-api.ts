@@ -61,12 +61,25 @@ export class CdpApi {
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
         router.get('/api/hog_function_templates', this.getHogFunctionTemplates)
+        router.get('/api/hog_function_templates/:id', this.getHogFunctionTemplate)
 
         return router
     }
 
     private getHogFunctionTemplates = (req: express.Request, res: express.Response): void => {
         res.json(HOG_FUNCTION_TEMPLATES)
+    }
+
+    private getHogFunctionTemplate = (req: express.Request, res: express.Response): void => {
+        const { id } = req.params
+        const template = HOG_FUNCTION_TEMPLATES.find((t) => t.id === id)
+
+        if (!template) {
+            res.status(404).json({ error: `Template ${id} not found` })
+            return
+        }
+
+        res.json(template)
     }
 
     private getFunctionStatus =
