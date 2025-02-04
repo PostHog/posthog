@@ -25,7 +25,7 @@ FROM node:18.19.1-bookworm-slim AS frontend-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY patches/ patches/
 RUN corepack enable && pnpm --version && \
     mkdir /tmp/pnpm-store && \
@@ -44,15 +44,15 @@ RUN pnpm build
 #
 FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.80.1-node_18.19.1 AS plugin-server-build
 WORKDIR /code
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY ./patches ./patches
 COPY ./rust ./rust
 COPY ./common/plugin_transpiler/ ./common/plugin_transpiler/
-WORKDIR /code/plugin-server
+COPY ./common/hogvm/typescript/ ./common/hogvm/typescript/
+COPY ./plugin-server/package.json ./plugin-server/tsconfig.json ./plugin-server/
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # Compile and install Node.js dependencies.
-COPY ./plugin-server/package.json ./plugin-server/tsconfig.json ./
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     "make" \
@@ -66,10 +66,12 @@ RUN apt-get update && \
     corepack enable && \
     mkdir /tmp/pnpm-store && \
     pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --filter=@posthog/plugin-server && \
-    cd ../common/plugin_transpiler && \
     pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --filter=@posthog/plugin-transpiler && \
+    cd ./common/plugin_transpiler && \
     pnpm build && \
     rm -rf /tmp/pnpm-store
+
+WORKDIR /code/plugin-server
 
 # Build the plugin server.
 #
