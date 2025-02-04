@@ -208,14 +208,24 @@ export function AuthorizedUrlList({
 
                 {isAddUrlFormVisible && (
                     <div className="border rounded p-2 bg-bg-light">
-                        <AuthorizedUrlForm type={type} actionId={actionId} experimentId={experimentId} />
+                        <AuthorizedUrlForm
+                            type={type}
+                            actionId={actionId}
+                            experimentId={experimentId}
+                            allowWildCards={allowWildCards}
+                        />
                     </div>
                 )}
 
                 {urlsKeyed.map((keyedURL, index) => {
                     return editUrlIndex === index ? (
                         <div className="border rounded p-2 bg-bg-light">
-                            <AuthorizedUrlForm type={type} actionId={actionId} />
+                            <AuthorizedUrlForm
+                                type={type}
+                                actionId={actionId}
+                                experimentId={experimentId}
+                                allowWildCards={allowWildCards}
+                            />
                         </div>
                     ) : (
                         <div key={index} className={clsx('border rounded flex items-center p-2 pl-4 bg-bg-light')}>
