@@ -39,8 +39,8 @@ class BaseUserAccessControlTest(BaseTest):
         super().setUp()
         self.organization.available_product_features = [
             {
-                "key": AvailableFeature.PROJECT_BASED_PERMISSIONING,
-                "name": AvailableFeature.PROJECT_BASED_PERMISSIONING,
+                "key": AvailableFeature.ADVANCED_PERMISSIONS,
+                "name": AvailableFeature.ADVANCED_PERMISSIONS,
             },
             {
                 "key": AvailableFeature.ROLE_BASED_ACCESS,
@@ -524,7 +524,6 @@ class TestUserAccessControlResourceSpecific(BaseUserAccessControlTest):
 # class TestUserPermissionsEfficiency(BaseTest, WithPermissionsBase):
 #     def test_dashboard_efficiency(self):
 #         self.organization.available_product_features = [
-#             {"key": AvailableFeature.PROJECT_BASED_PERMISSIONING, "name": AvailableFeature.PROJECT_BASED_PERMISSIONING},
 #             {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
 #         ]
 #         self.organization.save()
@@ -565,7 +564,7 @@ class TestUserAccessControlResourceSpecific(BaseUserAccessControlTest):
 #             membership.save()  # type: ignore
 
 #             organization.available_product_features = [
-#                 {"key": AvailableFeature.PROJECT_BASED_PERMISSIONING, "name": AvailableFeature.PROJECT_BASED_PERMISSIONING},
+#                 {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
 #             ]
 #             organization.save()
 
