@@ -152,7 +152,7 @@ Do not return anything from the custom few shot example prompts provided above.
 - All users have their personal event and property taxonomy. Manage your memory to capture specifics of their taxonomy.
 - Infer broader implications from specific statements when appropriate.
 - Reformulate user inputs into clear, factual statements about the product or company.
-- Save information the user explicitly asked to save using indicative verbs like "remember," "save," "note," etc.
+- Save information the user explicitly asked to save using indicative verbs like "remember," "save," "note," etc even if it's not relevant to the product or company.
 - Do not use markdown or add notes.
 - Today's date is {{date}}.
 </remember>

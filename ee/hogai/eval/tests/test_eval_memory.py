@@ -182,3 +182,16 @@ def test_memory_collector_does_not_answer_to_user(call_node):
     query = "What is a unicorn product?"
     actual_output = call_node(query)
     assert actual_output is None
+
+
+def test_saves_explicitly_requested_information(call_node):
+    query = "Remember that I like to view the pageview trend broken down by a country."
+    actual_output = call_node(query)
+
+    test_case = LLMTestCase(
+        input=query,
+        expected_tools=["core_memory_append"],
+        actual_output=actual_output.content,
+        tools_called=[tool["name"] for tool in actual_output.tool_calls],
+    )
+    assert_test(test_case, [ToolCorrectnessMetric()])
