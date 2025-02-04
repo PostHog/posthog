@@ -812,7 +812,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             joining_table_name="events",
             joining_table_key="person.properties.email",
             field_name="events",
-            configuration={"experiments_optimized": True, "experiments_timestamp_key": "created_at"},
+            configuration={"experiments_optimized": True, "experiments_timestamp_key": "subscriptions.created_at"},
         )
 
         db = create_hogql_database(team_id=self.team.pk)
