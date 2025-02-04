@@ -1,1 +1,1 @@
-0558_alter_integration_kind
+0559_team_api_query_rate_limit

@@ -10,14 +10,7 @@ import { SessionBatchFileWriter, StreamWithFinish } from './session-batch-file-w
  * Writes session batch files to S3
  */
 export class S3SessionBatchWriter implements SessionBatchFileWriter {
-    private readonly s3: S3Client
-    private readonly bucket: string
-    private readonly prefix: string
-
-    constructor(config: { bucket: string; prefix: string; region: string }) {
-        this.s3 = new S3Client({ region: config.region })
-        this.bucket = config.bucket
-        this.prefix = config.prefix
+    constructor(private readonly s3: S3Client, private readonly bucket: string, private readonly prefix: string) {
         status.info('🔄', 's3_session_batch_writer_created', { bucket: this.bucket, prefix: this.prefix })
     }
 
