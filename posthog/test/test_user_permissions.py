@@ -24,8 +24,8 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         super().setUp()
         self.organization.available_product_features = [
             {
-                "name": AvailableFeature.PROJECT_BASED_PERMISSIONING,
-                "key": AvailableFeature.PROJECT_BASED_PERMISSIONING,
+                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+                "key": AvailableFeature.ADVANCED_PERMISSIONS,
             }
         ]
         self.organization.save()
@@ -313,7 +313,6 @@ class TestUserInsightPermissions(BaseTest, WithPermissionsBase):
 class TestUserPermissionsEfficiency(BaseTest, WithPermissionsBase):
     def test_dashboard_efficiency(self):
         self.organization.available_product_features = [
-            {"name": AvailableFeature.PROJECT_BASED_PERMISSIONING, "key": AvailableFeature.PROJECT_BASED_PERMISSIONING},
             {"name": AvailableFeature.ADVANCED_PERMISSIONS, "key": AvailableFeature.ADVANCED_PERMISSIONS},
         ]
         self.organization.save()
@@ -355,8 +354,8 @@ class TestUserPermissionsEfficiency(BaseTest, WithPermissionsBase):
 
             organization.available_product_features = [
                 {
-                    "key": AvailableFeature.PROJECT_BASED_PERMISSIONING,
-                    "name": AvailableFeature.PROJECT_BASED_PERMISSIONING,
+                    "key": AvailableFeature.ADVANCED_PERMISSIONS,
+                    "name": AvailableFeature.ADVANCED_PERMISSIONS,
                 }
             ]
             organization.save()
