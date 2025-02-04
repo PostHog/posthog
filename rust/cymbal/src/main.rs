@@ -1,7 +1,7 @@
 use std::{future::ready, sync::Arc};
 
 use axum::{routing::get, Router};
-use common_kafka::{kafka_consumer::RecvErr, kafka_producer::send_keyed_iter_to_kafka};
+use common_kafka::kafka_consumer::RecvErr;
 use common_metrics::{serve, setup_metrics_routes};
 use common_types::ClickHouseEvent;
 use cymbal::{
@@ -106,8 +106,17 @@ async fn main() {
             offsets.push(offset);
         }
 
-        send_keyed_iter_to_kafka(
-            &context.kafka_producer,
+        let mut producer = context.kafka_producer.lock().await;
+
+        let txn = match producer.begin() {
+            Ok(txn) => txn,
+            Err(e) => {
+                error!("Failed to start kafka transaction, {:?}", e);
+                return;
+            }
+        };
+
+        txn.send_keyed_iter_to_kafka(
             &context.config.events_topic,
             |ev| Some(ev.uuid.to_string()),
             &output,
@@ -115,8 +124,23 @@ async fn main() {
         .await
         .expect("Failed to send event to Kafka");
 
-        for offset in offsets {
-            offset.store().unwrap();
+        let metadata = context.kafka_consumer.metadata();
+
+        // TODO - probably being over-explicit with the error handling here, and could instead
+        // let this function return an error and use the question mark operator, but it's good
+        // to be explicit about places we drop things at the top level, so
+        match txn.associate_offsets(offsets, &metadata) {
+            Ok(_) => {}
+            Err(e) => {
+                error!("Failed to commit kafka transaction, {:?}", e);
+            }
+        }
+
+        match txn.commit() {
+            Ok(_) => {}
+            Err(e) => {
+                error!("Failed to commit kafka transaction, {:?}", e);
+            }
         }
 
         whole_loop.label("finished", "true").fin();

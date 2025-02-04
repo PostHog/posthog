@@ -1,31 +1,53 @@
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
 use rdkafka::{
+    client::DefaultClientContext,
+    consumer::ConsumerGroupMetadata,
     error::KafkaError,
     producer::{FutureProducer, Producer},
-    ClientConfig,
+    ClientConfig, ClientContext, TopicPartitionList,
 };
 use serde::Serialize;
 use tracing::{debug, error, info};
 
 use crate::{
     config::KafkaConfig,
+    kafka_consumer::Offset,
     kafka_producer::{send_keyed_iter_to_kafka, KafkaProduceError},
 };
 
-pub struct TransactionalProducer {
-    inner: FutureProducer,
+// TODO - it's kinda gross to leak the underlying producer context type here, makes for a really gross API. We should
+// probably figure out some trait to abstract over it
+pub struct TransactionalProducer<C = DefaultClientContext>
+where
+    C: ClientContext + 'static,
+{
+    inner: FutureProducer<C>,
     timeout: Duration,
 }
 
-// TODO - right now, these don't hook into the liveness reporting we use elsewhere, because
-// I needed them to be droppable, and theres no good way to make our liveness reporting be able
-// to handle that.
-impl TransactionalProducer {
+impl TransactionalProducer<DefaultClientContext> {
+    // Create a transactional producer, with a default context
     pub fn from_config(
         config: &KafkaConfig,
         transactional_id: &str,
         timeout: Duration,
+    ) -> Result<Self, KafkaError> {
+        Self::with_context(
+            config,
+            transactional_id,
+            timeout,
+            DefaultClientContext::default(),
+        )
+    }
+}
+
+impl<C: ClientContext> TransactionalProducer<C> {
+    pub fn with_context(
+        config: &KafkaConfig,
+        transactional_id: &str,
+        timeout: Duration,
+        context: C,
     ) -> Result<Self, KafkaError> {
         let mut client_config = ClientConfig::new();
         client_config
@@ -57,7 +79,7 @@ impl TransactionalProducer {
         };
 
         debug!("rdkafka configuration: {:?}", client_config);
-        let api: FutureProducer = client_config.create()?;
+        let api: FutureProducer<C> = client_config.create_with_context(context)?;
 
         // "Ping" the Kafka brokers by requesting metadata
         match api
@@ -84,7 +106,7 @@ impl TransactionalProducer {
         })
     }
 
-    pub fn begin(self) -> Result<KafkaTransaction, KafkaError> {
+    pub fn begin(&mut self) -> Result<KafkaTransaction<C>, KafkaError> {
         self.inner.begin_transaction()?;
         Ok(KafkaTransaction { producer: self })
     }
@@ -97,18 +119,24 @@ impl TransactionalProducer {
     // Expose the inner at the producer level, but not at the transaction level -
     // during a transaction, we want strong control over the operations done, but outside
     // of the transaction, we want to be able to do things like fetch metadata
-    pub fn inner(&self) -> &FutureProducer {
+    pub fn inner(&self) -> &FutureProducer<C> {
         &self.inner
     }
 }
 
-// Transactions are either read-write or write-only
-pub struct KafkaTransaction {
-    producer: TransactionalProducer,
+pub struct KafkaTransaction<'a, C = DefaultClientContext>
+where
+    C: ClientContext + 'static,
+{
+    // NOTE: kafka requires any producer have only a single transaction running at any time. We
+    // enforce this by having transactions mutably borrow the initiating producer, although this
+    // is not strictly necessary by the rdkafka interface itself
+    producer: &'a mut TransactionalProducer<C>,
 }
 
-// TODO - support for read offset commit association, which turns out to be a little tricky
-impl KafkaTransaction {
+// TODO - most of these are blocking, and we should wrap them in spawn_blocking and expose
+// a purely async interface
+impl<'a, C: ClientContext> KafkaTransaction<'a, C> {
     pub async fn send_keyed_iter_to_kafka<D>(
         &self,
         topic: &str,
@@ -132,17 +160,46 @@ impl KafkaTransaction {
         send_keyed_iter_to_kafka(&self.producer.inner, topic, |_| None, iter).await
     }
 
-    pub fn commit(self) -> Result<TransactionalProducer, KafkaError> {
+    pub fn associate_offsets(
+        &self,
+        offsets: Vec<Offset>,
+        metadata: &ConsumerGroupMetadata,
+    ) -> Result<(), KafkaError> {
+        let tpl = to_topic_partition_list(offsets)?;
+        self.producer
+            .inner
+            .send_offsets_to_transaction(&tpl, metadata, self.producer.timeout)
+    }
+
+    pub fn commit(self) -> Result<(), KafkaError> {
         self.producer
             .inner
             .commit_transaction(self.producer.timeout)?;
-        Ok(self.producer)
+        Ok(())
     }
 
-    pub fn abort(self) -> Result<TransactionalProducer, KafkaError> {
+    pub fn abort(self) -> Result<(), KafkaError> {
         self.producer
             .inner
             .abort_transaction(self.producer.timeout)?;
-        Ok(self.producer)
+        Ok(())
     }
+}
+
+fn to_topic_partition_list(offsets: Vec<Offset>) -> Result<TopicPartitionList, KafkaError> {
+    let mut topic_map = HashMap::new();
+    for offset in offsets.into_iter() {
+        let key = (offset.topic, offset.partition);
+        let stored = topic_map.entry(key).or_insert(offset.offset);
+        if *stored < offset.offset {
+            *stored = offset.offset
+        }
+    }
+
+    let topic_map = topic_map
+        .into_iter()
+        .map(|(k, v)| (k, rdkafka::Offset::from_raw(v)))
+        .collect();
+
+    TopicPartitionList::from_topic_map(&topic_map)
 }
