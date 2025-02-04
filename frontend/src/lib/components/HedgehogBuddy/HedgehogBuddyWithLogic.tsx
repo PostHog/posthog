@@ -31,7 +31,7 @@ export function HedgehogBuddyWithLogic(): JSX.Element {
             const hedgeHogMode = new HedgeHogMode({
                 assetsUrl: '/static/hedgehog-mode/',
                 platformSelector:
-                    '.border, .border-t, .LemonButton--primary, .LemonButton--secondary:not(.LemonButton--status-alt:not(.LemonButton--active)), .LemonInput, .LemonSelect, .LemonTable',
+                    '.border, .border-t, .LemonButton--primary, .LemonButton--secondary:not(.LemonButton--status-alt:not(.LemonButton--active)), .LemonInput, .LemonSelect, .LemonTable, .LemonSwitch--bordered',
             })
             hedgeHogMode
                 .render(ref)
@@ -42,6 +42,7 @@ export function HedgehogBuddyWithLogic(): JSX.Element {
                     console.error('Error rendering hedgehog mode', e)
                 })
         }
+        return () => game?.destroy()
     }, [ref])
 
     useEffect(() => {
@@ -89,7 +90,7 @@ export function HedgehogBuddyWithLogic(): JSX.Element {
 
     return hedgehogConfig.enabled ? (
         <>
-            <div id="game" className="fixed inset-0" style={{ zIndex: 99999 }} ref={setRef} />
+            <div id="game" className="fixed inset-0 antialiased" style={{ zIndex: 99999 }} ref={setRef} />
             <MyHedgehogBuddy onClose={() => patchHedgehogConfig({ enabled: false })} />
 
             {hedgehogConfig.party_mode_enabled
