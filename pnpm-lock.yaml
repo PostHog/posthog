@@ -64,7 +64,7 @@ dependencies:
     version: 0.0.6
   '@posthog/rrweb-plugin-console-record':
     specifier: 0.0.6
-    version: 0.0.6(@posthog/rrweb-utils@0.0.4)(@posthog/rrweb@0.0.6)
+    version: 0.0.6(@posthog/rrweb-utils@0.0.7)(@posthog/rrweb@0.0.6)
   '@posthog/rrweb-types':
     specifier: 0.0.6
     version: 0.0.6
@@ -315,8 +315,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.215.1
-    version: 1.215.1
+    specifier: 1.215.2
+    version: 1.215.2
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -5448,14 +5448,14 @@ packages:
       '@posthog/rrweb-snapshot': 0.0.4
     dev: false
 
-  /@posthog/rrweb-plugin-console-record@0.0.6(@posthog/rrweb-utils@0.0.4)(@posthog/rrweb@0.0.6):
+  /@posthog/rrweb-plugin-console-record@0.0.6(@posthog/rrweb-utils@0.0.7)(@posthog/rrweb@0.0.6):
     resolution: {integrity: sha512-aFbFNjbx6qk6HJZ4scFJcF3QS9IUjSmAxg5KMvSTlixwYUUJuKGJUmzau2sb6kqC4V8OICfkzAfq0q+k5xMpDQ==}
     peerDependencies:
       '@posthog/rrweb': '*'
       '@posthog/rrweb-utils': '*'
     dependencies:
       '@posthog/rrweb': 0.0.6
-      '@posthog/rrweb-utils': 0.0.4
+      '@posthog/rrweb-utils': 0.0.7
     dev: false
 
   /@posthog/rrweb-snapshot@0.0.4:
@@ -5470,6 +5470,10 @@ packages:
 
   /@posthog/rrweb-utils@0.0.4:
     resolution: {integrity: sha512-ndkpquzqXV/i0u4paOPiESWE/wdOEPdM+Q+sFQfcn6KnvjxtkzsnNNSlOcNHSwuRh0bCk3Cgs2ixDVTSZ+Zdtg==}
+    dev: false
+
+  /@posthog/rrweb-utils@0.0.7:
+    resolution: {integrity: sha512-JmKPAJFQzBtKS4kJF/A9SqwK9v+hcZ8Hqw/H0dAi5CiHjedRcSOH5jXym9/y3Kdskam1tScGEBUCjNjyKKgKGw==}
     dev: false
 
   /@posthog/rrweb@0.0.6:
@@ -18455,8 +18459,8 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.215.1:
-    resolution: {integrity: sha512-C64FFbuBB1VyMRMbFj+SyFwcJ6CjsGvNbsPfrH/PO/rv+SeK3KDXMmJ4XrqEN/eZU4DEEfx0Gscqdq9v9jbhCw==}
+  /posthog-js@1.215.2:
+    resolution: {integrity: sha512-CDK+R8CFW8GopisuGr41VHSmzFzsn0BI+VKf/WVTfE27RfVhUIa1BPxLYOMMLO70zmFiCnSqmnc0NthgcyNhPg==}
     dependencies:
       core-js: 3.40.0
       fflate: 0.4.8
@@ -19089,7 +19093,7 @@ packages:
       react: '>=15'
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.205.0
+      unlayer-types: 1.206.0
     dev: false
 
   /react-error-boundary@3.1.4(react@18.2.0):
@@ -21681,8 +21685,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  /unlayer-types@1.205.0:
-    resolution: {integrity: sha512-RlUl8Wx4XeXoc57SlIg5PaITlVUgkxvjqJohh3rgZbctBl3O7nBgelhiXZTjw2rDiS6dJlQ5PSW1uYnLnenrfw==}
+  /unlayer-types@1.206.0:
+    resolution: {integrity: sha512-ORUr4iKqlphWADu/ArReDmPk5ia+LHWoGgHaX5JrHtnUDbaaLITH+oqP46HXc41iMbrfJQxLWRcm1LXeskaubw==}
     dev: false
 
   /unpipe@1.0.0:
