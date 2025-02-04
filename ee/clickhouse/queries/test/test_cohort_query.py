@@ -65,6 +65,15 @@ def execute(filter: Filter, team: Team):
     return res, q, params
 
 
+def execute2(filter: Filter, team: Team):
+    cohort_query = CohortQuery(filter=filter, team=team)
+    q, params = cohort_query.get_query()
+    res = sync_execute(q, {**params, **filter.hogql_context.values})
+    unittest.TestCase().assertCountEqual(res, cohort_query.hogql_result.results)
+    assert ["id"] == cohort_query.hogql_result.columns
+    return res, q, params, cohort_query.clickhouse_query
+
+
 class TestCohortQuery(ClickhouseTestMixin, BaseTest):
     @snapshot_clickhouse_queries
     def test_basic_query(self):
@@ -3417,4 +3426,110 @@ class TestCohortNegationValidation(BaseTest):
         )
 
         res, q, params = execute(filter, self.team)
+        assert 1 == len(res)
+
+    def test_teams(self):
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="createdDate",
+            property_type="Boolean",
+            type=PropertyDefinition.Type.EVENT,
+        )
+
+        other_team = Team.objects.create(organization=self.organization, project=self.project)
+
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p1"],
+            properties={"name": "test", "email": "test@posthog.com"},
+        )
+
+        _create_person(
+            team_id=other_team.pk,
+            distinct_ids=["p2"],
+            properties={"name": "test", "email": "test@posthog.com"},
+        )
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            properties={"createdDate": "true"},
+            timestamp=datetime.now(),
+            distinct_id="p1",
+        )
+
+        _create_event(
+            team=other_team,
+            event="$pageview",
+            properties={"createdDate": "true"},
+            timestamp=datetime.now(),
+            distinct_id="p2",
+        )
+
+        action = Action.objects.create(
+            team=self.team,
+            name="action",
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "properties": [
+                        {
+                            "key": "createdDate",
+                            "operator": "exact",
+                            "value": ["true"],
+                            "type": "event",
+                        }
+                    ],
+                }
+            ],
+        )
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="cohort",
+            is_static=False,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "key": action.pk,
+                                    "type": "behavioral",
+                                    "value": "performed_event",
+                                    "negation": False,
+                                    "event_type": "actions",
+                                    "time_value": "30",
+                                    "time_interval": "day",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        filter_data = {
+            "properties": {
+                "type": "OR",
+                "values": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
+            }
+        }
+
+        res, q, params, ch = execute2(
+            Filter(
+                data=filter_data,
+                team=self.team,
+            ),
+            self.team,
+        )
+        res1, q1, params1, ch1 = execute2(
+            Filter(
+                data=filter_data,
+                team=other_team,
+            ),
+            other_team,
+        )
         assert 1 == len(res)

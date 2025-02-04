@@ -53,7 +53,7 @@ class TestWrapperCohortQuery(CohortQuery):
     def __init__(self, filter: Filter, team: Team):
         cohort_query = CohortQuery(filter=filter, team=team)
         hogql_cohort_query = HogQLCohortQuery(cohort_query=cohort_query)
-        # hogql_query = hogql_cohort_query.query_str("hogql")
+        self.clickhouse_query = hogql_cohort_query.query_str("clickhouse")
         self.hogql_result = execute_hogql_query(hogql_cohort_query.get_query(), team)
         super().__init__(filter=filter, team=team)
 
