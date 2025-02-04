@@ -86,7 +86,13 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         chain = generation_prompt | merger | self._model | parser
 
         try:
-            message: SchemaGeneratorOutput[Q] = chain.invoke({}, config)
+            message: SchemaGeneratorOutput[Q] = chain.invoke(
+                {
+                    "project_datetime": self.project_now,
+                    "project_timezone": self.project_timezone,
+                },
+                config,
+            )
         except PydanticOutputParserException as e:
             # Generation step is expensive. After a second unsuccessful attempt, it's better to send a failure message.
             if len(intermediate_steps) >= 2:
