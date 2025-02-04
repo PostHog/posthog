@@ -1,7 +1,6 @@
 import { Meta, PluginAttachment, PluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyTransformationPlugin, LegacyTransformationPluginMeta } from '../../types'
-import metadata from './plugin.json'
+import { LegacyTransformationPluginMeta } from '../../types'
 
 export interface Filter {
     property: string
