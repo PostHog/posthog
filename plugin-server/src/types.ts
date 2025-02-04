@@ -325,9 +325,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     HOG_TRANSFORMATIONS_ENABLED: boolean
     HOG_TRANSFORMATIONS_COMPARISON_PERCENTAGE: number | undefined
 
-    SESSION_RECORDING_MAX_BATCH_SIZE_KB: number | undefined
-    SESSION_RECORDING_MAX_BATCH_AGE_MS: number | undefined
-
     // cookieless
     COOKIELESS_DISABLED: boolean
     COOKIELESS_FORCE_STATELESS_MODE: boolean
@@ -337,9 +334,14 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     COOKIELESS_SESSION_INACTIVITY_MS: number
     COOKIELESS_IDENTIFIES_TTL_SECONDS: number
 
-    SESSION_RECORDING_V2_S3_BUCKET?: string
-    SESSION_RECORDING_V2_S3_PREFIX?: string
-    SESSION_RECORDING_V2_S3_REGION?: string
+    SESSION_RECORDING_MAX_BATCH_SIZE_KB: number
+    SESSION_RECORDING_MAX_BATCH_AGE_MS: number
+    SESSION_RECORDING_V2_S3_BUCKET: string
+    SESSION_RECORDING_V2_S3_PREFIX: string
+    SESSION_RECORDING_V2_S3_ENDPOINT: string
+    SESSION_RECORDING_V2_S3_REGION: string
+    SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: string
+    SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: string
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -1006,6 +1008,7 @@ export enum PropertyOperator {
     IsNotSet = 'is_not_set',
     IsDateBefore = 'is_date_before',
     IsDateAfter = 'is_date_after',
+    IsCleanedPathExact = 'is_cleaned_path_exact',
 }
 
 /** Sync with posthog/frontend/src/types.ts */

@@ -308,6 +308,7 @@ export type HogFunctionType = {
     depends_on_integration_ids?: Set<IntegrationType['id']>
     template_id?: string
     execution_order?: number
+    created_at: string
 }
 
 export type HogFunctionInputType = {

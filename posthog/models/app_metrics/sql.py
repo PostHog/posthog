@@ -1,6 +1,7 @@
 from django.conf import settings
 
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
+from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import (
     AggregatingMergeTree,
     Distributed,
@@ -8,9 +9,10 @@ from posthog.clickhouse.table_engines import (
 )
 from posthog.kafka_client.topics import KAFKA_APP_METRICS
 
-SHARDED_APP_METRICS_TABLE_ENGINE = lambda: AggregatingMergeTree(
-    "sharded_app_metrics", replication_scheme=ReplicationScheme.SHARDED
-)
+
+def SHARDED_APP_METRICS_TABLE_ENGINE():
+    return AggregatingMergeTree("sharded_app_metrics", replication_scheme=ReplicationScheme.SHARDED)
+
 
 BASE_APP_METRICS_COLUMNS = """
     team_id Int64,
@@ -32,8 +34,8 @@ BASE_APP_METRICS_COLUMNS = """
 APP_METRICS_TIMESTAMP_TRUNCATION = "toStartOfHour(timestamp)"
 
 APP_METRICS_DATA_TABLE_SQL = (
-    lambda: f"""
-CREATE TABLE IF NOT EXISTS sharded_app_metrics ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
+    lambda on_cluster=True: f"""
+CREATE TABLE IF NOT EXISTS sharded_app_metrics {ON_CLUSTER_CLAUSE(on_cluster)}
 (
     {BASE_APP_METRICS_COLUMNS}
     {KAFKA_COLUMNS_WITH_PARTITION}
@@ -46,8 +48,8 @@ ORDER BY (team_id, plugin_config_id, job_id, category, {APP_METRICS_TIMESTAMP_TR
 
 
 DISTRIBUTED_APP_METRICS_TABLE_SQL = (
-    lambda: f"""
-CREATE TABLE IF NOT EXISTS app_metrics ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
+    lambda on_cluster=True: f"""
+CREATE TABLE IF NOT EXISTS app_metrics {ON_CLUSTER_CLAUSE(on_cluster)}
 (
     {BASE_APP_METRICS_COLUMNS}
     {KAFKA_COLUMNS_WITH_PARTITION}
@@ -57,8 +59,8 @@ ENGINE={Distributed(data_table="sharded_app_metrics", sharding_key="rand()")}
 )
 
 KAFKA_APP_METRICS_TABLE_SQL = (
-    lambda: f"""
-CREATE TABLE IF NOT EXISTS kafka_app_metrics ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
+    lambda on_cluster=True: f"""
+CREATE TABLE IF NOT EXISTS kafka_app_metrics {ON_CLUSTER_CLAUSE(on_cluster)}
 (
     team_id Int64,
     timestamp DateTime64(6, 'UTC'),
@@ -77,8 +79,8 @@ ENGINE={kafka_engine(topic=KAFKA_APP_METRICS)}
 )
 
 APP_METRICS_MV_TABLE_SQL = (
-    lambda: f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS app_metrics_mv ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'
+    lambda on_cluster=True: f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS app_metrics_mv {ON_CLUSTER_CLAUSE(on_cluster)}
 TO {settings.CLICKHOUSE_DATABASE}.sharded_app_metrics
 AS SELECT
 team_id,

@@ -2,7 +2,6 @@ import './WebVitalsTab.scss'
 
 import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { WEB_VITALS_THRESHOLDS } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { WebVitalsMetric } from '~/queries/schema'
 
@@ -15,21 +14,12 @@ type WebVitalsTabProps = {
     metric: WebVitalsMetric
     isActive: boolean
     setTab?: () => void
-    inSeconds?: boolean
 }
 
-export function WebVitalsTab({
-    value,
-    label,
-    metric,
-    isActive,
-    setTab,
-    inSeconds = false,
-}: WebVitalsTabProps): JSX.Element {
-    const { value: parsedValue, unit } = getValueWithUnit(value, inSeconds)
+export function WebVitalsTab({ value, label, metric, isActive, setTab }: WebVitalsTabProps): JSX.Element {
+    const { value: parsedValue, unit } = getValueWithUnit(value, metric)
 
-    const threshold = WEB_VITALS_THRESHOLDS[metric]
-    const thresholdColor = getThresholdColor(value, threshold)
+    const thresholdColor = getThresholdColor(value, metric)
 
     return (
         <div
@@ -46,11 +36,11 @@ export function WebVitalsTab({
                 <span className={clsx('text-2xl', `text-${thresholdColor}`)}>
                     {parsedValue || <LemonSkeleton fade className="w-20 h-8" />}
                 </span>
-                {inSeconds && <span className="text-xs ml-1 mb-1">{unit}</span>}
+                <span className="text-xs ml-1 mb-1">{unit}</span>
             </div>
 
             <div className="w-full mt-2 hidden sm:block">
-                <WebVitalsProgressBar value={value} threshold={threshold} />
+                <WebVitalsProgressBar value={value} metric={metric} />
             </div>
         </div>
     )
