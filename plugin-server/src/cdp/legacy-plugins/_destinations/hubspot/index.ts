@@ -2,8 +2,7 @@ import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 
 import { Response } from '~/src/utils/fetch'
 
-import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from '../../types'
-import metadata from './plugin.json'
+import { LegacyDestinationPluginMeta } from '../../types'
 
 const hubspotPropsMap = {
     companyName: 'company',

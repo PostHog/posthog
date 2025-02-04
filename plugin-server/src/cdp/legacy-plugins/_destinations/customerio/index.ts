@@ -4,6 +4,7 @@ import { RetryError } from '@posthog/plugin-scaffold'
 import { Response } from '~/src/utils/fetch'
 
 import { LegacyDestinationPluginMeta } from '../../types'
+
 const DEFAULT_HOST = 'track.customer.io'
 const DEFAULT_SEND_EVENTS_FROM_ANONYMOUS_USERS = 'Send all events'
 
