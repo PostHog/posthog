@@ -669,7 +669,7 @@ describe('filtersToQueryNode', () => {
                 returning_entity: { id: '1' },
                 target_entity: { id: '1' },
                 period: RetentionPeriod.Day,
-                show_mean: true,
+                show_mean: 'simple',
             }
 
             const result = filtersToQueryNode(filters)
@@ -683,7 +683,7 @@ describe('filtersToQueryNode', () => {
                     returningEntity: { id: '1' },
                     targetEntity: { id: '1' },
                     period: RetentionPeriod.Day,
-                    showMean: true,
+                    showMean: 'simple',
                 },
             }
             expect(result).toEqual(query)
