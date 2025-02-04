@@ -15,8 +15,8 @@ export function QuestionInput(): JSX.Element {
     const isFloating = threadGrouped.length > 0
 
     useEffect(() => {
-        if (!threadLoading) {
-            textAreaRef.current?.focus() // Auto focus, both on mount and when Max finishes thinking
+        if (threadLoading) {
+            textAreaRef.current?.focus() // Focus after submit
         }
     }, [threadLoading])
 
@@ -42,6 +42,7 @@ export function QuestionInput(): JSX.Element {
                 minRows={1}
                 maxRows={10}
                 className={clsx('p-3', isFloating && 'border-border-bold')}
+                autoFocus
             />
             <div className={clsx('absolute top-0 bottom-0 flex items-center', isFloating ? 'right-3' : 'right-2')}>
                 <LemonButton

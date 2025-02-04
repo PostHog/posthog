@@ -22,7 +22,7 @@ export const settingsLogic = kea<settingsLogicType>([
             userLogic,
             ['hasAvailableFeature'],
             preflightLogic,
-            ['preflight'],
+            ['preflight', 'isCloudOrDev'],
             teamLogic,
             ['currentTeam'],
         ],
@@ -85,9 +85,15 @@ export const settingsLogic = kea<settingsLogicType>([
             },
         ],
         sections: [
-            (s) => [s.doesMatchFlags, s.featureFlags],
-            (doesMatchFlags, featureFlags): SettingSection[] => {
-                const sections = SETTINGS_MAP.filter(doesMatchFlags)
+            (s) => [s.doesMatchFlags, s.featureFlags, s.isCloudOrDev],
+            (doesMatchFlags, featureFlags, isCloudOrDev): SettingSection[] => {
+                const sections = SETTINGS_MAP.filter(doesMatchFlags).filter((section) => {
+                    if (section.hideSelfHost && !isCloudOrDev) {
+                        return false
+                    }
+
+                    return true
+                })
                 if (!featureFlags[FEATURE_FLAGS.ENVIRONMENTS]) {
                     return sections
                         .filter((section) => section.level !== 'project')

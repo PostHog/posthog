@@ -10,6 +10,7 @@ import { PersonsJoinMode } from 'scenes/settings/environment/PersonsJoinMode'
 import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
 import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
+import { urls } from 'scenes/urls'
 
 import { Realm } from '~/types'
 
@@ -496,6 +497,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <RoleBasedAccess />,
             },
         ],
+    },
+    {
+        level: 'organization',
+        id: 'organization-billing',
+        hideSelfHost: true,
+        title: 'Billing',
+        to: urls.organizationBilling(),
+        settings: [],
     },
     {
         level: 'organization',
