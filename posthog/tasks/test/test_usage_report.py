@@ -61,7 +61,7 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 from posthog.test.fixtures import create_app_metric2
-from posthog.utils import get_machine_id, get_previous_day
+from posthog.utils import get_machine_id, get_previous_day, get_current_day
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
 
 logger = structlog.get_logger(__name__)
@@ -1465,6 +1465,101 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         assert org_1_report["teams"]["3"]["hog_function_fetch_calls_in_period"] == 1
         assert org_1_report["teams"]["4"]["hog_function_calls_in_period"] == 3
         assert org_1_report["teams"]["4"]["hog_function_fetch_calls_in_period"] == 2
+
+
+@freeze_time("2022-01-10T10:00:00Z")
+class TestErrorTrackingUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
+    def setUp(self) -> None:
+        Team.objects.all().delete()
+        return super().setUp()
+
+    def _setup_teams(self) -> None:
+        self.analytics_org = Organization.objects.create(name="PostHog")
+        self.org_1 = Organization.objects.create(name="Org 1")
+        self.org_2 = Organization.objects.create(name="Org 2")
+
+        self.analytics_team = Team.objects.create(pk=2, organization=self.analytics_org, name="Analytics")
+
+        self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
+        self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
+        self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
+
+    @patch("posthog.tasks.usage_report.Client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_posthog_exceptions_captured_response(
+        self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
+    ) -> None:
+        self._setup_teams()
+
+        for i in range(10):
+            _create_event(
+                distinct_id="3",
+                event="$exception",
+                timestamp=now() - relativedelta(hours=i),
+                team=self.analytics_team,
+            )
+
+        for i in range(5):
+            _create_event(
+                distinct_id="4",
+                event="$exception",
+                timestamp=now() - relativedelta(hours=i),
+                team=self.org_1_team_1,
+            )
+            _create_event(
+                distinct_id="4",
+                event="$exception",
+                timestamp=now() - relativedelta(hours=i),
+                team=self.org_1_team_2,
+            )
+
+        for i in range(7):
+            _create_event(
+                distinct_id="5",
+                event="$exception",
+                timestamp=now() - relativedelta(hours=i),
+                team=self.org_2_team_3,
+            )
+
+        # some out of range events
+        _create_event(
+            distinct_id="3",
+            event="$exception",
+            timestamp=now() - relativedelta(days=20),
+            team=self.analytics_team,
+        )
+        # sentry events excluded
+        _create_event(
+            distinct_id="4",
+            event="$exception",
+            properties={"$sentry_event_id": "some id"},
+            team=self.org_1_team_1,
+        )
+
+        flush_persons_and_events()
+
+        period = get_current_day()
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+
+        assert len(all_reports) == 3
+
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+
+        assert org_1_report["organization_name"] == "Org 1"
+        assert org_1_report["posthog_exceptions_captured_in_period"] == 10
+        assert org_1_report["teams"][str(self.org_1_team_1.pk)]["posthog_exceptions_captured_in_period"] == 5
+        assert org_1_report["teams"][str(self.org_1_team_2.pk)]["posthog_exceptions_captured_in_period"] == 5
+
+        org_2_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_2.id)], get_instance_metadata(period))
+        )
+
+        assert org_2_report["organization_name"] == "Org 2"
+        assert org_2_report["posthog_exceptions_captured_in_period"] == 7
+        assert org_2_report["teams"][str(self.org_2_team_3.pk)]["posthog_exceptions_captured_in_period"] == 7
 
 
 class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):

@@ -984,9 +984,6 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         survey_responses_count_in_period=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
         rows_synced_in_period=all_data["teams_with_rows_synced_in_period"].get(team.id, 0),
         issues_created_total=all_data["teams_with_issues_created_total"].get(team.id, 0),
-        posthog_exceptions_captured_in_period=all_data["teams_with_posthog_exceptions_captured_in_period"].get(
-            team.id, 0
-        ),
         hog_function_calls_in_period=all_data["teams_with_hog_function_calls_in_period"].get(team.id, 0),
         hog_function_fetch_calls_in_period=all_data["teams_with_hog_function_fetch_calls_in_period"].get(team.id, 0),
         web_events_count_in_period=all_data["teams_with_web_events_count_in_period"].get(team.id, 0),
@@ -1001,6 +998,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         ruby_events_count_in_period=all_data["teams_with_ruby_events_count_in_period"].get(team.id, 0),
         python_events_count_in_period=all_data["teams_with_python_events_count_in_period"].get(team.id, 0),
         php_events_count_in_period=all_data["teams_with_php_events_count_in_period"].get(team.id, 0),
+        posthog_exceptions_captured_in_period=all_data["teams_with_posthog_exceptions_captured_in_period"].get(
+            team.id, 0
+        ),
     )
 
 
