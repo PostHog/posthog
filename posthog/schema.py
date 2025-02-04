@@ -5498,7 +5498,7 @@ class RetentionFilter(BaseModel):
     )
     retentionType: Optional[RetentionType] = None
     returningEntity: Optional[RetentionEntity] = None
-    showMean: Optional[bool] = None
+    showMean: Optional[str] = None
     targetEntity: Optional[RetentionEntity] = None
     totalIntervals: Optional[int] = 11
 
@@ -5515,7 +5515,7 @@ class RetentionFilterLegacy(BaseModel):
     )
     retention_type: Optional[RetentionType] = None
     returning_entity: Optional[RetentionEntity] = None
-    show_mean: Optional[bool] = None
+    show_mean: Optional[str] = None
     target_entity: Optional[RetentionEntity] = None
     total_intervals: Optional[int] = None
 
@@ -5892,10 +5892,10 @@ class AssistantRetentionFilter(BaseModel):
     returningEntity: Optional[RetentionEntity] = Field(
         default=None, description="Retention event (event marking the user coming back)."
     )
-    showMean: Optional[bool] = Field(
+    showMean: Optional[str] = Field(
         default=None,
         description=(
-            "Whether an additional series should be shown, showing the mean conversion for each period across cohorts."
+            "Whether an additional series should be shown, showing the simple or weighted mean conversion for each period across cohorts."
         ),
     )
     targetEntity: Optional[RetentionEntity] = Field(
