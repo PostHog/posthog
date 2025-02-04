@@ -1,11 +1,11 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { Dayjs, dayjs } from 'lib/dayjs'
+import { dayjs } from 'lib/dayjs'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { DateRange, ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { Breadcrumb } from '~/types'
 
 import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
@@ -23,27 +23,6 @@ export enum EventsMode {
     All = 'all',
 }
 
-function generateIssueDateRange(first_seen: string, last_seen?: string): DateRange {
-    // Minimum 30 days required for Sparkline data
-    const thirtyDaysAgo = dayjs().subtract(30, 'day').startOf('day')
-    const firstSeen = dayjs(first_seen).startOf('day')
-
-    const thirtyDayMinimum = (date: Dayjs, referenceDate: Dayjs): string => {
-        const thirtyDaysPrior = referenceDate.subtract(30, 'day').startOf('day')
-        return date.isSameOrAfter(thirtyDaysPrior) ? thirtyDaysPrior.toISOString() : date.startOf('day').toISOString()
-    }
-
-    if (last_seen) {
-        const lastSeen = dayjs(last_seen).startOf('day')
-
-        if (lastSeen.isBefore(thirtyDaysAgo)) {
-            return { date_to: lastSeen.toISOString(), date_from: thirtyDayMinimum(firstSeen, lastSeen) }
-        }
-        return { date_from: thirtyDaysAgo.toISOString() }
-    }
-    return { date_from: thirtyDayMinimum(firstSeen, dayjs()) }
-}
-
 export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType>([
     path((key) => ['scenes', 'error-tracking', 'errorTrackingIssueSceneLogic', key]),
     props({} as ErrorTrackingIssueSceneLogicProps),
@@ -51,6 +30,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
 
     connect({
         values: [errorTrackingLogic, ['dateRange', 'filterTestAccounts', 'filterGroup', 'customSparklineConfig']],
+        actions: [errorTrackingLogic, ['setDateRange', 'setFilterTestAccounts', 'setFilterGroup']],
     }),
 
     actions({
@@ -79,10 +59,14 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 },
                 loadClickHouseIssue: async (firstSeen: string, breakpoint) => {
                     breakpoint()
+                    const dateRange = {
+                        date_from: dayjs(firstSeen).subtract(10, 'day').toISOString(),
+                        date_to: values.issue?.last_seen || dayjs().toISOString(),
+                    }
                     const response = await api.query(
                         errorTrackingIssueQuery({
                             issueId: props.id,
-                            dateRange: generateIssueDateRange(firstSeen, values.issue?.last_seen),
+                            dateRange: dateRange,
                             customVolume: values.customSparklineConfig,
                         }),
                         {},
@@ -139,18 +123,29 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         ],
     }),
 
-    listeners(({ values, actions }) => ({
-        loadIssue: () => {
-            if (!values.issueLoading) {
-                const issue = values.issue
-                if (!issue) {
-                    actions.loadRelationalIssue()
-                } else if (!issue.last_seen) {
-                    actions.loadClickHouseIssue(issue.first_seen)
-                }
+    listeners(({ values, actions }) => {
+        const loadClickHouseIssue = (): void => {
+            if (values.issue?.first_seen) {
+                actions.loadClickHouseIssue(values.issue.first_seen)
             }
-        },
-        loadRelationalIssueSuccess: ({ issue }) => actions.loadClickHouseIssue(issue.first_seen),
-        setIssueSuccess: () => actions.loadIssue(),
-    })),
+        }
+
+        return {
+            loadIssue: () => {
+                if (!values.issueLoading) {
+                    const issue = values.issue
+                    if (!issue) {
+                        actions.loadRelationalIssue()
+                    } else if (!issue.last_seen) {
+                        actions.loadClickHouseIssue(issue.first_seen)
+                    }
+                }
+            },
+            setIssueSuccess: () => actions.loadIssue(),
+            loadRelationalIssueSuccess: loadClickHouseIssue,
+            setDateRange: loadClickHouseIssue,
+            setFilterTestAccounts: loadClickHouseIssue,
+            setFilterGroup: loadClickHouseIssue,
+        }
+    }),
 ])
