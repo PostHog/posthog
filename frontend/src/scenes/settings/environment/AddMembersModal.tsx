@@ -28,10 +28,9 @@ export function AddMembersModalWithButton({ disabledReason }: { disabledReason: 
                 type="primary"
                 data-attr="add-project-members-button"
                 onClick={() =>
-                    guardAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING, () => openAddMembersModal(), {
+                    guardAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS, () => openAddMembersModal(), {
                         isGrandfathered:
-                            !hasAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING) &&
-                            currentTeam?.access_control,
+                            !hasAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS) && currentTeam?.access_control,
                     })
                 }
                 icon={<IconPlus />}
