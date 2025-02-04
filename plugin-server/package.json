@@ -108,7 +108,7 @@
         "0x": "^5.5.0",
         "@babel/cli": "^7.18.10",
         "@babel/types": "^7.20.2",
-        "@sentry/types": "^7.17.4",
+        "@sentry/types": "7.17.4",
         "@swc-node/register": "^1.5.1",
         "@swc/core": "^1.2.186",
         "@swc/jest": "^0.2.21",

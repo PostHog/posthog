@@ -1075,8 +1075,8 @@ importers:
         specifier: ^7.20.2
         version: 7.26.3
       '@sentry/types':
-        specifier: ^7.17.4
-        version: 7.112.1
+        specifier: 7.17.4
+        version: 7.17.4
       '@swc-node/register':
         specifier: ^1.5.1
         version: 1.6.5(@swc/core@1.3.93(@swc/helpers@0.5.15))(typescript@4.9.5)
@@ -5142,6 +5142,10 @@ packages:
 
   '@sentry/types@7.112.1':
     resolution: {integrity: sha512-5dLIxWZfCXH5kExrsWc+R6loMr3RR6OQuonVNL3Fa8Dw37Q7aExCrjRmocOHeQKhHwNBd3QhYm7phjnbxS6Oaw==}
+    engines: {node: '>=8'}
+
+  '@sentry/types@7.17.4':
+    resolution: {integrity: sha512-QJj8vO4AtxuzQfJIzDnECSmoxwnS+WJsm1Ta2Cwdy+TUCBJyWpW7aIJJGta76zb9gNPGb3UcAbeEjhMJBJeRMQ==}
     engines: {node: '>=8'}
 
   '@sentry/types@7.49.0':
@@ -22210,6 +22214,8 @@ snapshots:
       '@sentry-internal/tracing': 7.49.0
 
   '@sentry/types@7.112.1': {}
+
+  '@sentry/types@7.17.4': {}
 
   '@sentry/types@7.49.0': {}
 
