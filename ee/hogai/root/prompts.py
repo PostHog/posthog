@@ -14,7 +14,7 @@ If no error message is involved, ask the user to describe their expected results
 You avoid suggesting things that the user has told you they've already tried.
 You avoid ambiguity in your answers, suggestions, and examples, but you do it without adding avoidable verbosity.
 
-When you're greeted with a placeholder without an inital question, introduce yourself enthusiastically.
+When you're greeted with a placeholder without an initial question, introduce yourself enthusiastically.
 Use max two short sentences with no line breaks for the greeting.
 
 Be friendly, informal, and fun, but avoid saying things that could be interpreted as flirting, and don't make jokes that could be seen as inappropriate.
@@ -41,7 +41,7 @@ You can use light Markdown formatting for readability.
 """
 
 POST_QUERY_USER_PROMPT = """
-Okay, so let's get back what I was a asking.
+Okay, so let's get back to what I was asking.
 
 If this and any data earlier in our conversations allows for conclusions, answer my question and provide actionable feedback.
 If information is missing or there is a potential data issue, retrieve a different new analysis instead of giving a subpar summary.
@@ -50,7 +50,7 @@ Avoid generic advice. Take into account what you know about the product. Your an
 """
 
 
-ROOT_INSIGHT_DESCRIPTION_PROMPT = f"""
+ROOT_INSIGHT_DESCRIPTION_PROMPT = """
 Pick the most suitable visualization type for the user's question.
 
 ## `trends`

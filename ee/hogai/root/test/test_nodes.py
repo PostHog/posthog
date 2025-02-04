@@ -1,64 +1,95 @@
-from typing import Any
 from unittest.mock import patch
 
 from django.test import override_settings
 from langchain_core.messages import AIMessage as LangchainAIMessage, HumanMessage as LangchainHumanMessage
 from langchain_core.runnables import RunnableLambda
+from parameterized import parameterized
 
-from ee.hogai.root.nodes import RootNode, RouterOutput
+from ee.hogai.root.nodes import RootNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from posthog.schema import (
-    HumanMessage,
-    RouterMessage,
-    VisualizationMessage,
-)
+from posthog.schema import AssistantMessage, HumanMessage, RouterMessage, VisualizationMessage
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 
 @override_settings(IN_UNIT_TESTING=True)
-class TestRouterNode(ClickhouseTestMixin, APIBaseTest):
+class TestRootNode(ClickhouseTestMixin, APIBaseTest):
     def test_router(self):
         node = RootNode(self.team)
-        state: Any = AssistantState(messages=[RouterMessage(content="trends")])
+        state = AssistantState(messages=[RouterMessage(content="trends")])
         self.assertEqual(node.router(state), "trends")
 
-    def test_node_runs(self):
+    def test_node_handles_plain_chat_response(self):
         with patch(
-            "ee.hogai.router.nodes.RouterNode._model",
-            return_value=RunnableLambda(lambda _: RouterOutput(visualization_type="funnel")),
+            "ee.hogai.root.nodes.RootNode._model",
+            return_value=RunnableLambda(
+                lambda _: LangchainAIMessage(content="Why did the chicken cross the road? To get to the other side!")
+            ),
         ):
             node = RootNode(self.team)
-            state: Any = AssistantState(messages=[HumanMessage(content="generate trends")])
-            next_state = node.run(state, {})
+            state_1 = AssistantState(messages=[HumanMessage(content="Tell me a joke")])
+            next_state = node.run(state_1, {})
+            self.assertIsInstance(next_state, PartialAssistantState)
+            self.assertEqual(len(next_state.messages), 1)
+            self.assertIsInstance(next_state.messages[0], AssistantMessage)
             self.assertEqual(
-                next_state,
-                PartialAssistantState(messages=[RouterMessage(content="funnel", id=next_state.messages[0].id)]),
+                next_state.messages[0].content, "Why did the chicken cross the road? To get to the other side!"
             )
 
+    @parameterized.expand(
+        [
+            ["trends"],
+            ["funnel"],
+            ["retention"],
+        ]
+    )
+    def test_node_handles_insight_tool_call(self, insight_type):
         with patch(
-            "ee.hogai.router.nodes.RouterNode._model",
-            return_value=RunnableLambda(lambda _: RouterOutput(visualization_type="trends")),
+            "ee.hogai.root.nodes.RootNode._model",
+            return_value=RunnableLambda(
+                lambda _: LangchainAIMessage(
+                    content="Hang tight while I check this.",
+                    tool_calls=[
+                        {
+                            "id": "xyz",
+                            "name": "retrieve_data_for_question",
+                            "args": {"query_title": "Foobar", "query_kind": insight_type},
+                        }
+                    ],
+                )
+            ),
         ):
             node = RootNode(self.team)
-            state: Any = AssistantState(messages=[HumanMessage(content="generate trends")])
-            next_state = node.run(state, {})
-            self.assertEqual(
-                next_state,
-                PartialAssistantState(messages=[RouterMessage(content="trends", id=next_state.messages[0].id)]),
-            )
+            state_1 = AssistantState(messages=[HumanMessage(content=f"generate {insight_type}")])
+            next_state = node.run(state_1, {})
+            self.assertIsInstance(next_state, PartialAssistantState)
+            self.assertEqual(len(next_state.messages), 2)
+            assistant_message = next_state.messages[0]
+            self.assertIsInstance(assistant_message, AssistantMessage)
+            self.assertEqual(assistant_message.content, "Hang tight while I check this.")
+            self.assertIsNotNone(assistant_message.id)
+            router_msg = next_state.messages[1]
+            self.assertIsInstance(router_msg, RouterMessage)
+            self.assertEqual(router_msg.content, insight_type)
+            self.assertIsNotNone(router_msg.id)
 
     def test_node_reconstructs_conversation(self):
         node = RootNode(self.team)
-        state: Any = AssistantState(messages=[HumanMessage(content="generate trends")])
-        self.assertEqual(node._construct_messages(state), [LangchainHumanMessage(content="Question: generate trends")])
-        state = AssistantState(
+        state_1 = AssistantState(messages=[HumanMessage(content="Hello")])
+        self.assertEqual(node._construct_messages(state_1), [LangchainHumanMessage(content="Hello")])
+
+        # We want full access to message history in root
+        state_2 = AssistantState(
             messages=[
-                HumanMessage(content="generate trends"),
+                HumanMessage(content="Generate trends"),
                 RouterMessage(content="trends"),
                 VisualizationMessage(),
             ]
         )
         self.assertEqual(
-            node._construct_messages(state),
-            [LangchainHumanMessage(content="Question: generate trends"), LangchainAIMessage(content="trends")],
+            node._construct_messages(state_2),
+            [
+                LangchainHumanMessage(content="Hello"),
+                LangchainHumanMessage(content="Generate trends"),
+                LangchainAIMessage(content="trends"),
+            ],
         )

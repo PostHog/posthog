@@ -5,7 +5,6 @@ from uuid import uuid4
 
 from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
-from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from rest_framework.exceptions import APIException
 from sentry_sdk import capture_exception
@@ -48,7 +47,7 @@ class QueryExecutorNode(AssistantNode):
         if not isinstance(viz_message, VisualizationMessage):
             raise ValueError("Can only run summarization with a visualization message as the last one in the state")
         if viz_message.answer is None:
-            raise ValueError("Did not found query in the visualization message")
+            raise ValueError("Did not find query in the visualization message")
 
         try:
             results_response = process_query_dict(  # type: ignore
@@ -108,10 +107,7 @@ class QueryExecutorNode(AssistantNode):
         return PartialAssistantState(
             messages=[
                 AssistantMessage(
-                    content=ChatPromptTemplate.from_messages(
-                        messages=[("assistant", QUERY_RESULTS_PROMPT)],
-                        template_format="mustache",
-                    ).format(
+                    content=QUERY_RESULTS_PROMPT.format(
                         example=example_prompt,
                         query_kind=viz_message.answer.kind,
                         results=results,

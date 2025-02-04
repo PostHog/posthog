@@ -56,7 +56,7 @@ class AssistantNodeName(StrEnum):
     MEMORY_ONBOARDING = "memory_onboarding"
     MEMORY_INITIALIZER = "memory_initializer"
     MEMORY_INITIALIZER_INTERRUPT = "memory_initializer_interrupt"
-    ROOT = "router"
+    ROOT = "root"
     TRENDS_PLANNER = "trends_planner"
     TRENDS_PLANNER_TOOLS = "trends_planner_tools"
     TRENDS_GENERATOR = "trends_generator"
