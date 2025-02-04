@@ -6,7 +6,6 @@
     "source": "src/index.ts",
     "main": "dist/index.js",
     "module": "dist/module.js",
-    "packageManager": "pnpm@8.3.1",
     "scripts": {
         "test": "jest --runInBand --forceExit",
         "clean": "rm -rf dist .parcel-cache",

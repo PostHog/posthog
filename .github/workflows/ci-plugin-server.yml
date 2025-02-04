@@ -161,7 +161,7 @@ jobs:
               with:
                   node-version: 18.12.1
                   cache: pnpm
-                  cache-dependency-path: plugin-server/pnpm-lock.yaml
+                  cache-dependency-path: pnpm-lock.yaml
 
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.plugin-server == 'true'
@@ -253,7 +253,7 @@ jobs:
               with:
                   node-version: 18.12.1
                   cache: pnpm
-                  cache-dependency-path: plugin-server/pnpm-lock.yaml
+                  cache-dependency-path: pnpm-lock.yaml
 
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.plugin-server == 'true'
