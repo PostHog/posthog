@@ -29,6 +29,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
+import { getPropertyKey } from 'lib/taxonomy'
 import { formatDate } from 'lib/utils'
 import { useMemo, useState } from 'react'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
@@ -670,7 +671,7 @@ export default function SurveyEdit(): JSX.Element {
                                                         </LemonField.Pure>
                                                         <LemonField.Pure
                                                             label="Device Types"
-                                                            info="Select the device types to show the survey on"
+                                                            info="Add the device types to show the survey on. Possible values: 'Desktop', 'Mobile', 'Tablet'. Requires at least version 1.214 of posthog-js"
                                                         >
                                                             <div className="flex flex-row gap-2 items-center">
                                                                 Device Types
@@ -694,7 +695,10 @@ export default function SurveyEdit(): JSX.Element {
                                                                     )}
                                                                 />
                                                                 <PropertyValue
-                                                                    propertyKey="$device_type"
+                                                                    propertyKey={getPropertyKey(
+                                                                        'Device Type',
+                                                                        TaxonomicFilterGroupType.EventProperties
+                                                                    )}
                                                                     type={PropertyFilterType.Person}
                                                                     onSet={(deviceTypes: string[]) =>
                                                                         onChange({
@@ -703,9 +707,6 @@ export default function SurveyEdit(): JSX.Element {
                                                                         })
                                                                     }
                                                                     operator={PropertyOperator.Exact}
-                                                                    placeholder="Enter value..."
-                                                                    autoFocus={true}
-                                                                    addRelativeDateTimeOptions={true}
                                                                     value={value?.deviceTypes}
                                                                     inputClassName="flex-1"
                                                                 />
