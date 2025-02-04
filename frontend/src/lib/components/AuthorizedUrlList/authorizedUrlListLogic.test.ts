@@ -96,6 +96,14 @@ describe('the authorized urls list logic', () => {
                 proposedUrl: 'http://valid.example.com:*',
                 validityMessage: 'Wildcards are not allowed in the port position',
             },
+            {
+                proposedUrl: 'http://*.localhost:3000',
+                validityMessage: undefined,
+            },
+            {
+                proposedUrl: 'http://*.valid.com:3000',
+                validityMessage: undefined,
+            },
         ]
 
         testCases.forEach((testCase) => {

@@ -77,7 +77,11 @@ export const validateProposedUrl = (
         return "Please enter a valid domain (URLs with a path aren't allowed)"
     }
 
-    if (proposedUrl.indexOf('*') > -1 && !proposedUrl.match(/^(.*)\*[^*]*\.[^*]+\.[^*]+$/)) {
+    if (
+        proposedUrl.indexOf('*') > -1 &&
+        !/^https?:\/\/(\*\.?)?localhost(:\d+)?$/.test(proposedUrl) && // Allow http://*.localhost and localhost with ports
+        !proposedUrl.match(/^(.*)\*[^*]*\.[^*]+\.[^*]+$/)
+    ) {
         return 'Wildcards can only be used for subdomains'
     }
 
