@@ -581,11 +581,11 @@ def enable_preinstalled_plugins_for_new_team(sender, instance: Team, created: bo
         if not settings.DISABLE_MMDB:
             # New way: Create GeoIP transformation
             from posthog.models.hog_functions.hog_function import HogFunction
-            from posthog.plugins.plugin_server_api import get_hog_function_template
+            from posthog.api.hog_function_template import HogFunctionTemplates
 
-            response = get_hog_function_template("template-geoip")
-            response.raise_for_status()
-            geoip_template = response.json()
+            geoip_template = HogFunctionTemplates.template("template-geoip")
+            if not geoip_template:
+                return
 
             HogFunction.objects.create(
                 team=instance,
