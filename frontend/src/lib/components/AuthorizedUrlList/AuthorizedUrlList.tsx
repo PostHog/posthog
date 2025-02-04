@@ -61,19 +61,22 @@ function EmptyState({
 
         if (suggestionURLs.length > 0) {
             return (
-                <>
-                    There are no authorized {domainOrUrl}s that match your search We've found some URLs you've used
-                    PostHog from in the last 3 days. Consider authorizing them.
-                    {type === AuthorizedUrlListType.RECORDING_DOMAINS &&
-                        ' When no domains are specified, recordings will be authorized on all domains.'}
-                </>
+                <p>
+                    There are no authorized {domainOrUrl}s. <br />
+                    We've found some URLs you've used PostHog from in the last 3 days. Consider authorizing them.
+                    <br />
+                    <span>
+                        {type === AuthorizedUrlListType.RECORDING_DOMAINS &&
+                            ' When no domains are specified, recordings will be authorized on all domains.'}
+                    </span>
+                </p>
             )
         }
 
         return (
             <div className="flex flex-row items-center justify-between w-full">
                 <p>
-                    <span className="font-bold">There are no authorized urls.</span>
+                    <span className="font-bold">There are no authorized {domainOrUrl}s.</span>
                     <br />
                     Add one to get started. When you send us events we'll suggest the ones that you should authorize.
                     <br />
@@ -248,7 +251,7 @@ export function AuthorizedUrlList({
                                                 type === AuthorizedUrlListType.TOOLBAR_URLS
                                                     ? launchUrl(keyedURL.url)
                                                     : // other urls are simply opened directly
-                                                    `${keyedURL.url}${query ?? ''}`
+                                                      `${keyedURL.url}${query ?? ''}`
                                             }
                                             targetBlank
                                             tooltip={
@@ -281,8 +284,9 @@ export function AuthorizedUrlList({
                                             onClick={() => {
                                                 LemonDialog.open({
                                                     title: <>Remove {keyedURL.url} ?</>,
-                                                    description: `Are you sure you want to remove this authorized ${onlyAllowDomains ? 'domain' : 'URL'
-                                                        }?`,
+                                                    description: `Are you sure you want to remove this authorized ${
+                                                        onlyAllowDomains ? 'domain' : 'URL'
+                                                    }?`,
                                                     primaryButton: {
                                                         status: 'danger',
                                                         children: 'Remove',
