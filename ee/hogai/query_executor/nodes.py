@@ -1,4 +1,3 @@
-import datetime
 import json
 from time import sleep
 from uuid import uuid4
@@ -101,9 +100,6 @@ class QueryExecutorNode(AssistantNode):
             results = json.dumps(results_response["results"], cls=DjangoJSONEncoder, separators=(",", ":"))
             example_prompt = FALLBACK_EXAMPLE_PROMPT
 
-        utc_now = datetime.datetime.now(datetime.UTC)
-        project_now = utc_now.astimezone(self._team.timezone_info)
-
         return PartialAssistantState(
             messages=[
                 AssistantMessage(
@@ -111,9 +107,9 @@ class QueryExecutorNode(AssistantNode):
                         example=example_prompt,
                         query_kind=viz_message.answer.kind,
                         results=results,
-                        utc_datetime_display=utc_now.strftime("%Y-%m-%d %H:%M:%S"),
-                        project_datetime_display=project_now.strftime("%Y-%m-%d %H:%M:%S"),
-                        project_timezone=self._team.timezone_info.tzname(utc_now),
+                        utc_datetime_display=self.utc_now,
+                        project_datetime_display=self.project_now,
+                        project_timezone=self.project_timezone,
                     ),
                     id=str(uuid4()),
                 )
@@ -125,7 +121,7 @@ class QueryExecutorNode(AssistantNode):
             return compress_and_format_trends_results(results)
         elif isinstance(viz_message.answer, AssistantFunnelsQuery):
             query_date_range = QueryDateRange(
-                viz_message.answer.dateRange, self._team, viz_message.answer.interval, datetime.datetime.now()
+                viz_message.answer.dateRange, self._team, viz_message.answer.interval, self._utc_now_datetime
             )
             funnel_step_reference = (
                 viz_message.answer.funnelsFilter.funnelStepReference if viz_message.answer.funnelsFilter else None

@@ -139,8 +139,13 @@
         transform: var(--toolbar-translate) scale(1.1);
     }
 
-    &--with-experiments {
+    &--with-experiments,
+    &--with-web-vitals {
         --toolbar-width-expanded: 334px;
+    }
+
+    &--with-experiments-and-web-vitals {
+        --toolbar-width-expanded: 376px;
     }
 
     &--minimized {

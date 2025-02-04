@@ -8,7 +8,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { identifierToHuman, isObject, pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
-import React, { useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -157,8 +157,23 @@ function TraceSidebar({
     eventId?: string | null
     tree: TraceTreeNode[]
 }): JSX.Element {
+    const ref = useRef<HTMLDivElement | null>(null)
+
+    useEffect(() => {
+        // On first render, let's focus the selected tree node in the center
+        if (eventId && ref.current) {
+            const selectedNode = ref.current.querySelector(`[aria-current=true]`)
+            if (selectedNode) {
+                selectedNode.scrollIntoView({ block: 'center' })
+            }
+        }
+    }, [eventId])
+
     return (
-        <aside className="border-border max-h-fit bg-bg-light border rounded overflow-hidden flex flex-col md:w-80">
+        <aside
+            className="border-border max-h-fit bg-bg-light border rounded overflow-hidden flex flex-col md:w-80"
+            ref={ref}
+        >
             <h3 className="font-medium text-sm px-2 my-2">Tree</h3>
             <LemonDivider className="m-0" />
             <ul className="overflow-y-auto p-1 first:*:mt-0 overflow-x-hidden">
@@ -231,7 +246,7 @@ const TreeNode = React.memo(function TraceNode({
     const hasChildren = children.some((child) => !!child)
 
     return (
-        <li key={item.id} className="mt-0.5">
+        <li key={item.id} className="mt-0.5" aria-current={isSelected /* aria-current used for auto-focus */}>
             <Link
                 to={urls.llmObservabilityTrace(topLevelTrace.id, {
                     event: item.id,

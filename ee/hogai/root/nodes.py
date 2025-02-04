@@ -77,6 +77,8 @@ class RootNode(AssistantNode):
                 history.append(LangchainHumanMessage(content=message.content))
             elif isinstance(message, AssistantMessage):
                 history.append(LangchainAIMessage(content=message.content))
+            elif isinstance(message, RouterMessage):
+                history.append(LangchainAIMessage(content=f"Generating a {message.content} query…"))
         if state.messages and isinstance(state.messages[-1], AssistantMessage):
             history.append(LangchainHumanMessage(content=POST_QUERY_USER_PROMPT))
         return history

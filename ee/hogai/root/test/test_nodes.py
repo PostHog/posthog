@@ -7,7 +7,7 @@ from parameterized import parameterized
 
 from ee.hogai.root.nodes import RootNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from posthog.schema import AssistantMessage, HumanMessage, RouterMessage, VisualizationMessage
+from posthog.schema import AssistantMessage, HumanMessage, RouterMessage
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 
@@ -80,16 +80,18 @@ class TestRootNode(ClickhouseTestMixin, APIBaseTest):
         # We want full access to message history in root
         state_2 = AssistantState(
             messages=[
+                HumanMessage(content="Hello"),
+                AssistantMessage(content="Welcome!"),
                 HumanMessage(content="Generate trends"),
                 RouterMessage(content="trends"),
-                VisualizationMessage(),
             ]
         )
         self.assertEqual(
             node._construct_messages(state_2),
             [
                 LangchainHumanMessage(content="Hello"),
+                LangchainAIMessage(content="Welcome!"),
                 LangchainHumanMessage(content="Generate trends"),
-                LangchainAIMessage(content="trends"),
+                LangchainAIMessage(content="Generating a trends query…"),
             ],
         )
