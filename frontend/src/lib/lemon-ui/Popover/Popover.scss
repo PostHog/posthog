@@ -1,9 +1,9 @@
 .Popover {
-    perspective: 80rem;
-    perspective-origin: top;
     z-index: var(--z-popover);
     display: flex;
     flex-direction: row;
+    perspective: 80rem;
+    perspective-origin: top;
 
     h5 {
         margin: 0.25rem 0.5rem;
