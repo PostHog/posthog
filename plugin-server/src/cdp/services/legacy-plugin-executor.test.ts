@@ -107,26 +107,28 @@ describe('LegacyPluginExecutorService', () => {
             expect(await results).toMatchObject([{ finished: true }, { finished: true }, { finished: true }])
 
             expect(customerIoPlugin.setupPlugin).toHaveBeenCalledTimes(1)
-            expect(jest.mocked(customerIoPlugin.setupPlugin!).mock.calls[0][0]).toMatchInlineSnapshot(`
-                {
-                  "config": {
-                    "customerioSiteId": "1234567890",
-                    "customerioToken": "cio-token",
-                    "email": "test@posthog.com",
-                  },
-                  "fetch": [Function],
-                  "geoip": {
-                    "locate": [Function],
-                  },
-                  "global": {},
-                  "logger": {
-                    "debug": [Function],
-                    "error": [Function],
-                    "log": [Function],
-                    "warn": [Function],
-                  },
-                }
-            `)
+            expect(jest.mocked(customerIoPlugin.setupPlugin!).mock.calls[0][0]).toMatchObject({
+                config: {
+                    customerioSiteId: '1234567890',
+                    customerioToken: 'cio-token',
+                    email: 'test@posthog.com',
+                },
+                geoip: {
+                    locate: expect.any(Function),
+                },
+                global: {
+                    authorizationHeader: 'Basic MTIzNDU2Nzg5MDpjaW8tdG9rZW4=',
+                    eventNames: [],
+                    eventsConfig: '1',
+                    identifyByEmail: false,
+                },
+                logger: {
+                    debug: expect.any(Function),
+                    error: expect.any(Function),
+                    log: expect.any(Function),
+                    warn: expect.any(Function),
+                },
+            })
         })
     })
 
@@ -408,6 +410,7 @@ describe('LegacyPluginExecutorService', () => {
         it.each(testCasesDestination)('should run the destination plugin: %s', async ({ name, plugin }) => {
             globals.event.event = '$identify' // Many plugins filter for this
             const invocation = createInvocation(fn, globals)
+            invocation.globals.inputs = {}
 
             invocation.hogFunction.template_id = `plugin-${plugin.id}`
 
@@ -430,7 +433,9 @@ describe('LegacyPluginExecutorService', () => {
                 }
             }
 
+            invocation.globals.inputs = inputs
             invocation.hogFunction.name = name
+
             const res = await service.execute(invocation)
 
             expect(res.logs.map((l) => l.message)).toMatchSnapshot()

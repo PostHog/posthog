@@ -4,9 +4,6 @@ exports[`LegacyPluginExecutorService smoke tests should run the destination plug
 [
   "Executing plugin customerio-plugin",
   "Successfully authenticated with Customer.io. Completing setupPlugin.",
-  "Detected email:, test@posthog.com",
-  "{"status":{},"email":"test@posthog.com"}",
-  "Should customer be tracked:, true",
   "Execution successful",
 ]
 `;
@@ -72,7 +69,8 @@ exports[`LegacyPluginExecutorService smoke tests should run the destination plug
 exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'posthog-plugin-replicator', plugin: [Object] } 1`] = `
 [
   "Executing plugin posthog-plugin-replicator",
-  "Plugin execution failed: Cannot read properties of undefined (reading 'replace')",
+  "Skipping 1 event, rejected by test: 200 undefined",
+  "Execution successful",
 ]
 `;
 
@@ -93,14 +91,14 @@ exports[`LegacyPluginExecutorService smoke tests should run the destination plug
 exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'salesforce-plugin', plugin: [Object] } 1`] = `
 [
   "Executing plugin salesforce-plugin",
-  "Plugin execution failed: Plugin salesforce-plugin setup failed: If you are not providing an eventEndpointMapping then you must provide events to include.",
+  "Plugin execution failed: Plugin salesforce-plugin setup failed: host not a valid URL!",
 ]
 `;
 
 exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'sendgrid-plugin', plugin: [Object] } 1`] = `
 [
   "Executing plugin sendgrid-plugin",
-  "Execution successful",
+  "Plugin execution failed: Plugin sendgrid-plugin setup failed: Custom field with name test is not defined in Sendgrid",
 ]
 `;
 
