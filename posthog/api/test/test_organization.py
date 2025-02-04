@@ -354,7 +354,7 @@ class TestOrganizationRbacMigrations(APIBaseTest):
         # Create organization-wide view-only access
         OrganizationResourceAccess.objects.create(
             organization=self.organization,
-            resource="feature_flags",
+            resource="feature flags",
             access_level=21,  # view only
         )
 
