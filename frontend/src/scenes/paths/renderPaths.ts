@@ -7,8 +7,8 @@ import { Dispatch, RefObject, SetStateAction } from 'react'
 import { FunnelPathsFilter, PathsFilter } from '~/queries/schema'
 
 import { FALLBACK_CANVAS_WIDTH, HIDE_PATH_CARD_HEIGHT } from './Paths'
-import { PathNode } from './pathsDataLogic'
 import { isSelectedPathStartOrEnd, PathNodeData, PathTargetLink, roundedRect } from './pathUtils'
+import { Paths } from './types'
 
 const createCanvas = (canvasRef: RefObject<HTMLDivElement>, width: number, height: number): D3Selector => {
     return d3
@@ -200,7 +200,7 @@ export function renderPaths(
     canvasRef: RefObject<HTMLDivElement>,
     canvasWidth: number,
     canvasHeight: number,
-    paths: { links: PathNode[]; nodes: any[] },
+    paths: Paths,
     pathsFilter: PathsFilter,
     funnelPathsFilter: FunnelPathsFilter,
     setNodeCards: Dispatch<SetStateAction<PathNodeData[]>>
