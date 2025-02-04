@@ -718,6 +718,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             name="subscriptions",
             columns={
                 "id": "String",
+                "created_at": "DateTime64(3, 'UTC')",
                 "customer_id": "String",
             },
             credential=credentials,
@@ -751,7 +752,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             source_table_name="customers",
             source_table_key="email",
             joining_table_name="events",
-            joining_table_key="person.properties.$email",
+            joining_table_key="person.properties.email",
             field_name="events",
         )
 
@@ -775,6 +776,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             name="subscriptions",
             columns={
                 "id": "String",
+                "created_at": "DateTime64(3, 'UTC')",
                 "customer_id": "String",
             },
             credential=credentials,
@@ -808,7 +810,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             source_table_name="customers",
             source_table_key="email",
             joining_table_name="events",
-            joining_table_key="person.properties.$email",
+            joining_table_key="person.properties.email",
             field_name="events",
             configuration={"experiments_optimized": True, "experiments_timestamp_key": "created_at"},
         )
@@ -833,6 +835,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             name="subscriptions",
             columns={
                 "id": "String",
+                "created_at": "DateTime64(3, 'UTC')",
                 "customer_id": "String",
             },
             credential=credentials,
@@ -866,7 +869,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             source_table_name="subscriptions",
             source_table_key="customer.email",
             joining_table_name="events",
-            joining_table_key="person.properties.$email",
+            joining_table_key="person.properties.email",
             field_name="events",
         )
 
@@ -890,6 +893,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             name="subscriptions",
             columns={
                 "id": "String",
+                "created_at": "DateTime64(3, 'UTC')",
                 "customer_id": "String",
             },
             credential=credentials,
@@ -923,7 +927,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             source_table_name="subscriptions",
             source_table_key="customer.email",
             joining_table_name="events",
-            joining_table_key="person.properties.$email",
+            joining_table_key="person.properties.email",
             field_name="events",
             configuration={"experiments_optimized": True, "experiments_timestamp_key": "created_at"},
         )
