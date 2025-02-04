@@ -36,7 +36,7 @@ export function processEvent(event: PluginEvent, { global }: LegacyTransformatio
 
 export const propertyFilterPlugin: LegacyTransformationPlugin = {
     id: 'property-filter-plugin',
-    metadata: metadata as any,
+    metadata,
     processEvent,
     setupPlugin,
 }
