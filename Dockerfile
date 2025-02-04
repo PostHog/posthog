@@ -52,7 +52,7 @@ WORKDIR /code/plugin-server
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # Compile and install Node.js dependencies.
-COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./
+COPY ./plugin-server/package.json ./plugin-server/tsconfig.json ./
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     "make" \
