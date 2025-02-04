@@ -165,7 +165,12 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Read
             or batch_export_run.status == BatchExportRun.Status.STARTING
         ):
             temporal = sync_connect()
-            cancel_running_batch_export_run(temporal, batch_export_run)
+            try:
+                cancel_running_batch_export_run(temporal, batch_export_run)
+            except Exception as e:
+                # It could be the case that the run is already cancelled but our database hasn't been updated yet. In
+                # this case, we can just ignore the error but log it for visibility (in case there is an actual issue).
+                logger.warning("Error cancelling batch export run: %s", e)
         else:
             raise ValidationError(f"Cannot cancel a run that is in '{batch_export_run.status}' status")
 
@@ -650,7 +655,13 @@ class BatchExportBackfillViewSet(
             or batch_export_backfill.status == BatchExportBackfill.Status.STARTING
         ):
             temporal = sync_connect()
-            sync_cancel_running_batch_export_backfill(temporal, batch_export_backfill)
+            try:
+                sync_cancel_running_batch_export_backfill(temporal, batch_export_backfill)
+            except Exception as e:
+                # It could be the case that the backfill is already cancelled but our database hasn't been updated yet.
+                # In this case, we can just ignore the error but log it for visibility (in case there is an actual
+                # issue).
+                logger.warning("Error cancelling batch export backfill: %s", e)
         else:
             raise ValidationError(f"Cannot cancel a backfill that is in '{batch_export_backfill.status}' status")
 

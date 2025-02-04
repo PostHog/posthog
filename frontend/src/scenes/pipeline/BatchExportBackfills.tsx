@@ -85,7 +85,7 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                         key: 'status',
                         width: 0,
                         render: (_, backfill) => {
-                            const status = combineFailedStatuses(backfill.status)
+                            const status = backfill.status
                             const color = colorForStatus(status)
                             const statusStyles = {
                                 success: 'border-success text-success-dark',
@@ -144,7 +144,7 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                         title: 'Backfill started',
                         key: 'backfillStarted',
                         tooltip: 'Date and time when this BatchExport backfill started',
-                        render: (_, backfill) => <TZLabel time={backfill.created_at} />,
+                        render: (_, backfill) => (backfill.created_at ? <TZLabel time={backfill.created_at} /> : ''),
                     },
                     {
                         title: 'Backfill finished',
@@ -216,15 +216,6 @@ function BackfillCancelButton({
             />
         </span>
     )
-}
-
-const combineFailedStatuses = (status: BatchExportBackfill['status']): BatchExportBackfill['status'] => {
-    // Eventually we should expose the difference between "Failed" and "FailedRetryable" to the user,
-    // because "Failed" tends to mean their configuration or destination is broken.
-    if (status === 'FailedRetryable') {
-        return 'Failed'
-    }
-    return status
 }
 
 const colorForStatus = (
