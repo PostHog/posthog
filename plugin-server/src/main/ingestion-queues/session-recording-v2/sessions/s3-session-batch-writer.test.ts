@@ -5,7 +5,6 @@ import { Readable } from 'stream'
 import { status } from '../../../../utils/status'
 import { S3SessionBatchWriter } from './s3-session-batch-writer'
 
-jest.mock('@aws-sdk/client-s3')
 jest.mock('@aws-sdk/lib-storage')
 jest.mock('../../../../utils/status')
 
@@ -14,10 +13,11 @@ describe('S3SessionBatchWriter', () => {
     let mockUpload: jest.Mock
     let mockUploadDone: jest.Mock
     let uploadedData: Buffer
+    let mockS3Client: jest.Mocked<S3Client>
 
     beforeEach(() => {
         uploadedData = Buffer.alloc(0)
-        jest.mocked(S3Client).mockImplementation(() => ({} as any))
+        mockS3Client = {} as jest.Mocked<S3Client>
         mockUploadDone = jest.fn().mockImplementation(async () => {
             const stream = mockUpload.mock.calls[0][0].params.Body as Readable
             for await (const chunk of stream) {
@@ -32,24 +32,12 @@ describe('S3SessionBatchWriter', () => {
             return { done: mockUploadDone } as unknown as Upload
         })
 
-        writer = new S3SessionBatchWriter({
-            bucket: 'test-bucket',
-            prefix: 'test-prefix',
-            region: 'test-region',
-        })
+        writer = new S3SessionBatchWriter(mockS3Client, 'test-bucket', 'test-prefix')
     })
 
     afterEach(() => {
         jest.clearAllMocks()
         uploadedData = Buffer.alloc(0)
-    })
-
-    it('should create an S3 client with the correct config', () => {
-        expect(S3Client).toHaveBeenCalledWith({ region: 'test-region' })
-        expect(status.info).toHaveBeenCalledWith('🔄', 's3_session_batch_writer_created', {
-            bucket: 'test-bucket',
-            prefix: 'test-prefix',
-        })
     })
 
     describe('open()', () => {
@@ -59,8 +47,10 @@ describe('S3SessionBatchWriter', () => {
             expect(mockUpload).toHaveBeenCalledTimes(1)
             expect(mockUpload).toHaveBeenCalledWith(
                 expect.objectContaining({
+                    client: mockS3Client,
                     params: expect.objectContaining({
                         Body: stream,
+                        Bucket: 'test-bucket',
                     }),
                 })
             )

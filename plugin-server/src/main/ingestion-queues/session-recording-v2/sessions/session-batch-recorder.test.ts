@@ -33,13 +33,28 @@ interface MessageMetadata {
 }
 
 export class SnappySessionRecorderMock {
-    constructor(private readonly sessionId: string, private readonly teamId: number) {}
-
     private chunks: Buffer[] = []
     private size: number = 0
+    private startTimestamp: number | null = null
+    private endTimestamp: number | null = null
+
+    constructor(public readonly sessionId: string, public readonly teamId: number) {}
 
     public recordMessage(message: ParsedMessageData): number {
         let bytesWritten = 0
+
+        if (message.eventsRange.start > 0) {
+            this.startTimestamp =
+                this.startTimestamp === null
+                    ? message.eventsRange.start
+                    : Math.min(this.startTimestamp, message.eventsRange.start)
+        }
+        if (message.eventsRange.end > 0) {
+            this.endTimestamp =
+                this.endTimestamp === null
+                    ? message.eventsRange.end
+                    : Math.max(this.endTimestamp, message.eventsRange.end)
+        }
 
         Object.entries(message.eventsByWindowId).forEach(([windowId, events]) => {
             events.forEach((event) => {
@@ -58,6 +73,8 @@ export class SnappySessionRecorderMock {
         return {
             buffer,
             eventCount: this.chunks.length,
+            startTimestamp: this.startTimestamp ?? 0,
+            endTimestamp: this.endTimestamp ?? 0,
         }
     }
 }
@@ -815,8 +832,13 @@ describe('SessionBatchRecorder', () => {
                     [
                         {
                             type: EventType.FullSnapshot,
-                            timestamp: 1000,
+                            timestamp: 2000,
                             data: { source: 1, adds: [{ parentId: 1, nextId: 2, node: { tag: 'div' } }] },
+                        },
+                        {
+                            type: EventType.IncrementalSnapshot,
+                            timestamp: 3000,
+                            data: { source: 2, mutations: [{ id: 1 }] },
                         },
                     ],
                     undefined,
@@ -827,8 +849,13 @@ describe('SessionBatchRecorder', () => {
                     [
                         {
                             type: EventType.Meta,
-                            timestamp: 1500,
+                            timestamp: 2500,
                             data: { href: 'https://example.com', width: 1024, height: 768 },
+                        },
+                        {
+                            type: EventType.FullSnapshot,
+                            timestamp: 4500,
+                            data: { source: 1, snapshot: { html: '<div>2</div>' } },
                         },
                     ],
                     undefined,
@@ -838,8 +865,13 @@ describe('SessionBatchRecorder', () => {
                     'session3',
                     [
                         {
+                            type: EventType.FullSnapshot,
+                            timestamp: 1000,
+                            data: { source: 1, snapshot: { html: '<div>3</div>' } },
+                        },
+                        {
                             type: EventType.IncrementalSnapshot,
-                            timestamp: 2000,
+                            timestamp: 5000,
                             data: { source: 2, texts: [{ id: 1, value: 'Updated text' }] },
                         },
                     ],
@@ -867,6 +899,12 @@ describe('SessionBatchRecorder', () => {
                 session3: buffer3,
             }
 
+            const expectedTimestamps = {
+                session1: { start: 2000, end: 3000 },
+                session2: { start: 2500, end: 4500 },
+                session3: { start: 1000, end: 5000 },
+            }
+
             // Record messages in the batch recorder
             messages.forEach((message) => recorder.record(message))
 
@@ -885,6 +923,7 @@ describe('SessionBatchRecorder', () => {
             metadata.forEach((block) => {
                 const expectedBuffer = expectedBuffers[block.sessionId as keyof typeof expectedBuffers]
                 const blockData = streamOutput.slice(block.blockStartOffset, block.blockStartOffset + block.blockLength)
+                const expected = expectedTimestamps[block.sessionId as keyof typeof expectedTimestamps]
 
                 const expectedTeamId = {
                     session1: 42,
@@ -895,6 +934,8 @@ describe('SessionBatchRecorder', () => {
                 expect(block.teamId).toBe(expectedTeamId)
                 expect(block.blockLength).toBe(expectedBuffer.length)
                 expect(Buffer.from(blockData)).toEqual(expectedBuffer)
+                expect(block.startTimestamp).toBe(expected.start)
+                expect(block.endTimestamp).toBe(expected.end)
             })
 
             // Verify total length matches
