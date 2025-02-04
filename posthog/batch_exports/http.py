@@ -312,7 +312,24 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 },
                 send_feature_flag_events=False,
             ):
-                raise PermissionDenied("Higher frequency exports are not enabled for this team.")
+                raise PermissionDenied("Higher frequency batch exports are not enabled for this team.")
+
+        if validated_data["model"] == "sessions":
+            team = Team.objects.get(id=team_id)
+
+            if not posthoganalytics.feature_enabled(
+                "sessions-batch-exports",
+                str(team.uuid),
+                groups={"organization": str(team.organization.id)},
+                group_properties={
+                    "organization": {
+                        "id": str(team.organization.id),
+                        "created_at": team.organization.created_at,
+                    }
+                },
+                send_feature_flag_events=False,
+            ):
+                raise PermissionDenied("Sessions batch exports are not enabled for this team.")
 
         hogql_query = None
         if hogql_query := validated_data.pop("hogql_query", None):

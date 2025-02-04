@@ -207,15 +207,21 @@ const sessionsTable: DatabaseSchemaBatchExportTable = {
     id: 'Sesssions',
     name: 'sessions',
     fields: {
-        team_id: {
-            name: 'team_id',
+        id: {
+            name: 'id',
             type: 'string',
-            hogql_value: 'team_id',
+            hogql_value: 'id',
+            schema_valid: true,
+        },
+        session_id: {
+            name: 'session_id',
+            type: 'string',
+            hogql_value: 'session_id',
             schema_valid: true,
         },
         session_id_v7: {
             name: 'session_id_v7',
-            type: 'string',
+            type: 'integer',
             hogql_value: 'session_id_v7',
             schema_valid: true,
         },
@@ -225,286 +231,184 @@ const sessionsTable: DatabaseSchemaBatchExportTable = {
             hogql_value: 'distinct_id',
             schema_valid: true,
         },
-        min_timestamp: {
-            name: 'min_timestamp',
+        $start_timestamp: {
+            name: '$start_timestamp',
             type: 'datetime',
-            hogql_value: 'min_timestamp',
+            hogql_value: '$start_timestamp',
             schema_valid: true,
         },
-        max_timestamp: {
-            name: 'max_timestamp',
+        $end_timestamp: {
+            name: '$end_timestamp',
             type: 'datetime',
-            hogql_value: 'max_timestamp',
+            hogql_value: '$end_timestamp',
             schema_valid: true,
         },
-        inserted_at: {
-            name: 'inserted_at',
-            type: 'datetime',
-            hogql_value: 'inserted_at',
+        $urls: {
+            name: '$urls',
+            type: 'array',
+            hogql_value: '$urls',
             schema_valid: true,
         },
-        urls: {
-            name: 'urls',
+        $num_uniq_urls: {
+            name: '$num_uniq_urls',
+            type: 'integer',
+            hogql_value: '$num_uniq_urls',
+            schema_valid: true,
+        },
+        $entry_current_url: {
+            name: '$entry_current_url',
             type: 'string',
-            hogql_value: 'urls',
+            hogql_value: '$entry_current_url',
             schema_valid: true,
         },
-        entry_url: {
-            name: 'entry_url',
+        $entry_pathname: {
+            name: '$entry_pathname',
             type: 'string',
-            hogql_value: 'entry_url',
+            hogql_value: '$entry_pathname',
             schema_valid: true,
         },
-        end_url: {
-            name: 'end_url',
+        $entry_hostname: {
+            name: '$entry_hostname',
             type: 'string',
-            hogql_value: 'end_url',
+            hogql_value: '$entry_hostname',
             schema_valid: true,
         },
-        last_external_click_url: {
-            name: 'last_external_click_url',
+        $end_current_url: {
+            name: '$end_current_url',
             type: 'string',
-            hogql_value: 'last_external_click_url',
+            hogql_value: '$end_current_url',
             schema_valid: true,
         },
-        initial_browser: {
-            name: 'initial_browser',
+        $end_pathname: {
+            name: '$end_pathname',
             type: 'string',
-            hogql_value: 'initial_browser',
+            hogql_value: '$end_pathname',
             schema_valid: true,
         },
-        initial_browser_version: {
-            name: 'initial_browser_version',
+        $end_hostname: {
+            name: '$end_hostname',
             type: 'string',
-            hogql_value: 'initial_browser_version',
+            hogql_value: '$end_hostname',
             schema_valid: true,
         },
-        initial_os: {
-            name: 'initial_os',
+        $entry_utm_source: {
+            name: '$entry_utm_source',
             type: 'string',
-            hogql_value: 'initial_os',
+            hogql_value: '$entry_utm_source',
             schema_valid: true,
         },
-        initial_os_version: {
-            name: 'initial_os_version',
+        $entry_utm_campaign: {
+            name: '$entry_utm_campaign',
             type: 'string',
-            hogql_value: 'initial_os_version',
+            hogql_value: '$entry_utm_campaign',
             schema_valid: true,
         },
-        initial_device_type: {
-            name: 'initial_device_type',
+        $entry_utm_medium: {
+            name: '$entry_utm_medium',
             type: 'string',
-            hogql_value: 'initial_device_type',
+            hogql_value: '$entry_utm_medium',
             schema_valid: true,
         },
-        initial_viewport_width: {
-            name: 'initial_viewport_width',
+        $entry_utm_term: {
+            name: '$entry_utm_term',
             type: 'string',
-            hogql_value: 'initial_viewport_width',
+            hogql_value: '$entry_utm_term',
             schema_valid: true,
         },
-        initial_viewport_height: {
-            name: 'initial_viewport_height',
+        $entry_utm_content: {
+            name: '$entry_utm_content',
             type: 'string',
-            hogql_value: 'initial_viewport_height',
+            hogql_value: '$entry_utm_content',
             schema_valid: true,
         },
-        initial_geoip_country_code: {
-            name: 'initial_geoip_country_code',
+        $entry_referring_domain: {
+            name: '$entry_referring_domain',
             type: 'string',
-            hogql_value: 'initial_geoip_country_code',
+            hogql_value: '$entry_referring_domain',
             schema_valid: true,
         },
-        initial_geoip_subdivision_1_code: {
-            name: 'initial_geoip_subdivision_1_code',
+        $entry_gclid: {
+            name: '$entry_gclid',
             type: 'string',
-            hogql_value: 'initial_geoip_subdivision_1_code',
+            hogql_value: '$entry_gclid',
             schema_valid: true,
         },
-        initial_geoip_subdivision_1_name: {
-            name: 'initial_geoip_subdivision_1_name',
+        $entry_fbclid: {
+            name: '$entry_fbclid',
             type: 'string',
-            hogql_value: 'initial_geoip_subdivision_1_name',
+            hogql_value: '$entry_fbclid',
             schema_valid: true,
         },
-        initial_geoip_subdivision_city_name: {
-            name: 'initial_geoip_subdivision_city_name',
+        $entry_gad_source: {
+            name: '$entry_gad_source',
             type: 'string',
-            hogql_value: 'initial_geoip_subdivision_city_name',
+            hogql_value: '$entry_gad_source',
             schema_valid: true,
         },
-        initial_geoip_time_zone: {
-            name: 'initial_geoip_time_zone',
-            type: 'string',
-            hogql_value: 'initial_geoip_time_zone',
+        $pageview_count: {
+            name: '$pageview_count',
+            type: 'integer',
+            hogql_value: '$pageview_count',
             schema_valid: true,
         },
-        initial_referring_domain: {
-            name: 'initial_referring_domain',
-            type: 'string',
-            hogql_value: 'initial_referring_domain',
+        $autocapture_count: {
+            name: '$autocapture_count',
+            type: 'integer',
+            hogql_value: '$autocapture_count',
             schema_valid: true,
         },
-        initial_utm_source: {
-            name: 'initial_utm_source',
-            type: 'string',
-            hogql_value: 'initial_utm_source',
+        $screen_count: {
+            name: '$screen_count',
+            type: 'integer',
+            hogql_value: '$screen_count',
             schema_valid: true,
         },
-        initial_utm_campaign: {
-            name: 'initial_utm_campaign',
+        $channel_type: {
+            name: '$channel_type',
             type: 'string',
-            hogql_value: 'initial_utm_campaign',
+            hogql_value: '$channel_type',
             schema_valid: true,
         },
-        initial_utm_medium: {
-            name: 'initial_utm_medium',
-            type: 'string',
-            hogql_value: 'initial_utm_medium',
+        $session_duration: {
+            name: '$session_duration',
+            type: 'integer',
+            hogql_value: '$session_duration',
             schema_valid: true,
         },
-        initial_utm_term: {
-            name: 'initial_utm_term',
-            type: 'string',
-            hogql_value: 'initial_utm_term',
+        duration: {
+            name: 'duration',
+            type: 'integer',
+            hogql_value: 'duration',
             schema_valid: true,
         },
-        initial_utm_content: {
-            name: 'initial_utm_content',
-            type: 'string',
-            hogql_value: 'initial_utm_content',
+        is_bounce: {
+            name: 'is_bounce',
+            type: 'boolean',
+            hogql_value: 'is_bounce',
             schema_valid: true,
         },
-        initial_gclid: {
-            name: 'initial_gclid',
+        $last_external_click_url: {
+            name: '$last_external_click_url',
             type: 'string',
-            hogql_value: 'initial_gclid',
+            hogql_value: '$last_external_click_url',
             schema_valid: true,
         },
-        initial_gad_source: {
-            name: 'initial_gad_source',
+        $last_current_url: {
+            name: '$last_current_url',
             type: 'string',
-            hogql_value: 'initial_gad_source',
+            hogql_value: '$last_current_url',
             schema_valid: true,
         },
-        initial_gclsrc: {
-            name: 'initial_gclsrc',
+        $exit_pathname: {
+            name: '$exit_pathname',
             type: 'string',
-            hogql_value: 'initial_gclsrc',
+            hogql_value: '$exit_pathname',
             schema_valid: true,
         },
-        initial_dclid: {
-            name: 'initial_dclid',
-            type: 'string',
-            hogql_value: 'initial_dclid',
-            schema_valid: true,
-        },
-        initial_gbraid: {
-            name: 'initial_gbraid',
-            type: 'string',
-            hogql_value: 'initial_gbraid',
-            schema_valid: true,
-        },
-        initial_wbraid: {
-            name: 'initial_wbraid',
-            type: 'string',
-            hogql_value: 'initial_wbraid',
-            schema_valid: true,
-        },
-        initial_fbclid: {
-            name: 'initial_fbclid',
-            type: 'string',
-            hogql_value: 'initial_fbclid',
-            schema_valid: true,
-        },
-        initial_msclkid: {
-            name: 'initial_msclkid',
-            type: 'string',
-            hogql_value: 'initial_msclkid',
-            schema_valid: true,
-        },
-        initial_twclid: {
-            name: 'initial_twclid',
-            type: 'string',
-            hogql_value: 'initial_twclid',
-            schema_valid: true,
-        },
-        initial_li_fat_id: {
-            name: 'initial_li_fat_id',
-            type: 'string',
-            hogql_value: 'initial_li_fat_id',
-            schema_valid: true,
-        },
-        initial_mc_cid: {
-            name: 'initial_mc_cid',
-            type: 'string',
-            hogql_value: 'initial_mc_cid',
-            schema_valid: true,
-        },
-        initial_igshid: {
-            name: 'initial_igshid',
-            type: 'string',
-            hogql_value: 'initial_igshid',
-            schema_valid: true,
-        },
-        initial_ttclid: {
-            name: 'initial_ttclid',
-            type: 'string',
-            hogql_value: 'initial_ttclid',
-            schema_valid: true,
-        },
-        pageview_count: {
-            name: 'pageview_count',
-            type: 'string',
-            hogql_value: 'pageview_count',
-            schema_valid: true,
-        },
-        pageview_uniq: {
-            name: 'pageview_uniq',
-            type: 'string',
-            hogql_value: 'pageview_uniq',
-            schema_valid: true,
-        },
-        autocapture_count: {
-            name: 'autocapture_count',
-            type: 'string',
-            hogql_value: 'autocapture_count',
-            schema_valid: true,
-        },
-        autocapture_uniq: {
-            name: 'autocapture_uniq',
-            type: 'string',
-            hogql_value: 'autocapture_uniq',
-            schema_valid: true,
-        },
-        screen_count: {
-            name: 'screen_count',
-            type: 'string',
-            hogql_value: 'screen_count',
-            schema_valid: true,
-        },
-        screen_uniq: {
-            name: 'screen_uniq',
-            type: 'string',
-            hogql_value: 'screen_uniq',
-            schema_valid: true,
-        },
-        maybe_has_session_replay: {
-            name: 'maybe_has_session_replay',
-            type: 'string',
-            hogql_value: 'maybe_has_session_replay',
-            schema_valid: true,
-        },
-        page_screen_autocapture_uniq_up_to: {
-            name: 'page_screen_autocapture_uniq_up_to',
-            type: 'string',
-            hogql_value: 'page_screen_autocapture_uniq_up_to',
-            schema_valid: true,
-        },
-        vitals_lcp: {
-            name: 'vitals_lcp',
-            type: 'string',
-            hogql_value: 'vitals_lcp',
+        $vital_top: {
+            name: '$vital_top',
+            type: 'float',
+            hogql_value: '$vital_top',
             schema_valid: true,
         },
     },
