@@ -112,6 +112,12 @@ describe('the authorized urls list logic', () => {
             })
         })
 
+        it('can refuse wildcards', () => {
+            expect(validateProposedUrl('https://*.example.com', [], false, false)).toEqual('Wildcards are not allowed')
+            expect(validateProposedUrl('https://*.example.com', [], false, true)).toEqual(undefined)
+            expect(validateProposedUrl('https://*.example.com', [], false)).toEqual(undefined)
+        })
+
         it('fails if the proposed URL is already authorized', () => {
             expect(validateProposedUrl('https://valid.*.example.com', ['https://valid.*.example.com'], false)).toBe(
                 'This URL already is registered'
