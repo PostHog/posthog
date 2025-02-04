@@ -1,6 +1,7 @@
 import time
 from typing import Optional
 from uuid import UUID
+from sentry_sdk import capture_exception
 
 import requests
 from celery import shared_task
@@ -565,11 +566,11 @@ def monitoring_check_clickhouse_schema_drift() -> None:
     check_clickhouse_schema_drift()
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
+@shared_task(ignore_result=True)
 def calculate_cohort(parallel_count: int) -> None:
-    from posthog.tasks.calculate_cohort import calculate_cohorts
+    from posthog.tasks.calculate_cohort import enqueue_cohorts_to_calculate
 
-    calculate_cohorts(parallel_count)
+    enqueue_cohorts_to_calculate(parallel_count)
 
 
 class Polling:
@@ -840,6 +841,8 @@ def update_quota_limiting() -> None:
         update_all_orgs_billing_quotas()
     except ImportError:
         pass
+    except Exception as e:
+        capture_exception(e)
 
 
 @shared_task(ignore_result=True)

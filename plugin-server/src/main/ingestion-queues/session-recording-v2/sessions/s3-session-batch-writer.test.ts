@@ -1,11 +1,9 @@
 import { S3Client } from '@aws-sdk/client-s3'
 import { Upload } from '@aws-sdk/lib-storage'
-import { Readable } from 'stream'
 
 import { status } from '../../../../utils/status'
 import { S3SessionBatchWriter } from './s3-session-batch-writer'
 
-jest.mock('@aws-sdk/client-s3')
 jest.mock('@aws-sdk/lib-storage')
 jest.mock('../../../../utils/status')
 
@@ -14,42 +12,34 @@ describe('S3SessionBatchWriter', () => {
     let mockUpload: jest.Mock
     let mockUploadDone: jest.Mock
     let uploadedData: Buffer
+    let mockS3Client: jest.Mocked<S3Client>
 
     beforeEach(() => {
         uploadedData = Buffer.alloc(0)
-        jest.mocked(S3Client).mockImplementation(() => ({} as any))
-        mockUploadDone = jest.fn().mockImplementation(async () => {
-            const stream = mockUpload.mock.calls[0][0].params.Body as Readable
-            for await (const chunk of stream) {
-                uploadedData = Buffer.concat([uploadedData, chunk])
-            }
-        })
-        mockUpload = jest.fn().mockImplementation(() => ({
-            done: mockUploadDone,
-        }))
-        jest.mocked(Upload).mockImplementation((args) => {
-            mockUpload(args)
-            return { done: mockUploadDone } as unknown as Upload
-        })
+        mockS3Client = {} as jest.Mocked<S3Client>
 
-        writer = new S3SessionBatchWriter({
-            bucket: 'test-bucket',
-            prefix: 'test-prefix',
-            region: 'test-region',
+        mockUpload = jest.fn().mockImplementation(({ params: { Body: stream } }) => {
+            const done = async () => {
+                return new Promise((resolve, reject) => {
+                    stream.on('data', (chunk) => {
+                        uploadedData = Buffer.concat([uploadedData, chunk])
+                    })
+                    stream.on('error', reject)
+                    stream.on('end', resolve)
+                })
+            }
+
+            mockUploadDone = jest.fn().mockImplementation(done)
+            return { done: mockUploadDone }
         })
+        jest.mocked(Upload).mockImplementation(mockUpload)
+
+        writer = new S3SessionBatchWriter(mockS3Client, 'test-bucket', 'test-prefix')
     })
 
     afterEach(() => {
         jest.clearAllMocks()
         uploadedData = Buffer.alloc(0)
-    })
-
-    it('should create an S3 client with the correct config', () => {
-        expect(S3Client).toHaveBeenCalledWith({ region: 'test-region' })
-        expect(status.info).toHaveBeenCalledWith('🔄', 's3_session_batch_writer_created', {
-            bucket: 'test-bucket',
-            prefix: 'test-prefix',
-        })
     })
 
     describe('open()', () => {
@@ -59,8 +49,10 @@ describe('S3SessionBatchWriter', () => {
             expect(mockUpload).toHaveBeenCalledTimes(1)
             expect(mockUpload).toHaveBeenCalledWith(
                 expect.objectContaining({
+                    client: mockS3Client,
                     params: expect.objectContaining({
                         Body: stream,
+                        Bucket: 'test-bucket',
                     }),
                 })
             )
@@ -70,8 +62,9 @@ describe('S3SessionBatchWriter', () => {
             const { stream, finish } = writer.newBatch()
             const testData = 'test data\nmore test data\n'
 
-            // Write some data and finish
             stream.write(testData)
+            stream.end()
+
             await finish()
 
             expect(mockUpload).toHaveBeenCalledTimes(1)
@@ -88,13 +81,12 @@ describe('S3SessionBatchWriter', () => {
 
         it('should handle upload errors', async () => {
             const testError = new Error('Upload failed')
-            mockUploadDone.mockRejectedValue(testError)
 
             const { stream, finish } = writer.newBatch()
-            const testData = 'error test data\n'
 
-            // Write some data and try to finish
-            stream.write(testData)
+            stream.emit('error', testError)
+            stream.end()
+
             await expect(finish()).rejects.toThrow(testError)
 
             expect(status.error).toHaveBeenCalledWith(
@@ -113,6 +105,8 @@ describe('S3SessionBatchWriter', () => {
             // Write 100MB of data
             const chunk = Buffer.alloc(1024 * 1024 * 100, 'x')
             stream.write(chunk)
+            stream.end()
+
             await finish()
 
             expect(mockUpload).toHaveBeenCalledTimes(1)
@@ -129,13 +123,15 @@ describe('S3SessionBatchWriter', () => {
             )
         })
 
-        it('should handle multiple writes before finish', async () => {
+        it('should handle multiple writes before stream end', async () => {
             const { stream, finish } = writer.newBatch()
             const lines = ['line1\n', 'line2\n', 'line3\n']
 
             for (const line of lines) {
                 stream.write(line)
             }
+            stream.end()
+
             await finish()
 
             expect(uploadedData.toString()).toBe(lines.join(''))
@@ -153,9 +149,7 @@ describe('S3SessionBatchWriter', () => {
                 keys.add(key)
             }
 
-            // All keys should be unique
             expect(keys.size).toBe(iterations)
-            // All keys should match our expected format
             for (const key of keys) {
                 expect(key).toMatch(/^test-prefix\/\d+-[a-z0-9]+$/)
             }

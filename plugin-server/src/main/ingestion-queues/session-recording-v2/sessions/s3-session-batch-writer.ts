@@ -10,14 +10,7 @@ import { SessionBatchFileWriter, StreamWithFinish } from './session-batch-file-w
  * Writes session batch files to S3
  */
 export class S3SessionBatchWriter implements SessionBatchFileWriter {
-    private readonly s3: S3Client
-    private readonly bucket: string
-    private readonly prefix: string
-
-    constructor(config: { bucket: string; prefix: string; region: string }) {
-        this.s3 = new S3Client({ region: config.region })
-        this.bucket = config.bucket
-        this.prefix = config.prefix
+    constructor(private readonly s3: S3Client, private readonly bucket: string, private readonly prefix: string) {
         status.info('🔄', 's3_session_batch_writer_created', { bucket: this.bucket, prefix: this.prefix })
     }
 
@@ -37,13 +30,17 @@ export class S3SessionBatchWriter implements SessionBatchFileWriter {
             },
         })
 
+        // This doesn't mean the upload is done 🙃
+        // We need to call `done` to allow the stream to be drained.
+        // Once the stream is ended, the upload will complete and the promise will resolve.
+        const uploadPromise = upload.done()
+
         return {
             stream: passThrough,
             finish: async () => {
                 status.debug('🔄', 's3_session_batch_writer_finishing_stream', { key })
-                passThrough.end()
                 try {
-                    await upload.done()
+                    await uploadPromise
                     status.info('🔄', 's3_session_batch_writer_upload_complete', { key })
                 } catch (error) {
                     status.error('🔄', 's3_session_batch_writer_upload_error', { key, error })

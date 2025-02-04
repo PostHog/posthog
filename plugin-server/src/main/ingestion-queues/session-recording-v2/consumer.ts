@@ -1,3 +1,4 @@
+import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
 import { captureException } from '@sentry/node'
 import {
     CODES,
@@ -62,7 +63,7 @@ export class SessionRecordingIngester {
     constructor(
         private config: PluginsServerConfig,
         private consumeOverflow: boolean,
-        private postgres: PostgresRouter,
+        postgres: PostgresRouter,
         batchConsumerFactory: BatchConsumerFactory,
         ingestionWarningProducer?: KafkaProducerWrapper
     ) {
@@ -75,6 +76,29 @@ export class SessionRecordingIngester {
 
         this.promiseScheduler = new PromiseScheduler()
 
+        let s3Client: S3Client | null = null
+        if (
+            config.SESSION_RECORDING_V2_S3_ENDPOINT &&
+            config.SESSION_RECORDING_V2_S3_REGION &&
+            config.SESSION_RECORDING_V2_S3_BUCKET &&
+            config.SESSION_RECORDING_V2_S3_PREFIX
+        ) {
+            const s3Config: S3ClientConfig = {
+                region: config.SESSION_RECORDING_V2_S3_REGION,
+                endpoint: config.SESSION_RECORDING_V2_S3_ENDPOINT,
+                forcePathStyle: true,
+            }
+
+            if (config.SESSION_RECORDING_V2_S3_ACCESS_KEY_ID && config.SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY) {
+                s3Config.credentials = {
+                    accessKeyId: config.SESSION_RECORDING_V2_S3_ACCESS_KEY_ID,
+                    secretAccessKey: config.SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY,
+                }
+            }
+
+            s3Client = new S3Client(s3Config)
+        }
+
         this.kafkaParser = new KafkaMessageParser()
         this.teamFilter = new TeamFilter(new TeamService(postgres))
         if (ingestionWarningProducer) {
@@ -85,16 +109,13 @@ export class SessionRecordingIngester {
         }
 
         const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
-        const writer =
-            this.config.SESSION_RECORDING_V2_S3_BUCKET &&
-            this.config.SESSION_RECORDING_V2_S3_REGION &&
-            this.config.SESSION_RECORDING_V2_S3_PREFIX
-                ? new S3SessionBatchWriter({
-                      bucket: this.config.SESSION_RECORDING_V2_S3_BUCKET,
-                      prefix: this.config.SESSION_RECORDING_V2_S3_PREFIX,
-                      region: this.config.SESSION_RECORDING_V2_S3_REGION,
-                  })
-                : new BlackholeSessionBatchWriter()
+        const writer = s3Client
+            ? new S3SessionBatchWriter(
+                  s3Client,
+                  this.config.SESSION_RECORDING_V2_S3_BUCKET!,
+                  this.config.SESSION_RECORDING_V2_S3_PREFIX!
+              )
+            : new BlackholeSessionBatchWriter()
 
         this.sessionBatchManager = new SessionBatchManager({
             maxBatchSizeBytes: (config.SESSION_RECORDING_MAX_BATCH_SIZE_KB ?? 1024) * 1024,

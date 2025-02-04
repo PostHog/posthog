@@ -204,7 +204,7 @@ class User(AbstractUser, UUIDClassicModel):
         )
         if org_available_product_features and len(org_available_product_features) > 0:
             org_available_product_feature_keys = [feature["key"] for feature in org_available_product_features]
-            if AvailableFeature.PROJECT_BASED_PERMISSIONING in org_available_product_feature_keys:
+            if AvailableFeature.ADVANCED_PERMISSIONS in org_available_product_feature_keys:
                 try:
                     from ee.models import ExplicitTeamMembership
                 except ImportError:
@@ -257,7 +257,7 @@ class User(AbstractUser, UUIDClassicModel):
                 feature["key"] for feature in organization.available_product_features or []
             ]
             if (
-                AvailableFeature.PROJECT_BASED_PERMISSIONING not in available_product_feature_keys
+                AvailableFeature.ADVANCED_PERMISSIONS not in available_product_feature_keys
                 or level >= OrganizationMembership.Level.ADMIN
             ):
                 # If project access control is NOT applicable, simply prefer open projects just in case
