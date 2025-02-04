@@ -146,7 +146,7 @@ export function SurveyDisplaySummary({
                             ].slice(2)}
                             :
                         </span>{' '}
-                        <LemonTag>{survey.conditions.deviceTypes.join(', ')}</LemonTag>
+                        <LemonTag>{survey.conditions.deviceTypes?.join(', ')}</LemonTag>
                     </div>
                 </div>
             )}

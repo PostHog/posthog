@@ -20,7 +20,7 @@ export const SurveyQuestionLabel = {
     [SurveyQuestionType.MultipleChoice]: 'Multiple choice select',
 }
 
-// Create SurveyUrlMatchTypeLabels using allOperatorsMapping
+// Create SurveyMatchTypeLabels using allOperatorsMapping
 export const SurveyMatchTypeLabels = {
     [SurveyMatchType.Exact]: allOperatorsMapping[SurveyMatchType.Exact],
     [SurveyMatchType.IsNot]: allOperatorsMapping[SurveyMatchType.IsNot],

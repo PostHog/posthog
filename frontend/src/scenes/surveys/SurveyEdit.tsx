@@ -671,7 +671,7 @@ export default function SurveyEdit(): JSX.Element {
                                                         </LemonField.Pure>
                                                         <LemonField.Pure
                                                             label="Device Types"
-                                                            info="Add the device types to show the survey on. Possible values: 'Desktop', 'Mobile', 'Tablet'. Requires at least version 1.214 of posthog-js"
+                                                            info="Add the device types to show the survey on. Supported values: 'Desktop', 'Mobile', 'Tablet'. Requires at least version 1.214 of posthog-js"
                                                         >
                                                             <div className="flex flex-row gap-2 items-center">
                                                                 Device Types
@@ -699,7 +699,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                         'Device Type',
                                                                         TaxonomicFilterGroupType.EventProperties
                                                                     )}
-                                                                    type={PropertyFilterType.Person}
+                                                                    type={PropertyFilterType.Event}
                                                                     onSet={(deviceTypes: string[]) =>
                                                                         onChange({
                                                                             ...value,
