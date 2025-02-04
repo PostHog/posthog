@@ -64,7 +64,7 @@ dependencies:
     version: 0.0.8
   '@posthog/rrweb-plugin-console-record':
     specifier: 0.0.8
-    version: 0.0.8(@posthog/rrweb-utils@0.0.4)(@posthog/rrweb@0.0.8)
+    version: 0.0.8(@posthog/rrweb-utils@0.0.8)(@posthog/rrweb@0.0.8)
   '@posthog/rrweb-types':
     specifier: 0.0.8
     version: 0.0.8
@@ -4048,14 +4048,14 @@ packages:
       '@posthog/rrweb-snapshot': 0.0.8
     dev: false
 
-  /@posthog/rrweb-plugin-console-record@0.0.8(@posthog/rrweb-utils@0.0.4)(@posthog/rrweb@0.0.8):
+  /@posthog/rrweb-plugin-console-record@0.0.8(@posthog/rrweb-utils@0.0.8)(@posthog/rrweb@0.0.8):
     resolution: {integrity: sha512-kw+h+eXnfMjauJjiGNbwKejSf+chXK7oeIup02KG4RtVHbLYm+i0X2sX/8kfcOZghBNN+km8Y77Jcq7zBRdPMg==}
     peerDependencies:
       '@posthog/rrweb': '*'
       '@posthog/rrweb-utils': '*'
     dependencies:
       '@posthog/rrweb': 0.0.8
-      '@posthog/rrweb-utils': 0.0.4
+      '@posthog/rrweb-utils': 0.0.8
     dev: false
 
   /@posthog/rrweb-snapshot@0.0.8:
@@ -4077,10 +4077,10 @@ packages:
   /@posthog/rrweb@0.0.8:
     resolution: {integrity: sha512-vrHcEsx7vM6eNkcn/WkxAaVB06azJ2ZJpl6WqQsOY+BLrFFBjesqtscaPvsdh4Yu4wDEPY6uXN/Bsg2FWcJHeA==}
     dependencies:
-      '@posthog/rrdom': 0.0.4
-      '@posthog/rrweb-snapshot': 0.0.4
+      '@posthog/rrdom': 0.0.8
+      '@posthog/rrweb-snapshot': 0.0.8
       '@posthog/rrweb-types': 0.0.8
-      '@posthog/rrweb-utils': 0.0.4
+      '@posthog/rrweb-utils': 0.0.8
       '@types/css-font-loading-module': 0.0.7
       '@xstate/fsm': 1.6.5
       base64-arraybuffer: 1.0.2
