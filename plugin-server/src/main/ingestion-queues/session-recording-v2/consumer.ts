@@ -66,6 +66,7 @@ export class SessionRecordingIngester {
         private consumeOverflow: boolean,
         postgres: PostgresRouter,
         batchConsumerFactory: BatchConsumerFactory,
+        producer: KafkaProducerWrapper,
         ingestionWarningProducer?: KafkaProducerWrapper
     ) {
         this.topic = consumeOverflow
@@ -110,7 +111,7 @@ export class SessionRecordingIngester {
         }
 
         const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
-        const metadataStore = new SessionMetadataStore()
+        const metadataStore = new SessionMetadataStore(producer)
         const writer = s3Client
             ? new S3SessionBatchWriter(
                   s3Client,
