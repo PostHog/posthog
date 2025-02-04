@@ -6,6 +6,7 @@ import { MessageWithTeam } from '../teams/types'
 import { SessionBatchMetrics } from './metrics'
 import { SessionBatchFileWriter } from './session-batch-file-writer'
 import { SessionBatchRecorder } from './session-batch-recorder'
+import { SessionMetadataStore } from './session-metadata-store'
 import { EndResult, SnappySessionRecorder } from './snappy-session-recorder'
 
 // RRWeb event type constants
@@ -104,6 +105,7 @@ describe('SessionBatchRecorder', () => {
     let mockStream: PassThrough
     let mockNewBatch: jest.Mock
     let mockFinish: jest.Mock
+    let mockMetadataStore: jest.Mocked<SessionMetadataStore>
 
     const createOpenMock = () => {
         const stream = new PassThrough()
@@ -134,7 +136,11 @@ describe('SessionBatchRecorder', () => {
             commit: jest.fn(),
         } as unknown as jest.Mocked<KafkaOffsetManager>
 
-        recorder = new SessionBatchRecorder(mockOffsetManager, mockWriter)
+        mockMetadataStore = {
+            storeSessionBlock: jest.fn().mockResolvedValue(undefined),
+        } as jest.Mocked<SessionMetadataStore>
+
+        recorder = new SessionBatchRecorder(mockOffsetManager, mockWriter, mockMetadataStore)
     })
 
     const createMessage = (
@@ -460,6 +466,95 @@ describe('SessionBatchRecorder', () => {
             expect(SessionBatchMetrics.incrementSessionsFlushed).not.toHaveBeenCalled()
             expect(SessionBatchMetrics.incrementEventsFlushed).not.toHaveBeenCalled()
             expect(SessionBatchMetrics.incrementBytesWritten).not.toHaveBeenCalled()
+        })
+
+        it('should store metadata after s3 write completes, but before offsets are committed', async () => {
+            const message = createMessage('session1', [
+                {
+                    type: EventType.FullSnapshot,
+                    timestamp: 1000,
+                    data: { source: 1 },
+                },
+            ])
+
+            mockMetadataStore.storeSessionBlock.mockImplementation(async () => {
+                // When metadata is stored, finish should have been called
+                expect(mockFinish).toHaveBeenCalled()
+                expect(mockOffsetManager.commit).not.toHaveBeenCalled()
+                return Promise.resolve()
+            })
+
+            recorder.record(message)
+            await recorder.flush()
+
+            expect(mockMetadataStore.storeSessionBlock).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    sessionId: 'session1',
+                    teamId: 1,
+                    startTimestamp: 1000,
+                    endTimestamp: 1000,
+                })
+            )
+            expect(mockOffsetManager.commit).toHaveBeenCalled()
+        })
+
+        it('should not commit offsets if metadata storage fails', async () => {
+            const error = new Error('Metadata storage failed')
+            mockMetadataStore.storeSessionBlock
+                .mockResolvedValueOnce(undefined) // First call succeeds
+                .mockRejectedValueOnce(error) // Second call fails
+
+            const messages = [
+                createMessage('session1', [
+                    {
+                        type: EventType.FullSnapshot,
+                        timestamp: 1000,
+                        data: { source: 1 },
+                    },
+                ]),
+                createMessage('session2', [
+                    {
+                        type: EventType.FullSnapshot,
+                        timestamp: 2000,
+                        data: { source: 2 },
+                    },
+                ]),
+            ]
+
+            messages.forEach((message) => recorder.record(message))
+            await expect(recorder.flush()).rejects.toThrow(error)
+
+            expect(mockFinish).toHaveBeenCalled()
+            expect(mockMetadataStore.storeSessionBlock).toHaveBeenCalledTimes(2)
+            expect(mockOffsetManager.commit).not.toHaveBeenCalled()
+        })
+
+        it('should store metadata for all sessions in batch', async () => {
+            const messages = [
+                createMessage('session1', [{ type: EventType.FullSnapshot, timestamp: 1000, data: { source: 1 } }]),
+                createMessage('session2', [
+                    { type: EventType.Meta, timestamp: 2000, data: { href: 'https://example.com' } },
+                ]),
+            ]
+
+            messages.forEach((message) => recorder.record(message))
+            await recorder.flush()
+
+            expect(mockMetadataStore.storeSessionBlock).toHaveBeenCalledTimes(2)
+            expect(mockMetadataStore.storeSessionBlock).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    sessionId: 'session1',
+                    startTimestamp: 1000,
+                    endTimestamp: 1000,
+                })
+            )
+            expect(mockMetadataStore.storeSessionBlock).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    sessionId: 'session2',
+                    startTimestamp: 2000,
+                    endTimestamp: 2000,
+                })
+            )
         })
     })
 

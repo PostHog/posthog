@@ -2,6 +2,7 @@ import { status } from '../../../../utils/status'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { SessionBatchFileWriter } from './session-batch-file-writer'
 import { SessionBatchRecorder } from './session-batch-recorder'
+import { SessionMetadataStore } from './session-metadata-store'
 
 export interface SessionBatchManagerConfig {
     /** Maximum raw size (before compression) of a batch in bytes before it should be flushed */
@@ -12,6 +13,8 @@ export interface SessionBatchManagerConfig {
     offsetManager: KafkaOffsetManager
     /** Handles writing session batch files to storage */
     writer: SessionBatchFileWriter
+    /** Manages storing session metadata */
+    metadataStore: SessionMetadataStore
 }
 
 /**
@@ -54,6 +57,7 @@ export class SessionBatchManager {
     private readonly maxBatchAgeMs: number
     private readonly offsetManager: KafkaOffsetManager
     private readonly writer: SessionBatchFileWriter
+    private readonly metadataStore: SessionMetadataStore
     private lastFlushTime: number
 
     constructor(config: SessionBatchManagerConfig) {
@@ -61,7 +65,8 @@ export class SessionBatchManager {
         this.maxBatchAgeMs = config.maxBatchAgeMs
         this.offsetManager = config.offsetManager
         this.writer = config.writer
-        this.currentBatch = new SessionBatchRecorder(this.offsetManager, this.writer)
+        this.metadataStore = config.metadataStore
+        this.currentBatch = new SessionBatchRecorder(this.offsetManager, this.writer, this.metadataStore)
         this.lastFlushTime = Date.now()
     }
 
@@ -78,7 +83,7 @@ export class SessionBatchManager {
     public async flush(): Promise<void> {
         status.info('🔁', 'session_batch_manager_flushing', { batchSize: this.currentBatch.size })
         await this.currentBatch.flush()
-        this.currentBatch = new SessionBatchRecorder(this.offsetManager, this.writer)
+        this.currentBatch = new SessionBatchRecorder(this.offsetManager, this.writer, this.metadataStore)
         this.lastFlushTime = Date.now()
     }
 

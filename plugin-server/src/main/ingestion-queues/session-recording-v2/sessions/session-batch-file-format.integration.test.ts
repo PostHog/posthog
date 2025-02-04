@@ -30,7 +30,9 @@ import { PassThrough } from 'stream'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithTeam } from '../teams/types'
 import { SessionBatchFileWriter } from './session-batch-file-writer'
-import { SessionBatchRecorder, SessionBlockMetadata } from './session-batch-recorder'
+import { SessionBatchRecorder } from './session-batch-recorder'
+import { SessionBlockMetadata } from './session-block-metadata'
+import { SessionMetadataStore } from './session-metadata-store'
 
 const enum EventType {
     FullSnapshot = 2,
@@ -44,6 +46,7 @@ describe('session recording integration', () => {
     let mockWriter: jest.Mocked<SessionBatchFileWriter>
     let mockStream: PassThrough
     let mockFinish: jest.Mock
+    let mockMetadataStore: jest.Mocked<SessionMetadataStore>
 
     beforeEach(() => {
         mockStream = new PassThrough()
@@ -58,7 +61,11 @@ describe('session recording integration', () => {
             commit: jest.fn(),
         } as unknown as jest.Mocked<KafkaOffsetManager>
 
-        recorder = new SessionBatchRecorder(mockOffsetManager, mockWriter)
+        mockMetadataStore = {
+            storeSessionBlock: jest.fn(),
+        } as unknown as jest.Mocked<SessionMetadataStore>
+
+        recorder = new SessionBatchRecorder(mockOffsetManager, mockWriter, mockMetadataStore)
     })
 
     const createMessage = (

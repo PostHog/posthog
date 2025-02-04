@@ -3,6 +3,8 @@ import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithTeam } from '../teams/types'
 import { SessionBatchMetrics } from './metrics'
 import { SessionBatchFileWriter } from './session-batch-file-writer'
+import { SessionBlockMetadata } from './session-block-metadata'
+import { SessionMetadataStore } from './session-metadata-store'
 import { SnappySessionRecorder } from './snappy-session-recorder'
 
 /**
@@ -43,28 +45,16 @@ import { SnappySessionRecorder } from './snappy-session-recorder'
  * This format allows efficient access to individual session recordings within a batch,
  * as only the relevant session block needs to be retrieved and decompressed.
  */
-
-export interface SessionBlockMetadata {
-    /** Unique identifier for the session */
-    sessionId: string
-    /** ID of the team that owns this session recording */
-    teamId: number
-    /** Byte offset where this session block starts in the batch file */
-    blockStartOffset: number
-    /** Length of this session block in bytes */
-    blockLength: number
-    /** Timestamp of the first event in the session block */
-    startTimestamp: number
-    /** Timestamp of the last event in the session block */
-    endTimestamp: number
-}
-
 export class SessionBatchRecorder {
     private readonly partitionSessions = new Map<number, Map<string, SnappySessionRecorder>>()
     private readonly partitionSizes = new Map<number, number>()
     private _size: number = 0
 
-    constructor(private readonly offsetManager: KafkaOffsetManager, private readonly writer: SessionBatchFileWriter) {
+    constructor(
+        private readonly offsetManager: KafkaOffsetManager,
+        private readonly writer: SessionBatchFileWriter,
+        private readonly metadataStore: SessionMetadataStore
+    ) {
         status.debug('🔁', 'session_batch_recorder_created')
     }
 
@@ -206,6 +196,7 @@ export class SessionBatchRecorder {
 
             outputStream.end()
             await finish()
+            await Promise.all(blockMetadata.map((metadata) => this.metadataStore.storeSessionBlock(metadata)))
             await this.offsetManager.commit()
 
             // Update metrics

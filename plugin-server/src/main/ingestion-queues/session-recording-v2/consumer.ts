@@ -35,6 +35,7 @@ import { BlackholeSessionBatchWriter } from './sessions/blackhole-session-batch-
 import { S3SessionBatchWriter } from './sessions/s3-session-batch-writer'
 import { SessionBatchManager } from './sessions/session-batch-manager'
 import { SessionBatchRecorder } from './sessions/session-batch-recorder'
+import { SessionMetadataStore } from './sessions/session-metadata-store'
 import { TeamFilter } from './teams/team-filter'
 import { TeamService } from './teams/team-service'
 import { MessageWithTeam } from './teams/types'
@@ -109,6 +110,7 @@ export class SessionRecordingIngester {
         }
 
         const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
+        const metadataStore = new SessionMetadataStore()
         const writer = s3Client
             ? new S3SessionBatchWriter(
                   s3Client,
@@ -118,10 +120,11 @@ export class SessionRecordingIngester {
             : new BlackholeSessionBatchWriter()
 
         this.sessionBatchManager = new SessionBatchManager({
-            maxBatchSizeBytes: (config.SESSION_RECORDING_MAX_BATCH_SIZE_KB ?? 1024) * 1024,
-            maxBatchAgeMs: config.SESSION_RECORDING_MAX_BATCH_AGE_MS ?? 1000,
+            maxBatchSizeBytes: this.config.SESSION_RECORDING_MAX_BATCH_SIZE_KB * 1024,
+            maxBatchAgeMs: this.config.SESSION_RECORDING_MAX_BATCH_AGE_MS,
             offsetManager,
             writer,
+            metadataStore,
         })
 
         this.consumerGroupId = this.consumeOverflow ? KAFKA_CONSUMER_GROUP_ID_OVERFLOW : KAFKA_CONSUMER_GROUP_ID
