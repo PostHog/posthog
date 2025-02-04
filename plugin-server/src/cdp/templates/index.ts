@@ -1,3 +1,5 @@
+import { template as customerioTemplate } from '../legacy-plugins/_destinations/customerio/template'
+import { template as hubspotTemplate } from '../legacy-plugins/_destinations/hubspot/template'
 import { template as downsamplingPlugin } from '../legacy-plugins/_transformations/downsampling-plugin/template'
 import { template as dropEventsOnPropertyPluginTemplate } from '../legacy-plugins/_transformations/drop-events-on-property-plugin/template'
 import { template as flattenPropertiesPluginTemplate } from '../legacy-plugins/_transformations/flatten-properties-plugin/template'
@@ -25,6 +27,10 @@ import { template as geoipTemplate } from './_transformations/geoip/geoip.templa
 import { HogFunctionTemplate } from './types'
 
 export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [webhookTemplate]
+export const HOG_FUNCTION_TEMPLATES_DESTINATIONS_DEPRECATED: HogFunctionTemplate[] = [
+    hubspotTemplate,
+    customerioTemplate,
+]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
     defaultTransformationTemplate,
@@ -57,6 +63,7 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_DEPRECATED: HogFunctionTempl
 
 export const HOG_FUNCTION_TEMPLATES: HogFunctionTemplate[] = [
     ...HOG_FUNCTION_TEMPLATES_DESTINATIONS,
+    ...HOG_FUNCTION_TEMPLATES_DESTINATIONS_DEPRECATED,
     ...HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS,
     ...HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_DEPRECATED,
 ]
