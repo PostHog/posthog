@@ -63,6 +63,7 @@ const UNSAVED_CONFIGURATION_TTL = 1000 * 60 * 5
 
 const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
     id: 'new',
+    free: false,
     type: 'destination',
     name: '',
     description: '',
@@ -507,7 +508,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         showPaygate: [
             (s) => [s.template, s.hasAddon],
             (template, hasAddon) => {
-                return template && template.status !== 'free' && !hasAddon
+                return template && !template.free && !hasAddon
             },
         ],
         useMapping: [

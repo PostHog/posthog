@@ -1,6 +1,7 @@
 import { HogFunctionTemplate } from '../../../templates/types'
 
 export const template: HogFunctionTemplate = {
+    free: true,
     status: 'alpha',
     type: 'transformation',
     id: 'plugin-downsampling-plugin',
