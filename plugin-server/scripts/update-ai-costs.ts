@@ -23,6 +23,36 @@ const supportedProviderList = [
     'meta-llama',
 ]
 
+/**
+ * Convert a number into a string using fixed notation.
+ * We use toFixed(10) and then trim any trailing zeros,
+ * ensuring we output floats like "0.0000011" rather than "1.1e-6".
+ */
+function formatNumber(num: number): string {
+    let s = num.toFixed(10)
+    // Remove trailing zeros (but leave at least one digit after the decimal point)
+    s = s.replace(/0+$/, '')
+    if (s.endsWith('.')) {
+        s += '0'
+    }
+    return s
+}
+function serializeModels(models: ModelRow[]): string {
+    let output = '[\n'
+    models.forEach((model, index) => {
+        output += '  {\n'
+        output += `    model: ${JSON.stringify(model.model)},\n`
+        output += '    cost: {\n'
+        output += `      prompt_token: ${formatNumber(model.cost.prompt_token)},\n`
+        output += `      completion_token: ${formatNumber(model.cost.completion_token)}\n`
+        output += '    }\n'
+        output += '  }'
+        output += index < models.length - 1 ? ',\n' : '\n'
+    })
+    output += ']'
+    return output
+}
+
 const main = async () => {
     if (!process.env.OPENROUTER_API_KEY) {
         console.error('OPENROUTER_API_KEY is not set')
@@ -68,27 +98,29 @@ const main = async () => {
             providerModels.set(provider, [])
         }
 
+        // Convert pricing values to numbers before using toFixed(10)
+        const promptPrice = Number(model.pricing.prompt)
+        const completionPrice = Number(model.pricing.completion)
+
         const modelRow: ModelRow = {
             model: modelParts.join('/'), // Only include the part after the provider
             cost: {
-                prompt_token: parseFloat(model.pricing.prompt),
-                completion_token: parseFloat(model.pricing.completion),
+                prompt_token: Number(promptPrice.toFixed(10)),
+                completion_token: Number(completionPrice.toFixed(10)),
             },
         }
 
         providerModels.get(provider)!.push(modelRow)
     }
 
-    // Generate files for each provider
+    // Generate files for each provider using our custom serializer
     for (const [provider, models] of providerModels.entries()) {
         if (!fs.existsSync(baseDir)) {
             fs.mkdirSync(baseDir)
         }
 
-        const fileContent = `import type { ModelRow } from './types';\n\nexport const costs: ModelRow[] = ${JSON.stringify(
-            models,
-            null,
-            2
+        const fileContent = `import type { ModelRow } from './types';\n\nexport const costs: ModelRow[] = ${serializeModels(
+            models
         )};\n`
         fs.writeFileSync(path.join(baseDir, `${provider}.ts`), fileContent)
     }
