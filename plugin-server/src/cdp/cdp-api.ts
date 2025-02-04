@@ -61,6 +61,7 @@ export class CdpApi {
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
         router.get('/api/hog_function_templates', this.getHogFunctionTemplates)
+
         return router
     }
 
