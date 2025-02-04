@@ -44,6 +44,7 @@ RUN pnpm build
 #
 FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.80.1-node_18.19.1 AS plugin-server-build
 WORKDIR /code
+COPY package.json pnpm-lock.yaml ./
 COPY ./patches ./patches
 COPY ./rust ./rust
 COPY ./common/plugin_transpiler/ ./common/plugin_transpiler/
