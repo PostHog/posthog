@@ -71,6 +71,12 @@ export function Info(): JSX.Element {
                             </Link>
                         </div>
                     )}
+                    <div className="block">
+                        <div className="text-xs font-semibold uppercase tracking-wide">
+                            <span>Stats Engine</span>
+                        </div>
+                        <div className="flex gap-1">Bayesian</div>
+                    </div>
                     {featureFlags[FEATURE_FLAGS.EXPERIMENT_STATS_V2] && (
                         <div className="block">
                             <div className="text-xs font-semibold uppercase tracking-wide">
