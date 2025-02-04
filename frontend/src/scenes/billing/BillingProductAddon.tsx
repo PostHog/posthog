@@ -12,10 +12,10 @@ import { BillingProductV2AddonType } from '~/types'
 import { BillingGauge } from './BillingGauge'
 import { billingLogic } from './billingLogic'
 import { BillingProductAddonActions } from './BillingProductAddonActions'
+import { billingProductAddonLogic } from './billingProductAddonLogic'
 import { billingProductLogic } from './billingProductLogic'
 import { BillingProductPricingTable } from './BillingProductPricingTable'
 import { ProductPricingModal } from './ProductPricingModal'
-import { BillingGaugeItemKind } from './types'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
 export const formatFlatRate = (flatRate: number, unit: string | null): string | ReactNode => {
@@ -40,6 +40,8 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
         billingProductLogic({ product: addon })
     )
     const { openSupportForm } = useActions(supportLogic)
+    const logic = billingProductAddonLogic({ addon })
+    const { gaugeItems } = useValues(logic)
 
     const upgradePlan = currentAndUpgradePlans?.upgradePlan
 
@@ -158,23 +160,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                 onClick={() => setShowTierBreakdown(!showTierBreakdown)}
                             />
                             <div className="grow">
-                                <BillingGauge
-                                    items={[
-                                        {
-                                            type: BillingGaugeItemKind.FreeTier,
-                                            text: 'Free tier limit',
-                                            value: addon.tiers?.[0]?.up_to || 0,
-                                            top: true,
-                                        },
-                                        {
-                                            type: BillingGaugeItemKind.CurrentUsage,
-                                            text: 'Current',
-                                            value: addon.current_usage || 0,
-                                            top: false,
-                                        },
-                                    ]}
-                                    product={addon}
-                                />
+                                <BillingGauge items={gaugeItems} product={addon} />
                             </div>
                             <div className="flex justify-end gap-8 flex-wrap items-end shrink-0">
                                 <Tooltip
