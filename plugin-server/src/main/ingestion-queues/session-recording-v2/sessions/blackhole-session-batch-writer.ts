@@ -14,7 +14,7 @@ export class BlackholeSessionBatchWriter implements SessionBatchFileWriter {
             stream,
             finish: async () => {
                 status.debug('🔁', 'blackhole_writer_finishing_stream')
-                return Promise.resolve()
+                return Promise.resolve(null)
             },
         }
     }

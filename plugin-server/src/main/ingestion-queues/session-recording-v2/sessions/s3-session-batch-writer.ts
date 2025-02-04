@@ -11,7 +11,7 @@ import { SessionBatchFileWriter, StreamWithFinish } from './session-batch-file-w
  */
 export class S3SessionBatchWriter implements SessionBatchFileWriter {
     constructor(private readonly s3: S3Client, private readonly bucket: string, private readonly prefix: string) {
-        status.info('🔄', 's3_session_batch_writer_created', { bucket: this.bucket, prefix: this.prefix })
+        status.debug('🔁', 's3_session_batch_writer_created', { bucket, prefix })
     }
 
     public newBatch(): StreamWithFinish {
@@ -41,7 +41,9 @@ export class S3SessionBatchWriter implements SessionBatchFileWriter {
                 status.debug('🔄', 's3_session_batch_writer_finishing_stream', { key })
                 try {
                     await uploadPromise
-                    status.info('🔄', 's3_session_batch_writer_upload_complete', { key })
+                    const url = `s3://${this.bucket}/${key}`
+                    status.info('🔄', 's3_session_batch_writer_upload_complete', { url })
+                    return url
                 } catch (error) {
                     status.error('🔄', 's3_session_batch_writer_upload_error', { key, error })
                     throw error

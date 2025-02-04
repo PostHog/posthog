@@ -10,8 +10,9 @@ export interface StreamWithFinish {
      * Completes the writing process for the entire batch
      * Should be called after all session recordings in the batch have been written to the stream
      * For example, this might finalize an S3 multipart upload or close a file
+     * @returns The URL where the file was written (e.g. s3://bucket/key) or null if not applicable
      */
-    finish: () => Promise<void>
+    finish: () => Promise<string | null>
 }
 
 /**
@@ -30,7 +31,7 @@ export interface SessionBatchFileWriter {
      * ```
      * const { stream, finish } = writer.newBatch()
      * stream.write(batchBytes) // Writer doesn't interpret these bytes
-     * await finish() // Completes the write operation
+     * const url = await finish() // Completes the write operation and returns the file URL
      * ```
      */
     newBatch(): StreamWithFinish

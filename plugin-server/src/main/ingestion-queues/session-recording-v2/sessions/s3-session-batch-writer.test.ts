@@ -65,16 +65,17 @@ describe('S3SessionBatchWriter', () => {
             stream.write(testData)
             stream.end()
 
-            await finish()
+            const url = await finish()
 
             expect(mockUpload).toHaveBeenCalledTimes(1)
             expect(mockUploadDone).toHaveBeenCalled()
             expect(uploadedData.toString()).toBe(testData)
+            expect(url).toMatch(/^s3:\/\/test-bucket\/test-prefix\/\d+-[a-z0-9]+$/)
             expect(status.info).toHaveBeenCalledWith(
                 '🔄',
                 's3_session_batch_writer_upload_complete',
                 expect.objectContaining({
-                    key: expect.stringMatching(/^test-prefix\/\d+-[a-z0-9]+$/),
+                    url,
                 })
             )
         })
@@ -107,18 +108,19 @@ describe('S3SessionBatchWriter', () => {
             stream.write(chunk)
             stream.end()
 
-            await finish()
+            const url = await finish()
 
             expect(mockUpload).toHaveBeenCalledTimes(1)
             expect(mockUploadDone).toHaveBeenCalled()
             expect(uploadedData.length).toBe(1024 * 1024 * 100)
             // toEqual is slow for large buffers, so we use Buffer.compare instead
             expect(Buffer.compare(uploadedData as any, chunk as any)).toBe(0)
+            expect(url).toMatch(/^s3:\/\/test-bucket\/test-prefix\/\d+-[a-z0-9]+$/)
             expect(status.info).toHaveBeenCalledWith(
                 '🔄',
                 's3_session_batch_writer_upload_complete',
                 expect.objectContaining({
-                    key: expect.stringMatching(/^test-prefix\/\d+-[a-z0-9]+$/),
+                    url,
                 })
             )
         })
@@ -132,10 +134,11 @@ describe('S3SessionBatchWriter', () => {
             }
             stream.end()
 
-            await finish()
+            const url = await finish()
 
             expect(uploadedData.toString()).toBe(lines.join(''))
             expect(mockUpload).toHaveBeenCalledTimes(1)
+            expect(url).toMatch(/^s3:\/\/test-bucket\/test-prefix\/\d+-[a-z0-9]+$/)
         })
 
         it('should generate unique keys for each upload', () => {

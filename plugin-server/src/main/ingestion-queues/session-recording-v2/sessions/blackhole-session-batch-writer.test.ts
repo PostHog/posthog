@@ -63,6 +63,7 @@ describe('BlackholeSessionBatchWriter', () => {
 
         await Promise.all(writes)
         stream.end()
-        await finish()
+        const url = await finish()
+        expect(url).toBeNull()
     })
 })
