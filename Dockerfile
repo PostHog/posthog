@@ -106,8 +106,7 @@ RUN apt-get update && \
     "pkg-config" \
     && \
     rm -rf /var/lib/apt/lists/* && \
-    pip install uv && \
-    PIP_NO_BINARY=lxml,xmlsec uv pip install -r requirements.txt --compile --no-cache-dir --target=/python-runtime
+    PIP_NO_BINARY=lxml,xmlsec pip install -r requirements.txt --compile --no-cache-dir --target=/python-runtime
 
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime

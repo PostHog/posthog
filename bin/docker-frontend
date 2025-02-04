@@ -4,5 +4,5 @@ set -e
 export WEBPACK_HOT_RELOAD_HOST="0.0.0.0"
 
 pnpm install --filter @posthog/frontend...
-pnpx deps:build frontend --verbose
-pnpm start-docker
+bin/turbo run deps --filter=@posthog/frontend
+pnpm start-docker --filter=@posthog/frontend
