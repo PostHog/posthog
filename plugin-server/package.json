@@ -120,7 +120,7 @@
         "@types/jest": "^29.5.14",
         "@types/long": "4.x.x",
         "@types/luxon": "^3.4.2",
-        "@types/node": "^16.0.0",
+        "@types/node": "^18.11.9",
         "@types/node-fetch": "^2.5.10",
         "@types/node-schedule": "^2.1.0",
         "@types/pg": "^8.6.0",
