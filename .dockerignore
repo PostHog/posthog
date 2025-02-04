@@ -1,22 +1,5 @@
 *
-<<<<<<< HEAD
-!bin
-!requirements.txt
-!requirements-dev.txt
-!posthog
-!plugin-server
-!staticfiles
-!manage.py
-!gunicorn.config.py
-!babel.config.js
-!posthog.json
-!package.json
-!pnpm-lock.yaml
-!webpack.config.js
-!playwright.config.ts
-=======
 !.devcontainer
->>>>>>> master
 !.kearc
 !.storybook
 !babel.config.js
