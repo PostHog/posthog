@@ -30,12 +30,14 @@ export function DistributionModal({ experimentId }: { experimentId: Experiment['
     const { setFeatureFlagFilters, distributeVariantsEqually } = useActions(_featureFlagLogic)
 
     const handleRolloutPercentageChange = (index: number, value: number | undefined): void => {
-        if (!featureFlag?.filters?.multivariate || !value) {
+        if (!featureFlag?.filters?.multivariate) {
             return
         }
 
+        const numericValue = value || 0
+
         const updatedVariants = featureFlag.filters.multivariate.variants.map((variant, i) =>
-            i === index ? { ...variant, rollout_percentage: value } : variant
+            i === index ? { ...variant, rollout_percentage: numericValue } : variant
         )
 
         setFeatureFlagFilters(
@@ -80,7 +82,7 @@ export function DistributionModal({ experimentId }: { experimentId: Experiment['
 
                 <div>
                     <div className="flex justify-between items-center mb-2">
-                        <h3 className="font-semibold mb-0">Variant Distribution</h3>
+                        <h3 className="font-semibold mb-0">Variant distribution</h3>
                         <LemonButton
                             size="small"
                             onClick={distributeVariantsEqually}

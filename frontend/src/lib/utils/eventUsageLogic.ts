@@ -56,6 +56,7 @@ import {
     RecordingReportLoadTimes,
     RecordingUniversalFilters,
     Resource,
+    type SDK,
     SessionPlayerData,
     SessionRecordingType,
     SessionRecordingUsageType,
@@ -532,6 +533,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCommandBarActionSearch: (query: string) => ({ query }),
         reportCommandBarActionResultExecuted: (resultDisplay) => ({ resultDisplay }),
         reportBillingCTAShown: true,
+        reportSDKSelected: (sdk: SDK) => ({ sdk }),
     }),
     listeners(({ values }) => ({
         reportBillingCTAShown: () => {
@@ -1282,6 +1284,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSubscribedDuringOnboarding: ({ productKey }) => {
             posthog.capture('subscribed during onboarding', {
                 product_key: productKey,
+            })
+        },
+        reportSDKSelected: ({ sdk }) => {
+            posthog.capture('sdk selected', {
+                sdk: sdk.key,
             })
         },
         // command bar
