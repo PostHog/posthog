@@ -255,10 +255,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
         abortQuery: (payload: { dashboardQueryId: string; queryId: string; queryStartTime: number }) => payload,
         abortAnyRunningQuery: true,
         updateFiltersAndLayoutsAndVariables: true,
-        overrideVariableValue: (variableId: string, value: any) => ({
+        overrideVariableValue: (variableId: string, value: any, editMode?: boolean) => ({
             variableId,
             value,
             allVariables: values.variables,
+            editMode: editMode ?? true,
         }),
         resetVariables: () => ({ variables: values.insightVariables }),
         setAccessDeniedToDashboard: true,
@@ -1369,8 +1370,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         setDashboardMode: async ({ mode, source }) => {
             if (mode === DashboardMode.Edit) {
-                clearDOMTextSelection()
-                lemonToast.info('Now editing the dashboard – save to persist changes')
+                // Note: handled in subscriptions
             } else if (mode === null) {
                 if (source === DashboardEventSource.DashboardHeaderDiscardChanges) {
                     // cancel edit mode changes
@@ -1485,8 +1485,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setBreakdownFilter: () => {
             actions.loadDashboard({ action: 'preview' })
         },
-        overrideVariableValue: () => {
-            actions.setDashboardMode(DashboardMode.Edit, null)
+        overrideVariableValue: ({ editMode }) => {
+            if (editMode) {
+                actions.setDashboardMode(DashboardMode.Edit, null)
+            }
             actions.loadDashboard({ action: 'preview' })
         },
     })),
@@ -1499,8 +1501,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
             for (const [key, value] of Object.entries(urlVariables)) {
                 const variable = variables.find((variable: HogQLVariable) => variable.code_name === key)
                 if (variable) {
-                    actions.overrideVariableValue(variable.id, value)
+                    actions.overrideVariableValue(variable.id, value, false)
                 }
+            }
+        },
+        dashboardMode: (dashboardMode, previousDashboardMode) => {
+            if (previousDashboardMode !== DashboardMode.Edit && dashboardMode === DashboardMode.Edit) {
+                clearDOMTextSelection()
+                lemonToast.info('Now editing the dashboard – save to persist changes')
             }
         },
     })),

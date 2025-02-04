@@ -1,6 +1,5 @@
 // This file contains example queries, used in storybook and in the /query interface.
 import { RETENTION_FIRST_TIME } from 'lib/constants'
-import { WEB_VITALS_THRESHOLDS } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import {
@@ -39,6 +38,8 @@ import {
     RetentionPeriod,
     StepOrderValue,
 } from '~/types'
+
+import { WEB_VITALS_THRESHOLDS } from './nodes/WebVitals/definitions'
 
 const Events: EventsQuery = {
     kind: NodeKind.EventsQuery,

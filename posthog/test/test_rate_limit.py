@@ -14,9 +14,11 @@ from django.test.client import Client
 from posthog import models, rate_limit
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
+from posthog.models import Team
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
+from posthog.rate_limit import HogQLQueryThrottle
 from posthog.test.base import APIBaseTest
 
 
@@ -40,6 +42,77 @@ class TestUserAPI(APIBaseTest):
 
         # ensure the rate limit is reset for any subsequent non-rate-limit tests
         cache.clear()
+
+    def test_load_team_rate_limit_from_cache(self):
+        throttle = HogQLQueryThrottle()
+
+        # Set up cache with test data
+        cache_key = f"team_ratelimit_query_{self.team.id}"
+        cache.set(cache_key, "100/hour")
+
+        # Test loading from cache
+        throttle.load_team_rate_limit(self.team.pk)
+
+        self.assertEqual(throttle.rate, "100/hour")
+        self.assertEqual(throttle.num_requests, 100)
+        self.assertEqual(throttle.duration, 3600)  # 1 hour in seconds
+
+    def test_load_team_rate_limit_from_db(self):
+        throttle = HogQLQueryThrottle()
+
+        # Clear cache to ensure DB lookup
+        cache_key = f"team_ratelimit_query_{self.team.id}"
+        cache.delete(cache_key)
+
+        # Set custom rate limit on team
+        self.team.api_query_rate_limit = "200/day"
+        self.team.save()
+
+        # Test loading from DB
+        throttle.load_team_rate_limit(self.team.id)
+
+        self.assertEqual(throttle.rate, "200/day")
+        self.assertEqual(throttle.num_requests, 200)
+        self.assertEqual(throttle.duration, 86400)  # 24 hours in seconds
+
+        # Verify it was cached
+        cache_key = f"team_ratelimit_query_{self.team.pk}"
+        self.assertEqual(cache.get(cache_key), "200/day")
+
+    def test_load_team_rate_limit_no_custom_limit(self):
+        throttle = HogQLQueryThrottle()
+
+        # Clear cache to ensure DB lookup
+        cache_key = f"team_ratelimit_query_{self.team.id}"
+        cache.delete(cache_key)
+
+        # no custom rate limit
+        self.team.api_query_rate_limit = None
+        self.team.save()
+
+        # Test loading with no custom limit
+        throttle.load_team_rate_limit(self.team.pk)
+
+        # Should not set rate when no custom limit exists
+        self.assertEqual(throttle.rate, HogQLQueryThrottle.rate)
+
+        # Verify nothing was cached
+        self.assertIsNone(cache.get(cache_key))
+
+    @patch("posthog.models.Team.objects.get")
+    def test_load_team_rate_limit_team_does_not_exist(self, mock_team_get):
+        throttle = HogQLQueryThrottle()
+
+        # Simulate team not found
+        mock_team_get.side_effect = Team.DoesNotExist
+
+        # Test loading with non-existent team
+        with self.assertRaises(Team.DoesNotExist):
+            throttle.load_team_rate_limit(999999)
+
+        # Verify nothing was cached
+        cache_key = f"team_ratelimit_test_999999"
+        self.assertIsNone(cache.get(cache_key))
 
     @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
     @patch("posthog.rate_limit.statsd.incr")
