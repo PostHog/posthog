@@ -676,7 +676,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             flag_id = response.json()["id"]
 
-            frozen_datetime.tick(delta=datetime.timedelta(minutes=10))
+            frozen_datetime.tick(delta=timedelta(minutes=10))
 
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
@@ -803,7 +803,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             flag_id = response.json()["id"]
 
-            frozen_datetime.tick(delta=datetime.timedelta(minutes=10))
+            frozen_datetime.tick(delta=timedelta(minutes=10))
 
             # Assert that the insights were created properly.
             feature_flag = FeatureFlag.objects.get(id=flag_id)
@@ -976,7 +976,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             flag_id = response.json()["id"]
 
-            frozen_datetime.tick(delta=datetime.timedelta(minutes=10))
+            frozen_datetime.tick(delta=timedelta(minutes=10))
 
             # Assert that the insights were created properly.
             feature_flag = FeatureFlag.objects.get(id=flag_id)
@@ -1065,7 +1065,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             flag_id = response.json()["id"]
 
-            frozen_datetime.tick(delta=datetime.timedelta(minutes=10))
+            frozen_datetime.tick(delta=timedelta(minutes=10))
 
             # Assert that the insights were created properly.
             feature_flag = FeatureFlag.objects.get(id=flag_id)
@@ -1155,7 +1155,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             flag_id = response.json()["id"]
 
-            frozen_datetime.tick(delta=datetime.timedelta(minutes=10))
+            frozen_datetime.tick(delta=timedelta(minutes=10))
 
             # Assert that the insights were created properly.
             feature_flag = FeatureFlag.objects.get(id=flag_id)
@@ -1262,7 +1262,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
             flag_id = create_response.json()["id"]
 
-            frozen_datetime.tick(delta=datetime.timedelta(minutes=10))
+            frozen_datetime.tick(delta=timedelta(minutes=10))
 
             update_response = self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
@@ -1341,7 +1341,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
             flag_id = create_response.json()["id"]
 
-            frozen_datetime.tick(delta=datetime.timedelta(minutes=10))
+            frozen_datetime.tick(delta=timedelta(minutes=10))
 
             update_response = self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
@@ -1353,7 +1353,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
             self.assertEqual(update_response.status_code, status.HTTP_200_OK)
 
-            frozen_datetime.tick(delta=datetime.timedelta(minutes=10))
+            frozen_datetime.tick(delta=timedelta(minutes=10))
 
             second_create_response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags/",
