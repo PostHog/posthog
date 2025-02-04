@@ -163,6 +163,7 @@ function detectDeviceType(userAgent: string) {
 
 export const userAgentPlugin: LegacyTransformationPlugin = {
     id: 'user-agent-plugin',
-    metadata: metadata as any,
+    metadata,
     processEvent,
+    setupPlugin: setupPlugin as (meta: LegacyTransformationPluginMeta) => void,
 }

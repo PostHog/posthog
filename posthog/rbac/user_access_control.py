@@ -142,16 +142,10 @@ class UserAccessControl:
 
     @property
     def access_controls_supported(self) -> bool:
-        # NOTE: This is a proxy feature. We may want to consider making it explicit later
-        # ADVANCED_PERMISSIONS was only for dashboard collaborators, PROJECT_BASED_PERMISSIONING for project permissions
-        # both now apply to this generic access control
-
         if not self._organization:
             return False
 
-        return self._organization.is_feature_available(
-            AvailableFeature.PROJECT_BASED_PERMISSIONING
-        ) or self._organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
+        return self._organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
 
     def _filter_options(self, filters: dict[str, Any]) -> Q:
         """

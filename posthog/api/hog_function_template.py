@@ -97,7 +97,6 @@ class HogFunctionTemplates:
                         exc_info=True,
                     )
                     capture_exception(e)
-                    raise
         except Exception as e:
             capture_exception(e)
             # Continue on so as not to block the user
