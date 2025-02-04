@@ -28,8 +28,8 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def _create_person(self):
         with freeze_time(self.EVENT_TIMESTAMP):
-            distinct_id = str(uuid7())
-            session_id = str(uuid7())
+            distinct_id = self._uuid()
+            session_id = self._uuid()
             p = _create_person(
                 uuid=distinct_id,
                 team_id=self.team.pk,
@@ -137,6 +137,10 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             runner = WebGoalsQueryRunner(team=self.team, query=query, modifiers=modifiers)
             return runner.calculate()
 
+    def _uuid(self):
+        with freeze_time(self.EVENT_TIMESTAMP):
+            return str(uuid7())
+
     def test_no_crash_when_no_data_or_actions(self):
         results = self._run_web_goals_query("2024-11-01", None).results
         assert results == []
@@ -177,7 +181,7 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self._create_actions()
         p1, s1 = self._create_person()
         self._visit_web_analytics(p1, s1)
-        s2 = str(uuid7())
+        s2 = self._uuid()
         self._visit_web_analytics(p1, s2)
         results = self._run_web_goals_query("2024-11-01", None).results
         assert results == [

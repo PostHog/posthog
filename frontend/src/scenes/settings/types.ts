@@ -41,6 +41,7 @@ export type SettingSectionId =
     | 'project-danger-zone'
     | 'organization-details'
     | 'organization-members'
+    | 'organization-billing'
     | 'organization-authentication'
     | 'organization-roles'
     | 'organization-proxy'
@@ -121,7 +122,7 @@ type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 
 export type Setting = {
     id: SettingId
-    title: string
+    title: JSX.Element | string
     description?: JSX.Element | string
     component: JSX.Element
     /**
@@ -140,7 +141,9 @@ export type Setting = {
 
 export interface SettingSection extends Pick<Setting, 'flag'> {
     id: SettingSectionId
-    title: string
+    to?: string
+    title: JSX.Element | string
+    hideSelfHost?: boolean
     level: SettingLevelId
     settings: Setting[]
     minimumAccessLevel?: EitherMembershipLevel

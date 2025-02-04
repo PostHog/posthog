@@ -222,6 +222,10 @@ export function getDefaultConfig(): PluginsServerConfig {
         // Session recording V2
         SESSION_RECORDING_MAX_BATCH_SIZE_KB: 100 * 1024, // 100MB
         SESSION_RECORDING_MAX_BATCH_AGE_MS: 10 * 1000, // 10 seconds
+        SESSION_RECORDING_V2_S3_BUCKET: '',
+        SESSION_RECORDING_V2_S3_PREFIX: '',
+        SESSION_RECORDING_V2_S3_ENDPOINT: '',
+        SESSION_RECORDING_V2_S3_REGION: '',
 
         // Hog Transformations (Alpha)
         HOG_TRANSFORMATIONS_ENABLED: false,

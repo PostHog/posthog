@@ -167,7 +167,7 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
             (s) => [s.canEnableNewDestinations],
             (canEnableNewDestinations): ((hogFunction: HogFunctionType) => boolean) => {
                 return (hogFunction: HogFunctionType) => {
-                    return hogFunction?.template?.status === 'free' || canEnableNewDestinations
+                    return hogFunction?.template?.free || canEnableNewDestinations
                 }
             },
         ],

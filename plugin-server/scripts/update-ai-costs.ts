@@ -12,7 +12,16 @@ interface ModelRow {
     }
 }
 
-const supportedProviderList = ['openai', 'anthropic', 'google', 'deepseek', 'perplexity', 'cohere', 'mistralai']
+const supportedProviderList = [
+    'openai',
+    'anthropic',
+    'google',
+    'deepseek',
+    'perplexity',
+    'cohere',
+    'mistralai',
+    'meta-llama',
+]
 
 const main = async () => {
     if (!process.env.OPENROUTER_API_KEY) {
