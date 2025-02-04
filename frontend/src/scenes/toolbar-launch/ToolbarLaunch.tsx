@@ -15,7 +15,7 @@ export const scene: SceneExport = {
     component: ToolbarLaunch,
 }
 
-function ToolbarLaunch(): JSX.Element {
+export function ToolbarLaunch(): JSX.Element {
     const isExperimentsEnabled = useFeatureFlag('WEB_EXPERIMENTS')
     const isWebVitalsEnabled = useFeatureFlag('WEB_VITALS')
     const isWebVitalsToolbarEnabled = useFeatureFlag('WEB_VITALS_TOOLBAR')
