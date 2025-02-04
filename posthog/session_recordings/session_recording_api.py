@@ -309,7 +309,7 @@ def query_as_params_to_dict(params_dict: dict) -> dict:
 def clean_referer_url(current_url: str | None) -> str:
     try:
         parsed_url = urlparse(current_url)
-        path = parsed_url.path
+        path = str(parsed_url.path)
 
         path = re.sub(r"^/?project/\d+", "", path)
 
