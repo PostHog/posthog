@@ -34,10 +34,10 @@ export function AiFilter({ logic }: { logic: BuiltLogic<sessionRecordingsPlaylis
                         ),
                         content: (
                             <>
-                                <div className="gap-2">
+                                <div className="gap-2 justify-center flex flex-col">
                                     <div>
                                         {messages.length > 1 && (
-                                            <div className="max-w-96 ">
+                                            <div className="max-w-1/2 min-w-96">
                                                 {messages
                                                     .filter((message) => message.role !== 'system')
                                                     .map((message, index) => (
@@ -55,7 +55,7 @@ export function AiFilter({ logic }: { logic: BuiltLogic<sessionRecordingsPlaylis
                                                                 </>
                                                             ) : (
                                                                 <>
-                                                                    <strong>
+                                                                    <strong className="text-primary">
                                                                         <IconAIText />
                                                                         Max AI:
                                                                     </strong>{' '}
@@ -86,6 +86,11 @@ export function AiFilter({ logic }: { logic: BuiltLogic<sessionRecordingsPlaylis
                                                     onChange={(value) => setInput(value)}
                                                     placeholder="Show me recordings of people who ..."
                                                     className="my-2 w-96"
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') {
+                                                            handleSend()
+                                                        }
+                                                    }}
                                                 />
                                             </div>
                                             <div>

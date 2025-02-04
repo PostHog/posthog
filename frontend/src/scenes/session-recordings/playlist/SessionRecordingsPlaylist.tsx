@@ -1,6 +1,7 @@
 import { LemonBadge, LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { Playlist, PlaylistSection } from 'lib/components/Playlist/Playlist'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -104,7 +105,9 @@ export function SessionRecordingsPlaylist({
 
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
-            <AiFilter logic={logic} />
+            <FlaggedFeature flag={FEATURE_FLAGS.RECORDINGS_AI_FILTER}>
+                <AiFilter logic={logic} />
+            </FlaggedFeature>
             <div className="h-full space-y-2">
                 <Playlist
                     data-attr="session-recordings-playlist"
