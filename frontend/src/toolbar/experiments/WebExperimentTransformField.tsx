@@ -175,7 +175,9 @@ export function WebExperimentTransformField({
                             setExperimentFormValue('variants', updatedVariants)
 
                             // Update DOM
-                            const element = document.querySelector(transform.selector!) as HTMLElement
+                            const element = transform.selector
+                                ? (document.querySelector(transform.selector) as HTMLElement)
+                                : null
                             if (element) {
                                 element.innerText = value
                             }
@@ -199,7 +201,9 @@ export function WebExperimentTransformField({
                             setExperimentFormValue('variants', updatedVariants)
 
                             // Update DOM
-                            const element = document.querySelector(transform.selector!)
+                            const element = transform.selector
+                                ? (document.querySelector(transform.selector) as HTMLElement)
+                                : null
                             if (element) {
                                 element.innerHTML = value
                             }

@@ -10,13 +10,7 @@ import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
-import {
-    WebExperiment,
-    WebExperimentDraftType,
-    WebExperimentForm,
-    WebExperimentTransform,
-    WebExperimentVariant,
-} from '~/toolbar/types'
+import { WebExperiment, WebExperimentDraftType, WebExperimentForm, WebExperimentTransform } from '~/toolbar/types'
 import { elementToQuery } from '~/toolbar/utils'
 import { Experiment, ExperimentIdType } from '~/types'
 
@@ -178,10 +172,10 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
     forms(({ values, actions }) => ({
         experimentForm: {
             defaults: {
-                name: null,
-                variants: [{}] as WebExperimentVariant[],
+                name: '',
+                variants: {},
                 original_html_state: {},
-            } as unknown as WebExperimentForm,
+            } as WebExperimentForm,
             errors: ({ name }) => ({
                 name: !name ? 'Please enter a name for this experiment' : undefined,
             }),
