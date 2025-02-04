@@ -308,7 +308,7 @@ async def assert_clickhouse_records_in_s3(
 
     queue = RecordBatchQueue()
     if model_name == "sessions":
-        producer = Producer(model=SessionsRecordBatchModel(team_id, is_backfill))
+        producer = Producer(model=SessionsRecordBatchModel(team_id))
     else:
         producer = Producer()
     producer_task = await producer.start(

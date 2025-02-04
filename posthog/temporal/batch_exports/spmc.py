@@ -486,9 +486,8 @@ BatchExportDateRange = tuple[dt.datetime | None, dt.datetime]
 class RecordBatchModel(abc.ABC):
     """Base class for models that can be produced as record batches."""
 
-    def __init__(self, team_id: int, is_backfill: bool):
+    def __init__(self, team_id: int):
         self.team_id = team_id
-        self.is_backfill = is_backfill
 
     async def get_hogql_context(self, team_id: int) -> HogQLContext:
         """Return a HogQLContext to generate a ClickHouse query."""
@@ -516,11 +515,10 @@ class SessionsRecordBatchModel(RecordBatchModel):
 
     Attributes:
        team_id: The ID of the team we are producing records for.
-       is_backfill: Whether we are meant to be backfilling all records.
     """
 
-    def __init__(self, team_id: int, is_backfill: bool):
-        super().__init__(team_id, is_backfill)
+    def __init__(self, team_id: int):
+        super().__init__(team_id)
 
     def get_hogql_query(
         self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
@@ -542,7 +540,7 @@ class SessionsRecordBatchModel(RecordBatchModel):
                 ),
             ]
         )
-        if not self.is_backfill and data_interval_start:
+        if not data_interval_start:
             where_and.exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
@@ -598,7 +596,7 @@ def resolve_batch_exports_model(
             filters = model.filters
 
             if model_name == "sessions":
-                record_batch_model = SessionsRecordBatchModel(team_id, is_backfill)
+                record_batch_model = SessionsRecordBatchModel(team_id)
         else:
             model_name = "events"
             extra_query_parameters = None

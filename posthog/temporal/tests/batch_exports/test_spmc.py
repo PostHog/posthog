@@ -256,7 +256,6 @@ def test_compose_filters_clause(
 async def test_sessions_record_batch_model(ateam, data_interval_start, data_interval_end):
     model = SessionsRecordBatchModel(
         team_id=ateam.id,
-        is_backfill=False,
     )
     hogql_query = model.get_hogql_query(data_interval_start, data_interval_end)
     team_id_filter = ast.CompareOperation(
