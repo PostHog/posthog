@@ -41,6 +41,7 @@ export type SettingSectionId =
     | 'project-danger-zone'
     | 'organization-details'
     | 'organization-members'
+    | 'organization-billing'
     | 'organization-authentication'
     | 'organization-roles'
     | 'organization-proxy'
@@ -86,6 +87,7 @@ export type SettingId =
     | 'environment-role-based-access-control'
     | 'environment-delete'
     | 'project-delete'
+    | 'project-move'
     | 'organization-logo'
     | 'organization-display-name'
     | 'invites'
@@ -140,7 +142,9 @@ export type Setting = {
 
 export interface SettingSection extends Pick<Setting, 'flag'> {
     id: SettingSectionId
+    to?: string
     title: JSX.Element | string
+    hideSelfHost?: boolean
     level: SettingLevelId
     settings: Setting[]
     minimumAccessLevel?: EitherMembershipLevel

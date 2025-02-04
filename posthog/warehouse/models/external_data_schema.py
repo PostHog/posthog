@@ -24,6 +24,7 @@ from posthog.warehouse.data_load.service import (
 from posthog.warehouse.types import IncrementalFieldType
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 from posthog.warehouse.util import database_sync_to_async
+from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 
 class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, DeletedMetaFields):
@@ -67,6 +68,10 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
 
     def folder_path(self) -> str:
         return f"team_{self.team_id}_{self.source.source_type}_{str(self.id)}".lower().replace("-", "_")
+
+    @property
+    def normalized_name(self):
+        return NamingConvention().normalize_identifier(self.name)
 
     @property
     def is_incremental(self):
