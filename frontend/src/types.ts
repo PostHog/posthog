@@ -2448,7 +2448,7 @@ export interface RetentionFilterType extends FilterType {
     cumulative?: boolean
 
     //frontend only
-    show_mean?: boolean
+    show_mean?: 'simple' | 'weighted' | null
 }
 export interface LifecycleFilterType extends FilterType {
     /** @deprecated */
