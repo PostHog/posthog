@@ -11,11 +11,11 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { batchExportRunsLogic, BatchExportRunsLogicProps } from './batchExportRunsLogic'
+import { batchExportBackfillModalLogic, BatchExportBackfillModalLogicProps } from './batchExportBackfillModalLogic'
 
-export function BatchExportBackfillModal({ id }: BatchExportRunsLogicProps): JSX.Element {
+export function BatchExportBackfillModal({ id }: BatchExportBackfillModalLogicProps): JSX.Element {
     const { timezone } = useValues(teamLogic)
-    const logic = batchExportRunsLogic({ id })
+    const logic = batchExportBackfillModalLogic({ id })
 
     const { batchExportConfig, isBackfillModalOpen, isBackfillFormSubmitting, isEarliestBackfill } = useValues(logic)
     const { closeBackfillModal, setEarliestBackfill, unsetEarliestBackfill, setBackfillFormManualErrors } =
@@ -60,8 +60,8 @@ export function BatchExportBackfillModal({ id }: BatchExportRunsLogicProps): JSX
                 until the end date is reached.
             </p>
             <Form
-                logic={batchExportRunsLogic}
-                props={{ id: id } as BatchExportRunsLogicProps}
+                logic={batchExportBackfillModalLogic}
+                props={{ id: id } as BatchExportBackfillModalLogicProps}
                 formKey="backfillForm"
                 id="batch-export-backfill-form"
                 enableFormOnSubmit
