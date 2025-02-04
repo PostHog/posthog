@@ -19,7 +19,7 @@ export function RetentionMeanDropdown(): JSX.Element | null {
 
     return (
         <LemonSelect
-            className="w-60"
+            className="w-44"
             size="small"
             value={showMean}
             onChange={(showMean) => {
