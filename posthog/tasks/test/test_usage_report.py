@@ -29,6 +29,7 @@ from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.plugin import PluginConfig
 from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.models.error_tracking import ErrorTrackingIssue
 from posthog.schema import EventsQuery
 from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
@@ -221,6 +222,8 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 created_by=self.user,
                 active=True,
             )
+
+            ErrorTrackingIssue.objects.create(team=self.org_1_team_1)
 
             uuids = [uuid4() for _ in range(0, 10)]
             for uuid in uuids:
@@ -530,6 +533,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "dashboard_tagged_count": 0,
                     "ff_count": 2,
                     "ff_active_count": 1,
+                    "issues_created_total": 1,
                     "decide_requests_count_in_period": 0,
                     "local_evaluation_requests_count_in_period": 0,
                     "billable_feature_flag_requests_count_in_period": 0,
@@ -547,6 +551,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "event_explorer_api_rows_read": 0,
                     "event_explorer_api_duration_ms": 0,
                     "rows_synced_in_period": 0,
+                    "posthog_exceptions_captured_in_period": 0,
                     "hog_function_calls_in_period": 0,
                     "hog_function_fetch_calls_in_period": 0,
                     "date": "2022-01-09",
@@ -585,6 +590,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "dashboard_tagged_count": 0,
                             "ff_count": 2,
                             "ff_active_count": 1,
+                            "issues_created_total": 1,
                             "decide_requests_count_in_period": 0,
                             "local_evaluation_requests_count_in_period": 0,
                             "billable_feature_flag_requests_count_in_period": 0,
@@ -602,6 +608,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "event_explorer_api_rows_read": 0,
                             "event_explorer_api_duration_ms": 0,
                             "rows_synced_in_period": 0,
+                            "posthog_exceptions_captured_in_period": 0,
                             "hog_function_calls_in_period": 0,
                             "hog_function_fetch_calls_in_period": 0,
                         },
@@ -634,6 +641,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "dashboard_tagged_count": 0,
                             "ff_count": 0,
                             "ff_active_count": 0,
+                            "issues_created_total": 0,
                             "decide_requests_count_in_period": 0,
                             "local_evaluation_requests_count_in_period": 0,
                             "billable_feature_flag_requests_count_in_period": 0,
@@ -651,6 +659,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "event_explorer_api_rows_read": 0,
                             "event_explorer_api_duration_ms": 0,
                             "rows_synced_in_period": 0,
+                            "posthog_exceptions_captured_in_period": 0,
                             "hog_function_calls_in_period": 0,
                             "hog_function_fetch_calls_in_period": 0,
                         },
@@ -706,6 +715,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "dashboard_tagged_count": 0,
                     "ff_count": 0,
                     "ff_active_count": 0,
+                    "issues_created_total": 0,
                     "decide_requests_count_in_period": 0,
                     "local_evaluation_requests_count_in_period": 0,
                     "billable_feature_flag_requests_count_in_period": 0,
@@ -723,6 +733,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "event_explorer_api_rows_read": 0,
                     "event_explorer_api_duration_ms": 0,
                     "rows_synced_in_period": 0,
+                    "posthog_exceptions_captured_in_period": 0,
                     "hog_function_calls_in_period": 0,
                     "hog_function_fetch_calls_in_period": 0,
                     "date": "2022-01-09",
@@ -761,6 +772,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "dashboard_tagged_count": 0,
                             "ff_count": 0,
                             "ff_active_count": 0,
+                            "issues_created_total": 0,
                             "decide_requests_count_in_period": 0,
                             "local_evaluation_requests_count_in_period": 0,
                             "billable_feature_flag_requests_count_in_period": 0,
@@ -778,6 +790,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "event_explorer_api_rows_read": 0,
                             "event_explorer_api_duration_ms": 0,
                             "rows_synced_in_period": 0,
+                            "posthog_exceptions_captured_in_period": 0,
                             "hog_function_calls_in_period": 0,
                             "hog_function_fetch_calls_in_period": 0,
                         }
