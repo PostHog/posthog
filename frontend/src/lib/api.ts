@@ -28,6 +28,7 @@ import {
     AppMetricsTotalsV2Response,
     AppMetricsV2RequestParams,
     AppMetricsV2Response,
+    BatchExportBackfill,
     BatchExportConfiguration,
     BatchExportRun,
     CohortType,
@@ -95,6 +96,7 @@ import {
     PropertyDefinitionType,
     QueryBasedInsightModel,
     RawAnnotationType,
+    RawBatchExportBackfill,
     RawBatchExportRun,
     RoleMemberType,
     RolesListParams,
@@ -935,12 +937,24 @@ class ApiRequest {
         return this.batchExports(teamId).addPathComponent(id).addPathComponent('runs')
     }
 
+    public batchExportBackfills(id: BatchExportConfiguration['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.batchExports(teamId).addPathComponent(id).addPathComponent('backfills')
+    }
+
     public batchExportRun(
         id: BatchExportConfiguration['id'],
         runId: BatchExportRun['id'],
         teamId?: TeamType['id']
     ): ApiRequest {
         return this.batchExportRuns(id, teamId).addPathComponent(runId)
+    }
+
+    public batchExportBackfill(
+        id: BatchExportConfiguration['id'],
+        backfillId: BatchExportBackfill['id'],
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.batchExportBackfills(id, teamId).addPathComponent(backfillId)
     }
 
     // External Data Source
@@ -2257,6 +2271,19 @@ const api = {
             data: Pick<BatchExportConfiguration, 'start_at' | 'end_at'>
         ): Promise<BatchExportRun> {
             return await new ApiRequest().batchExport(id).withAction('backfill').create({ data })
+        },
+        async listBackfills(
+            id: BatchExportConfiguration['id'],
+            params: Record<string, any> = {}
+        ): Promise<PaginatedResponse<RawBatchExportBackfill>> {
+            return await new ApiRequest().batchExportBackfills(id).withQueryString(toParams(params)).get()
+        },
+        async cancelBackfill(
+            id: BatchExportConfiguration['id'],
+            backfillId: BatchExportBackfill['id'],
+            teamId?: TeamType['id']
+        ): Promise<BatchExportBackfill> {
+            return await new ApiRequest().batchExportBackfill(id, backfillId, teamId).withAction('cancel').create()
         },
         async retryRun(
             id: BatchExportConfiguration['id'],

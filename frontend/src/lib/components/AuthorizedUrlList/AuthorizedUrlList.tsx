@@ -34,21 +34,28 @@ function EmptyState({
         <div className="border rounded p-4 text-muted-alt">
             {isSearching ? (
                 <>
-                    There are no authorized {type === AuthorizedUrlListType.RECORDING_DOMAINS ? 'domains' : 'URLs'} that
-                    match your search.
+                    There are no authorized{' '}
+                    <span>{type === AuthorizedUrlListType.RECORDING_DOMAINS ? 'domains' : 'URLs'}</span> that match your
+                    search.
                 </>
             ) : (
-                <>
+                <span>
                     {type === AuthorizedUrlListType.RECORDING_DOMAINS
                         ? 'No domains are specified, so recordings will be authorized on all domains.'
                         : 'There are no authorized urls. Add one to get started.'}
-                </>
+                </span>
             )}
         </div>
     ) : null
 }
 
-function AuthorizedUrlForm({ actionId, experimentId, query, type }: AuthorizedUrlListProps): JSX.Element {
+function AuthorizedUrlForm({
+    actionId,
+    experimentId,
+    query,
+    type,
+    allowWildCards,
+}: AuthorizedUrlListProps): JSX.Element {
     const logic = authorizedUrlListLogic({
         actionId: actionId ?? null,
         experimentId: experimentId ?? null,
@@ -60,7 +67,7 @@ function AuthorizedUrlForm({ actionId, experimentId, query, type }: AuthorizedUr
     return (
         <Form
             logic={authorizedUrlListLogic}
-            props={{ actionId, type, experimentId, query }}
+            props={{ actionId, type, experimentId, query, allowWildCards }}
             formKey="proposedUrl"
             enableFormOnSubmit
             className="w-full space-y-2"
@@ -68,7 +75,11 @@ function AuthorizedUrlForm({ actionId, experimentId, query, type }: AuthorizedUr
             <LemonField name="url">
                 <LemonInput
                     autoFocus
-                    placeholder="Enter a URL or wildcard subdomain (e.g. https://*.posthog.com)"
+                    placeholder={
+                        allowWildCards
+                            ? 'Enter a URL or wildcard subdomain (e.g. https://*.posthog.com)'
+                            : 'Enter a URL (e.g. https://posthog.com)'
+                    }
                     data-attr="url-input"
                 />
             </LemonField>
@@ -89,6 +100,7 @@ export interface AuthorizedUrlListProps {
     experimentId?: ExperimentIdType
     query?: string | null
     type: AuthorizedUrlListType
+    allowWildCards?: boolean
 }
 
 export function AuthorizedUrlList({
@@ -97,12 +109,14 @@ export function AuthorizedUrlList({
     query,
     type,
     addText = 'Add',
+    allowWildCards,
 }: AuthorizedUrlListProps & { addText?: string }): JSX.Element {
     const logic = authorizedUrlListLogic({
         experimentId: experimentId ?? null,
         actionId: actionId ?? null,
         type,
         query,
+        allowWildCards,
     })
     const {
         urlsKeyed,
@@ -141,6 +155,7 @@ export function AuthorizedUrlList({
                                 actionId={actionId}
                                 experimentId={experimentId}
                                 query={query}
+                                allowWildCards={allowWildCards}
                             />
                         </div>
                     )}
@@ -153,7 +168,7 @@ export function AuthorizedUrlList({
                     {urlsKeyed.map((keyedURL, index) => {
                         return editUrlIndex === index ? (
                             <div className="border rounded p-2 bg-bg-light">
-                                <AuthorizedUrlForm type={type} actionId={actionId} />
+                                <AuthorizedUrlForm type={type} actionId={actionId} allowWildCards={allowWildCards} />
                             </div>
                         ) : (
                             <div key={index} className={clsx('border rounded flex items-center p-2 pl-4 bg-bg-light')}>

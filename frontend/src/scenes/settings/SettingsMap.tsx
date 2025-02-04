@@ -1,6 +1,7 @@
 import { LemonTag } from '@posthog/lemon-ui'
 import { ErrorTrackingAlerting } from 'scenes/error-tracking/configuration/alerting/ErrorTrackingAlerting'
 import { ErrorTrackingSymbolSets } from 'scenes/error-tracking/configuration/symbol-sets/ErrorTrackingSymbolSets'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
@@ -10,6 +11,7 @@ import { PersonsJoinMode } from 'scenes/settings/environment/PersonsJoinMode'
 import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
 import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
+import { urls } from 'scenes/urls'
 
 import { Realm } from '~/types'
 
@@ -62,6 +64,7 @@ import { OrganizationLogo } from './organization/OrgLogo'
 import { RoleBasedAccess } from './organization/Permissions/RoleBasedAccess'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
+import { ProjectMove } from './project/ProjectMove'
 import { ProjectDisplayName, ProjectProductDescription } from './project/ProjectSettings'
 import { SettingSection } from './types'
 import { ChangePassword } from './user/ChangePassword'
@@ -404,6 +407,14 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'Danger zone',
         settings: [
             {
+                id: 'project-move',
+                title: 'Move project',
+                flag: '!ENVIRONMENTS',
+                component: <ProjectMove />, // There isn't EnvironmentMove yet
+                allowForTeam: () =>
+                    (organizationLogic.findMounted()?.values.currentOrganization?.teams.length ?? 0) > 1,
+            },
+            {
                 id: 'environment-delete',
                 title: 'Delete environment',
                 component: <TeamDangerZone />,
@@ -437,6 +448,13 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'project-danger-zone',
         title: 'Danger zone',
         settings: [
+            {
+                id: 'project-move',
+                title: 'Move project',
+                component: <ProjectMove />,
+                allowForTeam: () =>
+                    (organizationLogic.findMounted()?.values.currentOrganization?.teams.length ?? 0) > 1,
+            },
             {
                 id: 'project-delete',
                 title: 'Delete project',
@@ -496,6 +514,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <RoleBasedAccess />,
             },
         ],
+    },
+    {
+        level: 'organization',
+        id: 'organization-billing',
+        hideSelfHost: true,
+        title: 'Billing',
+        to: urls.organizationBilling(),
+        settings: [],
     },
     {
         level: 'organization',
