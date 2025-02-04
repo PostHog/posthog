@@ -421,3 +421,5 @@ REMOTE_CONFIG_CDN_PURGE_DOMAINS = get_list(os.getenv("REMOTE_CONFIG_CDN_PURGE_DO
 HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED = get_from_env(
     "HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED", False, type_cast=str_to_bool
 )
+# Teams allowed to modify transformation code (comma-separated list of team IDs)
+HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS = get_list(os.getenv("HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS", "2"))

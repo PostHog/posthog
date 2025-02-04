@@ -160,8 +160,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         template = HogFunctionTemplates.template(template_id) if template_id else None
 
         if hog_type == "transformation":
-            # Only allow team ID 2 to edit transformation code, even when the flag is enabled
-            if not settings.HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED or team.id != 2:
+            allowed_teams = [int(team_id) for team_id in settings.HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS]
+            if not settings.HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED or team.id not in allowed_teams:
                 if not template:
                     raise serializers.ValidationError(
                         {"template_id": "Transformation functions must be created from a template."}

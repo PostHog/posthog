@@ -1443,7 +1443,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "Function 4",  # execution_order=null
         ]
 
-    @override_settings(HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED=True)
+    @override_settings(HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED=True, HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=["2"])
     def test_transformation_code_editing_restricted_by_team(self):
         # Create team with ID 2
         team_2 = Team.objects.create(id=2, organization=self.organization, name="Team 2")
@@ -1480,7 +1480,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "attr": "template_id",
         }
 
-    @override_settings(HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED=True)
+    @override_settings(HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED=True, HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=["2"])
     def test_transformation_code_editing_with_template_restricted_by_team(self):
         with patch("posthog.api.hog_function_template.HogFunctionTemplates.template") as mock_template:
             mock_template.return_value = template_slack
