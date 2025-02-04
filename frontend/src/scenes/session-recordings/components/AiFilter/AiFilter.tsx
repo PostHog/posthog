@@ -22,20 +22,20 @@ export function AiFilter({ logic }: { logic: BuiltLogic<sessionRecordingsPlaylis
                     {
                         key: 'chat-with-recordings',
                         header: (
-                            <h3 className="mb-0 flex items-center gap-1">
-                                Chat with your recordings <LemonTag type="completion">ALPHA</LemonTag>
-                            </h3>
+                            <div className="no-flex py-2">
+                                <h3 className="mb-0 flex items-center gap-1">
+                                    Chat with your recording list <LemonTag type="completion">ALPHA</LemonTag>
+                                </h3>
+                                <div className="text-xs font-normal text-muted-alt">
+                                    Ask Max AI to find recordings matching your needs - like "show me recordings with
+                                    rage clicks" or "find recordings where users visited pricing"
+                                </div>
+                            </div>
                         ),
                         content: (
                             <>
-                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+                                <div className="gap-2">
                                     <div>
-                                        {messages.length === 1 && (
-                                            <div className="">
-                                                Have many recordings? Don't know where to start? Just ask Max AI!
-                                                <br />
-                                            </div>
-                                        )}
                                         {messages.length > 1 && (
                                             <div className="max-w-96 ">
                                                 {messages
@@ -101,40 +101,44 @@ export function AiFilter({ logic }: { logic: BuiltLogic<sessionRecordingsPlaylis
                                             </div>
                                         </div>
                                     </div>
-                                    <div>
-                                        <strong className="text-sm">People usually ask Max AI:</strong>
-                                        <LemonButton
-                                            className="mb-1"
-                                            type="secondary"
-                                            onClick={() =>
-                                                setInput(
-                                                    'Show me recordings of people who visited sign up page in the last 24 hours'
-                                                )
-                                            }
-                                        >
-                                            <span className="font-normal text-sx italic">
-                                                Show me recordings of people who visited sign up page in the last 24
-                                                hours
-                                            </span>
-                                        </LemonButton>
-                                        <LemonButton
-                                            className="mb-1"
-                                            type="secondary"
-                                            onClick={() => setInput('Show me recordings of people who are frustarated')}
-                                        >
-                                            <span className="font-normal text-sx italic">
-                                                Show me recordings of people who are frustarated
-                                            </span>
-                                        </LemonButton>
-                                        <LemonButton
-                                            type="secondary"
-                                            onClick={() => setInput('Show me recordings of people who facing bugs')}
-                                        >
-                                            <span className="font-normal text-sx italic">
-                                                Show me recordings of people who facing bugs
-                                            </span>
-                                        </LemonButton>
-                                    </div>
+                                    {messages.length === 1 && (
+                                        <div>
+                                            <strong className="text-sm">People usually ask Max AI:</strong>
+                                            <LemonButton
+                                                className="mb-1"
+                                                type="secondary"
+                                                onClick={() =>
+                                                    setInput(
+                                                        'Show me recordings of people who visited sign up page in the last 24 hours'
+                                                    )
+                                                }
+                                            >
+                                                <span className="font-normal text-sx italic">
+                                                    Show me recordings of people who visited sign up page in the last 24
+                                                    hours
+                                                </span>
+                                            </LemonButton>
+                                            <LemonButton
+                                                className="mb-1"
+                                                type="secondary"
+                                                onClick={() =>
+                                                    setInput('Show me recordings of people who are frustarated')
+                                                }
+                                            >
+                                                <span className="font-normal text-sx italic">
+                                                    Show me recordings of people who are frustarated
+                                                </span>
+                                            </LemonButton>
+                                            <LemonButton
+                                                type="secondary"
+                                                onClick={() => setInput('Show me recordings of people who facing bugs')}
+                                            >
+                                                <span className="font-normal text-sx italic">
+                                                    Show me recordings of people who facing bugs
+                                                </span>
+                                            </LemonButton>
+                                        </div>
+                                    )}
                                 </div>
                             </>
                         ),
