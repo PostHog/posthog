@@ -72,6 +72,39 @@ class TestRootNode(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(router_msg.content, insight_type)
             self.assertIsNotNone(router_msg.id)
 
+    @parameterized.expand(
+        [
+            ["trends"],
+            ["funnel"],
+            ["retention"],
+        ]
+    )
+    def test_node_handles_insight_tool_call_without_message(self, insight_type):
+        with patch(
+            "ee.hogai.root.nodes.RootNode._model",
+            return_value=RunnableLambda(
+                lambda _: LangchainAIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": "xyz",
+                            "name": "retrieve_data_for_question",
+                            "args": {"query_title": "Foobar", "query_kind": insight_type},
+                        }
+                    ],
+                )
+            ),
+        ):
+            node = RootNode(self.team)
+            state_1 = AssistantState(messages=[HumanMessage(content=f"generate {insight_type}")])
+            next_state = node.run(state_1, {})
+            self.assertIsInstance(next_state, PartialAssistantState)
+            self.assertEqual(len(next_state.messages), 1)
+            router_msg = next_state.messages[0]
+            self.assertIsInstance(router_msg, RouterMessage)
+            self.assertEqual(router_msg.content, insight_type)
+            self.assertIsNotNone(router_msg.id)
+
     def test_node_reconstructs_conversation(self):
         node = RootNode(self.team)
         state_1 = AssistantState(messages=[HumanMessage(content="Hello")])
