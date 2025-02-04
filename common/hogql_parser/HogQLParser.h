@@ -1568,6 +1568,18 @@ public:
     virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
   };
 
+  class  ColumnExprCallSelectContext : public ColumnExprContext {
+  public:
+    ColumnExprCallSelectContext(ColumnExprContext *ctx);
+
+    ColumnExprContext *columnExpr();
+    antlr4::tree::TerminalNode *LPAREN();
+    SelectSetStmtContext *selectSetStmt();
+    antlr4::tree::TerminalNode *RPAREN();
+
+    virtual std::any accept(antlr4::tree::ParseTreeVisitor *visitor) override;
+  };
+
   class  ColumnExprIsNullContext : public ColumnExprContext {
   public:
     ColumnExprIsNullContext(ColumnExprContext *ctx);

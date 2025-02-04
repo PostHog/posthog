@@ -122,7 +122,7 @@ type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 
 export type Setting = {
     id: SettingId
-    title: string
+    title: JSX.Element | string
     description?: JSX.Element | string
     component: JSX.Element
     /**
@@ -141,8 +141,8 @@ export type Setting = {
 
 export interface SettingSection extends Pick<Setting, 'flag'> {
     id: SettingSectionId
-    title: string
     to?: string
+    title: JSX.Element | string
     level: SettingLevelId
     settings: Setting[]
     minimumAccessLevel?: EitherMembershipLevel
