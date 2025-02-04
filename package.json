@@ -211,7 +211,7 @@
         "@babel/preset-react": "^7.22.5",
         "@babel/preset-typescript": "^7.22.5",
         "@cypress/webpack-preprocessor": "^6.0.2",
-        "@parcel/transformer-typescript-types": "2.12.0",
+        "@parcel/transformer-typescript-types": "2.13.3",
         "@playwright/test": "1.45.0",
         "@sentry/types": "7.112.1",
         "@storybook/addon-a11y": "^7.6.4",
