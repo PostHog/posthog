@@ -229,8 +229,8 @@ function onLoad() {
         assert "const filterMatches = " in result
         assert '__getGlobal("event") == "$pageview"' in result
         assert (
-            '(ilike(toString(__getProperty(__getProperty(__getGlobal("person"), '
-            '"properties", true), "email", true)), "%@test.com%")' in result
+            '(ilike(toString(__getProperty(__getProperty(__getGlobal("person"), "properties", true), "email", true)), "%@test.com%")'
+            in result
         )
 
     def test_get_transpiled_function_with_groups(self):
