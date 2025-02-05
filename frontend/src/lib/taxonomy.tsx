@@ -268,6 +268,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
     },
     event_properties: {
+        $last_posthog_reset: {
+            label: 'Timestamp of last call to `Reset`in the web sdk',
+            description: 'The timestamp of the last call to `Reset` in the web SDK. This can be useful for debugging.',
+            system: true,
+        },
         distinct_id: {} as CoreFilterDefinition, // Copied from `metadata` down below
         $session_duration: {} as CoreFilterDefinition, // Copied from `sessions` down below
         $session_is_sampled: {
