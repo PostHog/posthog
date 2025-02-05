@@ -10,6 +10,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import {
     Breadcrumb,
     ExternalDataSourceCreatePayload,
@@ -837,6 +838,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             ['loadSources'],
             teamLogic,
             ['addProductIntent'],
+            activationLogic,
+            ['markTaskAsCompleted'],
         ],
     }),
     reducers({
@@ -1170,6 +1173,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     ...values.source,
                     source_type: values.selectedConnector.name,
                 })
+
+                actions.markTaskAsCompleted(ActivationTask.ConnectSource)
                 lemonToast.success('New Data Resource Created')
                 actions.setSourceId(id)
                 actions.resetSourceConnectionDetails()

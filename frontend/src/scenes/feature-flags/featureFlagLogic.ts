@@ -267,6 +267,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['closeSidePanel'],
             teamLogic,
             ['addProductIntent'],
+            activationLogic,
+            ['markTaskAsCompleted'],
         ],
     })),
     actions({
@@ -840,6 +842,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.updateFlag(featureFlag)
             featureFlag.id && router.actions.replace(urls.featureFlag(featureFlag.id))
             actions.editFeatureFlag(false)
+            actions.markTaskAsCompleted(ActivationTask.CreateFeatureFlag)
         },
         saveSidebarExperimentFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Release conditions updated')

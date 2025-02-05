@@ -7,33 +7,23 @@ import {
     IconTestTube,
     IconToggle,
 } from '@posthog/icons'
-import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import posthog from 'posthog-js'
-import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
-import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
-import { featureFlagsLogic, type FeatureFlagsResult } from 'scenes/feature-flags/featureFlagsLogic'
 import { availableOnboardingProducts } from 'scenes/onboarding/utils'
 import { membersLogic } from 'scenes/organization/membersLogic'
-import { DESTINATION_TYPES } from 'scenes/pipeline/destinations/constants'
-import { pipelineDestinationsLogic } from 'scenes/pipeline/destinations/destinationsLogic'
-import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
-import { surveysLogic } from 'scenes/surveys/surveysLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { dashboardsModel } from '~/models/dashboardsModel'
 import {
     ActivationTaskStatus,
     EventDefinitionType,
-    type Experiment,
     PipelineStage,
     ProductKey,
     ReplayTabs,
@@ -44,6 +34,315 @@ import {
 
 import { sidePanelSettingsLogic } from '../sidePanelSettingsLogic'
 import type { activationLogicType } from './activationLogicType'
+
+export type ActivationTaskDefinition = {
+    id: ActivationTask
+    section: ActivationSection
+    title: string
+    canSkip: boolean
+    dependsOn?: {
+        task: ActivationTask
+        reason: string
+    }[]
+    url?: string
+}
+
+export type ActivationTaskType = Omit<ActivationTaskDefinition, 'dependsOn'> & {
+    completed: boolean
+    skipped: boolean
+    lockedReason?: string
+}
+
+// make sure to change this prefix in case the schema of cached values is changed
+// otherwise the code will try to run with cached deprecated values
+const CACHE_PREFIX = 'v1'
+
+export const activationLogic = kea<activationLogicType>([
+    path(['lib', 'components', 'ActivationSidebar', 'activationLogic']),
+    connect(() => ({
+        values: [teamLogic, ['currentTeam'], membersLogic, ['memberCount'], sidePanelStateLogic, ['modalMode']],
+        actions: [
+            teamLogic,
+            ['updateCurrentTeam'],
+            inviteLogic,
+            ['showInviteModal'],
+            sidePanelStateLogic,
+            ['openSidePanel'],
+            sidePanelSettingsLogic,
+            ['openSettingsPanel'],
+            sidePanelStateLogic,
+            ['closeSidePanel'],
+            teamLogic,
+            ['addProductIntent'],
+        ],
+    })),
+    actions({
+        runTask: (id: ActivationTask) => ({ id }),
+        markTaskAsCompleted: (id: ActivationTask) => ({ id }),
+        markTaskAsSkipped: (id: ActivationTask) => ({ id }),
+        toggleShowHiddenSections: () => ({}),
+        addIntentForSection: (section: ActivationSection) => ({ section }),
+        toggleSectionOpen: (section: ActivationSection) => ({ section }),
+        setOpenSections: (teamId: TeamBasicType['id'], sections: ActivationSection[]) => ({ teamId, sections }),
+        onTeamLoad: true,
+    }),
+    reducers(() => ({
+        openSections: [
+            {} as Record<string, ActivationSection[]>,
+            { persist: true, prefix: CACHE_PREFIX },
+            {
+                setOpenSections: (state, { teamId, sections }) => {
+                    return {
+                        ...state,
+                        [teamId]: sections,
+                    }
+                },
+            },
+        ],
+        showHiddenSections: [
+            false,
+            {
+                toggleShowHiddenSections: (state) => !state,
+            },
+        ],
+    })),
+    loaders(({ cache }) => ({
+        customEventsCount: [
+            0,
+            {
+                loadCustomEvents: async (_, breakpoint) => {
+                    await breakpoint(200)
+                    const url = api.eventDefinitions.determineListEndpoint({
+                        event_type: EventDefinitionType.EventCustom,
+                    })
+                    if (url in (cache.apiCache ?? {})) {
+                        return cache.apiCache[url]
+                    }
+                    cache.eventsStartTime = performance.now()
+                    const response = await api.get(url)
+                    breakpoint()
+                    cache.apiCache = {
+                        ...(cache.apiCache ?? {}),
+                        [url]: response.count,
+                    }
+                    return cache.apiCache[url]
+                },
+            },
+        ],
+    })),
+    selectors({
+        savedOnboardingTasks: [
+            (s) => [s.currentTeam],
+            (currentTeam) => currentTeam?.onboarding_tasks ?? ({} as Record<ActivationTask, ActivationTaskStatus>),
+        ],
+        isReady: [
+            (s) => [s.currentTeam],
+            (currentTeam): boolean => {
+                return !!currentTeam
+            },
+        ],
+        currentTeamOpenSections: [
+            (s) => [s.openSections, s.currentTeam],
+            (openSections, currentTeam) => (currentTeam?.id ? openSections[currentTeam?.id] ?? [] : []),
+        ],
+        hasCompletedFirstOnboarding: [
+            (s) => [s.currentTeam],
+            (currentTeam) =>
+                Object.keys(currentTeam?.has_completed_onboarding_for || {}).some(
+                    (key) => currentTeam?.has_completed_onboarding_for?.[key] === true
+                ),
+        ],
+        hasHiddenSections: [(s) => [s.sections], (sections) => sections.filter((s) => !s.hasIntent).length > 0],
+        tasks: [
+            (s) => [s.savedOnboardingTasks],
+            (savedOnboardingTasks) => {
+                const tasks: ActivationTaskType[] = ACTIVATION_TASKS.map((task) => ({
+                    ...task,
+                    skipped: task.canSkip && savedOnboardingTasks[task.id] === ActivationTaskStatus.SKIPPED,
+                    completed: savedOnboardingTasks[task.id] === ActivationTaskStatus.COMPLETED,
+                    lockedReason: task.dependsOn?.find(
+                        (d) => savedOnboardingTasks[d.task] !== ActivationTaskStatus.COMPLETED
+                    )?.reason,
+                }))
+
+                return tasks
+            },
+        ],
+        activeTasks: [(s) => [s.tasks], (tasks) => tasks.filter((task) => !task.completed && !task.skipped)],
+        completionPercent: [
+            (s) => [s.tasks],
+            (tasks) => {
+                const totalDone = tasks.filter((task) => task.completed).length
+                const totalAll = tasks.length
+                const percent = totalAll > 0 ? Math.round((totalDone / totalAll) * 100) : 0
+                // Return at least 5 to ensure a visible fraction on the progress circle
+                return percent >= 5 ? percent : 5
+            },
+        ],
+        hasCompletedAllTasks: [(s) => [s.tasks], (tasks) => tasks.every((task) => task.completed)],
+        productsWithIntent: [
+            (s) => [s.currentTeam],
+            (currentTeam: TeamType | TeamPublicType | null) => {
+                return currentTeam?.product_intents?.map((intent) => intent.product_type as ProductKey)
+            },
+        ],
+        sections: [
+            (s) => [s.productsWithIntent, s.currentTeamOpenSections, s.isReady],
+            (productsWithIntent, currentTeamOpenSections, isReady) => {
+                if (!isReady) {
+                    return []
+                }
+
+                return Object.entries(ACTIVATION_SECTIONS).map(([sectionKey, section]) => {
+                    return {
+                        ...section,
+                        key: sectionKey as ActivationSection,
+                        open: currentTeamOpenSections.includes(sectionKey as ActivationSection),
+                        hasIntent:
+                            ['quick_start', 'product_analytics'].includes(sectionKey) ||
+                            productsWithIntent?.includes(sectionKey as ProductKey),
+                    }
+                })
+            },
+        ],
+    }),
+    listeners(({ actions, values }) => ({
+        runTask: async ({ id }) => {
+            if (values.modalMode) {
+                actions.closeSidePanel()
+            }
+
+            switch (id) {
+                case ActivationTask.IngestFirstEvent:
+                    router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS))
+                    break
+                case ActivationTask.InviteTeamMember:
+                    actions.showInviteModal()
+                    break
+                case ActivationTask.CreateFirstInsight:
+                    router.actions.push(urls.insightNew())
+                    break
+                case ActivationTask.CreateFirstDashboard:
+                    router.actions.push(urls.dashboards())
+                    break
+                case ActivationTask.SetupSessionRecordings:
+                    actions.openSettingsPanel({ sectionId: 'project-replay' })
+                    router.actions.push(urls.replay(ReplayTabs.Home))
+                    break
+                case ActivationTask.WatchSessionRecording:
+                    router.actions.push(urls.replay(ReplayTabs.Home))
+                    break
+                case ActivationTask.TrackCustomEvents:
+                    router.actions.push(urls.eventDefinitions())
+                    break
+                case ActivationTask.CreateFeatureFlag:
+                    router.actions.push(urls.featureFlag('new'))
+                    break
+                case ActivationTask.UpdateFeatureFlagReleaseConditions:
+                    router.actions.push(urls.featureFlags())
+                    break
+                case ActivationTask.LaunchExperiment:
+                    router.actions.push(urls.experiment('new'))
+                    break
+                case ActivationTask.ConnectSource:
+                    router.actions.push(urls.pipelineNodeNew(PipelineStage.Source))
+                    break
+                case ActivationTask.ConnectDestination:
+                    router.actions.push(urls.pipelineNodeNew(PipelineStage.Destination))
+                    break
+                case ActivationTask.LaunchSurvey:
+                    router.actions.push(urls.surveyTemplates())
+                    break
+                case ActivationTask.CollectSurveyResponses:
+                    router.actions.push(urls.surveys())
+                    break
+                default:
+                    // For tasks with just a URL or no direct route
+                    break
+            }
+        },
+        markTaskAsSkipped: ({ id }) => {
+            const skipped = values.currentTeam?.onboarding_tasks?.[id] === ActivationTaskStatus.SKIPPED
+
+            if (skipped) {
+                return
+            }
+
+            posthog.capture('activation sidebar task skipped', {
+                task: id,
+            })
+
+            actions.updateCurrentTeam({
+                onboarding_tasks: {
+                    ...(values.currentTeam?.onboarding_tasks ?? {}),
+                    [id]: ActivationTaskStatus.SKIPPED,
+                },
+            })
+        },
+        markTaskAsCompleted: ({ id }) => {
+            const completed = values.currentTeam?.onboarding_tasks?.[id] === ActivationTaskStatus.COMPLETED
+
+            if (completed) {
+                return
+            }
+
+            posthog.capture('activation sidebar task marked completed', {
+                task: id,
+            })
+
+            actions.updateCurrentTeam({
+                onboarding_tasks: {
+                    ...(values.currentTeam?.onboarding_tasks ?? {}),
+                    [id]: ActivationTaskStatus.COMPLETED,
+                },
+            })
+        },
+        addIntentForSection: ({ section }) => {
+            const productKey = Object.values(ProductKey).find((key) => String(key) === String(section))
+
+            if (productKey) {
+                actions.addProductIntent({
+                    product_type: productKey,
+                    intent_context: ProductIntentContext.QUICK_START_PRODUCT_SELECTED,
+                })
+            }
+        },
+        toggleSectionOpen: ({ section }) => {
+            if (values.currentTeam?.id) {
+                const openSections = values.currentTeamOpenSections.includes(section)
+                    ? values.currentTeamOpenSections.filter((s) => s !== section)
+                    : [...values.currentTeamOpenSections, section]
+                actions.setOpenSections(values.currentTeam.id, openSections)
+            }
+        },
+        loadCustomEventsSuccess: () => {
+            if (values.customEventsCount > 0) {
+                actions.markTaskAsCompleted(ActivationTask.TrackCustomEvents)
+            }
+        },
+        onTeamLoad: () => {
+            if (values.currentTeam?.id && values.currentTeamOpenSections.length === 0) {
+                const sectionsWithIntent = values.sections.filter((s) => s.hasIntent).map((s) => s.key)
+                actions.setOpenSections(values.currentTeam.id, sectionsWithIntent)
+            }
+
+            if (
+                values.currentTeam?.session_recording_opt_in &&
+                values.savedOnboardingTasks[ActivationTask.SetupSessionRecordings] !== ActivationTaskStatus.COMPLETED
+            ) {
+                actions.markTaskAsCompleted(ActivationTask.SetupSessionRecordings)
+            }
+
+            if (
+                values.currentTeam?.ingested_event &&
+                values.savedOnboardingTasks[ActivationTask.IngestFirstEvent] !== ActivationTaskStatus.COMPLETED
+            ) {
+                actions.markTaskAsCompleted(ActivationTask.IngestFirstEvent)
+            }
+        },
+    })),
+    permanentlyMount(),
+])
 
 export enum ActivationTask {
     IngestFirstEvent = 'ingest_first_event',
@@ -124,573 +423,127 @@ export const ACTIVATION_SECTIONS = {
     },
 }
 
-/** 3b) "ActivationTaskType" now has "title" and "content" (ReactNode),
- * plus metadata for completion/skipping, etc.
- */
-export type ActivationTaskType = {
-    id: ActivationTask
-    section: ActivationSection
-    title: string
-    completed: boolean
-    canSkip: boolean
-    skipped: boolean
-    lockedReason?: string
-    url?: string
-}
+export const ACTIVATION_TASKS: ActivationTaskDefinition[] = [
+    {
+        id: ActivationTask.IngestFirstEvent,
+        title: 'Ingest your first event',
+        canSkip: false,
+        section: ActivationSection.QuickStart,
+    },
+    {
+        id: ActivationTask.InviteTeamMember,
+        title: 'Invite a team member',
+        canSkip: true,
+        section: ActivationSection.QuickStart,
+    },
+    {
+        id: ActivationTask.CreateFirstInsight,
+        title: 'Create your first insight',
+        canSkip: false,
+        section: ActivationSection.ProductAnalytics,
+    },
+    {
+        id: ActivationTask.CreateFirstDashboard,
+        title: 'Create your first dashboard',
+        canSkip: false,
+        section: ActivationSection.ProductAnalytics,
+    },
 
-// make sure to change this prefix in case the schema of cached values is changed
-// otherwise the code will try to run with cached deprecated values
-const CACHE_PREFIX = 'v1'
-
-export const activationLogic = kea<activationLogicType>([
-    path(['lib', 'components', 'ActivationSidebar', 'activationLogic']),
-    connect(() => ({
-        values: [
-            teamLogic,
-            ['currentTeam'],
-            membersLogic,
-            ['memberCount'],
-            inviteLogic,
-            ['invites', 'invitesLoaded'],
-            savedInsightsLogic,
-            ['insights', 'insightsLoaded'],
-            dashboardsModel,
-            ['rawDashboards', 'dashboardsLoaded'],
-            reverseProxyCheckerLogic,
-            ['hasReverseProxy'],
-            featureFlagsLogic,
-            ['featureFlags', 'featureFlagsLoaded'],
-            experimentsLogic,
-            ['experiments', 'experimentsLoaded'],
-            dataWarehouseSettingsLogic,
-            ['dataWarehouseSources', 'dataWarehouseSourcesLoaded'],
-            surveysLogic,
-            ['surveys', 'surveysResponsesCount', 'surveysLoaded', 'surveysResponsesCountLoaded'],
-            sidePanelStateLogic,
-            ['modalMode'],
-            pipelineDestinationsLogic({ types: DESTINATION_TYPES }),
-            ['destinations', 'destinationsLoaded'],
-        ],
-        actions: [
-            teamLogic,
-            ['updateCurrentTeam'],
-            inviteLogic,
-            ['showInviteModal', 'loadInvites'],
-            sidePanelStateLogic,
-            ['openSidePanel'],
-            savedInsightsLogic,
-            ['loadInsights'],
-            featureFlagsLogic,
-            ['loadFeatureFlags'],
-            experimentsLogic,
-            ['loadExperiments'],
-            dataWarehouseSettingsLogic,
-            ['loadSources'],
-            sidePanelSettingsLogic,
-            ['openSettingsPanel'],
-            sidePanelStateLogic,
-            ['closeSidePanel'],
-            teamLogic,
-            ['addProductIntent', 'loadCurrentTeamSuccess'],
-        ],
-    })),
-    actions({
-        loadCustomEvents: true,
-        runTask: (id: ActivationTask) => ({ id }),
-        skipTask: (id: ActivationTask) => ({ id }),
-        markTaskAsCompleted: (id: ActivationTask) => ({ id }),
-        addSkippedTask: (teamId: TeamBasicType['id'], taskId: ActivationTask) => ({ teamId, taskId }),
-        addCompletedTask: (teamId: TeamBasicType['id'], taskId: ActivationTask) => ({ teamId, taskId }),
-        toggleShowHiddenSections: () => ({}),
-        addIntentForSection: (section: ActivationSection) => ({ section }),
-        toggleSectionOpen: (section: ActivationSection) => ({ section }),
-        setOpenSections: (teamId: TeamBasicType['id'], sections: ActivationSection[]) => ({ teamId, sections }),
-    }),
-    reducers(() => ({
-        skippedTasks: [
-            {} as Record<string, string[]>,
-            { persist: true, prefix: CACHE_PREFIX },
+    {
+        id: ActivationTask.TrackCustomEvents,
+        title: 'Track custom events',
+        canSkip: true,
+        section: ActivationSection.ProductAnalytics,
+        url: 'https://posthog.com/tutorials/event-tracking-guide#setting-up-custom-events',
+    },
+    {
+        id: ActivationTask.SetUpReverseProxy,
+        title: 'Set up a reverse proxy',
+        canSkip: true,
+        section: ActivationSection.QuickStart,
+        url: 'https://posthog.com/docs/advanced/proxy',
+    },
+    // Sesion Replay
+    {
+        id: ActivationTask.SetupSessionRecordings,
+        title: 'Set up session recordings',
+        canSkip: false,
+        section: ActivationSection.SessionReplay,
+    },
+    {
+        id: ActivationTask.WatchSessionRecording,
+        title: 'Watch a session recording',
+        canSkip: false,
+        section: ActivationSection.SessionReplay,
+        dependsOn: [
             {
-                addSkippedTask: (state, { teamId, taskId }) => {
-                    return { ...state, [teamId]: [...(state[teamId] ?? []), taskId] }
-                },
+                task: ActivationTask.SetupSessionRecordings,
+                reason: 'Set up session recordings first',
             },
         ],
-        // TRICKY: Some tasks are detected as completed by loading data which is more reliable, for those that are not, we need to mark them as completed manually
-        tasksMarkedAsCompleted: [
-            {} as Record<string, string[]>,
-            { persist: true, prefix: CACHE_PREFIX },
+    },
+    // Feature Flags
+    {
+        id: ActivationTask.CreateFeatureFlag,
+        section: ActivationSection.FeatureFlags,
+        title: 'Create a feature flag',
+        canSkip: false,
+    },
+    {
+        id: ActivationTask.UpdateFeatureFlagReleaseConditions,
+        section: ActivationSection.FeatureFlags,
+        title: 'Update release conditions',
+        canSkip: false,
+        dependsOn: [
             {
-                addCompletedTask: (state, { teamId, taskId }) => {
-                    return { ...state, [teamId]: [...(state[teamId] ?? []), taskId] }
-                },
+                task: ActivationTask.CreateFeatureFlag,
+                reason: 'Create a feature flag first',
             },
         ],
-        openSections: [
-            {} as Record<string, ActivationSection[]>,
-            { persist: true, prefix: CACHE_PREFIX },
+    },
+    // Experiments
+    {
+        id: ActivationTask.LaunchExperiment,
+        section: ActivationSection.Experiments,
+        title: 'Launch an experiment',
+        canSkip: false,
+    },
+    // Data Pipelines
+    {
+        id: ActivationTask.ConnectSource,
+        title: 'Connect external data source',
+        canSkip: false,
+        section: ActivationSection.DataWarehouse,
+    },
+    {
+        id: ActivationTask.ConnectDestination,
+        title: 'Send data to a destination',
+        canSkip: true,
+        section: ActivationSection.DataWarehouse,
+        dependsOn: [
             {
-                setOpenSections: (state, { teamId, sections }) => {
-                    return {
-                        ...state,
-                        [teamId]: sections,
-                    }
-                },
+                task: ActivationTask.IngestFirstEvent,
+                reason: 'Ingest your first event first',
             },
         ],
-        showHiddenSections: [
-            false,
+    },
+    // Surveys
+    {
+        id: ActivationTask.LaunchSurvey,
+        title: 'Launch a survey',
+        canSkip: false,
+        section: ActivationSection.Surveys,
+    },
+    {
+        id: ActivationTask.CollectSurveyResponses,
+        title: 'Collect survey responses',
+        canSkip: false,
+        section: ActivationSection.Surveys,
+        dependsOn: [
             {
-                toggleShowHiddenSections: (state) => !state,
+                task: ActivationTask.LaunchSurvey,
+                reason: 'Launch a survey first',
             },
         ],
-        customEventsCountLoaded: [
-            false,
-            {
-                loadCustomEventsSuccess: () => true,
-            },
-        ],
-    })),
-    loaders(({ cache }) => ({
-        customEventsCount: [
-            0,
-            {
-                loadCustomEvents: async (_, breakpoint) => {
-                    await breakpoint(200)
-                    const url = api.eventDefinitions.determineListEndpoint({
-                        event_type: EventDefinitionType.EventCustom,
-                    })
-                    if (url in (cache.apiCache ?? {})) {
-                        return cache.apiCache[url]
-                    }
-                    cache.eventsStartTime = performance.now()
-                    const response = await api.get(url)
-                    breakpoint()
-                    cache.apiCache = {
-                        ...(cache.apiCache ?? {}),
-                        [url]: response.count,
-                    }
-                    return cache.apiCache[url]
-                },
-            },
-        ],
-    })),
-    selectors({
-        isReady: [
-            (s) => [
-                s.currentTeam,
-                s.memberCount,
-                s.invitesLoaded,
-                s.dashboardsLoaded,
-                s.customEventsCountLoaded,
-                s.insightsLoaded,
-                s.featureFlagsLoaded,
-                s.experimentsLoaded,
-                s.dataWarehouseSourcesLoaded,
-                s.surveysLoaded,
-                s.surveysResponsesCountLoaded,
-                s.destinationsLoaded,
-            ],
-            (
-                currentTeam,
-                invitesLoaded,
-                dashboardsLoaded,
-                customEventsCountLoaded,
-                insightsLoaded,
-                featureFlagsLoaded,
-                experimentsLoaded,
-                dataWarehouseSourcesLoaded,
-                surveysLoaded,
-                surveysResponsesCountLoaded,
-                destinationsLoaded
-            ): boolean => {
-                return (
-                    !!currentTeam &&
-                    invitesLoaded &&
-                    dashboardsLoaded &&
-                    customEventsCountLoaded &&
-                    insightsLoaded &&
-                    featureFlagsLoaded &&
-                    experimentsLoaded &&
-                    dataWarehouseSourcesLoaded &&
-                    surveysLoaded &&
-                    surveysResponsesCountLoaded &&
-                    destinationsLoaded
-                )
-            },
-        ],
-        currentTeamSkippedTasks: [
-            (s) => [s.skippedTasks, s.currentTeam],
-            (skippedTasks, currentTeam) => skippedTasks[currentTeam?.id ?? ''] ?? [],
-        ],
-        hasCreatedDashboard: [
-            (s) => [s.rawDashboards],
-            (dashboards) => Object.values(dashboards).find((dashboard) => dashboard.created_by !== null) !== undefined,
-        ],
-        hasSources: [(s) => [s.dataWarehouseSources], (sources) => (sources?.results ?? []).length > 0],
-        hasCreatedIndependentFeatureFlag: [
-            (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsResult) =>
-                (featureFlags?.results ?? []).some(
-                    (featureFlag) =>
-                        (!featureFlag.experiment_set || featureFlag.experiment_set.length === 0) &&
-                        (!featureFlag.surveys || featureFlag.surveys.length === 0)
-                ),
-        ],
-        hasLaunchedExperiment: [
-            (s) => [s.experiments],
-            (experiments: Experiment[]) => (experiments ?? []).filter((e) => e.start_date).length > 0,
-        ],
-        hasInsights: [(s) => [s.insights], (insights) => (insights?.results ?? []).length > 0],
-        hasLaunchedSurvey: [(s) => [s.surveys], (surveys) => (surveys ?? []).filter((s) => s.start_date).length > 0],
-        hasSurveyWithResponses: [
-            (s) => [s.surveysResponsesCount],
-            (surveysResponsesCount) => Object.values(surveysResponsesCount).some((count) => count > 0),
-        ],
-        hasInvitesOrMembers: [
-            (s) => [s.memberCount, s.invites],
-            (memberCount, invites) => memberCount > 1 || invites.length > 0,
-        ],
-        hasCustomEvents: [(s) => [s.customEventsCount], (customEventsCount) => customEventsCount > 0],
-        hasCompletedFirstOnboarding: [
-            (s) => [s.currentTeam],
-            (currentTeam) =>
-                Object.keys(currentTeam?.has_completed_onboarding_for || {}).some(
-                    (key) => currentTeam?.has_completed_onboarding_for?.[key] === true
-                ),
-        ],
-        hasConnectedDestination: [(s) => [s.destinations], (destinations) => (destinations ?? []).length > 0],
-        currentTeamTasksMarkedAsCompleted: [
-            (s) => [s.tasksMarkedAsCompleted, s.currentTeam],
-            (tasksMarkedAsCompleted, currentTeam) =>
-                currentTeam?.id ? tasksMarkedAsCompleted[currentTeam?.id] ?? [] : [],
-        ],
-        currentTeamOpenSections: [
-            (s) => [s.openSections, s.currentTeam],
-            (openSections, currentTeam) => (currentTeam?.id ? openSections[currentTeam?.id] ?? [] : []),
-        ],
-        hasHiddenSections: [(s) => [s.sections], (sections) => sections.filter((s) => !s.hasIntent).length > 0],
-        tasks: [
-            // @ts-expect-error There's a bug in kea typegen that causes this error
-            (s) => [
-                s.currentTeam,
-                s.hasReverseProxy,
-                s.hasSources,
-                s.hasCreatedIndependentFeatureFlag,
-                s.hasLaunchedExperiment,
-                s.hasCreatedDashboard,
-                s.hasInsights,
-                s.hasLaunchedSurvey,
-                s.hasSurveyWithResponses,
-                s.hasInvitesOrMembers,
-                s.hasCustomEvents,
-                s.currentTeamTasksMarkedAsCompleted,
-                s.currentTeamSkippedTasks,
-                s.hasConnectedDestination,
-            ],
-            (
-                currentTeam,
-                hasReverseProxy,
-                hasSources,
-                hasCreatedIndependentFeatureFlag,
-                hasLaunchedExperiment,
-                hasCreatedDashboard,
-                hasInsights,
-                hasLaunchedSurvey,
-                hasSurveyWithResponses,
-                hasInvitesOrMembers,
-                hasCustomEvents,
-                currentTeamTasksMarkedAsCompleted,
-                currentTeamSkippedTasks,
-                hasConnectedDestination
-            ) => {
-                const tasks: ActivationTaskType[] = [
-                    {
-                        id: ActivationTask.IngestFirstEvent,
-                        title: 'Ingest your first event',
-                        canSkip: false,
-                        section: ActivationSection.QuickStart,
-                        completed: currentTeam?.ingested_event ?? false,
-                    },
-                    {
-                        id: ActivationTask.InviteTeamMember,
-                        title: 'Invite a team member',
-                        completed: hasInvitesOrMembers,
-                        canSkip: true,
-                        section: ActivationSection.QuickStart,
-                    },
-                    {
-                        id: ActivationTask.CreateFirstInsight,
-                        title: 'Create your first insight',
-                        completed: hasInsights,
-                        canSkip: false,
-                        section: ActivationSection.ProductAnalytics,
-                    },
-                    {
-                        id: ActivationTask.CreateFirstDashboard,
-                        title: 'Create your first dashboard',
-                        completed: hasCreatedDashboard,
-                        canSkip: false,
-                        section: ActivationSection.ProductAnalytics,
-                    },
-
-                    {
-                        id: ActivationTask.TrackCustomEvents,
-                        title: 'Track custom events',
-                        completed: hasCustomEvents,
-                        canSkip: true,
-                        section: ActivationSection.ProductAnalytics,
-                        url: 'https://posthog.com/tutorials/event-tracking-guide#setting-up-custom-events',
-                    },
-                    {
-                        id: ActivationTask.SetUpReverseProxy,
-                        title: 'Set up a reverse proxy',
-                        completed: hasReverseProxy || false,
-                        canSkip: true,
-                        section: ActivationSection.QuickStart,
-                        url: 'https://posthog.com/docs/advanced/proxy',
-                    },
-                    // Sesion Replay
-                    {
-                        id: ActivationTask.SetupSessionRecordings,
-                        title: 'Set up session recordings',
-                        completed: currentTeam?.session_recording_opt_in ?? false,
-                        canSkip: false,
-                        section: ActivationSection.SessionReplay,
-                    },
-                    {
-                        id: ActivationTask.WatchSessionRecording,
-                        title: 'Watch a session recording',
-                        canSkip: false,
-                        section: ActivationSection.SessionReplay,
-                        lockedReason: !currentTeam?.session_recording_opt_in
-                            ? 'Set up session recordings first'
-                            : undefined,
-                    },
-                    // Feature Flags
-                    {
-                        id: ActivationTask.CreateFeatureFlag,
-                        section: ActivationSection.FeatureFlags,
-                        title: 'Create a feature flag',
-                        completed: hasCreatedIndependentFeatureFlag,
-                        canSkip: false,
-                    },
-                    {
-                        id: ActivationTask.UpdateFeatureFlagReleaseConditions,
-                        section: ActivationSection.FeatureFlags,
-                        title: 'Update release conditions',
-                        canSkip: false,
-                        lockedReason: !hasCreatedIndependentFeatureFlag ? 'Create a feature flag first' : undefined,
-                    },
-                    // Experiments
-                    {
-                        id: ActivationTask.LaunchExperiment,
-                        section: ActivationSection.Experiments,
-                        title: 'Launch an experiment',
-                        completed: hasLaunchedExperiment,
-                        canSkip: false,
-                    },
-                    // Data Pipelines
-                    {
-                        id: ActivationTask.ConnectSource,
-                        title: 'Connect external data source',
-                        completed: hasSources,
-                        canSkip: false,
-                        section: ActivationSection.DataWarehouse,
-                    },
-                    {
-                        id: ActivationTask.ConnectDestination,
-                        title: 'Send data to a destination',
-                        completed: hasConnectedDestination,
-                        canSkip: true,
-                        section: ActivationSection.DataWarehouse,
-                        lockedReason: !currentTeam?.ingested_event ? 'Ingest your first event first' : undefined,
-                    },
-                    // Surveys
-                    {
-                        id: ActivationTask.LaunchSurvey,
-                        title: 'Launch a survey',
-                        completed: hasLaunchedSurvey,
-                        canSkip: false,
-                        section: ActivationSection.Surveys,
-                    },
-                    {
-                        id: ActivationTask.CollectSurveyResponses,
-                        title: 'Collect survey responses',
-                        completed: hasSurveyWithResponses,
-                        canSkip: false,
-                        section: ActivationSection.Surveys,
-                        lockedReason: !hasLaunchedSurvey ? 'Launch a survey first' : undefined,
-                    },
-                ].map((task) => ({
-                    ...task,
-                    skipped: task.canSkip && currentTeamSkippedTasks.includes(task.id),
-                    completed: task.completed || currentTeamTasksMarkedAsCompleted.includes(task.id),
-                }))
-
-                return tasks
-            },
-        ],
-        /** 5) Filter tasks for display. */
-        activeTasks: [
-            (s) => [s.tasks, s.sections],
-            (tasks, sections) => tasks.filter((t) => !t.completed && !t.skipped && sections.includes(t.section)),
-        ],
-        completedTasks: [(s) => [s.tasks], (tasks) => tasks.filter((t) => t.completed || t.skipped)],
-        completionPercent: [
-            (s) => [s.completedTasks, s.activeTasks],
-            (completedTasks, activeTasks) => {
-                const totalDone = completedTasks.length
-                const totalAll = completedTasks.length + activeTasks.length
-                const percent = totalAll > 0 ? Math.round((totalDone / totalAll) * 100) : 0
-                // Return at least 5 to ensure a visible fraction on the progress circle
-                return percent >= 5 ? percent : 5
-            },
-        ],
-        hasCompletedAllTasks: [(s) => [s.activeTasks], (activeTasks) => activeTasks.length === 0],
-        productsWithIntent: [
-            (s) => [s.currentTeam],
-            (currentTeam: TeamType | TeamPublicType | null) => {
-                return currentTeam?.product_intents?.map((intent) => intent.product_type as ProductKey)
-            },
-        ],
-        sections: [
-            (s) => [s.productsWithIntent, s.currentTeamOpenSections, s.isReady],
-            (productsWithIntent, currentTeamOpenSections) => {
-                return Object.entries(ACTIVATION_SECTIONS).map(([sectionKey, section]) => {
-                    return {
-                        ...section,
-                        key: sectionKey as ActivationSection,
-                        open: currentTeamOpenSections.includes(sectionKey as ActivationSection),
-                        hasIntent:
-                            ['quick_start', 'product_analytics'].includes(sectionKey) ||
-                            productsWithIntent?.includes(sectionKey as ProductKey),
-                    }
-                })
-            },
-        ],
-    }),
-    listeners(({ actions, values }) => ({
-        runTask: async ({ id }) => {
-            if (values.modalMode) {
-                actions.closeSidePanel()
-            }
-
-            switch (id) {
-                case ActivationTask.IngestFirstEvent:
-                    router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS))
-                    break
-                case ActivationTask.InviteTeamMember:
-                    actions.showInviteModal()
-                    break
-                case ActivationTask.CreateFirstInsight:
-                    router.actions.push(urls.insightNew())
-                    break
-                case ActivationTask.CreateFirstDashboard:
-                    router.actions.push(urls.dashboards())
-                    break
-                case ActivationTask.SetupSessionRecordings:
-                    actions.openSettingsPanel({ sectionId: 'project-replay' })
-                    router.actions.push(urls.replay(ReplayTabs.Home))
-                    break
-                case ActivationTask.WatchSessionRecording:
-                    router.actions.push(urls.replay(ReplayTabs.Home))
-                    break
-                case ActivationTask.TrackCustomEvents:
-                    router.actions.push(urls.eventDefinitions())
-                    break
-                case ActivationTask.CreateFeatureFlag:
-                    router.actions.push(urls.featureFlag('new'))
-                    break
-                case ActivationTask.UpdateFeatureFlagReleaseConditions:
-                    router.actions.push(urls.featureFlags())
-                    break
-                case ActivationTask.LaunchExperiment:
-                    router.actions.push(urls.experiment('new'))
-                    break
-                case ActivationTask.ConnectSource:
-                    router.actions.push(urls.pipelineNodeNew(PipelineStage.Source))
-                    break
-                case ActivationTask.ConnectDestination:
-                    router.actions.push(urls.pipelineNodeNew(PipelineStage.Destination))
-                    break
-                case ActivationTask.LaunchSurvey:
-                    router.actions.push(urls.surveyTemplates())
-                    break
-                case ActivationTask.CollectSurveyResponses:
-                    router.actions.push(urls.surveys())
-                    break
-                default:
-                    // For tasks with just a URL or no direct route
-                    break
-            }
-        },
-        markTaskAsSkipped: ({ id }) => {
-            posthog.capture('activation sidebar task skipped', {
-                task: id,
-            })
-
-            const skipped = values.currentTeam?.onboarding_tasks?.[id] === ActivationTaskStatus.SKIPPED
-
-            if (skipped) {
-                return
-            }
-
-            actions.updateCurrentTeam({
-                onboarding_tasks: {
-                    ...(values.currentTeam?.onboarding_tasks ?? {}),
-                    [id]: ActivationTaskStatus.SKIPPED,
-                },
-            })
-        },
-        markTaskAsCompleted: ({ id }) => {
-            const completed = values.currentTeam?.onboarding_tasks?.[id] === ActivationTaskStatus.COMPLETED
-
-            if (completed) {
-                return
-            }
-
-            posthog.capture('activation sidebar task marked completed', {
-                task: id,
-            })
-
-            actions.updateCurrentTeam({
-                onboarding_tasks: {
-                    ...(values.currentTeam?.onboarding_tasks ?? {}),
-                    [id]: ActivationTaskStatus.COMPLETED,
-                },
-            })
-        },
-        addIntentForSection: ({ section }) => {
-            const productKey = Object.values(ProductKey).find((key) => String(key) === String(section))
-
-            if (productKey) {
-                actions.addProductIntent({
-                    product_type: productKey,
-                    intent_context: ProductIntentContext.QUICK_START_PRODUCT_SELECTED,
-                })
-            }
-        },
-        loadCurrentTeamSuccess: () => {
-            if (values.currentTeamOpenSections.length === 0 && values.currentTeam?.id) {
-                const sectionsWithIntent = values.sections.filter((s) => s.hasIntent).map((s) => s.key)
-                actions.setOpenSections(values.currentTeam.id, sectionsWithIntent)
-            }
-        },
-        toggleSectionOpen: ({ section }) => {
-            if (values.currentTeam?.id) {
-                const openSections = values.currentTeamOpenSections.includes(section)
-                    ? values.currentTeamOpenSections.filter((s) => s !== section)
-                    : [...values.currentTeamOpenSections, section]
-                actions.setOpenSections(values.currentTeam.id, openSections)
-            }
-        },
-    })),
-    events(({ actions }) => ({
-        afterMount: () => {
-            actions.loadCustomEvents()
-            actions.loadInsights()
-        },
-    })),
-    permanentlyMount(),
-])
+    },
+]

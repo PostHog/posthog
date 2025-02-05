@@ -1,7 +1,8 @@
-import { afterMount, kea, path, reducers } from 'kea'
+import { afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
+import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 
@@ -11,6 +12,9 @@ const CHECK_INTERVAL_MS = 1000 * 60 * 60 // 1 hour
 
 export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
     path(['components', 'ReverseProxyChecker', 'reverseProxyCheckerLogic']),
+    connect(() => ({
+        actions: [activationLogic, ['markTaskAsCompleted']],
+    })),
     loaders({
         hasReverseProxy: [
             false as boolean | null,
@@ -32,6 +36,13 @@ export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
             },
         ],
     }),
+    listeners(({ actions, values }) => ({
+        loadHasReverseProxySuccess: () => {
+            if (values.hasReverseProxy) {
+                actions.markTaskAsCompleted(ActivationTask.SetUpReverseProxy)
+            }
+        },
+    })),
     reducers({
         lastCheckedTimestamp: [
             0,

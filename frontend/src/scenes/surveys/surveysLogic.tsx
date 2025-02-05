@@ -9,6 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { AvailableFeature, Breadcrumb, ProgressStatus, Survey, SurveyType } from '~/types'
 
 import type { surveysLogicType } from './surveysLogicType'
@@ -41,14 +42,14 @@ export const surveysLogic = kea<surveysLogicType>([
     path(['scenes', 'surveys', 'surveysLogic']),
     connect(() => ({
         values: [userLogic, ['hasAvailableFeature'], teamLogic, ['currentTeam', 'currentTeamLoading']],
-        actions: [teamLogic, ['loadCurrentTeam']],
+        actions: [teamLogic, ['loadCurrentTeam'], activationLogic, ['markTaskAsCompleted']],
     })),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setSurveysFilters: (filters: Partial<SurveysFilters>, replace?: boolean) => ({ filters, replace }),
         setTab: (tab: SurveysTabs) => ({ tab }),
     }),
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
         surveys: {
             __default: [] as Survey[],
             loadSurveys: async () => {
@@ -61,6 +62,11 @@ export const surveysLogic = kea<surveysLogicType>([
             },
             updateSurvey: async ({ id, updatePayload }) => {
                 const updatedSurvey = await api.surveys.update(id, { ...updatePayload })
+
+                if (updatedSurvey.start_date) {
+                    actions.markTaskAsCompleted(ActivationTask.LaunchSurvey)
+                }
+
                 return values.surveys.map((survey) => (survey.id === id ? updatedSurvey : survey))
             },
         },
@@ -110,6 +116,11 @@ export const surveysLogic = kea<surveysLogicType>([
         },
         loadSurveysSuccess: () => {
             actions.loadCurrentTeam()
+        },
+        loadResponsesCountSuccess: () => {
+            if (Object.values(values.surveysResponsesCount).some((count) => count > 0)) {
+                actions.markTaskAsCompleted(ActivationTask.LaunchSurvey)
+            }
         },
         setTab: ({ tab }) => {
             actions.setSurveysFilters({ ...values.filters, archived: tab === SurveysTabs.Archived })

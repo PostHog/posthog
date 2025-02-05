@@ -107,12 +107,12 @@ const ActivationSectionComponent = ({
     sectionKey: ActivationSection
     section: (typeof activationLogic.values.sections)[number]
 }): JSX.Element | null => {
-    const { activeTasks, completedTasks } = useValues(activationLogic)
+    const { tasks } = useValues(activationLogic)
     const { toggleSectionOpen, addIntentForSection } = useActions(activationLogic)
 
-    const tasks = [...activeTasks, ...completedTasks].filter((task) => task.section === sectionKey)
+    const sectionTasks = tasks.filter((task) => task.section === sectionKey)
 
-    if (tasks.length === 0) {
+    if (sectionTasks.length === 0) {
         return null
     }
 
@@ -131,8 +131,8 @@ const ActivationSectionComponent = ({
         }
     }
 
-    const itemsCompleted = tasks.filter((task) => task.completed).length
-    const totalItems = tasks.length
+    const itemsCompleted = sectionTasks.filter((task) => task.completed).length
+    const totalItems = sectionTasks.length
 
     return (
         <div className="py-3">
@@ -162,7 +162,7 @@ const ActivationSectionComponent = ({
             </button>
             {section.hasIntent && section.open && (
                 <ul className="space-y-2 mt-2">
-                    {tasks.map((task: ActivationTaskType) => (
+                    {sectionTasks.map((task: ActivationTaskType) => (
                         <ActivationTask key={task.id} {...task} />
                     ))}
                 </ul>
@@ -180,7 +180,7 @@ const ActivationTask = ({
     lockedReason,
     url,
 }: ActivationTaskType): JSX.Element => {
-    const { runTask, skipTask } = useActions(activationLogic)
+    const { runTask, markTaskAsSkipped } = useActions(activationLogic)
     const { reportActivationSideBarTaskClicked } = useActions(eventUsageLogic)
 
     const handleClick = (): void => {
@@ -233,7 +233,7 @@ const ActivationTask = ({
                     className="h-6 font-semibold text-muted-alt"
                     onClick={(e) => {
                         e.stopPropagation()
-                        skipTask(id)
+                        markTaskAsSkipped(id)
                     }}
                 >
                     Skip

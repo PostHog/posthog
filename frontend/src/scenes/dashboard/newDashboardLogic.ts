@@ -9,6 +9,7 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { legacyEntityToNode, sanitizeRetentionEntity } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
@@ -102,7 +103,11 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
     props({} as NewDashboardLogicProps),
     key(({ featureFlagId }) => featureFlagId ?? 'new'),
     path(['scenes', 'dashboard', 'newDashboardLogic']),
-    connect({ logic: [dashboardsModel], values: [featureFlagLogic, ['featureFlags']] }),
+    connect({
+        logic: [dashboardsModel],
+        values: [featureFlagLogic, ['featureFlags']],
+        actions: [activationLogic, ['markTaskAsCompleted']],
+    }),
     actions({
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
         showNewDashboardModal: true,
@@ -233,6 +238,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/create_from_template_json`,
                     { template: dashboardJSON, creation_context: creationContext }
                 )
+
                 actions.hideNewDashboardModal()
                 actions.resetNewDashboard()
                 const queryBasedDashboard = getQueryBasedDashboard(result)
