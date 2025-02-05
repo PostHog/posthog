@@ -3,6 +3,7 @@ import base64
 from django.core import exceptions
 from rest_framework.exceptions import ValidationError
 from django.test import override_settings
+from unittest.mock import patch
 
 from posthog.models import Plugin, PluginSourceFile
 from posthog.models.plugin import validate_plugin_job_payload
@@ -169,7 +170,21 @@ class TestPlugin(BaseTest):
         self.assertEqual(geoip_plugins.first(), geoip_plugin)
 
     @override_settings(USE_HOG_TRANSFORMATION_FOR_GEOIP_ON_PROJECT_CREATION=True, DISABLE_MMDB=False)
-    def test_geoip_transformation_created_when_enabled(self):
+    @patch("posthog.api.hog_function_template.HogFunctionTemplates.template")
+    def test_geoip_transformation_created_when_enabled(self, mock_template):
+        # Create a mock object with the required attributes
+        from types import SimpleNamespace
+
+        mock_template.return_value = SimpleNamespace(
+            id="plugin-posthog-plugin-geoip",
+            name="GeoIP",
+            description="Enrich events with GeoIP data",
+            icon_url="/static/transformations/geoip.png",
+            hog="return event",
+            inputs_schema={},
+            type="transformation",
+        )
+
         from django.db import transaction
 
         with transaction.atomic():
@@ -179,6 +194,7 @@ class TestPlugin(BaseTest):
 
             # Verify GeoIP transformation was created
             transformations = HogFunction.objects.filter(team=team, type="transformation")
+        self.assertEqual(transformations.count(), 1)
 
             geoip = transformations.first()
             self.assertIsNotNone(geoip, "GeoIP transformation should exist")
