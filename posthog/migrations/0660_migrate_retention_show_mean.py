@@ -11,7 +11,7 @@ def migrate_show_mean_from_boolean_to_string(apps, schema_editor):
         filters__show_mean__isnull=True,
     )
 
-    for insight in retention_insights:
+    for insight in retention_insights.iterator(chunk_size=100):
         if isinstance(insight.filters.get("show_mean"), bool):
             # Convert boolean to string - if True, use 'simple'
             insight.filters["show_mean"] = "simple" if insight.filters["show_mean"] else None
@@ -28,7 +28,7 @@ def reverse_migrate_show_mean_from_string_to_boolean(apps, schema_editor):
         filters__show_mean__isnull=True,
     )
 
-    for insight in retention_insights:
+    for insight in retention_insights.iterator(chunk_size=100):
         if isinstance(insight.filters.get("show_mean"), str):
             # Convert string back to boolean - 'simple' and 'weighted' becomes True
             insight.filters["show_mean"] = (
