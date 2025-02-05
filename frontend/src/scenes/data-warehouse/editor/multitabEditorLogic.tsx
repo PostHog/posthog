@@ -182,7 +182,14 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }
         },
         createTab: ({ query = '', view }) => {
-            const mountedCodeEditorLogic = codeEditorLogic.findMounted()
+            const mountedCodeEditorLogic =
+                codeEditorLogic.findMounted() ||
+                codeEditorLogic({
+                    key: props.key,
+                    query: values.sourceQuery?.source.query ?? '',
+                    language: 'hogQL',
+                })
+
             let currentModelCount = 1
             const allNumbers = values.allTabs.map((tab) => parseInt(tab.uri.path.split('/').pop() || '0'))
             while (allNumbers.includes(currentModelCount)) {

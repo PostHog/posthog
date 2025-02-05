@@ -30,13 +30,17 @@ export class S3SessionBatchWriter implements SessionBatchFileWriter {
             },
         })
 
+        // This doesn't mean the upload is done 🙃
+        // We need to call `done` to allow the stream to be drained.
+        // Once the stream is ended, the upload will complete and the promise will resolve.
+        const uploadPromise = upload.done()
+
         return {
             stream: passThrough,
             finish: async () => {
                 status.debug('🔄', 's3_session_batch_writer_finishing_stream', { key })
-                passThrough.end()
                 try {
-                    await upload.done()
+                    await uploadPromise
                     status.info('🔄', 's3_session_batch_writer_upload_complete', { key })
                 } catch (error) {
                     status.error('🔄', 's3_session_batch_writer_upload_error', { key, error })

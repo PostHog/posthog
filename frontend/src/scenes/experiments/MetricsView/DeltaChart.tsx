@@ -477,7 +477,9 @@ export function DeltaChart({
                                                 <>
                                                     <defs>
                                                         <linearGradient
-                                                            id={`gradient-${metricIndex}-${variant.key}`}
+                                                            id={`gradient-${metricIndex}-${variant.key}-${
+                                                                isSecondary ? 'secondary' : 'primary'
+                                                            }`}
                                                             x1="0"
                                                             x2="1"
                                                             y1="0"
@@ -513,7 +515,9 @@ export function DeltaChart({
                                                     </defs>
                                                     <path
                                                         d={generateViolinPath(x1, x2, y, BAR_HEIGHT)}
-                                                        fill={`url(#gradient-${metricIndex}-${variant.key})`}
+                                                        fill={`url(#gradient-${metricIndex}-${variant.key}-${
+                                                            isSecondary ? 'secondary' : 'primary'
+                                                        })`}
                                                     />
                                                 </>
                                             )}
@@ -840,7 +844,7 @@ export function DeltaChart({
                 <div className="flex justify-end">
                     <ExploreButton result={result} />
                 </div>
-                <LemonBanner type="info" className="mb-4">
+                <LemonBanner type={result?.significant ? 'success' : 'info'} className="mb-4">
                     <div className="items-center inline-flex flex-wrap">
                         <WinningVariantText result={result} experimentId={experimentId} />
                         <SignificanceText metricIndex={metricIndex} />
