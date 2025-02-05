@@ -7,7 +7,7 @@ export const flattenPropertiesPlugin: LegacyTransformationPlugin = {
     processEvent,
     template: {
         free: true,
-        status: 'alpha',
+        status: 'deprecated',
         type: 'transformation',
         id: 'plugin-flatten-properties-plugin',
         name: 'Flatten Properties',

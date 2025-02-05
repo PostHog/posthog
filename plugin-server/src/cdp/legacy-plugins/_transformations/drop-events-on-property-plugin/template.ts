@@ -6,7 +6,7 @@ export const dropEventsOnPropertyPlugin: LegacyTransformationPlugin = {
     processEvent,
     template: {
         free: true,
-        status: 'alpha',
+        status: 'deprecated',
         type: 'transformation',
         id: 'plugin-drop-events-on-property-plugin',
         name: 'Drop Events Based On Property',

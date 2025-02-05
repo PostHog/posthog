@@ -6,7 +6,7 @@ export const posthogAppUnduplicator: LegacyTransformationPlugin = {
     processEvent,
     template: {
         free: true,
-        status: 'alpha',
+        status: 'deprecated',
         type: 'transformation',
         id: 'plugin-posthog-app-unduplicator',
         name: 'PostHog App Unduplicator',

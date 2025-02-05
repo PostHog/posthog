@@ -6,7 +6,7 @@ export const posthogAnonymization: LegacyTransformationPlugin = {
     processEvent,
     template: {
         free: true,
-        status: 'alpha',
+        status: 'deprecated',
         type: 'transformation',
         id: 'plugin-posthog-anonymization',
         name: 'PostHog Anonymization',

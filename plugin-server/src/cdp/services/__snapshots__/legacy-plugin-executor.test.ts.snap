@@ -16,6 +16,99 @@ exports[`LegacyPluginExecutorService smoke tests should run the destination plug
 ]
 `;
 
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-pace-posthog-integration', plugin: [Object] } 1`] = `
+[
+  "Executing plugin plugin-pace-posthog-integration",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-posthog-avo-plugin', plugin: [Object] } 1`] = `
+[
+  "Executing plugin plugin-posthog-avo-plugin",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-posthog-braze-app', plugin: [Object] } 1`] = `
+[
+  "Executing plugin plugin-posthog-braze-app",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-posthog-engage-so-plugin', plugin: [Object] } 1`] = `
+[
+  "Executing plugin plugin-posthog-engage-so-plugin",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-posthog-gcs-plugin', plugin: [Object] } 1`] = `
+[
+  "Executing plugin plugin-posthog-gcs-plugin",
+  "Plugin execution failed: Plugin plugin-posthog-gcs-plugin setup failed: Cannot read properties of undefined (reading 'googleCloudKeyJson')",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-posthog-intercom-plugin', plugin: [Object] } 1`] = `
+[
+  "Executing plugin plugin-posthog-intercom-plugin",
+  "Contact test@posthog.com in Intercom not found",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-posthog-laudspeaker-app', plugin: [Object] } 1`] = `
+[
+  "Executing plugin plugin-posthog-laudspeaker-app",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-posthog-patterns-app', plugin: [Object] } 1`] = `
+[
+  "Executing plugin plugin-posthog-patterns-app",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-posthog-plugin-replicator', plugin: [Object] } 1`] = `
+[
+  "Executing plugin plugin-posthog-plugin-replicator",
+  "Skipping 1 event, rejected by test: 200 undefined",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-pubsub-plugin', plugin: [Object] } 1`] = `
+[
+  "Executing plugin plugin-pubsub-plugin",
+  "Plugin execution failed: Plugin plugin-pubsub-plugin setup failed: Cannot read properties of undefined (reading 'googleCloudKeyJson')",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-rudderstack-posthog-plugin', plugin: [Object] } 1`] = `
+[
+  "Executing plugin plugin-rudderstack-posthog-plugin",
+  "Execution successful",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-salesforce-plugin', plugin: [Object] } 1`] = `
+[
+  "Executing plugin plugin-salesforce-plugin",
+  "Plugin execution failed: Plugin plugin-salesforce-plugin setup failed: host not a valid URL!",
+]
+`;
+
+exports[`LegacyPluginExecutorService smoke tests should run the destination plugin: { name: 'plugin-sendgrid-plugin', plugin: [Object] } 1`] = `
+[
+  "Executing plugin plugin-sendgrid-plugin",
+  "Plugin execution failed: Plugin plugin-sendgrid-plugin setup failed: Custom field with name test is not defined in Sendgrid",
+]
+`;
+
 exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: {
   name: 'plugin-posthog-app-url-parameters-to-event-properties',
   plugin: [Object]
@@ -94,7 +187,7 @@ exports[`LegacyPluginExecutorService smoke tests should run the transformation p
 exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'plugin-posthog-filter-out-plugin', plugin: [Object] } 1`] = `
 [
   "Executing plugin plugin-posthog-filter-out-plugin",
-  "Plugin execution failed: Could not parse filters attachment: Unexpected token e in JSON at position 1",
+  "Execution successful",
 ]
 `;
 

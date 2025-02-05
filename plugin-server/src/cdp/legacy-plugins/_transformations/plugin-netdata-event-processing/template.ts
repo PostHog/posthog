@@ -7,7 +7,7 @@ export const pluginNetdataEventProcessing: LegacyTransformationPlugin = {
     processEvent,
     template: {
         free: true,
-        status: 'alpha',
+        status: 'deprecated',
         type: 'transformation',
         id: 'plugin-plugin-netdata-event-processing',
         name: 'Netdata Event Processing',
