@@ -43,7 +43,6 @@ class TestTemplateLinkedInAds(BaseHogFunctionTemplateTest):
                     "body": {
                         "conversion": "urn:lla:llaPartnerConversion:conversion-rule-12345",
                         "conversionHappenedAt": 1737464596570,
-                        "conversionValue": {"currencyCode": "USD", "amount": "100"},
                         "user": {
                             "userIds": [
                                 {
