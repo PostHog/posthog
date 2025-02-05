@@ -1405,6 +1405,7 @@ class TrendsFilterLegacy(BaseModel):
     show_alert_threshold_lines: Optional[bool] = None
     show_labels_on_series: Optional[bool] = None
     show_legend: Optional[bool] = None
+    show_multiple_y_axes: Optional[bool] = None
     show_percent_stack_view: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
     smoothing_intervals: Optional[float] = None
@@ -2758,6 +2759,7 @@ class TrendsFilter(BaseModel):
     showAlertThresholdLines: Optional[bool] = False
     showLabelsOnSeries: Optional[bool] = None
     showLegend: Optional[bool] = False
+    showMultipleYAxes: Optional[bool] = False
     showPercentStackView: Optional[bool] = False
     showValuesOnSeries: Optional[bool] = False
     smoothingIntervals: Optional[int] = 1
