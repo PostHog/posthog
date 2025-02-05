@@ -1,7 +1,8 @@
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from typing import Any, Generic, Optional, TypeGuard, TypeVar, Union, cast
+from types import UnionType
+from typing import Any, Generic, Optional, TypeGuard, TypeVar, Union, cast, get_args
 
 import structlog
 from prometheus_client import Counter
@@ -499,8 +500,18 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self.query_id = query_id
 
         if not self.is_query_node(query):
-            query = self.query_type.model_validate(query)
-        assert isinstance(query, self.query_type)
+            if isinstance(self.query_type, UnionType):
+                for query_type in get_args(self.query_type):  # type: ignore
+                    try:
+                        query = query_type.model_validate(query)
+                        break
+                    except ValueError:
+                        continue
+                if not self.is_query_node(query):
+                    raise ValueError(f"Query is not of type {self.query_type}")
+            else:
+                query = self.query_type.model_validate(query)
+                assert isinstance(query, self.query_type)
         self.query = query
 
     @property
@@ -771,7 +782,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return timedelta(minutes=1)
 
     def apply_variable_overrides(self, variable_overrides: list[HogQLVariable]):
-        """Irreversably update self.query with provided variable overrides."""
+        """Irreversibly update self.query with provided variable overrides."""
         if not hasattr(self.query, "variables") or not self.query.kind == "HogQLQuery" or len(variable_overrides) == 0:
             return
 
@@ -785,7 +796,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 self.query.variables[variable.variableId] = variable
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
-        """Irreversably update self.query with provided dashboard filters."""
+        """Irreversibly update self.query with provided dashboard filters."""
         if not hasattr(self.query, "properties") or not hasattr(self.query, "dateRange"):
             capture_exception(
                 NotImplementedError(

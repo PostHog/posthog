@@ -105,10 +105,10 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                                     <LemonCollapse
                                         size="medium"
                                         activeKey={selectedVariant}
-                                        onChange={(variant) => {
-                                            if (variant) {
-                                                selectVariant(variant)
-                                                applyVariant(selectedVariant, variant)
+                                        onChange={(newVariant) => {
+                                            if (newVariant) {
+                                                selectVariant(newVariant)
+                                                applyVariant(newVariant)
                                             }
                                         }}
                                         panels={Object.keys(experimentForm.variants || {})

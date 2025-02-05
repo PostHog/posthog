@@ -1,6 +1,7 @@
 import { HogFunctionTemplate } from '../../../templates/types'
 
 export const template: HogFunctionTemplate = {
+    free: true,
     status: 'alpha',
     type: 'transformation',
     id: 'plugin-downsampling-plugin',
@@ -16,6 +17,7 @@ export const template: HogFunctionTemplate = {
             label: '% of events to keep',
             default: '100',
             required: false,
+            templating: false,
         },
         {
             type: 'choice',
@@ -27,6 +29,7 @@ export const template: HogFunctionTemplate = {
             ],
             default: 'Distinct ID aware sampling',
             required: false,
+            templating: false,
         },
     ],
 }

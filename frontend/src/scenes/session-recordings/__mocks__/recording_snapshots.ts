@@ -1,4 +1,4 @@
-import { eventWithTime } from '@rrweb/types'
+import { eventWithTime } from '@posthog/rrweb-types'
 import { deduplicateSnapshots } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 
 import { RecordingSnapshot } from '~/types'

@@ -1,3 +1,4 @@
+import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
 import { captureException } from '@sentry/node'
 import {
     CODES,
@@ -62,7 +63,7 @@ export class SessionRecordingIngester {
     constructor(
         private config: PluginsServerConfig,
         private consumeOverflow: boolean,
-        private postgres: PostgresRouter,
+        postgres: PostgresRouter,
         batchConsumerFactory: BatchConsumerFactory,
         ingestionWarningProducer?: KafkaProducerWrapper
     ) {
@@ -75,6 +76,29 @@ export class SessionRecordingIngester {
 
         this.promiseScheduler = new PromiseScheduler()
 
+        let s3Client: S3Client | null = null
+        if (
+            config.SESSION_RECORDING_V2_S3_ENDPOINT &&
+            config.SESSION_RECORDING_V2_S3_REGION &&
+            config.SESSION_RECORDING_V2_S3_BUCKET &&
+            config.SESSION_RECORDING_V2_S3_PREFIX
+        ) {
+            const s3Config: S3ClientConfig = {
+                region: config.SESSION_RECORDING_V2_S3_REGION,
+                endpoint: config.SESSION_RECORDING_V2_S3_ENDPOINT,
+                forcePathStyle: true,
+            }
+
+            if (config.SESSION_RECORDING_V2_S3_ACCESS_KEY_ID && config.SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY) {
+                s3Config.credentials = {
+                    accessKeyId: config.SESSION_RECORDING_V2_S3_ACCESS_KEY_ID,
+                    secretAccessKey: config.SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY,
+                }
+            }
+
+            s3Client = new S3Client(s3Config)
+        }
+
         this.kafkaParser = new KafkaMessageParser()
         this.teamFilter = new TeamFilter(new TeamService(postgres))
         if (ingestionWarningProducer) {
@@ -85,16 +109,13 @@ export class SessionRecordingIngester {
         }
 
         const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
-        const writer =
-            this.config.SESSION_RECORDING_V2_S3_BUCKET &&
-            this.config.SESSION_RECORDING_V2_S3_REGION &&
-            this.config.SESSION_RECORDING_V2_S3_PREFIX
-                ? new S3SessionBatchWriter({
-                      bucket: this.config.SESSION_RECORDING_V2_S3_BUCKET,
-                      prefix: this.config.SESSION_RECORDING_V2_S3_PREFIX,
-                      region: this.config.SESSION_RECORDING_V2_S3_REGION,
-                  })
-                : new BlackholeSessionBatchWriter()
+        const writer = s3Client
+            ? new S3SessionBatchWriter(
+                  s3Client,
+                  this.config.SESSION_RECORDING_V2_S3_BUCKET!,
+                  this.config.SESSION_RECORDING_V2_S3_PREFIX!
+              )
+            : new BlackholeSessionBatchWriter()
 
         this.sessionBatchManager = new SessionBatchManager({
             maxBatchSizeBytes: (config.SESSION_RECORDING_MAX_BATCH_SIZE_KB ?? 1024) * 1024,
@@ -173,12 +194,11 @@ export class SessionRecordingIngester {
     }
 
     private async processMessages(parsedMessages: MessageWithTeam[]) {
-        await this.sessionBatchManager.withBatch(async (batch) => {
-            for (const message of parsedMessages) {
-                this.consume(message, batch)
-            }
-            return Promise.resolve()
-        })
+        const batch = this.sessionBatchManager.getCurrentBatch()
+        for (const message of parsedMessages) {
+            this.consume(message, batch)
+        }
+        return Promise.resolve()
     }
 
     private consume(message: MessageWithTeam, batch: SessionBatchRecorder) {
@@ -301,7 +321,7 @@ export class SessionRecordingIngester {
         return this.assignedTopicPartitions.map((x) => x.partition)
     }
 
-    private async onRevokePartitions(topicPartitions: TopicPartition[]): Promise<void> {
+    private onRevokePartitions(topicPartitions: TopicPartition[]): Promise<void> {
         /**
          * The revoke_partitions indicates that the consumer group has had partitions revoked.
          * As a result, we need to drop all sessions currently managed for the revoked partitions
@@ -309,11 +329,12 @@ export class SessionRecordingIngester {
 
         const revokedPartitions = topicPartitions.map((x) => x.partition)
         if (!revokedPartitions.length) {
-            return
+            return Promise.resolve()
         }
 
         SessionRecordingIngesterMetrics.resetSessionsHandled()
-        await this.sessionBatchManager.discardPartitions(revokedPartitions)
+        this.sessionBatchManager.discardPartitions(revokedPartitions)
+        return Promise.resolve()
     }
 
     private async commitOffsets(offsets: TopicPartitionOffset[]): Promise<void> {

@@ -159,6 +159,12 @@ field_with_masked_contents: dict[ActivityScope, list[str]] = {
     ],
 }
 
+field_name_overrides: dict[ActivityScope, dict[str, str]] = {
+    "HogFunction": {
+        "execution_order": "priority",
+    },
+}
+
 field_exclusions: dict[ActivityScope, list[str]] = {
     "Cohort": [
         "version",
@@ -325,17 +331,19 @@ def changes_between(
             left_value = "masked" if field_name in masked_fields else left
             right_value = "masked" if field_name in masked_fields else right
 
+            # Use the override name if it exists
+            display_name = field_name_overrides.get(model_type, {}).get(field_name, field_name)
             if left_is_none and right_is_none:
                 pass  # could be {} vs None
             elif left_is_none and not right_is_none:
-                changes.append(Change(type=model_type, field=field_name, action="created", after=right_value))
+                changes.append(Change(type=model_type, field=display_name, action="created", after=right_value))
             elif right_is_none and not left_is_none:
-                changes.append(Change(type=model_type, field=field_name, action="deleted", before=left_value))
+                changes.append(Change(type=model_type, field=display_name, action="deleted", before=left_value))
             elif left != right:
                 changes.append(
                     Change(
                         type=model_type,
-                        field=field_name,
+                        field=display_name,
                         action="changed",
                         before=left_value,
                         after=right_value,
