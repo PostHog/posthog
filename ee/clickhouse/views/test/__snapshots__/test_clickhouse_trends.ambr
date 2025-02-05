@@ -475,7 +475,7 @@
                  CROSS JOIN
                    (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-15 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS timestamp
                     FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2012-01-15 23:59:59', 6, 'UTC')))) AS numbers) AS d
-                 WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
+                 WHERE and(ifNull(less(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greaterOrEquals(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
                  GROUP BY d.timestamp,
                           breakdown_value
                  ORDER BY d.timestamp ASC)
