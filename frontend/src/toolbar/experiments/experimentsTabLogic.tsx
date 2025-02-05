@@ -325,10 +325,8 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                             transforms: currentVariant.transforms.map((t, i) =>
                                 i === index
                                     ? {
-                                          ...t,
                                           selector,
                                           text: element.textContent || t.text,
-                                          //   html: element.innerHTML, We set one or the other!
                                       }
                                     : t
                             ),
