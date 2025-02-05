@@ -64,7 +64,7 @@ dependencies:
     version: 0.0.8
   '@posthog/rrweb-plugin-console-record':
     specifier: 0.0.8
-    version: 0.0.8(@posthog/rrweb-utils@0.0.4)(@posthog/rrweb@0.0.8)
+    version: 0.0.8(@posthog/rrweb-utils@0.0.8)(@posthog/rrweb@0.0.8)
   '@posthog/rrweb-types':
     specifier: 0.0.8
     version: 0.0.8
@@ -315,8 +315,8 @@ dependencies:
     specifier: ^9.3.0
     version: 9.3.0(postcss@8.4.31)
   posthog-js:
-    specifier: 1.215.1
-    version: 1.215.1
+    specifier: 1.215.3
+    version: 1.215.3
   posthog-js-lite:
     specifier: 3.0.0
     version: 3.0.0
@@ -5448,14 +5448,14 @@ packages:
       '@posthog/rrweb-snapshot': 0.0.4
     dev: false
 
-  /@posthog/rrweb-plugin-console-record@0.0.8(@posthog/rrweb-utils@0.0.4)(@posthog/rrweb@0.0.8):
+  /@posthog/rrweb-plugin-console-record@0.0.8(@posthog/rrweb-utils@0.0.8)(@posthog/rrweb@0.0.8):
     resolution: {integrity: sha512-kw+h+eXnfMjauJjiGNbwKejSf+chXK7oeIup02KG4RtVHbLYm+i0X2sX/8kfcOZghBNN+km8Y77Jcq7zBRdPMg==}
     peerDependencies:
       '@posthog/rrweb': '*'
       '@posthog/rrweb-utils': '*'
     dependencies:
       '@posthog/rrweb': 0.0.8
-      '@posthog/rrweb-utils': 0.0.4
+      '@posthog/rrweb-utils': 0.0.8
     dev: false
 
   /@posthog/rrweb-snapshot@0.0.4:
@@ -5470,6 +5470,10 @@ packages:
 
   /@posthog/rrweb-utils@0.0.4:
     resolution: {integrity: sha512-ndkpquzqXV/i0u4paOPiESWE/wdOEPdM+Q+sFQfcn6KnvjxtkzsnNNSlOcNHSwuRh0bCk3Cgs2ixDVTSZ+Zdtg==}
+    dev: false
+
+  /@posthog/rrweb-utils@0.0.8:
+    resolution: {integrity: sha512-JAa46llK7oLeHbBHkkq4PltkMGYM5ZfC6sRxrHI1+00bxCL9dyp/DYmeXsls2LBq9+7MfQ1JWq+aSXuoURW9Fg==}
     dev: false
 
   /@posthog/rrweb@0.0.8:
@@ -18455,8 +18459,8 @@ packages:
     resolution: {integrity: sha512-dyajjnfzZD1tht4N7p7iwf7nBnR1MjVaVu+MKr+7gBgA39bn28wizCIJZztZPtHy4PY0YwtSGgwfBCuG/hnHgA==}
     dev: false
 
-  /posthog-js@1.215.1:
-    resolution: {integrity: sha512-C64FFbuBB1VyMRMbFj+SyFwcJ6CjsGvNbsPfrH/PO/rv+SeK3KDXMmJ4XrqEN/eZU4DEEfx0Gscqdq9v9jbhCw==}
+  /posthog-js@1.215.3:
+    resolution: {integrity: sha512-vTk8/gyjbKP7EbDxWzo/GBCK7Ok7M6RTqEWOzRgIxCPf/KA5faFi5z1T4cRR1oPgcDqLeB1ZGa04Za/cPEHxgA==}
     dependencies:
       core-js: 3.40.0
       fflate: 0.4.8
