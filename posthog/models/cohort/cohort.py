@@ -262,8 +262,6 @@ class Cohort(models.Model):
                 fn()
                 return
 
-            # Jan 29 2025 - Temporarily commented out because of celery load issues
-
             if posthoganalytics.feature_enabled(
                 "enable_hogql_cohort_calculation",
                 str(self.team.organization_id),
