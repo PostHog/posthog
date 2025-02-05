@@ -185,25 +185,26 @@ class TestPlugin(BaseTest):
             type="transformation",
         )
 
-        from django.db import transaction
+        team = Team.objects.create_with_data(
+            organization=self.organization, name="Test Team", initiating_user=self.user
+        )
 
-        with transaction.atomic():
-            team = Team.objects.create_with_data(
-                organization=self.organization, name="Test Team", initiating_user=self.user
-            )
-
-            # Verify GeoIP transformation was created
-            transformations = HogFunction.objects.filter(team=team, type="transformation")
+        # Verify GeoIP transformation was created
+        transformations = HogFunction.objects.filter(team=team, type="transformation")
         self.assertEqual(transformations.count(), 1)
 
-            geoip = transformations.first()
-            self.assertIsNotNone(geoip, "GeoIP transformation should exist")
-            if geoip:  # Make type checker happy
-                self.assertEqual(geoip.name, "GeoIP")
-                self.assertEqual(geoip.description, "Enrich events with GeoIP data")
-                self.assertEqual(geoip.icon_url, "/static/transformations/geoip.png")
-                self.assertEqual(geoip.enabled, True)
-                self.assertEqual(geoip.execution_order, 1)
+        geoip = transformations.first()
+        self.assertIsNotNone(geoip, "GeoIP transformation should exist")
+        if geoip:  # Make type checker happy
+            self.assertEqual(geoip.name, "GeoIP")
+            self.assertEqual(geoip.description, "Enrich events with GeoIP data")
+            self.assertEqual(geoip.icon_url, "/static/transformations/geoip.png")
+            self.assertEqual(geoip.enabled, True)
+            self.assertEqual(geoip.execution_order, 1)
+
+        # Verify no plugins were enabled
+        plugin_configs = PluginConfig.objects.filter(team=team)
+        self.assertEqual(plugin_configs.count(), 0)
 
     @override_settings(USE_HOG_TRANSFORMATION_FOR_GEOIP_ON_PROJECT_CREATION=True, DISABLE_MMDB=True)
     def test_no_geoip_created_when_mmdb_disabled(self):
