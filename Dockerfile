@@ -196,7 +196,7 @@ RUN echo $COMMIT_HASH > /code/commit.txt
 
 # Add in the compiled plugin-server & its runtime dependencies from the plugin-server-build stage.
 COPY --from=plugin-server-build --chown=posthog:posthog /code/rust/cyclotron-node/dist /code/rust/cyclotron-node/dist
-COPY --from=plugin-server-build --chown=posthog:posthog /code/rust/cyclotron-node/packaghe.json /code/rust/cyclotron-node/packaghe.json
+COPY --from=plugin-server-build --chown=posthog:posthog /code/rust/cyclotron-node/package.json /code/rust/cyclotron-node/package.json
 COPY --from=plugin-server-build --chown=posthog:posthog /code/rust/cyclotron-node/index.node /code/rust/cyclotron-node/index.node
 COPY --from=plugin-server-build --chown=posthog:posthog /code/common/plugin_transpiler/dist /code/common/plugin_transpiler/dist
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/dist /code/plugin-server/dist
