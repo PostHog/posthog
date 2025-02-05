@@ -910,7 +910,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         completion = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[{"role": str(m["role"]), "content": str(m["content"])} for m in messages],
+            messages=messages,
             response_format={"type": "json_schema", "json_schema": AI_REGEX_SCHEMA},
         )
 
