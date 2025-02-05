@@ -373,3 +373,81 @@ class TestCompression(BaseTest):
             "2025-01-23 00:00|0|100%|0%\n"
             "2025-01-24 00:00|0|100%",
         )
+
+    def test_trends_aggregated_value(self):
+        results = [
+            {
+                "data": [],
+                "days": [],
+                "count": 0,
+                "aggregated_value": 993,
+                "label": "$pageview",
+                "action": {
+                    "days": ["2025-01-20", "2025-01-21", "2025-01-22"],
+                },
+            }
+        ]
+        self.assertEqual(
+            compress_and_format_trends_results(results),
+            "Date range|Aggregated value for $pageview\n2025-01-20 to 2025-01-22|993",
+        )
+
+    def test_trends_aggregated_values(self):
+        results = [
+            {
+                "data": [],
+                "days": [],
+                "count": 0,
+                "aggregated_value": 993,
+                "label": "$pageview",
+                "action": {
+                    "days": ["2025-01-20", "2025-01-21", "2025-01-22"],
+                },
+            },
+            {
+                "data": [],
+                "days": [],
+                "count": 0,
+                "aggregated_value": 1000,
+                "label": "$pageleave",
+                "action": {
+                    "days": ["2025-01-20", "2025-01-21", "2025-01-22"],
+                },
+            },
+        ]
+        self.assertEqual(
+            compress_and_format_trends_results(results),
+            "Date range|Aggregated value for $pageview|Aggregated value for $pageleave\n2025-01-20 to 2025-01-22|993|1000",
+        )
+
+    def test_trends_aggregated_values_with_comparison(self):
+        results = [
+            {
+                "data": [],
+                "days": [],
+                "count": 0,
+                "aggregated_value": 993,
+                "label": "$pageview",
+                "action": {
+                    "days": ["2025-01-17", "2025-01-18", "2025-01-19"],
+                },
+                "compare": True,
+                "compare_label": Compare.PREVIOUS,
+            },
+            {
+                "data": [],
+                "days": [],
+                "count": 0,
+                "aggregated_value": 1000,
+                "label": "$pageview",
+                "action": {
+                    "days": ["2025-01-20", "2025-01-21", "2025-01-22"],
+                },
+                "compare": True,
+                "compare_label": Compare.CURRENT,
+            },
+        ]
+        self.assertEqual(
+            compress_and_format_trends_results(results),
+            "Previous period:\nDate range|Aggregated value for $pageview\n2025-01-17 to 2025-01-19|993\n\nCurrent period:\nDate range|Aggregated value for $pageview\n2025-01-20 to 2025-01-22|1000",
+        )
