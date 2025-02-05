@@ -9,7 +9,7 @@ export const engagePlugin: LegacyDestinationPlugin = {
         free: false,
         status: 'deprecated',
         type: 'destination',
-        id: 'plugin-https://github.com/engage-so/posthog-plugin',
+        id: 'plugin-posthog-engage-so-plugin',
         name: 'Engage',
         description: 'Send user and event data to Engage for personalized  engagement.',
         icon_url: 'https://raw.githubusercontent.com/engage-so/posthog-plugin/main/logo.png',

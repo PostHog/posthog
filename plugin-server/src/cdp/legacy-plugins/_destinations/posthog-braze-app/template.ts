@@ -9,7 +9,7 @@ export const brazePlugin: LegacyDestinationPlugin = {
         free: false,
         status: 'deprecated',
         type: 'destination',
-        id: 'plugin-posthog-braze-plugin',
+        id: 'plugin-posthog-braze-app',
         name: 'Braze',
         description: 'Import analytics from Braze and export PostHog events to Braze.',
         icon_url: 'https://raw.githubusercontent.com/PostHog/posthog-braze-plugin/main/logo.png',

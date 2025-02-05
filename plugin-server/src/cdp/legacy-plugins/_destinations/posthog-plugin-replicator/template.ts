@@ -9,7 +9,7 @@ export const replicatorPlugin: LegacyDestinationPlugin = {
         free: false,
         status: 'deprecated',
         type: 'destination',
-        id: 'plugin-https://github.com/PostHog/posthog-plugin-replicator',
+        id: 'plugin-posthog-plugin-replicator',
         name: 'Replicator',
         description: 'Replicate PostHog event stream in another PostHog instance',
         icon_url: 'https://raw.githubusercontent.com/PostHog/posthog-plugin-replicator/master/logo.png',

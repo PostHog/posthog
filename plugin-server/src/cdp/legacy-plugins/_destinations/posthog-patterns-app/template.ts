@@ -10,7 +10,7 @@ export const patternsPlugin: LegacyDestinationPlugin = {
         free: false,
         status: 'deprecated',
         type: 'destination',
-        id: 'plugin-https://github.com/patterns-app/posthog-patterns-app',
+        id: 'plugin-posthog-patterns-app',
         name: 'Patterns App',
         description: 'Send events data to Patterns App',
         icon_url: 'https://raw.githubusercontent.com/patterns-app/posthog-patterns-app/main/logo.png',

@@ -10,7 +10,7 @@ export const laudspeakerPlugin: LegacyDestinationPlugin = {
         free: false,
         status: 'deprecated',
         type: 'destination',
-        id: 'plugin-https://github.com/laudspeaker/laudspeaker-posthog-plugin/',
+        id: 'plugin-posthog-laudspeaker-app',
         name: 'Laudspeaker',
         description: 'Send event data to Laudspeaker',
         icon_url: 'https://raw.githubusercontent.com/laudspeaker/laudspeaker-posthog-plugin/master/logo.png',

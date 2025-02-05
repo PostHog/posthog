@@ -10,7 +10,7 @@ export const gcsPlugin: LegacyDestinationPlugin = {
         free: false,
         status: 'deprecated',
         type: 'destination',
-        id: 'plugin-https://github.com/PostHog/posthog-gcs-plugin',
+        id: 'plugin-posthog-gcs-plugin',
         name: 'GCS Export',
         description: 'Sends events to GCS on ingestion.',
         icon_url: 'https://raw.githubusercontent.com/PostHog/posthog-gcs-plugin/main/logo.png',

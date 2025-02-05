@@ -10,7 +10,7 @@ export const rudderstackPlugin: LegacyDestinationPlugin = {
         free: false,
         status: 'deprecated',
         type: 'destination',
-        id: 'plugin-https://github.com/rudderlabs/rudderstack-posthog-plugin',
+        id: 'plugin-rudderstack-posthog-plugin',
         name: 'RudderStack',
         description: 'Send event data to RudderStack',
         icon_url: 'https://raw.githubusercontent.com/rudderlabs/rudderstack-posthog-plugin/main/logo.png',

@@ -10,7 +10,7 @@ export const salesforcePlugin: LegacyDestinationPlugin = {
         free: false,
         status: 'deprecated',
         type: 'destination',
-        id: 'plugin-',
+        id: 'plugin-salesforce-plugin',
         name: 'Salesforce Export Plugin',
         description: 'Relay PostHog events to Salesforce',
         icon_url: 'https://raw.githubusercontent.com/PostHog/salesforce-plugin/main/logo.png',

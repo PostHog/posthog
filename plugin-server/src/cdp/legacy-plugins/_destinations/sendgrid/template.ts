@@ -10,7 +10,7 @@ export const sendgridPlugin: LegacyDestinationPlugin = {
         free: false,
         status: 'deprecated',
         type: 'destination',
-        id: 'plugin-https://github.com/PostHog/sendgrid-plugin',
+        id: 'plugin-sendgrid-plugin',
         name: 'Sendgrid',
         description: 'Send emails and user data to Sendgrid when you identify users using PostHog.',
         icon_url: 'https://raw.githubusercontent.com/PostHog/sendgrid-plugin/main/logo.png',

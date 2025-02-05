@@ -10,7 +10,7 @@ export const pubsubPlugin: LegacyDestinationPlugin = {
         free: false,
         status: 'deprecated',
         type: 'destination',
-        id: 'plugin-https://github.com/PostHog/pubsub-plugin',
+        id: 'plugin-pubsub-plugin',
         name: 'Pub/Sub Export',
         description: 'Sends events to a Pub/Sub topic on ingestion.',
         icon_url: 'https://raw.githubusercontent.com/PostHog/pubsub-plugin/master/logo.png',
