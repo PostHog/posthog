@@ -217,7 +217,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "subdomain",
             "email_address",
             # hubspot
-            "redirect_uri"
+            "redirect_uri",
             # snowflake
             "account_id",
             "warehouse",
