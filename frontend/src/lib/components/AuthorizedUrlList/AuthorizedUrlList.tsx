@@ -218,6 +218,8 @@ export function AuthorizedUrlList({
                 )}
 
                 {urlsKeyed.map((keyedURL, index) => {
+                    const isFirstSuggestion = keyedURL.originalIndex === 0 && keyedURL.type === 'suggestion'
+
                     return editUrlIndex === index ? (
                         <div className="border rounded p-2 bg-bg-light">
                             <AuthorizedUrlForm
@@ -245,9 +247,9 @@ export function AuthorizedUrlList({
                                         onClick={() => addUrl(keyedURL.url)}
                                         icon={<IconPlus />}
                                         data-attr="toolbar-apply-suggestion"
-                                        // If there are no authorized urls, highglight this button
-                                        type={noAuthorizedUrls ? 'primary' : undefined}
-                                        active={noAuthorizedUrls}
+                                        // If there are no authorized urls, highglight the first suggestion
+                                        type={noAuthorizedUrls && isFirstSuggestion ? 'primary' : undefined}
+                                        active={noAuthorizedUrls && isFirstSuggestion}
                                     >
                                         Apply suggestion
                                     </LemonButton>
