@@ -142,6 +142,8 @@ const ActivationSectionComponent = ({
                     section.visible && 'cursor-pointer'
                 )}
                 onClick={section.visible ? handleClick : undefined}
+                role="button"
+                aria-expanded={section.open}
             >
                 <div className="flex items-center gap-2">
                     {section.icon}
