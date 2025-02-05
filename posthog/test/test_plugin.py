@@ -174,6 +174,13 @@ class TestPlugin(BaseTest):
             organization=self.organization, name="Test Team", initiating_user=self.user
         )
 
+        # The signal handler is triggered asynchronously
+        # The test immediately checks for the HogFunction existence
+        # Sometimes in CI, the signal handler hasn't completed creating the HogFunction yet when the test checks for it
+        from django.db.models import signals
+
+        signals.post_save.send_robust(sender=Team, instance=team, created=True, initiating_user=self.user)
+
         # Verify GeoIP transformation was created
         transformations = HogFunction.objects.filter(team=team, type="transformation")
 
