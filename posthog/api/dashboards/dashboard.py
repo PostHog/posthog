@@ -93,6 +93,7 @@ class DashboardBasicSerializer(
     created_by = UserBasicSerializer(read_only=True)
     effective_privilege_level = serializers.SerializerMethodField()
     effective_restriction_level = serializers.SerializerMethodField()
+    access_control_version = serializers.SerializerMethodField()
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
 
     class Meta:
@@ -112,6 +113,7 @@ class DashboardBasicSerializer(
             "effective_restriction_level",
             "effective_privilege_level",
             "user_access_level",
+            "access_control_version",
         ]
         read_only_fields = fields
 
@@ -125,6 +127,12 @@ class DashboardBasicSerializer(
             return Dashboard.PrivilegeLevel.CAN_VIEW
         return self.user_permissions.dashboard(dashboard).effective_privilege_level
 
+    def get_access_control_version(self, dashboard: Dashboard) -> str:
+        # This effectively means that the dashboard they are using the old dashboard permissions
+        if dashboard.restriction_level > Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT:
+            return "v1"
+        return "v2"
+
 
 class DashboardSerializer(DashboardBasicSerializer):
     tiles = serializers.SerializerMethodField()
@@ -136,6 +144,7 @@ class DashboardSerializer(DashboardBasicSerializer):
     delete_insights = serializers.BooleanField(write_only=True, required=False, default=False)
     effective_privilege_level = serializers.SerializerMethodField()
     effective_restriction_level = serializers.SerializerMethodField()
+    access_control_version = serializers.SerializerMethodField()
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
 
     class Meta:
@@ -161,6 +170,7 @@ class DashboardSerializer(DashboardBasicSerializer):
             "effective_restriction_level",
             "effective_privilege_level",
             "user_access_level",
+            "access_control_version",
         ]
         read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared", "user_access_level"]
 

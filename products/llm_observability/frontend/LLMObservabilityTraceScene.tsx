@@ -1,14 +1,14 @@
-import { IconAIText, IconReceipt } from '@posthog/icons'
-import { LemonDivider, LemonTag, LemonTagProps, Link, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
+import { IconAIText, IconMessage, IconReceipt } from '@posthog/icons'
+import { LemonDivider, LemonTable, LemonTag, LemonTagProps, Link, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 import classNames from 'classnames'
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { NotFound } from 'lib/components/NotFound'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
-import { isObject, pluralize } from 'lib/utils'
+import { identifierToHuman, isObject, pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
-import React, { useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -157,8 +157,23 @@ function TraceSidebar({
     eventId?: string | null
     tree: TraceTreeNode[]
 }): JSX.Element {
+    const ref = useRef<HTMLDivElement | null>(null)
+
+    useEffect(() => {
+        // On first render, let's focus the selected tree node in the center
+        if (eventId && ref.current) {
+            const selectedNode = ref.current.querySelector(`[aria-current=true]`)
+            if (selectedNode) {
+                selectedNode.scrollIntoView({ block: 'center' })
+            }
+        }
+    }, [eventId])
+
     return (
-        <aside className="border-border max-h-fit bg-bg-light border rounded overflow-hidden flex flex-col md:w-80">
+        <aside
+            className="border-border max-h-fit bg-bg-light border rounded overflow-hidden flex flex-col md:w-80"
+            ref={ref}
+        >
             <h3 className="font-medium text-sm px-2 my-2">Tree</h3>
             <LemonDivider className="m-0" />
             <ul className="overflow-y-auto p-1 first:*:mt-0 overflow-x-hidden">
@@ -231,7 +246,7 @@ const TreeNode = React.memo(function TraceNode({
     const hasChildren = children.some((child) => !!child)
 
     return (
-        <li key={item.id} className="mt-0.5">
+        <li key={item.id} className="mt-0.5" aria-current={isSelected /* aria-current used for auto-focus */}>
             <Link
                 to={urls.llmObservabilityTrace(topLevelTrace.id, {
                     event: item.id,
@@ -337,7 +352,7 @@ function EventContentDisplay({
     )
 }
 
-function EventContent({ event }: { event: LLMTrace | LLMTraceEvent | null }): JSX.Element {
+const EventContent = React.memo(({ event }: { event: LLMTrace | LLMTraceEvent | null }): JSX.Element => {
     return (
         <div className="flex-1 bg-bg-light max-h-fit border rounded flex flex-col border-border p-4 overflow-y-auto">
             {!event ? (
@@ -390,13 +405,17 @@ function EventContent({ event }: { event: LLMTrace | LLMTraceEvent | null }): JS
                             />
                         )
                     ) : (
-                        <EventContentDisplay input={event.inputState} output={event.outputState} />
+                        <>
+                            <TraceMetricsTable />
+                            <EventContentDisplay input={event.inputState} output={event.outputState} />
+                        </>
                     )}
                 </>
             )}
         </div>
     )
-}
+})
+EventContent.displayName = 'EventContent'
 
 function EventTypeTag({ event, size }: { event: LLMTrace | LLMTraceEvent; size?: LemonTagProps['size'] }): JSX.Element {
     let eventType = 'trace'
@@ -411,5 +430,39 @@ function EventTypeTag({ event, size }: { event: LLMTrace | LLMTraceEvent; size?:
         >
             {eventType}
         </LemonTag>
+    )
+}
+
+function TraceMetricsTable(): JSX.Element | null {
+    const { metricsAndFeedbackEvents } = useValues(llmObservabilityTraceDataLogic)
+
+    if (!metricsAndFeedbackEvents?.length) {
+        return null
+    }
+
+    return (
+        <div className="mb-3">
+            <h4 className="flex items-center gap-x-1.5 text-xs font-semibold mb-2">
+                <IconMessage className="text-base" />
+                Metrics and user feedback
+            </h4>
+            <LemonTable
+                columns={[
+                    {
+                        title: 'Metric',
+                        key: 'metric',
+                        render: (_, { metric }) => <span>{identifierToHuman(metric)}</span>,
+                        width: '40%',
+                    },
+                    {
+                        title: 'Value',
+                        key: 'value',
+                        render: (_, { value }) => <span>{value ?? '–'}</span>,
+                        width: '60%',
+                    },
+                ]}
+                dataSource={metricsAndFeedbackEvents}
+            />
+        </div>
     )
 }

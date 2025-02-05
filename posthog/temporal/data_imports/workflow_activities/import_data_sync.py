@@ -36,7 +36,7 @@ class ImportDataActivityInputs:
 
 
 def process_incremental_last_value(value: Any | None, field_type: IncrementalFieldType | None) -> Any | None:
-    if value is None or field_type is None:
+    if value is None or value == "None" or field_type is None:
         return None
 
     if field_type == IncrementalFieldType.Integer or field_type == IncrementalFieldType.Numeric:
@@ -108,12 +108,8 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
         endpoints = [schema.name]
         processed_incremental_last_value = None
 
-        processed_incremental_last_value = processed_incremental_last_value = process_incremental_last_value(
-            schema.sync_type_config.get("incremental_field_last_value"),
-            schema.sync_type_config.get("incremental_field_type"),
-        )
         if reset_pipeline is not True:
-            processed_incremental_last_value = processed_incremental_last_value = process_incremental_last_value(
+            processed_incremental_last_value = process_incremental_last_value(
                 schema.sync_type_config.get("incremental_field_last_value"),
                 schema.sync_type_config.get("incremental_field_type"),
             )
@@ -181,7 +177,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             ExternalDataSource.Type.MYSQL,
             ExternalDataSource.Type.MSSQL,
         ]:
-            from posthog.temporal.data_imports.pipelines.sql_database_v2 import sql_source_for_type
+            from posthog.temporal.data_imports.pipelines.sql_database import sql_source_for_type
 
             host = model.pipeline.job_inputs.get("host")
             port = model.pipeline.job_inputs.get("port")
@@ -277,7 +273,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 reset_pipeline=reset_pipeline,
             )
         elif model.pipeline.source_type == ExternalDataSource.Type.SNOWFLAKE:
-            from posthog.temporal.data_imports.pipelines.sql_database_v2 import (
+            from posthog.temporal.data_imports.pipelines.sql_database import (
                 snowflake_source,
             )
 
@@ -411,7 +407,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 reset_pipeline=reset_pipeline,
             )
         elif model.pipeline.source_type == ExternalDataSource.Type.BIGQUERY:
-            from posthog.temporal.data_imports.pipelines.sql_database_v2 import bigquery_source
+            from posthog.temporal.data_imports.pipelines.sql_database import bigquery_source
 
             dataset_id = model.pipeline.job_inputs.get("dataset_id")
             project_id = model.pipeline.job_inputs.get("project_id")
@@ -518,7 +514,3 @@ def _run(
     pipeline = PipelineNonDLT(source, logger, job_inputs.run_id, schema.is_incremental, reset_pipeline)
     pipeline.run()
     del pipeline
-
-    schema = ExternalDataSchema.objects.get(id=inputs.schema_id)
-    schema.sync_type_config.pop("reset_pipeline", None)
-    schema.save()

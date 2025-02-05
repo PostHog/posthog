@@ -288,13 +288,13 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 SELECT
                     d.timestamp,
                     COUNT(DISTINCT actor_id) AS counts
-                FROM (
+                FROM {cross_join_select_query} e
+                CROSS JOIN (
                     SELECT
                         {date_to_start_of_interval} - {number_interval_period} AS timestamp
                     FROM
                         numbers(dateDiff({interval}, {date_from_start_of_interval} - {inclusive_lookback}, {date_to}))
                 ) d
-                CROSS JOIN {cross_join_select_query} e
                 WHERE
                     e.timestamp <= d.timestamp + INTERVAL 1 DAY AND
                     e.timestamp > d.timestamp - {exclusive_lookback}

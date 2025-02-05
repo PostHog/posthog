@@ -3,14 +3,14 @@ import {
     IconBolt,
     IconChat,
     IconCloud,
+    IconCollapse,
     IconCursor,
     IconDashboard,
+    IconExpand,
     IconEye,
     IconGear,
     IconLeave,
     IconLogomark,
-    IconMinusSquare,
-    IconPlusSquare,
     IconTerminal,
 } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
@@ -335,7 +335,7 @@ export function PlayerInspectorListItem({
                 </div>
                 {item.type !== 'inspector-summary' && item.type !== 'inactivity' && (
                     <LemonButton
-                        icon={isExpanded ? <IconMinusSquare /> : <IconPlusSquare />}
+                        icon={isExpanded ? <IconCollapse /> : <IconExpand />}
                         size="small"
                         noPadding
                         onClick={() => setItemExpanded(index, !isExpanded)}

@@ -271,6 +271,7 @@ export type HogFunctionInputSchemaType = {
     requires_field?: string
     integration_field?: string
     requiredScopes?: string
+    templating?: boolean
 }
 
 export type HogFunctionTypeType =
@@ -306,6 +307,8 @@ export type HogFunctionType = {
     masking?: HogFunctionMasking | null
     depends_on_integration_ids?: Set<IntegrationType['id']>
     template_id?: string
+    execution_order?: number
+    created_at: string
 }
 
 export type HogFunctionInputType = {

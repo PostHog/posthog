@@ -1,5 +1,5 @@
 import { LemonButton, LemonCollapse, LemonInputSelect } from '@posthog/lemon-ui'
-import { EventType, eventWithTime, IncrementalSource } from '@rrweb/types'
+import { EventType, eventWithTime, IncrementalSource } from '@posthog/rrweb-types'
 import { useActions, useValues } from 'kea'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'

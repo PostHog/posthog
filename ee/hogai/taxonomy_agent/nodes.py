@@ -18,7 +18,6 @@ from langchain_openai import ChatOpenAI
 from langgraph.errors import NodeInterrupt
 from pydantic import ValidationError
 
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 from ee.hogai.taxonomy_agent.parsers import (
     ReActParserException,
     ReActParserMissingActionException,
@@ -53,6 +52,7 @@ from posthog.schema import (
     TeamTaxonomyQuery,
     VisualizationMessage,
 )
+from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 
 class TaxonomyAgentPlannerNode(AssistantNode):
@@ -90,13 +90,15 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                     {
                         "react_format": self._get_react_format_prompt(toolkit),
                         "core_memory": self.core_memory.text if self.core_memory else "",
-                        "react_format_reminder": REACT_FORMAT_REMINDER_PROMPT,
+                        "tools": toolkit.render_text_description(),
                         "react_property_filters": self._get_react_property_filters_prompt(),
                         "react_human_in_the_loop": REACT_HUMAN_IN_THE_LOOP_PROMPT,
                         "groups": self._team_group_types,
                         "events": self._events_prompt,
                         "agent_scratchpad": self._get_agent_scratchpad(intermediate_steps),
                         "core_memory_instructions": CORE_MEMORY_INSTRUCTIONS,
+                        "project_datetime": self.project_now,
+                        "project_timezone": self.project_timezone,
                     },
                     config,
                 ),
@@ -140,7 +142,6 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             str,
             ChatPromptTemplate.from_template(REACT_FORMAT_PROMPT, template_format="mustache")
             .format_messages(
-                tools=toolkit.render_text_description(),
                 tool_names=", ".join([t["name"] for t in toolkit.tools]),
             )[0]
             .content,
@@ -208,11 +209,13 @@ class TaxonomyAgentPlannerNode(AssistantNode):
 
         for idx, message in enumerate(filtered_messages):
             if isinstance(message, HumanMessage):
+                format_reminder = REACT_FORMAT_REMINDER_PROMPT if message.id == start_id else None
                 # Add initial instructions.
                 if idx == 0:
                     conversation.append(
                         HumanMessagePromptTemplate.from_template(REACT_USER_PROMPT, template_format="mustache").format(
-                            question=message.content
+                            question=message.content,
+                            react_format_reminder=format_reminder,
                         )
                     )
                 # Add follow-up instructions only for the human message that initiated a generation.
@@ -221,7 +224,10 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                         HumanMessagePromptTemplate.from_template(
                             REACT_FOLLOW_UP_PROMPT,
                             template_format="mustache",
-                        ).format(feedback=message.content)
+                        ).format(
+                            feedback=message.content,
+                            react_format_reminder=format_reminder,
+                        )
                     )
                 # Everything else leave as is.
                 else:
