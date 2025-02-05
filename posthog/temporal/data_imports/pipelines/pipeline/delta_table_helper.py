@@ -1,15 +1,16 @@
 from collections.abc import Sequence
-from conditional_cache import lru_cache
+from pyspark.sql import SparkSession, DataFrame
+from pyspark.conf import SparkConf
+from delta import configure_spark_with_delta_pip
+from delta.tables import DeltaTable
 from typing import Any
-import deltalake.exceptions
 import pyarrow as pa
-from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from dlt.common.normalizers.naming.snake_case import NamingConvention
-import deltalake as deltalake
 from django.conf import settings
 from sentry_sdk import capture_exception
 from posthog.settings.base_variables import TEST
 from posthog.temporal.common.logger import FilteringBoundLogger
+from posthog.temporal.data_imports.pipelines.pipeline.utils import arrow_to_spark_schema, spark_to_arrow_schema
 from posthog.warehouse.models import ExternalDataJob
 from posthog.warehouse.s3 import get_s3_client
 
@@ -18,11 +19,36 @@ class DeltaTableHelper:
     _resource_name: str
     _job: ExternalDataJob
     _logger: FilteringBoundLogger
+    _spark: SparkSession
 
     def __init__(self, resource_name: str, job: ExternalDataJob, logger: FilteringBoundLogger) -> None:
         self._resource_name = resource_name
         self._job = job
         self._logger = logger
+
+        credentials = self._get_credentials()
+
+        spark_conf = SparkConf()
+        spark_conf.set("spark.hadoop.security.authentication", "simple")
+        spark_conf.set("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
+        spark_conf.set("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+        spark_conf.set("spark.sql.execution.arrow.pyspark.enabled", "true")
+        spark_conf.set(
+            "spark.hadoop.fs.s3a.aws.credentials.provider", "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"
+        )
+        spark_conf.set("spark.hadoop.fs.s3a.access.key", credentials["aws_access_key_id"])
+        spark_conf.set("spark.hadoop.fs.s3a.secret.key", credentials["aws_secret_access_key"])
+        spark_conf.set("spark.hadoop.fs.s3a.endpoint.region", credentials["region_name"])
+        spark_conf.set("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
+
+        if TEST:
+            spark_conf.set("spark.hadoop.fs.s3a.endpoint", credentials.get("endpoint_url", "s3.amazonaws.com"))
+            spark_conf.set("spark.hadoop.fs.s3a.path.style.access", "true")
+
+        self._spark = configure_spark_with_delta_pip(
+            SparkSession.Builder().appName("DeltaTableHelper").master("local[*]").config(conf=spark_conf),
+            ["org.apache.hadoop:hadoop-aws:3.3.4", "com.amazonaws:aws-java-sdk-bundle:1.12.262"],
+        ).getOrCreate()
 
     def _get_credentials(self):
         if TEST:
@@ -48,40 +74,41 @@ class DeltaTableHelper:
         normalized_resource_name = NamingConvention().normalize_identifier(self._resource_name)
         return f"{settings.BUCKET_URL}/{self._job.folder_path()}/{normalized_resource_name}"
 
-    def _evolve_delta_schema(self, schema: pa.Schema) -> deltalake.DeltaTable:
+    def _evolve_delta_schema(self, data_frame: DataFrame) -> None:
         delta_table = self.get_delta_table()
         if delta_table is None:
             raise Exception("Deltalake table not found")
 
-        delta_table_schema = delta_table.schema().to_pyarrow()
+        existing_schema = delta_table.toDF().schema
+        new_schema = data_frame.schema
 
-        new_fields = [
-            deltalake.Field.from_pyarrow(field)
-            for field in ensure_delta_compatible_arrow_schema(schema)
-            if field.name not in delta_table_schema.names
-        ]
+        new_fields = [field for field in new_schema.fields if field.name not in existing_schema.fieldNames()]
+
         if new_fields:
-            delta_table.alter.add_columns(new_fields)
+            empty_df = self._spark.createDataFrame([], new_schema)
+            empty_df.write.format("delta").mode("append").option("mergeSchema", "true").save(
+                self._get_delta_table_uri()
+            )
 
-        return delta_table
-
-    @lru_cache(maxsize=1, condition=lambda result: result is not None)
-    def get_delta_table(self) -> deltalake.DeltaTable | None:
+    def get_delta_table(self) -> DeltaTable | None:
         delta_uri = self._get_delta_table_uri()
-        storage_options = self._get_credentials()
 
-        if deltalake.DeltaTable.is_deltatable(table_uri=delta_uri, storage_options=storage_options):
-            try:
-                return deltalake.DeltaTable(table_uri=delta_uri, storage_options=storage_options)
-            except Exception as e:
-                # Temp fix for bugged tables
-                capture_exception(e)
-                if "parse decimal overflow" in "".join(e.args):
-                    s3 = get_s3_client()
-                    s3.delete(delta_uri, recursive=True)
-                    return None
+        try:
+            return DeltaTable.forPath(self._spark, delta_uri)
+        except Exception as e:
+            error_msg = str(e).lower()
+            if "not a Delta table" in error_msg or "delta_missing_delta_table" in error_msg:
+                return None
 
-        return None
+            capture_exception(e)
+            raise
+
+    def to_arrows_schema(self) -> pa.Schema:
+        table = self.get_delta_table()
+        if table is None:
+            raise Exception("Deltatable not found")
+
+        return spark_to_arrow_schema(table.toDF().schema)
 
     def reset_table(self):
         table = self.get_delta_table()
@@ -95,59 +122,33 @@ class DeltaTableHelper:
         s3 = get_s3_client()
         s3.delete(delta_uri, recursive=True)
 
-        self.get_delta_table.cache_clear()
-
     def write_to_deltalake(
         self, data: pa.Table, is_incremental: bool, chunk_index: int, primary_keys: Sequence[Any] | None
-    ) -> deltalake.DeltaTable:
+    ) -> DeltaTable:
+        data_frame = self._spark.createDataFrame(data.to_pandas(), schema=arrow_to_spark_schema(data))
+
         delta_table = self.get_delta_table()
 
         if delta_table:
-            delta_table = self._evolve_delta_schema(data.schema)
+            self._evolve_delta_schema(data_frame)
+            delta_table = self.get_delta_table()
 
         if is_incremental and delta_table is not None:
             if not primary_keys or len(primary_keys) == 0:
                 raise Exception("Primary key required for incremental syncs")
 
-            delta_table.merge(
-                source=data,
-                source_alias="source",
-                target_alias="target",
-                predicate=" AND ".join([f"source.{c} = target.{c}" for c in primary_keys]),
-            ).when_matched_update_all().when_not_matched_insert_all().execute()
+            predicate = " AND ".join([f"source.{c} = target.{c}" for c in primary_keys])
+
+            delta_table.alias("target").merge(
+                data_frame.alias("source"), predicate
+            ).whenMatchedUpdateAll().whenNotMatchedInsertAll().execute()
+
         else:
             mode = "append"
-            schema_mode = "merge"
             if chunk_index == 0 or delta_table is None:
                 mode = "overwrite"
-                schema_mode = "overwrite"
 
-            if delta_table is None:
-                storage_options = self._get_credentials()
-                delta_table = deltalake.DeltaTable.create(
-                    table_uri=self._get_delta_table_uri(), schema=data.schema, storage_options=storage_options
-                )
-            try:
-                deltalake.write_deltalake(
-                    table_or_uri=delta_table,
-                    data=data,
-                    partition_by=None,
-                    mode=mode,
-                    schema_mode=schema_mode,
-                    engine="rust",
-                )  # type: ignore
-            except deltalake.exceptions.SchemaMismatchError as e:
-                self._logger.debug("SchemaMismatchError: attempting to overwrite schema instead", exc_info=e)
-                capture_exception(e)
-
-                deltalake.write_deltalake(
-                    table_or_uri=delta_table,
-                    data=data,
-                    partition_by=None,
-                    mode=mode,
-                    schema_mode="overwrite",
-                    engine="rust",
-                )  # type: ignore
+            data_frame.write.format("delta").mode(mode).option("mergeSchema", "true").save(self._get_delta_table_uri())
 
         delta_table = self.get_delta_table()
         assert delta_table is not None
@@ -160,9 +161,9 @@ class DeltaTableHelper:
             raise Exception("Deltatable not found")
 
         self._logger.debug("Compacting table...")
-        table.optimize.compact()
+        table.optimize().executeCompaction()
 
         self._logger.debug("Vacuuming table...")
-        table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
+        table.vacuum(retentionHours=24)
 
         self._logger.debug("Compacting and vacuuming complete")

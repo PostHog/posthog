@@ -3,13 +3,12 @@ import time
 from typing import Any
 import pyarrow as pa
 from dlt.sources import DltSource, DltResource
-import deltalake as deltalake
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     _handle_null_columns_with_definitions,
     _update_incremental_state,
     _get_primary_keys,
-    _evolve_pyarrow_schema,
+    evolve_pyarrow_schema,
     _append_debug_column_to_pyarrows_table,
     _update_job_row_count,
     _update_last_synced_at_sync,
@@ -121,7 +120,6 @@ class PipelineNonDLT:
         finally:
             # Help reduce the memory footprint of each job
             delta_table = self._delta_table_helper.get_delta_table()
-            self._delta_table_helper.get_delta_table.cache_clear()
             if delta_table:
                 del delta_table
 
@@ -138,7 +136,9 @@ class PipelineNonDLT:
         delta_table = self._delta_table_helper.get_delta_table()
 
         pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
-        pa_table = _evolve_pyarrow_schema(pa_table, delta_table.schema() if delta_table is not None else None)
+        pa_table = evolve_pyarrow_schema(
+            pa_table, self._delta_table_helper.to_arrows_schema() if delta_table is not None else None
+        )
         pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
 
         table_primary_keys = _get_primary_keys(self._resource)
@@ -164,7 +164,7 @@ class PipelineNonDLT:
         compaction_job_id = trigger_compaction_job(self._job, self._schema)
         self._logger.debug(f"Compaction workflow id: {compaction_job_id}")
 
-        file_uris = delta_table.file_uris()
+        file_uris = delta_table.toDF().inputFiles()
         self._logger.debug(f"Preparing S3 files - total parquet files: {len(file_uris)}")
         prepare_s3_files_for_querying(
             self._job.folder_path(), self._resource_name, file_uris, ExternalDataJob.PipelineVersion.V2

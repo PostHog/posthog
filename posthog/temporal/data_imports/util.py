@@ -1,17 +1,20 @@
-from typing import Optional
+import dataclasses
+from typing import TYPE_CHECKING, Optional
 from posthog.settings.utils import get_from_env
 from posthog.utils import str_to_bool
-from posthog.warehouse.models import ExternalDataJob
 from posthog.warehouse.s3 import get_s3_client
 from django.conf import settings
 from dlt.common.normalizers.naming.snake_case import NamingConvention
+
+if TYPE_CHECKING:
+    from posthog.warehouse.models import ExternalDataJob
 
 
 def prepare_s3_files_for_querying(
     folder_path: str,
     table_name: str,
     file_uris: list[str],
-    pipeline_version: Optional[ExternalDataJob.PipelineVersion] = None,
+    pipeline_version: Optional["ExternalDataJob.PipelineVersion"] = None,
 ):
     s3 = get_s3_client()
 
@@ -38,3 +41,9 @@ def is_posthog_team(team_id: int) -> bool:
 
     region = get_from_env("CLOUD_DEPLOYMENT", optional=True)
     return (region == "EU" and team_id == 1) or (region == "US" and team_id == 2)
+
+
+@dataclasses.dataclass
+class DeltalakeCompactionJobWorkflowInputs:
+    team_id: int
+    external_data_job_id: str

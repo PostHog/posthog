@@ -25,6 +25,7 @@ dagster-webserver==1.9.9
 dagster-postgres==0.25.9
 dagster-celery==0.25.9
 # dagster-cloud==1.9.8
+delta-spark==3.3.0
 deltalake==0.23.2
 dj-database-url==0.5.0
 Django~=4.2.17
@@ -74,6 +75,7 @@ psutil==6.0.0
 psycopg2-binary==2.9.7
 pymssql==2.3.1
 PyMySQL==1.1.1
+pyspark==3.5.4
 psycopg[binary]==3.1.20
 pyarrow==17.0.0
 pydantic==2.9.2

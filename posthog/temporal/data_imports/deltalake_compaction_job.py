@@ -1,4 +1,3 @@
-import dataclasses
 import datetime as dt
 import json
 
@@ -7,13 +6,8 @@ from temporalio.common import RetryPolicy
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
+from posthog.temporal.data_imports.util import DeltalakeCompactionJobWorkflowInputs
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
-
-
-@dataclasses.dataclass
-class DeltalakeCompactionJobWorkflowInputs:
-    team_id: int
-    external_data_job_id: str
 
 
 @activity.defn

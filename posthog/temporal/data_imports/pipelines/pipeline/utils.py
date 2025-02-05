@@ -8,7 +8,6 @@ import uuid
 import pyarrow as pa
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from dlt.sources import DltResource
-import deltalake as deltalake
 from django.db.models import F
 from posthog.constants import DATA_WAREHOUSE_COMPACTION_TASK_QUEUE
 from temporalio.common import RetryPolicy
@@ -17,8 +16,25 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.logger import FilteringBoundLogger
 from dlt.common.data_types.typing import TDataType
 from dlt.common.normalizers.naming.snake_case import NamingConvention
-from posthog.temporal.data_imports.deltalake_compaction_job import DeltalakeCompactionJobWorkflowInputs
+from posthog.temporal.data_imports.util import DeltalakeCompactionJobWorkflowInputs
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
+from pyspark.sql.types import (
+    StructType,
+    StructField,
+    StringType,
+    IntegerType,
+    FloatType,
+    DoubleType,
+    BooleanType,
+    LongType,
+    ShortType,
+    ByteType,
+    BinaryType,
+    DateType,
+    TimestampType,
+    DecimalType,
+    AtomicType,
+)
 
 DLT_TO_PA_TYPE_MAP = {
     "text": pa.string(),
@@ -41,6 +57,9 @@ def safe_parse_datetime(date_str):
     try:
         if date_str is None:
             return None
+
+        if isinstance(date_str, pa.TimestampScalar):
+            return date_str
 
         if isinstance(date_str, pa.StringScalar):
             scalar = date_str.as_py()
@@ -98,7 +117,7 @@ def _handle_null_columns_with_definitions(table: pa.Table, resource: DltResource
     return table
 
 
-def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | None) -> pa.Table:
+def evolve_pyarrow_schema(table: pa.Table, delta_schema: pa.Schema | None) -> pa.Table:
     py_table_field_names = table.schema.names
 
     for column_name in table.column_names:
@@ -119,7 +138,7 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
     py_table_field_names = table.schema.names
 
     if delta_schema:
-        for field in delta_schema.to_pyarrow():
+        for field in delta_schema:
             if field.name not in py_table_field_names:
                 if field.nullable:
                     new_column_data = pa.array([None] * table.num_rows, type=field.type)
@@ -149,7 +168,12 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
             # If the deltalake schema has a different type to the pyarrows table, then cast to the deltalake field type
             py_arrow_table_column = table.column(field.name)
             if field.type != py_arrow_table_column.type:
-                if isinstance(field.type, pa.TimestampType):
+                if isinstance(field.type, pa.TimestampType) and isinstance(
+                    py_arrow_table_column.type, pa.TimestampType
+                ):
+                    # Difference in tz - ignore
+                    pass
+                elif isinstance(field.type, pa.TimestampType):
                     timestamp_array = pa.array(
                         [safe_parse_datetime(s) for s in table.column(field.name)], type=field.type
                     )
@@ -292,3 +316,81 @@ def trigger_compaction_job(job: ExternalDataJob, schema: ExternalDataSchema) -> 
         pass
 
     return workflow_id
+
+
+def arrow_to_spark_schema(arrow_table: pa.Table) -> StructType:
+    arrow_to_spark_type_map = {
+        pa.int8(): ByteType(),
+        pa.int16(): ShortType(),
+        pa.int32(): IntegerType(),
+        pa.int64(): LongType(),
+        pa.uint8(): ByteType(),
+        pa.uint16(): ShortType(),
+        pa.uint32(): IntegerType(),
+        pa.uint64(): LongType(),
+        pa.float32(): FloatType(),
+        pa.float64(): DoubleType(),
+        pa.bool_(): BooleanType(),
+        pa.binary(): BinaryType(),
+        pa.string(): StringType(),
+        pa.large_binary(): BinaryType(),
+        pa.large_string(): StringType(),
+        pa.date32(): DateType(),
+        pa.date64(): DateType(),
+        pa.timestamp("s"): TimestampType(),
+        pa.timestamp("ms"): TimestampType(),
+        pa.timestamp("us"): TimestampType(),
+        pa.timestamp("ns"): TimestampType(),
+    }
+
+    struct_fields: list[StructField] = []
+
+    for field in arrow_table.schema:
+        arrow_type = field.type
+
+        if isinstance(arrow_type, pa.Decimal128Type):
+            spark_type: AtomicType = DecimalType(arrow_type.precision, arrow_type.scale)
+        elif arrow_type in arrow_to_spark_type_map:
+            spark_type = arrow_to_spark_type_map[arrow_type]
+        elif isinstance(arrow_type, pa.TimestampType):
+            # to handle when an explicit tz is set
+            spark_type = TimestampType()
+        else:
+            raise TypeError(f"Unsupported PyArrow type: {arrow_type}")
+
+        struct_fields.append(StructField(field.name, spark_type, field.nullable))
+
+    return StructType(struct_fields)
+
+
+def spark_to_arrow_schema(spark_schema: StructType) -> pa.Schema:
+    spark_to_arrow_type_map = {
+        ByteType(): pa.int8(),
+        ShortType(): pa.int16(),
+        IntegerType(): pa.int32(),
+        LongType(): pa.int64(),
+        FloatType(): pa.float32(),
+        DoubleType(): pa.float64(),
+        BooleanType(): pa.bool_(),
+        BinaryType(): pa.binary(),
+        StringType(): pa.string(),
+        DateType(): pa.date32(),
+        TimestampType(): pa.timestamp("ms"),  # Default to millisecond precision
+    }
+
+    arrow_fields = []
+
+    for field in spark_schema.fields:
+        spark_type = field.dataType
+
+        # Handle DecimalType separately
+        if isinstance(spark_type, DecimalType):
+            arrow_type = pa.decimal128(spark_type.precision, spark_type.scale)
+        elif spark_type in spark_to_arrow_type_map:
+            arrow_type = spark_to_arrow_type_map[spark_type]
+        else:
+            raise TypeError(f"Unsupported PySpark type: {spark_type}")
+
+        arrow_fields.append(pa.field(field.name, arrow_type, nullable=field.nullable))
+
+    return pa.schema(arrow_fields)
