@@ -151,6 +151,13 @@ export class SessionBatchRecorder {
             totalSize: this._size,
         })
 
+        // If no sessions, commit offsets but skip writing the file
+        if (this.partitionSessions.size === 0) {
+            await this.offsetManager.commit()
+            status.info('🔁', 'session_batch_recorder_flushed_no_sessions')
+            return []
+        }
+
         const { stream: outputStream, finish } = this.writer.newBatch()
         const blockMetadata: SessionBlockMetadata[] = []
         let currentOffset = 0

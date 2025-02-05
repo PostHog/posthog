@@ -15,7 +15,7 @@ export const template: HogFunctionTemplate = {
             key: 'filters',
             templating: false,
             label: 'Filters to apply',
-            type: 'string',
+            type: 'json',
             description: 'A JSON file containing an array of filters to apply. See the README for more information.',
             required: false,
         },

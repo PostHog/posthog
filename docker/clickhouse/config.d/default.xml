@@ -32,6 +32,6 @@
         <shard>01</shard>
         <replica>ch1</replica>
         <hostClusterType>online</hostClusterType>
-        <hostClusterRole>worker</hostClusterRole>
+        <hostClusterRole>data</hostClusterRole>
     </macros>
 </clickhouse>

@@ -88,6 +88,14 @@ export function Playlist({
         onSelect?.(item)
     }
 
+    const initiallyOpenSections = sections.filter((s) => s.initiallyOpen).map((s) => s.key)
+    const [openSections, setOpenSections] = useState<string[]>(initiallyOpenSections)
+
+    const onChangeOpenSections = (activeKeys: string[]): void => {
+        setOpenSections(activeKeys)
+        onChangeSections?.(activeKeys)
+    }
+
     const activeItemId = propsActiveItemId === undefined ? controlledActiveItemId : propsActiveItemId
 
     const activeItem =
@@ -95,6 +103,33 @@ export function Playlist({
             .filter((s): s is PlaylistRecordingPreviewBlock => 'items' in s)
             .flatMap((s) => s.items)
             .find((i) => i.id === activeItemId) || null
+
+    const lastScrollPositionRef = useRef(0)
+    const contentRef = useRef<HTMLDivElement | null>(null)
+
+    const handleScroll = (e: React.UIEvent<HTMLDivElement>): void => {
+        // If we are scrolling down then check if we are at the bottom of the list
+        if (e.currentTarget.scrollTop > lastScrollPositionRef.current) {
+            const scrollPosition = e.currentTarget.scrollTop + e.currentTarget.clientHeight
+            if (e.currentTarget.scrollHeight - scrollPosition < SCROLL_TRIGGER_OFFSET) {
+                onScrollListEdge?.('bottom')
+            }
+        }
+
+        // Same again but if scrolling to the top
+        if (e.currentTarget.scrollTop < lastScrollPositionRef.current) {
+            if (e.currentTarget.scrollTop < SCROLL_TRIGGER_OFFSET) {
+                onScrollListEdge?.('top')
+            }
+        }
+
+        lastScrollPositionRef.current = e.currentTarget.scrollTop
+    }
+
+    const sectionCount = sections.length
+    const itemsCount = sections
+        .filter((s): s is PlaylistRecordingPreviewBlock => 'items' in s)
+        .flatMap((s) => s.items).length
 
     return (
         <div className="flex flex-col xl:flex-row w-full gap-2 h-full">
@@ -112,19 +147,59 @@ export function Playlist({
                 >
                     <DraggableToNotebook href={notebooksHref}>{filterActions}</DraggableToNotebook>
 
-                    <List
-                        title={title}
-                        notebooksHref={notebooksHref}
-                        loading={loading}
-                        sections={sections}
-                        headerActions={headerActions}
-                        footerActions={footerActions}
-                        onScrollListEdge={onScrollListEdge}
-                        activeItemId={activeItemId}
-                        setActiveItemId={onChangeActiveItem}
-                        onChangeSections={onChangeSections}
-                        emptyState={listEmptyState}
-                    />
+                    <div className="flex flex-col relative w-full bg-bg-light overflow-hidden h-full Playlist__list">
+                        <DraggableToNotebook href={notebooksHref}>
+                            <div className="flex flex-col gap-1">
+                                <div className="shrink-0 bg-bg-3000 relative flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
+                                    {title && <TitleWithCount title={title} count={itemsCount} />}
+                                    {headerActions}
+                                </div>
+                                <LemonTableLoader loading={loading} />
+                            </div>
+                        </DraggableToNotebook>
+                        <div className="overflow-y-auto flex-1" onScroll={handleScroll} ref={contentRef}>
+                            {sectionCount > 1 ? (
+                                <LemonCollapse
+                                    defaultActiveKeys={openSections}
+                                    panels={sections.map((s) => {
+                                        return {
+                                            key: s.key,
+                                            header: s.title ?? '',
+                                            content: (
+                                                <SectionContent
+                                                    section={s}
+                                                    loading={!!loading}
+                                                    setActiveItemId={onChangeActiveItem}
+                                                    activeItemId={activeItemId}
+                                                    emptyState={listEmptyState}
+                                                />
+                                            ),
+                                            className: 'p-0',
+                                        }
+                                    })}
+                                    onChange={onChangeOpenSections}
+                                    multiple
+                                    embedded
+                                    size="small"
+                                />
+                            ) : sectionCount === 1 ? (
+                                <SectionContent
+                                    section={sections[0]}
+                                    loading={!!loading}
+                                    setActiveItemId={onChangeActiveItem}
+                                    activeItemId={activeItemId}
+                                    emptyState={listEmptyState}
+                                />
+                            ) : loading ? (
+                                <LoadingState />
+                            ) : (
+                                listEmptyState
+                            )}
+                        </div>
+                        <div className="shrink-0 relative flex justify-between items-center gap-0.5 whitespace-nowrap">
+                            {footerActions}
+                        </div>
+                    </div>
                 </div>
             </div>
             <div
@@ -192,116 +267,6 @@ function SectionContent({
         <LoadingState />
     ) : (
         emptyState
-    )
-}
-
-const List = ({
-    title,
-    notebooksHref,
-    setActiveItemId,
-    headerActions,
-    footerActions,
-    sections,
-    onChangeSections,
-    activeItemId,
-    onScrollListEdge,
-    loading,
-    emptyState,
-}: {
-    title?: string
-    notebooksHref: PlaylistProps['notebooksHref']
-    activeItemId: SessionRecordingType['id'] | null
-    setActiveItemId: (item: SessionRecordingType) => void
-    headerActions: PlaylistProps['headerActions']
-    footerActions: PlaylistProps['footerActions']
-    sections: PlaylistProps['sections']
-    onChangeSections?: (activeKeys: string[]) => void
-    onScrollListEdge: PlaylistProps['onScrollListEdge']
-    loading: PlaylistProps['loading']
-    emptyState: PlaylistProps['listEmptyState']
-}): JSX.Element => {
-    const lastScrollPositionRef = useRef(0)
-    const contentRef = useRef<HTMLDivElement | null>(null)
-
-    const handleScroll = (e: React.UIEvent<HTMLDivElement>): void => {
-        // If we are scrolling down then check if we are at the bottom of the list
-        if (e.currentTarget.scrollTop > lastScrollPositionRef.current) {
-            const scrollPosition = e.currentTarget.scrollTop + e.currentTarget.clientHeight
-            if (e.currentTarget.scrollHeight - scrollPosition < SCROLL_TRIGGER_OFFSET) {
-                onScrollListEdge?.('bottom')
-            }
-        }
-
-        // Same again but if scrolling to the top
-        if (e.currentTarget.scrollTop < lastScrollPositionRef.current) {
-            if (e.currentTarget.scrollTop < SCROLL_TRIGGER_OFFSET) {
-                onScrollListEdge?.('top')
-            }
-        }
-
-        lastScrollPositionRef.current = e.currentTarget.scrollTop
-    }
-
-    const sectionCount = sections.length
-    const itemsCount = sections
-        .filter((s): s is PlaylistRecordingPreviewBlock => 'items' in s)
-        .flatMap((s) => s.items).length
-    const initiallyOpenSections = sections.filter((s) => s.initiallyOpen).map((s) => s.key)
-
-    return (
-        <div className="flex flex-col relative w-full bg-bg-light overflow-hidden h-full Playlist__list">
-            <DraggableToNotebook href={notebooksHref}>
-                <div className="flex flex-col gap-1">
-                    <div className="shrink-0 bg-bg-3000 relative flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
-                        {title && <TitleWithCount title={title} count={itemsCount} />}
-                        {headerActions}
-                    </div>
-                    <LemonTableLoader loading={loading} />
-                </div>
-            </DraggableToNotebook>
-            <div className="overflow-y-auto flex-1" onScroll={handleScroll} ref={contentRef}>
-                {sectionCount > 1 ? (
-                    <LemonCollapse
-                        defaultActiveKeys={initiallyOpenSections}
-                        panels={sections.map((s) => {
-                            return {
-                                key: s.key,
-                                header: s.title ?? '',
-                                content: (
-                                    <SectionContent
-                                        section={s}
-                                        loading={!!loading}
-                                        setActiveItemId={setActiveItemId}
-                                        activeItemId={activeItemId}
-                                        emptyState={emptyState}
-                                    />
-                                ),
-                                className: 'p-0',
-                            }
-                        })}
-                        onChange={onChangeSections}
-                        multiple
-                        embedded
-                        size="small"
-                    />
-                ) : sectionCount === 1 ? (
-                    <SectionContent
-                        section={sections[0]}
-                        loading={!!loading}
-                        setActiveItemId={setActiveItemId}
-                        activeItemId={activeItemId}
-                        emptyState={emptyState}
-                    />
-                ) : loading ? (
-                    <LoadingState />
-                ) : (
-                    emptyState
-                )}
-            </div>
-            <div className="shrink-0 relative flex justify-between items-center gap-0.5 whitespace-nowrap">
-                {footerActions}
-            </div>
-        </div>
     )
 }
 

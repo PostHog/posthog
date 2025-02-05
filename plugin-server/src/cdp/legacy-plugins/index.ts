@@ -55,15 +55,15 @@ export const DESTINATION_PLUGINS_BY_ID = {
 export const DEPRECATED_TRANSFORMATION_PLUGINS_BY_ID = {
     [dropEventsOnPropertyPlugin.id]: dropEventsOnPropertyPlugin,
     [flattenPropertiesPlugin.id]: flattenPropertiesPlugin,
+    [phShotgunProcessEventApp.id]: phShotgunProcessEventApp,
     [pluginAdvancedGeoip.id]: pluginAdvancedGeoip,
+    [posthogNetdataEventProcessingPlugin.id]: posthogNetdataEventProcessingPlugin,
     [pluginStonlyCleanCampaignName.id]: pluginStonlyCleanCampaignName,
     [pluginStonlyUtmExtractor.id]: pluginStonlyUtmExtractor,
-    [posthogAppUnduplicator.id]: posthogAppUnduplicator,
     [pluginPosthogAnonymization.id]: pluginPosthogAnonymization,
+    [posthogAppUnduplicator.id]: posthogAppUnduplicator,
     [posthogPluginGeoip.id]: posthogPluginGeoip,
     [posthogRouteCensorPlugin.id]: posthogRouteCensorPlugin,
-    [posthogNetdataEventProcessingPlugin.id]: posthogNetdataEventProcessingPlugin,
-    [phShotgunProcessEventApp.id]: phShotgunProcessEventApp,
     [posthogSnowplowRefererParser.id]: posthogSnowplowRefererParser,
 }
 

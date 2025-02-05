@@ -14,7 +14,20 @@ export const processAiEvent = (event: PluginEvent): PluginEvent => {
 }
 
 const processCost = (event: PluginEvent) => {
-    if (!event.properties || !event.properties['$ai_provider'] || !event.properties['$ai_model']) {
+    if (!event.properties) {
+        return event
+    }
+
+    // If we already have input and output costs, we can skip the rest of the logic
+    if (event.properties['$ai_input_cost_usd'] && event.properties['$ai_output_cost_usd']) {
+        if (!event.properties['$ai_total_cost_usd']) {
+            event.properties['$ai_total_cost_usd'] =
+                event.properties['$ai_input_cost_usd'] + event.properties['$ai_output_cost_usd']
+        }
+        return event
+    }
+
+    if (!event.properties['$ai_provider'] || !event.properties['$ai_model']) {
         return event
     }
 
