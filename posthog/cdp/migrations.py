@@ -6,16 +6,16 @@ from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.plugin import PluginAttachment, PluginConfig
 from posthog.models.team.team import Team
 from django.db import transaction
-from django.db.models import Q, QuerySet
+from django.db.models import Q
 from django.core.paginator import Paginator
 
 # python manage.py migrate_plugins_to_hog_functions --dry-run --test-mode --kind transformation
 
 
-def migrate_batch(legacy_plugins: QuerySet[Any], kind: str, test_mode: bool, dry_run: bool):
+def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool):
     hog_functions = []
     plugin_configs_without_addon = []
-    teams_cache = {}
+    teams_cache: dict[int, Team] = {}
 
     with transaction.atomic():
         for plugin_config in legacy_plugins:
