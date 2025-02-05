@@ -708,12 +708,7 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
                     kind: NodeKind.DataTableNode,
                     source: {
                         kind: NodeKind.EventsQuery,
-                        select: [
-                            ...defaultDataTableColumns(NodeKind.EventsQuery),
-                            featureFlag.filters.multivariate
-                                ? 'properties.$feature_flag_response'
-                                : "if(toString(properties.$feature_flag_response) IN ['1', 'true'], 'true', properties.$feature_flag_response) -- Feature Flag Response",
-                        ],
+                        select: [...defaultDataTableColumns(NodeKind.EventsQuery), 'properties.$feature_flag_response'],
                         event: '$feature_flag_called',
                         properties: propertyFilter,
                         after: '-30d',

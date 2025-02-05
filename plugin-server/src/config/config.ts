@@ -222,10 +222,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         // Session recording V2
         SESSION_RECORDING_MAX_BATCH_SIZE_KB: 100 * 1024, // 100MB
         SESSION_RECORDING_MAX_BATCH_AGE_MS: 10 * 1000, // 10 seconds
-        SESSION_RECORDING_V2_S3_BUCKET: '',
-        SESSION_RECORDING_V2_S3_PREFIX: '',
-        SESSION_RECORDING_V2_S3_ENDPOINT: '',
-        SESSION_RECORDING_V2_S3_REGION: '',
+        SESSION_RECORDING_V2_S3_BUCKET: 'posthog',
+        SESSION_RECORDING_V2_S3_PREFIX: 'session_recording_batches',
+        SESSION_RECORDING_V2_S3_ENDPOINT: 'http://localhost:19000',
+        SESSION_RECORDING_V2_S3_REGION: 'us-east-1',
+        SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'object_storage_root_user',
+        SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'object_storage_root_password',
 
         // Hog Transformations (Alpha)
         HOG_TRANSFORMATIONS_ENABLED: false,

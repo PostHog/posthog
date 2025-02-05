@@ -216,17 +216,16 @@ export function TeamToolbarURLs(): JSX.Element {
     return (
         <>
             <p>
-                These are the URLs where the{' '}
+                These are the URLs where you can launch the{' '}
                 <b>
-                    <Link to={urls.toolbarLaunch()}>Toolbar</Link> will automatically launch
-                </b>{' '}
-                (if you're logged in).
+                    <Link to={urls.toolbarLaunch()}>Toolbar</Link>
+                </b>
             </p>
             <p>
-                <b>Domains and wildcard subdomains are allowed</b> (example: <code>https://*.example.com</code>).
-                However, wildcarded top-level domains cannot be used (for security reasons).
+                <b>Wildcards are not allowed</b> (example: <code>https://*.example.com</code>). The URL needs to be
+                something concrete that can be launched.
             </p>
-            <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} />
+            <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} allowWildCards={false} />
         </>
     )
 }
