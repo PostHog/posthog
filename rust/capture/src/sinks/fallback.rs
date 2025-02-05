@@ -34,13 +34,25 @@ impl FallbackSink {
             shutdown_tx: None,
         }
     }
-    pub fn new_with_health<P, F>(primary: P, fallback: F, health_registry: HealthRegistry, primary_component_name: String) -> Self
+    pub fn new_with_health<P, F>(
+        primary: P,
+        fallback: F,
+        health_registry: HealthRegistry,
+        primary_component_name: String,
+    ) -> Self
     where
         P: Event + Send + Sync + 'static,
         F: Event + Send + Sync + 'static,
     {
-        if !health_registry.get_status().components.contains_key(&primary_component_name) {
-            panic!("health registry does not contain primary component {}", primary_component_name)
+        if !health_registry
+            .get_status()
+            .components
+            .contains_key(&primary_component_name)
+        {
+            panic!(
+                "health registry does not contain primary component {}",
+                primary_component_name
+            )
         }
 
         let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
@@ -95,9 +107,7 @@ impl Event for FallbackSink {
                     counter!("capture_fallback_sink_failovers_total").increment(1);
                     self.fallback.send(event).await
                 }
-                Err(e) => {
-                    Err(e)
-                }
+                Err(e) => Err(e),
             }
         } else {
             error!("Primary sink unhealthy, falling back");
@@ -116,9 +126,7 @@ impl Event for FallbackSink {
                     counter!("capture_fallback_sink_failovers_total").increment(1);
                     self.fallback.send_batch(events).await
                 }
-                Err(e) => {
-                    Err(e)
-                }
+                Err(e) => Err(e),
             }
         } else {
             error!("Primary sink unhealthy, falling back");

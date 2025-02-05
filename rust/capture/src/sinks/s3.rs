@@ -294,7 +294,9 @@ impl Event for S3Sink {
         buffer.events.push(event);
         let mut rx = buffer.tx.subscribe();
         drop(buffer);
-        rx.recv().await.map_err(|_| CaptureError::NonRetryableSinkError)?
+        rx.recv()
+            .await
+            .map_err(|_| CaptureError::NonRetryableSinkError)?
     }
 
     #[instrument(skip_all)]
@@ -306,7 +308,9 @@ impl Event for S3Sink {
         }
         let mut rx = buffer.tx.subscribe();
         drop(buffer);
-        rx.recv().await.map_err(|_| CaptureError::NonRetryableSinkError)?
+        rx.recv()
+            .await
+            .map_err(|_| CaptureError::NonRetryableSinkError)?
     }
 }
 

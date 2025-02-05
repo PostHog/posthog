@@ -88,7 +88,8 @@ async fn create_sink(
             partition,
             replay_overflow_limiter,
         )
-        .await.expect("failed to start Kafka sink");
+        .await
+        .expect("failed to start Kafka sink");
 
         if config.s3_fallback_enabled {
             let sink_liveness = liveness
@@ -123,10 +124,12 @@ pub async fn serve<F>(config: Config, listener: TcpListener, shutdown: F)
 where
     F: Future<Output = ()> + Send + 'static,
 {
-    let liveness = HealthRegistry::new_with_strategy("liveness", config.healthcheck_strategy.clone());
+    let liveness =
+        HealthRegistry::new_with_strategy("liveness", config.healthcheck_strategy.clone());
 
-    let redis_client =
-        Arc::new(RedisClient::new(config.redis_url.clone()).expect("failed to create redis client"));
+    let redis_client = Arc::new(
+        RedisClient::new(config.redis_url.clone()).expect("failed to create redis client"),
+    );
 
     let billing_limiter = RedisLimiter::new(
         Duration::seconds(5),
@@ -141,7 +144,8 @@ where
     .expect("failed to create billing limiter");
 
     let token_dropper = config
-        .dropped_keys.clone()
+        .dropped_keys
+        .clone()
         .map(|k| TokenDropper::new(&k))
         .unwrap_or_default();
 
@@ -155,7 +159,9 @@ where
         CaptureMode::Recordings => config.kafka.kafka_producer_message_max_bytes as usize,
     };
 
-    let sink = create_sink(&config, redis_client.clone(), &liveness).await.expect("failed to create sink");
+    let sink = create_sink(&config, redis_client.clone(), &liveness)
+        .await
+        .expect("failed to create sink");
 
     let app = router::router(
         crate::time::SystemTime {},
