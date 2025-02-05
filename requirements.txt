@@ -379,8 +379,10 @@ idna==3.10
     #   snowflake-connector-python
     #   trio
     #   yarl
-importlib-metadata==8.6.1
-    # via delta-spark
+importlib-metadata==7.0.0
+    # via
+    #   -r requirements.in
+    #   delta-spark
 infi-clickhouse-orm @ git+https://github.com/PostHog/infi.clickhouse_orm@9578c79f29635ee2c1d01b7979e89adab8383de2
     # via -r requirements.in
 inflection==0.5.1
