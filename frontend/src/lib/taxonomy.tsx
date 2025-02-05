@@ -618,7 +618,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         $geoip_accuracy_radius: {
             label: 'GeoIP detection accuracy radius',
-            description: "Accuracy radius of the location matched to this event's IP address.",
+            description: "Accuracy radius of the location matched to this event's IP address (in kilometers).",
             examples: ['50'],
         },
         $geoip_subdivision_1_confidence: {
@@ -657,6 +657,16 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $is_emulator: {
             label: 'Is Emulator',
             description: 'Indicates whether the app is running on an emulator or a physical device',
+            examples: ['true', 'false'],
+        },
+        $is_mac_catalyst_app: {
+            label: 'Is Mac Catalyst App',
+            description: 'Indicates whether the app is a Mac Catalyst app running on macOS',
+            examples: ['true', 'false'],
+        },
+        $is_ios_running_on_mac: {
+            label: 'Is iOS App Running on Mac',
+            description: 'Indicates whether the app is an iOS app running on macOS (Apple Silicon)',
             examples: ['true', 'false'],
         },
         $device_name: {
@@ -1885,4 +1895,14 @@ export function getCoreFilterDefinition(
 export function getFilterLabel(key: PropertyKey, type: TaxonomicFilterGroupType): string {
     const data = getCoreFilterDefinition(key, type)
     return (data ? data.label : key)?.trim() ?? '(empty string)'
+}
+
+export function getPropertyKey(value: string, type: TaxonomicFilterGroupType): string {
+    // Find the key by looking through the mapping
+    const group = CORE_FILTER_DEFINITIONS_BY_GROUP[type]
+    if (group) {
+        const foundKey = Object.entries(group).find(([_, def]) => (def as any).label === value || _ === value)?.[0]
+        return foundKey || value
+    }
+    return value
 }

@@ -171,7 +171,7 @@ describe('CDP API', () => {
                 },
                 {
                     level: 'info',
-                    message: expect.stringContaining('fetch({'),
+                    message: expect.stringContaining("fetch('"),
                 },
                 {
                     level: 'debug',
@@ -384,7 +384,7 @@ describe('CDP API', () => {
             },
             {
                 level: 'info',
-                message: expect.stringContaining('fetch({'),
+                message: expect.stringContaining("fetch('"),
             },
             { level: 'debug', message: 'Resuming function' },
             {

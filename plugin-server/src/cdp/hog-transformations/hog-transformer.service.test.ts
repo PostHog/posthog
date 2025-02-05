@@ -9,7 +9,7 @@ import { template as defaultTemplate } from '../../../src/cdp/templates/_transfo
 import { template as geoipTemplate } from '../../../src/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '../../../src/cdp/templates/compiler'
 import { createHogFunction, insertHogFunction } from '../../../tests/cdp/fixtures'
-import { createTeam, resetTestDatabase } from '../../../tests/helpers/sql'
+import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { HogFunctionTemplate } from '../templates/types'
@@ -21,6 +21,7 @@ jest.mock('../../utils/status', () => ({
         info: jest.fn(),
         debug: jest.fn(),
         updatePrompt: jest.fn(),
+        error: jest.fn(),
     },
 }))
 
@@ -51,8 +52,8 @@ describe('HogTransformer', () => {
         await resetTestDatabase()
 
         // Create a team first before inserting hog functions
-        const team = await hub.db.fetchTeam(2)
-        teamId = await createTeam(hub.db.postgres, team!.organization_id)
+        const team = await getFirstTeam(hub)
+        teamId = team.id
 
         hub.mmdb = Reader.openBuffer(brotliDecompressSync(mmdbBrotliContents))
         hogTransformer = new HogTransformerService(hub)
@@ -77,6 +78,7 @@ describe('HogTransformer', () => {
                 enabled: true,
                 bytecode: hogByteCode,
                 execution_order: 1,
+                id: 'd77e792e-0f35-431b-a983-097534aa4767',
             })
             await insertHogFunction(hub.db.postgres, teamId, geoIpFunction)
 
@@ -136,11 +138,16 @@ describe('HogTransformer', () => {
                     "$initial_geoip_subdivision_2_name": null,
                     "$initial_geoip_time_zone": "Europe/Stockholm",
                   },
+                  "$transformations_failed": [],
+                  "$transformations_succeeded": [
+                    "GeoIP (d77e792e-0f35-431b-a983-097534aa4767)",
+                  ],
                 }
             `)
         })
         it('should execute multiple transformations', async () => {
             const testTemplate: HogFunctionTemplate = {
+                free: true,
                 status: 'beta',
                 type: 'transformation',
                 id: 'template-test',
@@ -216,6 +223,7 @@ describe('HogTransformer', () => {
 
         it('should delete a property from previous transformation', async () => {
             const addingTemplate: HogFunctionTemplate = {
+                free: true,
                 status: 'alpha',
                 type: 'transformation',
                 id: 'template-test',
@@ -231,6 +239,7 @@ describe('HogTransformer', () => {
             }
 
             const deletingTemplate: HogFunctionTemplate = {
+                free: true,
                 status: 'alpha',
                 type: 'transformation',
                 id: 'template-test',
@@ -296,6 +305,7 @@ describe('HogTransformer', () => {
         })
         it('should execute tranformation without execution_order last', async () => {
             const firstTemplate: HogFunctionTemplate = {
+                free: true,
                 status: 'alpha',
                 type: 'transformation',
                 id: 'template-test',
@@ -309,6 +319,7 @@ describe('HogTransformer', () => {
             }
 
             const secondTemplate: HogFunctionTemplate = {
+                free: true,
                 status: 'alpha',
                 type: 'transformation',
                 id: 'template-test',
@@ -322,6 +333,7 @@ describe('HogTransformer', () => {
             }
 
             const thirdTemplate: HogFunctionTemplate = {
+                free: true,
                 status: 'alpha',
                 type: 'transformation',
                 id: 'template-test',
@@ -389,6 +401,153 @@ describe('HogTransformer', () => {
             expect(executeHogFunctionSpy.mock.calls[1][0]).toMatchObject({ execution_order: 2 })
             expect(executeHogFunctionSpy.mock.calls[2][0]).toMatchObject({ execution_order: null })
         })
+
+        it('should track successful and failed transformations', async () => {
+            // Create a successful transformation
+            const successTemplate: HogFunctionTemplate = {
+                free: true,
+                status: 'beta',
+                type: 'transformation',
+                id: 'template-success',
+                name: 'Success Template',
+                description: 'A template that should succeed',
+                category: ['Custom'],
+                hog: `
+                    let returnEvent := event
+                    returnEvent.properties.success := true
+                    return returnEvent
+                `,
+                inputs_schema: [],
+            }
+
+            // Create a failing transformation
+            const failingTemplate: HogFunctionTemplate = {
+                free: true,
+                status: 'beta',
+                type: 'transformation',
+                id: 'template-fail',
+                name: 'Failing Template',
+                description: 'A template that should fail',
+                category: ['Custom'],
+                hog: `
+                    // Return invalid result (not an object with properties)
+                    return "invalid"
+                `,
+                inputs_schema: [],
+            }
+
+            const successByteCode = await compileHog(successTemplate.hog)
+            const successFunction = createHogFunction({
+                type: 'transformation',
+                name: successTemplate.name,
+                team_id: teamId,
+                enabled: true,
+                bytecode: successByteCode,
+                execution_order: 1,
+            })
+
+            const failByteCode = await compileHog(failingTemplate.hog)
+            const failFunction = createHogFunction({
+                type: 'transformation',
+                name: failingTemplate.name,
+                team_id: teamId,
+                enabled: true,
+                bytecode: failByteCode,
+                execution_order: 2,
+            })
+
+            await insertHogFunction(hub.db.postgres, teamId, successFunction)
+            await insertHogFunction(hub.db.postgres, teamId, failFunction)
+
+            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
+
+            const event = createPluginEvent(
+                {
+                    event: 'test',
+                    properties: {},
+                },
+                teamId
+            )
+
+            const result = await hogTransformer.transformEvent(event)
+
+            // Verify the event has both success and failure tracking
+            expect(result.event?.properties).toEqual({
+                success: true, // From successful transformation
+                $transformations_succeeded: [`Success Template (${successFunction.id})`],
+                $transformations_failed: [`Failing Template (${failFunction.id})`],
+            })
+        })
+
+        it('should not add transformation tracking properties if no transformations run', async () => {
+            const event = createPluginEvent(
+                {
+                    event: 'test',
+                    properties: { original: true },
+                },
+                teamId
+            )
+
+            const result = await hogTransformer.transformEvent(event)
+
+            // Verify the event properties are unchanged
+            expect(result.event?.properties).toEqual({
+                original: true,
+            })
+            expect(result.event?.properties).not.toHaveProperty('$transformations_succeeded')
+            expect(result.event?.properties).not.toHaveProperty('$transformations_failed')
+        })
+
+        it('should preserve existing transformation results when adding new ones', async () => {
+            const successTemplate: HogFunctionTemplate = {
+                free: true,
+                status: 'beta',
+                type: 'transformation',
+                id: 'template-success',
+                name: 'Success Template',
+                description: 'A template that should succeed',
+                category: ['Custom'],
+                hog: `
+                    let returnEvent := event
+                    returnEvent.properties.success := true
+                    return returnEvent
+                `,
+                inputs_schema: [],
+            }
+
+            const successByteCode = await compileHog(successTemplate.hog)
+            const successFunction = createHogFunction({
+                type: 'transformation',
+                name: successTemplate.name,
+                team_id: teamId,
+                enabled: true,
+                bytecode: successByteCode,
+                execution_order: 1,
+            })
+
+            await insertHogFunction(hub.db.postgres, teamId, successFunction)
+            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
+
+            const event = createPluginEvent(
+                {
+                    event: 'test',
+                    properties: {
+                        $transformations_succeeded: ['Previous Success (prev-id)'],
+                        $transformations_failed: ['Previous Failure (prev-id)'],
+                    },
+                },
+                teamId
+            )
+
+            const result = await hogTransformer.transformEvent(event)
+
+            // Verify new results are appended to existing ones
+            expect(result?.event?.properties?.$transformations_succeeded).toEqual([
+                'Previous Success (prev-id)',
+                `Success Template (${successFunction.id})`,
+            ])
+            expect(result?.event?.properties?.$transformations_failed).toEqual(['Previous Failure (prev-id)'])
+        })
     })
 
     describe('legacy plugins', () => {
@@ -408,6 +567,7 @@ describe('HogTransformer', () => {
                 enabled: true,
                 hog: filterOutPluginTemplate.hog,
                 inputs_schema: filterOutPluginTemplate.inputs_schema,
+                id: 'c342e9ae-9f76-4379-a465-d33b4826bc05',
             })
 
             await insertHogFunction(hub.db.postgres, teamId, filterOutPlugin)
@@ -425,15 +585,7 @@ describe('HogTransformer', () => {
             const event: PluginEvent = createPluginEvent({ event: 'drop-me', team_id: teamId })
             const result = await hogTransformer.transformEvent(event)
             expect(executeSpy).toHaveBeenCalledTimes(1)
-            expect(result).toMatchInlineSnapshot(`
-                {
-                  "event": null,
-                  "messagePromises": [
-                    Promise {},
-                    Promise {},
-                  ],
-                }
-            `)
+            expect(result.event).toMatchInlineSnapshot(`null`)
         })
 
         it('handles legacy plugin transformation to keep events', async () => {
@@ -441,26 +593,24 @@ describe('HogTransformer', () => {
             const result = await hogTransformer.transformEvent(event)
 
             expect(executeSpy).toHaveBeenCalledTimes(1)
-            expect(result).toMatchInlineSnapshot(`
+            expect(result.event).toMatchInlineSnapshot(`
                 {
-                  "event": {
-                    "distinct_id": "distinct-id",
-                    "event": "keep-me",
-                    "ip": "89.160.20.129",
-                    "now": "2024-06-07T12:00:00.000Z",
-                    "properties": {
-                      "$current_url": "https://example.com",
-                      "$ip": "89.160.20.129",
-                    },
-                    "site_url": "http://localhost",
-                    "team_id": ${teamId},
-                    "timestamp": "2024-01-01T00:00:00Z",
-                    "uuid": "event-id",
+                  "distinct_id": "distinct-id",
+                  "event": "keep-me",
+                  "ip": "89.160.20.129",
+                  "now": "2024-06-07T12:00:00.000Z",
+                  "properties": {
+                    "$current_url": "https://example.com",
+                    "$ip": "89.160.20.129",
+                    "$transformations_failed": [],
+                    "$transformations_succeeded": [
+                      "Filter Out Plugin (c342e9ae-9f76-4379-a465-d33b4826bc05)",
+                    ],
                   },
-                  "messagePromises": [
-                    Promise {},
-                    Promise {},
-                  ],
+                  "site_url": "http://localhost",
+                  "team_id": 2,
+                  "timestamp": "2024-01-01T00:00:00Z",
+                  "uuid": "event-id",
                 }
             `)
         })

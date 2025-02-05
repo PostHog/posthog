@@ -1,6 +1,7 @@
 import { HogFunctionTemplate } from '~/src/cdp/templates/types'
 
 export const template: HogFunctionTemplate = {
+    free: true,
     status: 'alpha',
     type: 'transformation',
     id: 'plugin-semver-flattener-plugin',
@@ -12,6 +13,7 @@ export const template: HogFunctionTemplate = {
     inputs_schema: [
         {
             key: 'properties',
+            templating: false,
             label: 'comma separated properties to explode version number from',
             type: 'string',
             description: 'my_version_number,app_version',
