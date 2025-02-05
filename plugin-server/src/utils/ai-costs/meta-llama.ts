@@ -4,8 +4,8 @@ export const costs: ModelRow[] = [
     {
         model: 'llama-3.3-70b-instruct',
         cost: {
-            prompt_token: 1.2e-7,
-            completion_token: 3e-7,
+            prompt_token: 0.00000012,
+            completion_token: 0.0000003,
         },
     },
     {
@@ -18,8 +18,8 @@ export const costs: ModelRow[] = [
     {
         model: 'llama-3.2-3b-instruct',
         cost: {
-            prompt_token: 1.5e-8,
-            completion_token: 2.5e-8,
+            prompt_token: 0.000000015,
+            completion_token: 0.000000025,
         },
     },
     {
@@ -32,8 +32,8 @@ export const costs: ModelRow[] = [
     {
         model: 'llama-3.2-1b-instruct',
         cost: {
-            prompt_token: 1e-8,
-            completion_token: 1e-8,
+            prompt_token: 0.00000001,
+            completion_token: 0.00000001,
         },
     },
     {
@@ -46,8 +46,8 @@ export const costs: ModelRow[] = [
     {
         model: 'llama-3.2-90b-vision-instruct',
         cost: {
-            prompt_token: 9e-7,
-            completion_token: 9e-7,
+            prompt_token: 0.0000009,
+            completion_token: 0.0000009,
         },
     },
     {
@@ -60,8 +60,8 @@ export const costs: ModelRow[] = [
     {
         model: 'llama-3.2-11b-vision-instruct',
         cost: {
-            prompt_token: 5.5e-8,
-            completion_token: 5.5e-8,
+            prompt_token: 0.000000055,
+            completion_token: 0.000000055,
         },
     },
     {
@@ -81,8 +81,8 @@ export const costs: ModelRow[] = [
     {
         model: 'llama-3.1-405b-instruct',
         cost: {
-            prompt_token: 8e-7,
-            completion_token: 8e-7,
+            prompt_token: 0.0000008,
+            completion_token: 0.0000008,
         },
     },
     {
@@ -102,8 +102,15 @@ export const costs: ModelRow[] = [
     {
         model: 'llama-3.1-8b-instruct',
         cost: {
-            prompt_token: 2e-8,
-            completion_token: 5e-8,
+            prompt_token: 0.00000002,
+            completion_token: 0.00000005,
+        },
+    },
+    {
+        model: 'llama-3.1-8b-instruct:nitro',
+        cost: {
+            prompt_token: 0.00000018,
+            completion_token: 0.00000018,
         },
     },
     {
@@ -116,8 +123,8 @@ export const costs: ModelRow[] = [
     {
         model: 'llama-3.1-70b-instruct',
         cost: {
-            prompt_token: 1.2e-7,
-            completion_token: 3e-7,
+            prompt_token: 0.00000012,
+            completion_token: 0.0000003,
         },
     },
     {
@@ -130,8 +137,8 @@ export const costs: ModelRow[] = [
     {
         model: 'llama-guard-2-8b',
         cost: {
-            prompt_token: 2e-7,
-            completion_token: 2e-7,
+            prompt_token: 0.0000002,
+            completion_token: 0.0000002,
         },
     },
     {
@@ -144,50 +151,50 @@ export const costs: ModelRow[] = [
     {
         model: 'llama-3-8b-instruct',
         cost: {
-            prompt_token: 3e-8,
-            completion_token: 6e-8,
+            prompt_token: 0.00000003,
+            completion_token: 0.00000006,
         },
     },
     {
         model: 'llama-3-8b-instruct:extended',
         cost: {
-            prompt_token: 1.875e-7,
+            prompt_token: 0.0000001875,
             completion_token: 0.000001125,
         },
     },
     {
         model: 'llama-3-8b-instruct:nitro',
         cost: {
-            prompt_token: 2e-7,
-            completion_token: 2e-7,
+            prompt_token: 0.0000002,
+            completion_token: 0.0000002,
         },
     },
     {
         model: 'llama-3-70b-instruct',
         cost: {
-            prompt_token: 2.3e-7,
-            completion_token: 4e-7,
+            prompt_token: 0.00000023,
+            completion_token: 0.0000004,
         },
     },
     {
         model: 'llama-3-70b-instruct:nitro',
         cost: {
-            prompt_token: 8.8e-7,
-            completion_token: 8.8e-7,
+            prompt_token: 0.00000088,
+            completion_token: 0.00000088,
         },
     },
     {
         model: 'llama-2-13b-chat',
         cost: {
-            prompt_token: 2.2e-7,
-            completion_token: 2.2e-7,
+            prompt_token: 0.00000022,
+            completion_token: 0.00000022,
         },
     },
     {
         model: 'llama-2-70b-chat',
         cost: {
-            prompt_token: 9e-7,
-            completion_token: 9e-7,
+            prompt_token: 0.0000009,
+            completion_token: 0.0000009,
         },
     },
 ]
