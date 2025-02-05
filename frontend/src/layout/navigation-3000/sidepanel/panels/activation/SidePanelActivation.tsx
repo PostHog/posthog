@@ -60,6 +60,8 @@ export const SidePanelActivation = (): JSX.Element | null => {
                         <button
                             className="px-4 py-2 flex items-center justify-between w-full"
                             onClick={() => toggleShowHiddenSections()}
+                            role="button"
+                            aria-expanded={showHiddenSections}
                         >
                             <h4 className="font-semibold text-[16px]">All products</h4>
                             {showHiddenSections ? (
