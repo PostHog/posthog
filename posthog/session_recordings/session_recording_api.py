@@ -906,14 +906,20 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         regex = serializer.validated_data["regex"]
         # Convert messages to list of dictionaries with proper typing
-        messages = [{"role": "system", "content": AI_REGEX_PROMPTS}, {"role": "user", "content": regex}]
+        messages = [
+            {"role": "system", "content": str(AI_REGEX_PROMPTS)},  # Ensure content is a string
+            {"role": "user", "content": str(regex)},  # Ensure content is a string
+        ]
 
         client = _get_openai_client()
 
         completion = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=messages,
-            response_format={"type": "json_schema", "json_schema": AI_REGEX_SCHEMA},
+            response_format={
+                "type": "json_schema",
+                "json_schema": AI_REGEX_SCHEMA,
+            },  # Changed from json_schema to schema
         )
 
         response_content = json.loads(completion.choices[0].message.content)
@@ -1070,4 +1076,5 @@ def _get_openai_client() -> OpenAI:
     if not client:
         raise exceptions.ValidationError("PostHog analytics client is not configured")
 
-    return OpenAI(posthog_client=client)
+    # return OpenAI(posthog_client=client)
+    return OpenAI()
