@@ -15,6 +15,60 @@ from posthog.warehouse.models import ExternalDataJob
 from posthog.warehouse.s3 import get_s3_client
 
 
+def _get_credentials():
+    if TEST:
+        return {
+            "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
+            "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "region_name": settings.AIRBYTE_BUCKET_REGION,
+            "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    return {
+        "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
+        "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
+        "region_name": settings.AIRBYTE_BUCKET_REGION,
+        "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
+        "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+    }
+
+
+def _get_spark_session_singleton() -> SparkSession:
+    if hasattr(_get_spark_session_singleton, "_spark"):
+        return _get_spark_session_singleton._spark
+
+    credentials = _get_credentials()
+
+    spark_conf = SparkConf()
+    spark_conf.set("spark.hadoop.security.authentication", "simple")
+    spark_conf.set("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
+    spark_conf.set("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+    spark_conf.set("spark.sql.execution.arrow.pyspark.enabled", "true")
+    spark_conf.set(
+        "spark.hadoop.fs.s3a.aws.credentials.provider", "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"
+    )
+    spark_conf.set("spark.hadoop.fs.s3a.access.key", credentials["aws_access_key_id"])
+    spark_conf.set("spark.hadoop.fs.s3a.secret.key", credentials["aws_secret_access_key"])
+    spark_conf.set("spark.hadoop.fs.s3a.endpoint.region", credentials["region_name"])
+    spark_conf.set("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
+
+    if TEST:
+        spark_conf.set("spark.hadoop.fs.s3a.endpoint", credentials.get("endpoint_url", "s3.amazonaws.com"))
+        spark_conf.set("spark.hadoop.fs.s3a.path.style.access", "true")
+
+    spark_session = configure_spark_with_delta_pip(
+        SparkSession.Builder().appName("DeltaTableHelper").master("local[*]").config(conf=spark_conf),
+        ["org.apache.hadoop:hadoop-aws:3.3.4", "com.amazonaws:aws-java-sdk-bundle:1.12.262"],
+    ).getOrCreate()
+
+    setattr(_get_spark_session_singleton, "_spark", spark_session)  # noqa: B010
+
+    return spark_session
+
+
 class DeltaTableHelper:
     _resource_name: str
     _job: ExternalDataJob
@@ -25,50 +79,7 @@ class DeltaTableHelper:
         self._resource_name = resource_name
         self._job = job
         self._logger = logger
-
-        credentials = self._get_credentials()
-
-        spark_conf = SparkConf()
-        spark_conf.set("spark.hadoop.security.authentication", "simple")
-        spark_conf.set("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
-        spark_conf.set("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
-        spark_conf.set("spark.sql.execution.arrow.pyspark.enabled", "true")
-        spark_conf.set(
-            "spark.hadoop.fs.s3a.aws.credentials.provider", "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"
-        )
-        spark_conf.set("spark.hadoop.fs.s3a.access.key", credentials["aws_access_key_id"])
-        spark_conf.set("spark.hadoop.fs.s3a.secret.key", credentials["aws_secret_access_key"])
-        spark_conf.set("spark.hadoop.fs.s3a.endpoint.region", credentials["region_name"])
-        spark_conf.set("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
-
-        if TEST:
-            spark_conf.set("spark.hadoop.fs.s3a.endpoint", credentials.get("endpoint_url", "s3.amazonaws.com"))
-            spark_conf.set("spark.hadoop.fs.s3a.path.style.access", "true")
-
-        self._spark = configure_spark_with_delta_pip(
-            SparkSession.Builder().appName("DeltaTableHelper").master("local[*]").config(conf=spark_conf),
-            ["org.apache.hadoop:hadoop-aws:3.3.4", "com.amazonaws:aws-java-sdk-bundle:1.12.262"],
-        ).getOrCreate()
-
-    def _get_credentials(self):
-        if TEST:
-            return {
-                "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
-                "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
-                "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-                "region_name": settings.AIRBYTE_BUCKET_REGION,
-                "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
-                "AWS_ALLOW_HTTP": "true",
-                "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-            }
-
-        return {
-            "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
-            "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
-            "region_name": settings.AIRBYTE_BUCKET_REGION,
-            "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
-            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-        }
+        self._spark = _get_spark_session_singleton()
 
     def _get_delta_table_uri(self) -> str:
         normalized_resource_name = NamingConvention().normalize_identifier(self._resource_name)
