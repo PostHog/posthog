@@ -2,13 +2,12 @@
  * @fileoverview A component that allows user to "chat with recordings" using Max AI
  */
 import { IconAIText, IconPerson, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonInput, LemonTag, Popover } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonInput, LemonTag } from '@posthog/lemon-ui'
 import { BuiltLogic, useActions, useValues } from 'kea'
-import { HedgehogBuddy } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
-import { hedgehogBuddyLogic } from 'lib/components/HedgehogBuddy/hedgehogBuddyLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { sessionRecordingsPlaylistLogicType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogicType'
 
+import { AiConsentPopover } from '../AiConsentPopover'
 import { aiFilterLogic } from './aiFilterLogic'
 
 export function AiFilter({ logic }: { logic: BuiltLogic<sessionRecordingsPlaylistLogicType> }): JSX.Element {
@@ -16,9 +15,7 @@ export function AiFilter({ logic }: { logic: BuiltLogic<sessionRecordingsPlaylis
     const filterLogic = aiFilterLogic({ setFilters, resetFilters })
     const { messages, input, isLoading } = useValues(filterLogic)
     const { setInput, handleReset, handleSend } = useActions(filterLogic)
-    const { acceptDataProcessing } = useActions(maxGlobalLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
-    const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
 
     return (
         <>
@@ -112,63 +109,7 @@ export function AiFilter({ logic }: { logic: BuiltLogic<sessionRecordingsPlaylis
                                                     {isLoading ? '' : 'Send'}
                                                 </LemonButton>
                                             </div>
-                                            {!dataProcessingAccepted && (
-                                                <div className="flex justify-center">
-                                                    <Popover
-                                                        overlay={
-                                                            <div className="m-1.5">
-                                                                <p className="font-medium text-pretty mb-1.5">
-                                                                    Hi! I use OpenAI services to analyze your data,
-                                                                    <br />
-                                                                    so that you can focus on building. This <em>
-                                                                        can
-                                                                    </em>{' '}
-                                                                    include
-                                                                    <br />
-                                                                    personal data of your users, if you're capturing it.
-                                                                    <br />
-                                                                    <em>
-                                                                        Your data won't be used for training models.
-                                                                    </em>
-                                                                </p>
-                                                                <LemonButton
-                                                                    type="secondary"
-                                                                    size="small"
-                                                                    onClick={() => acceptDataProcessing()}
-                                                                >
-                                                                    Got it, I accept OpenAI processing data
-                                                                </LemonButton>
-                                                            </div>
-                                                        }
-                                                        placement="right-end"
-                                                        showArrow
-                                                        visible={true}
-                                                    >
-                                                        <HedgehogBuddy
-                                                            static
-                                                            hedgehogConfig={{
-                                                                ...hedgehogConfig,
-                                                                walking_enabled: false,
-                                                                controls_enabled: false,
-                                                            }}
-                                                            onClick={(actor) => {
-                                                                if (Math.random() < 0.01) {
-                                                                    actor.setOnFire()
-                                                                } else {
-                                                                    actor.setRandomAnimation()
-                                                                }
-                                                            }}
-                                                            onActorLoaded={(actor) =>
-                                                                setTimeout(() => {
-                                                                    actor.setAnimation('wave')
-                                                                    // Always start out facing right so that the data processing popover is more readable
-                                                                    actor.direction = 'right'
-                                                                }, 100)
-                                                            }
-                                                        />
-                                                    </Popover>
-                                                </div>
-                                            )}
+                                            <AiConsentPopover />
                                         </div>
                                     </div>
                                     {messages.length === 0 && (
