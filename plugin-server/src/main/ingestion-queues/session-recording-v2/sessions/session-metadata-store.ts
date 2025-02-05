@@ -23,15 +23,13 @@ export class SessionMetadataStore {
             block_url: metadata.blockUrl,
         }))
 
-        await Promise.all(
-            events.map((event) =>
-                this.producer.produce({
-                    topic: SESSION_REPLAY_EVENTS_TOPIC,
-                    key: Buffer.from(event.session_id),
-                    value: Buffer.from(JSON.stringify(event)),
-                })
-            )
-        )
+        await this.producer.queueMessages({
+            topic: SESSION_REPLAY_EVENTS_TOPIC,
+            messages: events.map((event) => ({
+                key: event.session_id,
+                value: JSON.stringify(event),
+            })),
+        })
 
         status.info('🔍', 'session_metadata_store_blocks_stored', { count: events.length })
     }

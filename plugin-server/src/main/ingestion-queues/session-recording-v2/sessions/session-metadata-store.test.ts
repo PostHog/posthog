@@ -1,4 +1,4 @@
-import { KafkaProducerWrapper } from '../../../../kafka/producer'
+import { KafkaProducerWrapper, TopicMessage } from '../../../../kafka/producer'
 import { SessionMetadataStore } from './session-metadata-store'
 
 describe('SessionMetadataStore', () => {
@@ -7,13 +7,13 @@ describe('SessionMetadataStore', () => {
 
     beforeEach(() => {
         mockProducer = {
-            produce: jest.fn().mockResolvedValue(undefined),
+            queueMessages: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<KafkaProducerWrapper>
 
         store = new SessionMetadataStore(mockProducer)
     })
 
-    it('should produce events to kafka with correct data', async () => {
+    it('should queue events to kafka with correct data', async () => {
         const blocks = [
             {
                 sessionId: 'session123',
@@ -43,10 +43,13 @@ describe('SessionMetadataStore', () => {
 
         await store.storeSessionBlocks(blocks)
 
-        expect(mockProducer.produce).toHaveBeenCalledTimes(3)
-        const producedEvents = mockProducer.produce.mock.calls.map((call) => JSON.parse(call[0].value!.toString()))
+        expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
+        const queuedMessage = mockProducer.queueMessages.mock.calls[0][0] as TopicMessage
+        expect(queuedMessage.topic).toBe('session_replay_events_v2')
+        const queuedMessages = queuedMessage.messages
+        const parsedEvents = queuedMessages.map((msg) => JSON.parse(msg.value as string))
 
-        expect(producedEvents).toMatchObject([
+        expect(parsedEvents).toMatchObject([
             {
                 uuid: expect.any(String),
                 session_id: 'session123',
@@ -74,23 +77,26 @@ describe('SessionMetadataStore', () => {
         ])
 
         // Verify UUIDs are unique
-        const uuids = producedEvents.map((event) => event.uuid)
+        const uuids = parsedEvents.map((event) => event.uuid)
         expect(new Set(uuids).size).toBe(3)
 
         // Verify keys are set to correct session IDs
-        expect(mockProducer.produce.mock.calls[0][0].key).toEqual(Buffer.from('session123'))
-        expect(mockProducer.produce.mock.calls[1][0].key).toEqual(Buffer.from('different456'))
-        expect(mockProducer.produce.mock.calls[2][0].key).toEqual(Buffer.from('session123'))
+        expect(queuedMessages[0].key).toEqual('session123')
+        expect(queuedMessages[1].key).toEqual('different456')
+        expect(queuedMessages[2].key).toEqual('session123')
     })
 
     it('should handle empty blocks array', async () => {
         await store.storeSessionBlocks([])
-        expect(mockProducer.produce).not.toHaveBeenCalled()
+        expect(mockProducer.queueMessages).toHaveBeenCalledWith({
+            topic: 'session_replay_events_v2',
+            messages: [],
+        })
     })
 
     it('should handle producer errors', async () => {
         const error = new Error('Kafka producer error')
-        mockProducer.produce.mockRejectedValueOnce(error)
+        mockProducer.queueMessages.mockRejectedValueOnce(error)
 
         const blocks = [
             {
@@ -120,7 +126,8 @@ describe('SessionMetadataStore', () => {
 
         await store.storeSessionBlocks(blocks)
 
-        const producedEvent = JSON.parse(mockProducer.produce.mock.calls[0][0].value!.toString())
-        expect(producedEvent.block_url).toBeNull()
+        const queuedMessage = mockProducer.queueMessages.mock.calls[0][0] as TopicMessage
+        const parsedEvent = JSON.parse(queuedMessage.messages[0].value as string)
+        expect(parsedEvent.block_url).toBeNull()
     })
 })
