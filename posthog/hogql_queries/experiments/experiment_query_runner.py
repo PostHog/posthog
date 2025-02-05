@@ -43,8 +43,6 @@ class ExperimentQueryRunner(QueryRunner):
     query: ExperimentTrendsQuery
     response: ExperimentTrendsQueryResponse
     cached_response: CachedExperimentTrendsQueryResponse
-    response: ExperimentTrendsQueryResponse
-    cached_response: CachedExperimentTrendsQueryResponse
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
