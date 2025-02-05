@@ -26,7 +26,7 @@ export const posthogAnonymization: LegacyTransformationPlugin = {
             {
                 key: 'privateFields',
                 templating: false,
-                label: 'The names of fields to be anonymized divided by a colon.',
+                label: 'The names of fields to be anonymized divided by a comma.',
                 type: 'string',
                 default: 'distinct_id,name,userid',
                 required: true,
