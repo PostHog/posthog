@@ -130,8 +130,10 @@ export function WebExperimentTransformField({
                                     const originalHtmlState = experimentForm.original_html_state?.[transform.selector]
                                     if (originalHtmlState) {
                                         const element = document.querySelector(transform.selector) as HTMLElement
-                                        element.innerHTML = originalHtmlState.innerHTML
-                                        element.textContent = originalHtmlState.textContent
+                                        if (element) {
+                                            element.innerHTML = originalHtmlState.innerHTML
+                                            element.textContent = originalHtmlState.textContent
+                                        }
                                     }
 
                                     // Copy the original html state to the new transform, and delete the previously selected content type
@@ -223,14 +225,26 @@ export function WebExperimentTransformField({
                         <LemonTextArea
                             onChange={(value) => {
                                 if (experimentForm.variants) {
-                                    const webVariant = experimentForm.variants[variant]
-                                    if (webVariant && transform.selector) {
-                                        webVariant.transforms[transformIndex].css = value
-                                        const element = document.querySelector(transform.selector) as HTMLElement
+                                    // Create new variants object with updated CSS
+                                    const updatedVariants = {
+                                        ...experimentForm.variants,
+                                        [variant]: {
+                                            ...experimentForm.variants[variant],
+                                            transforms: experimentForm.variants[variant].transforms.map((t, i) =>
+                                                i === transformIndex ? { ...t, css: value } : t
+                                            ),
+                                        },
+                                    }
+                                    setExperimentFormValue('variants', updatedVariants)
+
+                                    // Update DOM
+                                    const element = transform.selector
+                                        ? (document.querySelector(transform.selector) as HTMLElement)
+                                        : null
+                                    if (element) {
                                         element.setAttribute('style', value)
                                     }
                                 }
-                                setExperimentFormValue('variants', experimentForm.variants)
                             }}
                             value={transform.css || ''}
                         />

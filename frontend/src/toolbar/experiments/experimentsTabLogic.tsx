@@ -374,8 +374,8 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                     selectedVariant.transforms?.forEach((transform) => {
                         if (transform.selector) {
                             const elements = document.querySelectorAll(transform.selector)
-                            elements.forEach((elements) => {
-                                const htmlElement = elements as HTMLElement
+                            elements.forEach((element) => {
+                                const htmlElement = element as HTMLElement
                                 if (htmlElement) {
                                     if (transform.html) {
                                         htmlElement.innerHTML = transform.html
