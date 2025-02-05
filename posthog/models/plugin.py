@@ -6,6 +6,7 @@ from enum import StrEnum
 from typing import Any, Optional, cast, Literal
 from uuid import UUID
 
+from django.conf import settings
 from django.core import exceptions
 from django.db import models
 from django.db.models.signals import post_delete, post_save
@@ -19,7 +20,7 @@ from posthog.constants import FROZEN_POSTHOG_VERSION
 from posthog.models.organization import Organization
 from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
-from posthog.plugins.access import can_configure_plugins
+from posthog.plugins.access import can_configure_plugins, can_install_plugins
 from posthog.plugins.plugin_server_api import populate_plugin_capabilities_on_workers, reload_plugins_on_workers
 from posthog.plugins.site import get_decide_site_apps, get_decide_site_functions
 from posthog.plugins.utils import (
@@ -547,6 +548,24 @@ def validate_plugin_job_payload(plugin: Plugin, job_type: str, payload: dict[str
     for key in payload:
         if key not in payload_spec:
             raise ValidationError(f"Unknown field for job: {key}")
+
+
+@receiver(models.signals.post_save, sender=Organization)
+def preinstall_plugins_for_new_organization(sender, instance: Organization, created: bool, **kwargs):
+    if created and not is_cloud() and can_install_plugins(instance):
+        for plugin_url in settings.PLUGINS_PREINSTALLED_URLS:
+            try:
+                Plugin.objects.install(
+                    organization=instance,
+                    plugin_type=Plugin.PluginType.REPOSITORY,
+                    url=plugin_url,
+                    is_preinstalled=True,
+                )
+            except Exception as e:
+                print(
+                    f"⚠️ Cannot preinstall plugin from {plugin_url}, skipping it for organization {instance.name}:\n",
+                    e,
+                )
 
 
 @receiver(models.signals.post_save, sender=Team)

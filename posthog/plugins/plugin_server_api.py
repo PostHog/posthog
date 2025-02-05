@@ -94,7 +94,3 @@ def patch_hog_function_status(team_id: int, hog_function_id: UUIDT, state: int) 
 
 def get_hog_function_templates() -> requests.Response:
     return requests.get(CDP_FUNCTION_EXECUTOR_API_URL + f"/api/hog_function_templates")
-
-
-def get_hog_function_template(template_id: str) -> requests.Response:
-    return requests.get(CDP_FUNCTION_EXECUTOR_API_URL + f"/api/hog_function_templates/{template_id}")
