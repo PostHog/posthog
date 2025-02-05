@@ -4,15 +4,15 @@ export const costs: ModelRow[] = [
     {
         model: 'mistral-small-24b-instruct-2501',
         cost: {
-            prompt_token: 1e-7,
-            completion_token: 3e-7,
+            prompt_token: 0.00000007,
+            completion_token: 0.00000014,
         },
     },
     {
         model: 'codestral-2501',
         cost: {
-            prompt_token: 3e-7,
-            completion_token: 9e-7,
+            prompt_token: 0.0000003,
+            completion_token: 0.0000009,
         },
     },
     {
@@ -39,36 +39,36 @@ export const costs: ModelRow[] = [
     {
         model: 'ministral-8b',
         cost: {
-            prompt_token: 1e-7,
-            completion_token: 1e-7,
+            prompt_token: 0.0000001,
+            completion_token: 0.0000001,
         },
     },
     {
         model: 'ministral-3b',
         cost: {
-            prompt_token: 4e-8,
-            completion_token: 4e-8,
+            prompt_token: 0.00000004,
+            completion_token: 0.00000004,
         },
     },
     {
         model: 'pixtral-12b',
         cost: {
-            prompt_token: 1e-7,
-            completion_token: 1e-7,
+            prompt_token: 0.0000001,
+            completion_token: 0.0000001,
         },
     },
     {
         model: 'mistral-nemo',
         cost: {
-            prompt_token: 3.5e-8,
-            completion_token: 8e-8,
+            prompt_token: 0.000000035,
+            completion_token: 0.00000008,
         },
     },
     {
         model: 'codestral-mamba',
         cost: {
-            prompt_token: 2.5e-7,
-            completion_token: 2.5e-7,
+            prompt_token: 0.00000025,
+            completion_token: 0.00000025,
         },
     },
     {
@@ -81,29 +81,29 @@ export const costs: ModelRow[] = [
     {
         model: 'mistral-7b-instruct',
         cost: {
-            prompt_token: 3e-8,
-            completion_token: 5.5e-8,
+            prompt_token: 0.00000003,
+            completion_token: 0.000000055,
         },
     },
     {
         model: 'mistral-7b-instruct:nitro',
         cost: {
-            prompt_token: 7e-8,
-            completion_token: 7e-8,
+            prompt_token: 0.00000007,
+            completion_token: 0.00000007,
         },
     },
     {
         model: 'mistral-7b-instruct-v0.3',
         cost: {
-            prompt_token: 3e-8,
-            completion_token: 5.5e-8,
+            prompt_token: 0.00000003,
+            completion_token: 0.000000055,
         },
     },
     {
         model: 'mixtral-8x22b-instruct',
         cost: {
-            prompt_token: 9e-7,
-            completion_token: 9e-7,
+            prompt_token: 0.0000009,
+            completion_token: 0.0000009,
         },
     },
     {
@@ -116,15 +116,15 @@ export const costs: ModelRow[] = [
     {
         model: 'mistral-small',
         cost: {
-            prompt_token: 2e-7,
-            completion_token: 6e-7,
+            prompt_token: 0.0000002,
+            completion_token: 0.0000006,
         },
     },
     {
         model: 'mistral-tiny',
         cost: {
-            prompt_token: 2.5e-7,
-            completion_token: 2.5e-7,
+            prompt_token: 0.00000025,
+            completion_token: 0.00000025,
         },
     },
     {
@@ -137,29 +137,29 @@ export const costs: ModelRow[] = [
     {
         model: 'mixtral-8x7b',
         cost: {
-            prompt_token: 6e-7,
-            completion_token: 6e-7,
+            prompt_token: 0.0000006,
+            completion_token: 0.0000006,
         },
     },
     {
         model: 'mixtral-8x7b-instruct',
         cost: {
-            prompt_token: 2.4e-7,
-            completion_token: 2.4e-7,
+            prompt_token: 0.00000024,
+            completion_token: 0.00000024,
         },
     },
     {
         model: 'mixtral-8x7b-instruct:nitro',
         cost: {
-            prompt_token: 5e-7,
-            completion_token: 5e-7,
+            prompt_token: 0.0000005,
+            completion_token: 0.0000005,
         },
     },
     {
         model: 'mistral-7b-instruct-v0.1',
         cost: {
-            prompt_token: 2e-7,
-            completion_token: 2e-7,
+            prompt_token: 0.0000002,
+            completion_token: 0.0000002,
         },
     },
 ]

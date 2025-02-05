@@ -40,7 +40,7 @@ export function SDKs({
 }): JSX.Element {
     const { loadCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { setSourceFilter, setSelectedSDK, setAvailableSDKInstructionsMap, setShowSideBySide, setPanel } =
+    const { setSourceFilter, selectSDK, setAvailableSDKInstructionsMap, setShowSideBySide, setPanel } =
         useActions(sdksLogic)
     const { sourceFilter, sdks, selectedSDK, sourceOptions, showSourceOptionsSelect, showSideBySide, panel } =
         useValues(sdksLogic)
@@ -103,7 +103,7 @@ export function SDKs({
                             <LemonButton
                                 data-attr={`onboarding-sdk-${sdk.key}`}
                                 active={selectedSDK?.key === sdk.key}
-                                onClick={selectedSDK?.key !== sdk.key ? () => setSelectedSDK(sdk) : undefined}
+                                onClick={selectedSDK?.key !== sdk.key ? () => selectSDK(sdk) : undefined}
                                 fullWidth
                                 icon={
                                     typeof sdk.image === 'string' ? (
