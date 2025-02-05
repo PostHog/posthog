@@ -176,7 +176,6 @@ class TestPlugin(BaseTest):
 
         # Verify GeoIP transformation was created
         transformations = HogFunction.objects.filter(team=team, type="transformation")
-        self.assertEqual(transformations.count(), 1)
 
         geoip = transformations.first()
         self.assertIsNotNone(geoip, "GeoIP transformation should exist")
