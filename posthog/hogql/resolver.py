@@ -466,7 +466,7 @@ class Resolver(CloningVisitor):
         else:
             node.type = ast.UnknownType()
 
-        node.type = dataclasses.replace(node.type, nullable=left_type.nullable or right_type.nullable)
+        node.type.nullable = left_type.nullable or right_type.nullable
         return node
 
     def visit_call(self, node: ast.Call):
@@ -503,12 +503,8 @@ class Resolver(CloningVisitor):
             signatures = HOGQL_CLICKHOUSE_FUNCTIONS[node.name].signatures
             if signatures:
                 for sig_arg_types, sig_return_type in signatures:
-                    if sig_arg_types is None:
-                        return_type = sig_return_type
-                        break
-
-                    if compare_types(arg_types, sig_arg_types):
-                        return_type = sig_return_type
+                    if sig_arg_types is None or compare_types(arg_types, sig_arg_types):
+                        return_type = dataclasses.replace(sig_return_type)
                         break
 
         if return_type is None:
@@ -521,9 +517,9 @@ class Resolver(CloningVisitor):
             # )
 
         if node.name == "concat":
-            return_type = dataclasses.replace(return_type, nullable=False)
+            return_type.nullable = False
         elif not isinstance(return_type, ast.UnknownType):
-            return_type = dataclasses.replace(return_type, nullable=any(arg_type.nullable for arg_type in arg_types))
+            return_type.nullable = False
 
         node.type = ast.CallType(
             name=node.name,
