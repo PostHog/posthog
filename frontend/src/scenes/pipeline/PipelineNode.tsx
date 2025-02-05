@@ -15,6 +15,7 @@ import { urls } from 'scenes/urls'
 
 import { ActivityScope, PipelineNodeTab, PipelineStage, PipelineTab } from '~/types'
 
+import { BatchExportBackfills } from './BatchExportBackfills'
 import { BatchExportRuns } from './BatchExportRuns'
 import { AppMetricsV2 } from './metrics/AppMetricsV2'
 import { PipelineNodeConfiguration } from './PipelineNodeConfiguration'
@@ -82,6 +83,7 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
 
     if (node.backend === PipelineBackend.BatchExport) {
         tabToContent[PipelineNodeTab.Runs] = <BatchExportRuns id={node.id} />
+        tabToContent[PipelineNodeTab.Backfills] = <BatchExportBackfills id={node.id} />
     }
 
     if (node.backend === PipelineBackend.Plugin) {

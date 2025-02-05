@@ -12,7 +12,7 @@ EXPECT_HOSTS=(
 FAILED_COUNT=0
 
 for DOMAIN in "${EXPECT_HOSTS[@]}"; do
-  if ! timeout 5 nslookup "$DOMAIN" &>/dev/null; then
+  if ! ping -c 1 -W 5 "$DOMAIN" &>/dev/null; then
     echo "❌ Error: Domain '$DOMAIN' could not be resolved."
     FAILED_COUNT=$((FAILED_COUNT + 1))
   else
