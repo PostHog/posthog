@@ -227,7 +227,7 @@ export function StatelessInsightLoadingState({
                         <span>{humanFriendlyNumber(rowsRead || 0, 0)} </span>
                         <span>
                             {estimatedRows && estimatedRows >= rowsRead ? (
-                                <span>/ ${humanFriendlyNumber(estimatedRows)} </span>
+                                <span>/ {humanFriendlyNumber(estimatedRows)} </span>
                             ) : null}
                         </span>
                         <span>rows</span>
@@ -278,7 +278,7 @@ export function InsightLoadingState({
                                 {suggestedSamplingPercentage && !samplingPercentage ? (
                                     <span data-attr="insight-loading-waiting-message">
                                         Need to speed things up? Try reducing the date range, removing breakdowns, or
-                                        turning on <SamplingLink insightProps={insightProps} /> to speed things up.
+                                        turning on <SamplingLink insightProps={insightProps} />.
                                     </span>
                                 ) : suggestedSamplingPercentage && samplingPercentage ? (
                                     <>
