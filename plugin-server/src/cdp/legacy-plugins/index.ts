@@ -1,5 +1,18 @@
 import { customerioPlugin } from './_destinations/customerio/template'
 import { hubspotPlugin } from './_destinations/hubspot/template'
+import { intercomPlugin } from './_destinations/intercom/template'
+import { pacePlugin } from './_destinations/pace-posthog-integration/template'
+import { avoPlugin } from './_destinations/posthog-avo/template'
+import { brazePlugin } from './_destinations/posthog-braze-app/template'
+import { engagePlugin } from './_destinations/posthog-engage-so/template'
+import { gcsPlugin } from './_destinations/posthog-gcs/template'
+import { laudspeakerPlugin } from './_destinations/posthog-laudspeaker-app/template'
+import { patternsPlugin } from './_destinations/posthog-patterns-app/template'
+import { replicatorPlugin } from './_destinations/posthog-plugin-replicator/template'
+import { pubsubPlugin } from './_destinations/pubsub/template'
+import { rudderstackPlugin } from './_destinations/rudderstack-posthog/template'
+import { salesforcePlugin } from './_destinations/salesforce/template'
+import { sendgridPlugin } from './_destinations/sendgrid/template'
 import { downsamplingPlugin } from './_transformations/downsampling-plugin/template'
 import { dropEventsOnPropertyPlugin } from './_transformations/drop-events-on-property-plugin/template'
 import { flattenPropertiesPlugin } from './_transformations/flatten-properties-plugin/template'
@@ -24,7 +37,23 @@ import { timestampParserPlugin } from './_transformations/timestamp-parser-plugi
 import { userAgentPlugin } from './_transformations/user-agent-plugin/template'
 import { LegacyDestinationPlugin, LegacyTransformationPlugin } from './types'
 
-export const DESTINATION_PLUGINS: LegacyDestinationPlugin[] = [customerioPlugin, hubspotPlugin]
+export const DESTINATION_PLUGINS: LegacyDestinationPlugin[] = [
+    customerioPlugin,
+    hubspotPlugin,
+    intercomPlugin,
+    pacePlugin,
+    avoPlugin,
+    brazePlugin,
+    engagePlugin,
+    gcsPlugin,
+    laudspeakerPlugin,
+    patternsPlugin,
+    replicatorPlugin,
+    pubsubPlugin,
+    rudderstackPlugin,
+    salesforcePlugin,
+    sendgridPlugin,
+]
 export const TRANSFORMATION_PLUGINS: LegacyTransformationPlugin[] = [
     downsamplingPlugin,
     dropEventsOnPropertyPlugin,
