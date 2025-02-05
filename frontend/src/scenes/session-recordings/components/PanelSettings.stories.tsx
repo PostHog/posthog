@@ -17,7 +17,6 @@ const meta: Meta<typeof SettingsBar> = {
 export default meta
 const BasicTemplate: StoryFn<typeof SettingsBar> = (props: SettingsBarProps) => {
     const buttonSideAction: SideAction = {
-        // icon: <IconChevronRight className="rotate-90" />,
         dropdown: {
             overlay: {},
         },
