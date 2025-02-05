@@ -93,8 +93,18 @@ export function DataWarehouseManagedSourcesTable(): JSX.Element {
                 {
                     title: 'Status',
                     key: 'status',
-                    render: function RenderStatus(_, source) {
-                        return <LemonTag type={StatusTagSetting[source.status] || 'default'}>{source.status}</LemonTag>
+                    render: (_, schema) => {
+                        if (!schema.status) {
+                            return null
+                        }
+                        const tagContent = (
+                            <LemonTag type={StatusTagSetting[schema.status] || 'default'}>{schema.status}</LemonTag>
+                        )
+                        return schema.latest_error && schema.status === 'Error' ? (
+                            <Tooltip title={schema.latest_error}>{tagContent}</Tooltip>
+                        ) : (
+                            tagContent
+                        )
                     },
                 },
                 {

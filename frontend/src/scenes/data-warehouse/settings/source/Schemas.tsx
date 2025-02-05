@@ -209,10 +209,10 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                             if (!schema.status) {
                                 return null
                             }
-                            const tagType = StatusTagSetting[schema.status] || 'default'
-                            const tagContent = <LemonTag type={tagType}>{schema.status}</LemonTag>
-
-                            return schema.latest_error ? (
+                            const tagContent = (
+                                <LemonTag type={StatusTagSetting[schema.status] || 'default'}>{schema.status}</LemonTag>
+                            )
+                            return schema.latest_error && schema.status === 'Error' ? (
                                 <Tooltip title={schema.latest_error}>{tagContent}</Tooltip>
                             ) : (
                                 tagContent
