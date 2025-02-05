@@ -61,7 +61,7 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 from posthog.test.fixtures import create_app_metric2
-from posthog.utils import get_machine_id, get_previous_day, get_current_day
+from posthog.utils import get_machine_id, get_previous_day
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
 
 logger = structlog.get_logger(__name__)
@@ -1538,7 +1538,7 @@ class TestErrorTrackingUsageReport(ClickhouseDestroyTablesMixin, TestCase, Click
 
         flush_persons_and_events()
 
-        period = get_current_day()
+        period = get_previous_day(at=now() + relativedelta(days=1))
         period_start, period_end = period
         all_reports = _get_all_org_reports(period_start, period_end)
 
