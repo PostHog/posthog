@@ -62,7 +62,7 @@ export function Paths(): JSX.Element {
     }
 
     return (
-        <div className="h-full w-full overflow-auto" id={id} ref={canvasContainerRef}>
+        <div className="h-full w-full overflow-auto px-2 py-4" id={id} ref={canvasContainerRef}>
             <div
                 ref={canvasRef}
                 className="Paths"
