@@ -18,6 +18,7 @@ import { ResultCustomizationByPicker } from 'scenes/insights/EditorFilters/Resul
 import { ScalePicker } from 'scenes/insights/EditorFilters/ScalePicker'
 import { ShowAlertThresholdLinesFilter } from 'scenes/insights/EditorFilters/ShowAlertThresholdLinesFilter'
 import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter'
+import { ShowMultipleYAxesFilter } from 'scenes/insights/EditorFilters/ShowMultipleYAxesFilter'
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
 import { RetentionCumulativeCheckbox } from 'scenes/insights/filters/RetentionCumulativeCheckbox'
@@ -57,6 +58,7 @@ export function InsightDisplayConfig(): JSX.Element {
         supportsPercentStackView,
         supportsResultCustomizationBy,
         yAxisScaleType,
+        showMultipleYAxes,
         isNonTimeSeriesDisplay,
         compareFilter,
         supportsCompare,
@@ -88,6 +90,7 @@ export function InsightDisplayConfig(): JSX.Element {
                           ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
                           ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
                           { label: () => <ShowAlertThresholdLinesFilter /> },
+                          { label: () => <ShowMultipleYAxesFilter /> },
                       ],
                   },
               ]
@@ -144,7 +147,8 @@ export function InsightDisplayConfig(): JSX.Element {
             ? 1
             : 0) +
         (hasLegend && showLegend ? 1 : 0) +
-        (!!yAxisScaleType && yAxisScaleType !== 'linear' ? 1 : 0)
+        (!!yAxisScaleType && yAxisScaleType !== 'linear' ? 1 : 0) +
+        (showMultipleYAxes ? 1 : 0)
 
     return (
         <div
