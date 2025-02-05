@@ -4,7 +4,6 @@ import { onEvent } from './index'
 // NOTE: This is a deprecated plugin and should never be shown to new users
 
 export const engagePlugin: LegacyDestinationPlugin = {
-    setupPlugin: () => Promise.resolve(),
     onEvent,
     template: {
         free: false,
