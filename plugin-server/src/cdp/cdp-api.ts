@@ -195,7 +195,7 @@ export class CdpApi {
                             if (mock_async_functions) {
                                 // Add the state, simulating what executeAsyncResponse would do
                                 // Re-parse the fetch args for the logging
-                                const fetchArgs: HogFunctionQueueParametersFetchRequest =
+                                const { url: fetchUrl, ...fetchArgs }: HogFunctionQueueParametersFetchRequest =
                                     this.hogExecutor.redactFetchRequest(
                                         invocation.queueParameters as HogFunctionQueueParametersFetchRequest
                                     )
@@ -216,7 +216,7 @@ export class CdpApi {
                                         {
                                             level: 'info',
                                             timestamp: DateTime.now(),
-                                            message: `fetch(${JSON.stringify(fetchArgs, null, 2)})`,
+                                            message: `fetch('${fetchUrl}', ${JSON.stringify(fetchArgs, null, 2)})`,
                                         },
                                     ],
                                 }
