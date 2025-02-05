@@ -1,5 +1,5 @@
 {
-    "name": "plugin_transpiler",
+    "name": "@posthog/plugin-transpiler",
     "version": "1.0.0",
     "description": "Transpiles site apps TSX to browser JS via stdin/stdout",
     "main": "transpile.mjs",
@@ -14,7 +14,7 @@
     "devDependencies": {
         "@babel/standalone": "^7.23.2",
         "@types/babel__standalone": "^7.1.6",
-        "@types/node": "^20.8.9",
+        "@types/node": "^18.11.9",
         "esbuild": "^0.19.5",
         "typescript": "^5.2.2"
     }
