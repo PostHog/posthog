@@ -96,8 +96,11 @@ class AiRequestSerializer(serializers.Serializer):
 
 
 class AiFiltersResponseSerializer(serializers.Serializer):
-    result = serializers.CharField()
-    data = serializers.JSONField()
+    result = serializers.CharField(required=True)
+    data = serializers.JSONField(required=True)
+
+    def to_representation(self, instance):
+        return {"result": instance["result"], "data": instance["data"]}
 
 
 class RegexRequestSerializer(serializers.Serializer):
@@ -105,8 +108,11 @@ class RegexRequestSerializer(serializers.Serializer):
 
 
 class AiRegexResponseSerializer(serializers.Serializer):
-    result = serializers.ChoiceField(choices=["success", "error"])
-    data = serializers.DictField(child=serializers.CharField())
+    result = serializers.ChoiceField(choices=["success", "error"], required=True)
+    data = serializers.DictField(child=serializers.CharField(), required=True)
+
+    def to_representation(self, instance):
+        return {"result": instance["result"], "data": instance["data"]}
 
 
 class SurrogatePairSafeJSONEncoder(JSONEncoder):
@@ -897,13 +903,14 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         serializer.is_valid(raise_exception=True)
 
         regex = serializer.validated_data["regex"]
-        messages = [AI_REGEX_PROMPTS, {"role": "user", "content": regex}]
+        # Convert messages to list of dictionaries with proper typing
+        messages = [{"role": "system", "content": AI_REGEX_PROMPTS}, {"role": "user", "content": regex}]
 
         client = _get_openai_client()
 
         completion = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=messages,
+            messages=[{"role": str(m["role"]), "content": str(m["content"])} for m in messages],
             response_format={"type": "json_schema", "json_schema": AI_REGEX_SCHEMA},
         )
 
@@ -1057,4 +1064,8 @@ def _get_openai_client() -> OpenAI:
     if not os.environ.get("OPENAI_API_KEY"):
         raise exceptions.ValidationError("OpenAI API key is not configured")
 
-    return OpenAI(posthog_client=posthoganalytics.default_client)
+    client = posthoganalytics.default_client
+    if not client:
+        raise exceptions.ValidationError("PostHog analytics client is not configured")
+
+    return OpenAI(posthog_client=client)
