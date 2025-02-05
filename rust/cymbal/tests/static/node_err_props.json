@@ -2,7 +2,7 @@
     "$exception_list": [
         {
             "type": "Error",
-            "value": "My first Sentry error!",
+            "value": "My first PostHog error!",
             "stacktrace": {
                 "frames": [
                     {
