@@ -67,19 +67,19 @@ export function WebExperimentVariant({ variant }: WebExperimentVariantProps): JS
                     <LemonCollapse
                         size="small"
                         activeKey={experimentForm?.variants[variant].transforms.length === 1 ? 0 : undefined}
-                        panels={experimentForm?.variants[variant].transforms.map((transform, tIndex) => {
+                        panels={experimentForm?.variants[variant].transforms.map((transform, transformIndex) => {
                             return {
-                                key: tIndex,
+                                key: transformIndex,
                                 header: (
                                     <WebExperimentTransformHeader
                                         variant={variant}
-                                        transformIndex={tIndex}
+                                        transformIndex={transformIndex}
                                         transform={transform}
                                     />
                                 ),
                                 content: (
                                     <WebExperimentTransformField
-                                        tIndex={tIndex}
+                                        transformIndex={transformIndex}
                                         variant={variant}
                                         transform={transform}
                                     />
