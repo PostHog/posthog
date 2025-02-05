@@ -12,7 +12,7 @@ from posthog.batch_exports.service import (
     aupdate_records_total_count,
 )
 from posthog.batch_exports.sql import EVENT_COUNT_BY_INTERVAL
-from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 
