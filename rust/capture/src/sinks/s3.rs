@@ -244,11 +244,10 @@ impl S3Sink {
             .send()
             .await
         {
-            Ok(response) => {
+            Ok(_) => {
                 let count = buffer.events.len();
                 counter!("capture_s3_events_written_total").increment(count as u64);
-                counter!("capture_s3_bytes_written_total")
-                    .increment(u64::try_from(response.size.unwrap_or(0)).unwrap_or(0));
+                counter!("capture_s3_bytes_written_total").increment(buffer.total_size as u64);
                 histogram!("capture_s3_batch_size").record(count as f64);
 
                 // Reset buffer
