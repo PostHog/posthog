@@ -15,6 +15,8 @@ from dagster import (
 )
 from django.conf import settings
 from functools import partial
+import uuid
+
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
     Mutation,
@@ -34,7 +36,9 @@ class ClickhouseClusterResource(ConfigurableResource):
     client_settings: dict[str, str] = {
         "max_execution_time": "0",
         "max_memory_usage": "0",
-        "receive_timeout": f"{10 * 60}",
+        "receive_timeout": f"{24 * 60 * 60}",  # wait 24 hours for a response from CH
+        "mutations_sync": "0",
+        "lightweight_deletes_sync": "0",
     }
 
     def create_resource(self, context: InitResourceContext) -> ClickhouseCluster:
@@ -60,16 +64,12 @@ class DeleteConfig(Config):
     )
     max_execution_time: int = pydantic.Field(
         default=0,
-        description="The maximum amount of time to wait for the dictionary to be loaded before considering the operation "
+        description="The maximum amount of time to wait for the dictionary load to complete before considering the operation "
         "a failure, or 0 to wait an unlimited amount of time.",
     )
     max_memory_usage: int = pydantic.Field(
         default=0,
         description="The maximum amount of memory to use for the dictionary, or 0 to use an unlimited amount.",
-    )
-    lightweight_deletes_sync: int = pydantic.Field(
-        default=0,
-        description="0 is async. 1 is local sync. 2 is cluster sync.",
     )
 
     @property
@@ -83,7 +83,7 @@ ShardMutations = dict[int, Mutation]
 @dataclass
 class PendingPersonEventDeletesTable:
     """
-    Represents a temporary table storing pending person event deletions.
+    Represents a table storing pending person event deletions.
     """
 
     timestamp: datetime
@@ -111,6 +111,12 @@ class PendingPersonEventDeletesTable:
         return f"{settings.CLICKHOUSE_DATABASE}.{self.table_name}"
 
     @property
+    def zk_path(self) -> str:
+        ns_uuid = uuid.uuid4()
+        testing = f"testing/{ns_uuid}/" if settings.TEST else ""
+        return f"/clickhouse/tables/{testing}noshard/{self.table_name}"
+
+    @property
     def create_table_query(self) -> str:
         return f"""
             CREATE TABLE IF NOT EXISTS {self.qualified_name} ON CLUSTER '{self.cluster}'
@@ -119,7 +125,7 @@ class PendingPersonEventDeletesTable:
                 key String,
                 created_at DateTime,
             )
-            ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/{self.table_name}', '{{shard}}-{{replica}}')
+            ENGINE = ReplicatedReplacingMergeTree('{self.zk_path}', '{{shard}}-{{replica}}')
             ORDER BY (team_id, key)
         """
 
@@ -168,7 +174,6 @@ class PendingPersonEventDeletesTable:
 @dataclass
 class PendingDeletesDictionary:
     source: PendingPersonEventDeletesTable
-    lightweight_deletes_sync: int = 0
 
     @property
     def name(self) -> str:
@@ -258,7 +263,6 @@ class PendingDeletesDictionary:
                 timestamp <= dictGet('{self.qualified_name}', 'created_at', (team_id, person_id))
             """,
             {},
-            settings={"mutations_sync": self.lightweight_deletes_sync},
         )
 
 
@@ -273,7 +277,7 @@ def create_pending_person_deletions_table(
         team_id=config.team_id,
         cluster=settings.CLICKHOUSE_CLUSTER,
     )
-    cluster.any_host_by_role(table.create, NodeRole.WORKER).result()
+    cluster.any_host_by_role(table.create, NodeRole.DATA).result()
     return table
 
 
@@ -288,8 +292,8 @@ def create_reporting_pending_person_deletions_table(
         cluster=settings.CLICKHOUSE_CLUSTER,
         is_reporting=True,
     )
-    cluster.any_host_by_role(table.create, NodeRole.WORKER).result()
-    cluster.any_host_by_role(table.truncate, NodeRole.WORKER).result()
+    cluster.any_host_by_role(table.create, NodeRole.DATA).result()
+    cluster.any_host_by_role(table.truncate, NodeRole.DATA).result()
     return table
 
 
@@ -377,11 +381,10 @@ def create_deletes_dict(
     def sync_replica(client: Client):
         client.execute(f"SYSTEM SYNC REPLICA {load_pending_person_deletions.qualified_name} STRICT")
 
-    cluster.map_hosts_by_role(sync_replica, NodeRole.WORKER).result()
+    cluster.map_hosts_by_role(sync_replica, NodeRole.DATA).result()
 
     del_dict = PendingDeletesDictionary(
         source=load_pending_person_deletions,
-        lightweight_deletes_sync=config.lightweight_deletes_sync,
     )
 
     cluster.any_host_by_role(
@@ -391,7 +394,7 @@ def create_deletes_dict(
             max_execution_time=config.max_execution_time,
             max_memory_usage=config.max_memory_usage,
         ),
-        NodeRole.WORKER,
+        NodeRole.DATA,
     ).result()
     return del_dict
 
@@ -402,7 +405,7 @@ def load_and_verify_deletes_dictionary(
     dictionary: PendingDeletesDictionary,
 ) -> PendingDeletesDictionary:
     """Load the dictionary data on all hosts in the cluster, and ensure all hosts have identical data."""
-    checksums = cluster.map_hosts_by_role(dictionary.load, NodeRole.WORKER, concurrency=1).result()
+    checksums = cluster.map_hosts_by_role(dictionary.load, NodeRole.DATA, concurrency=1).result()
     assert len(set(checksums.values())) == 1
     return dictionary
 
@@ -424,7 +427,7 @@ def delete_person_events(
         )
         return result[0][0] if result else 0
 
-    count_result = cluster.map_hosts_by_role(count_pending_deletes, NodeRole.WORKER).result()
+    count_result = cluster.map_hosts_by_role(count_pending_deletes, NodeRole.DATA).result()
 
     all_zero = all(count == 0 for count in count_result.values())
     if all_zero:
@@ -492,8 +495,8 @@ def cleanup_delete_assets(
         ).update(delete_verified_at=datetime.now())
 
     # Must drop dict first
-    cluster.any_host_by_role(create_deletes_dict.drop, NodeRole.WORKER).result()
-    cluster.any_host_by_role(create_pending_person_deletions_table.drop, NodeRole.WORKER).result()
+    cluster.any_host_by_role(create_deletes_dict.drop, NodeRole.DATA).result()
+    cluster.any_host_by_role(create_pending_person_deletions_table.drop, NodeRole.DATA).result()
 
     return True
 

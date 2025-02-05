@@ -67,8 +67,8 @@ export class KafkaMessageParser {
         }
 
         const timestamps = events.map((event) => event.timestamp)
-        const minTimestamp = Math.min(...timestamps)
-        const maxTimestamp = Math.max(...timestamps)
+        const minTimestamp = timestamps.reduce((min, timestamp) => (timestamp < min ? timestamp : min), timestamps[0])
+        const maxTimestamp = timestamps.reduce((max, timestamp) => (timestamp > max ? timestamp : max), timestamps[0])
 
         return {
             metadata: {
