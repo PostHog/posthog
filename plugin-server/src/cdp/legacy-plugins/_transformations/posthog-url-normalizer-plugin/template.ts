@@ -5,7 +5,7 @@ export const posthogUrlNormalizerPlugin: LegacyTransformationPlugin = {
     processEvent,
     template: {
         free: true,
-        status: 'alpha',
+        status: 'stable',
         type: 'transformation',
         id: 'plugin-posthog-url-normalizer-plugin',
         name: 'URL Normalizer',

@@ -6,7 +6,7 @@ export const propertyFilterPlugin: LegacyTransformationPlugin = {
     setupPlugin,
     template: {
         free: true,
-        status: 'alpha',
+        status: 'stable',
         type: 'transformation',
         id: 'plugin-property-filter-plugin',
         name: 'Property Filter',

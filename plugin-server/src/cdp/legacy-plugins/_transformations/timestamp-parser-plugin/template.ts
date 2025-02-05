@@ -5,7 +5,7 @@ export const timestampParserPlugin: LegacyTransformationPlugin = {
     processEvent,
     template: {
         free: true,
-        status: 'alpha',
+        status: 'stable',
         type: 'transformation',
         id: 'plugin-timestamp-parser-plugin',
         name: 'Timestamp Parser',
