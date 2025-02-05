@@ -1,4 +1,5 @@
 import 'react-data-grid/lib/styles.css'
+import './DataGrid.scss'
 
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonTabs, Spinner } from '@posthog/lemon-ui'
