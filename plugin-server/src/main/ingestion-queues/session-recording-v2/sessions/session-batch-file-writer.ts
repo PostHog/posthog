@@ -1,38 +1,50 @@
-import { Writable } from 'stream'
-
-/**
- * Represents a stream and its completion handler for writing a batch of session recordings
- */
-export interface StreamWithFinish {
-    /** A writable stream that accepts a serialized batch of session recordings */
-    stream: Writable
-    /**
-     * Completes the writing process for the entire batch
-     * Should be called after all session recordings in the batch have been written to the stream
-     * For example, this might finalize an S3 multipart upload or close a file
-     * @returns The URL where the file was written (e.g. s3://bucket/key) or null if not applicable
-     */
-    finish: () => Promise<string | null>
+export interface WriteSessionResult {
+    /** Number of bytes written */
+    bytesWritten: number
+    /** URL to access this session block, if available */
+    url: string | null
 }
 
 /**
- * Interface for writing session batch files to a storage backend
- *
- * Writers are agnostic to the session batch format - they simply write a stream of bytes
- * to a destination (e.g. S3, disk). The internal structure of session batches (blocks,
- * compression, etc.) is handled by the upstream components.
+ * Represents a writer for a batch of session recordings
  */
 export interface SessionBatchFileWriter {
     /**
+     * Writes a session block to the batch
+     * Handles backpressure from the underlying stream
+     *
+     * @param buffer - The serialized session block data
+     * @returns Promise that resolves with the number of bytes written and URL for the block
+     * @throws If there is an error writing the data
+     */
+    writeSession(buffer: Buffer): Promise<WriteSessionResult>
+
+    /**
+     * Completes the writing process for the entire batch
+     * Should be called after all session recordings in the batch have been written
+     * For example, this might finalize an S3 multipart upload or close a file
+     */
+    finish: () => Promise<void>
+}
+
+/**
+ * Interface for storing session batch files in a storage backend
+ *
+ * Storage implementations are agnostic to the session batch format - they simply write bytes
+ * to a destination (e.g. S3, disk). The internal structure of session batches (blocks,
+ * compression, etc.) is handled by the upstream components.
+ */
+export interface SessionBatchFileStorage {
+    /**
      * Creates a new batch write operation
-     * Returns a writable stream for the raw bytes and a finish method to complete the write
+     * Returns a writer for the batch that handles writing individual sessions
      *
      * Example usage:
      * ```
-     * const { stream, finish } = writer.newBatch()
-     * stream.write(batchBytes) // Writer doesn't interpret these bytes
-     * const url = await finish() // Completes the write operation and returns the file URL
+     * const writer = storage.newBatch()
+     * const result = await writer.writeSession(sessionBytes)
+     * await writer.finish() // Completes the write operation
      * ```
      */
-    newBatch(): StreamWithFinish
+    newBatch(): SessionBatchFileWriter
 }

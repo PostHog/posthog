@@ -11,23 +11,28 @@ export class SessionMetadataStore {
         status.debug('🔍', 'session_metadata_store_created')
     }
 
-    public async storeSessionBlock(metadata: SessionBlockMetadata): Promise<void> {
-        const event = {
+    public async storeSessionBlocks(blocks: SessionBlockMetadata[]): Promise<void> {
+        status.info('🔍', 'session_metadata_store_storing_blocks', { count: blocks.length })
+
+        const events = blocks.map((metadata) => ({
             uuid: randomUUID(),
             session_id: metadata.sessionId,
             team_id: metadata.teamId,
             start_timestamp: metadata.startTimestamp,
             end_timestamp: metadata.endTimestamp,
-            urls: ['https://app.posthog.com/events', 'https://app.posthog.com/insights'], // Fake URLs for now
-        }
-        const eventBuffer = Buffer.from(JSON.stringify(event))
+            block_url: metadata.blockUrl,
+        }))
 
-        await this.producer.produce({
-            topic: SESSION_REPLAY_EVENTS_TOPIC,
-            key: Buffer.from(metadata.sessionId),
-            value: eventBuffer,
-        })
+        await Promise.all(
+            events.map((event) =>
+                this.producer.produce({
+                    topic: SESSION_REPLAY_EVENTS_TOPIC,
+                    key: Buffer.from(event.session_id),
+                    value: Buffer.from(JSON.stringify(event)),
+                })
+            )
+        )
 
-        status.debug('🔍', 'session_metadata_store_block_stored', event)
+        status.info('🔍', 'session_metadata_store_blocks_stored', { count: events.length })
     }
 }

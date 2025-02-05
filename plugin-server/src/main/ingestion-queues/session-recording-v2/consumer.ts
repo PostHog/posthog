@@ -31,8 +31,8 @@ import { KafkaMessageParser } from './kafka/message-parser'
 import { KafkaOffsetManager } from './kafka/offset-manager'
 import { SessionRecordingIngesterMetrics } from './metrics'
 import { PromiseScheduler } from './promise-scheduler'
-import { BlackholeSessionBatchWriter } from './sessions/blackhole-session-batch-writer'
-import { S3SessionBatchWriter } from './sessions/s3-session-batch-writer'
+import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-batch-writer'
+import { S3SessionBatchFileStorage } from './sessions/s3-session-batch-writer'
 import { SessionBatchManager } from './sessions/session-batch-manager'
 import { SessionBatchRecorder } from './sessions/session-batch-recorder'
 import { SessionMetadataStore } from './sessions/session-metadata-store'
@@ -112,19 +112,19 @@ export class SessionRecordingIngester {
 
         const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
         const metadataStore = new SessionMetadataStore(producer)
-        const writer = s3Client
-            ? new S3SessionBatchWriter(
+        const fileStorage = s3Client
+            ? new S3SessionBatchFileStorage(
                   s3Client,
                   this.config.SESSION_RECORDING_V2_S3_BUCKET!,
                   this.config.SESSION_RECORDING_V2_S3_PREFIX!
               )
-            : new BlackholeSessionBatchWriter()
+            : new BlackholeSessionBatchFileStorage()
 
         this.sessionBatchManager = new SessionBatchManager({
             maxBatchSizeBytes: this.config.SESSION_RECORDING_MAX_BATCH_SIZE_KB * 1024,
             maxBatchAgeMs: this.config.SESSION_RECORDING_MAX_BATCH_AGE_MS,
             offsetManager,
-            writer,
+            fileStorage,
             metadataStore,
         })
 

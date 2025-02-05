@@ -1,5 +1,3 @@
-import { validate as validateUuid, version as uuidVersion } from 'uuid'
-
 import { KafkaProducerWrapper } from '../../../../kafka/producer'
 import { SessionMetadataStore } from './session-metadata-store'
 
@@ -15,73 +13,114 @@ describe('SessionMetadataStore', () => {
         store = new SessionMetadataStore(mockProducer)
     })
 
-    it('should produce event to kafka with correct data', async () => {
-        const metadata = {
-            sessionId: 'session123',
-            teamId: 1,
-            startTimestamp: 1000,
-            endTimestamp: 2000,
-            blockStartOffset: 0,
-            blockLength: 100,
-        }
+    it('should produce events to kafka with correct data', async () => {
+        const blocks = [
+            {
+                sessionId: 'session123',
+                teamId: 1,
+                blockLength: 100,
+                startTimestamp: 1000,
+                endTimestamp: 2000,
+                blockUrl: 's3://bucket/file1?range=bytes=0-99',
+            },
+            {
+                sessionId: 'different456',
+                teamId: 2,
+                blockLength: 150,
+                startTimestamp: 1500,
+                endTimestamp: 2500,
+                blockUrl: 's3://bucket/file1?range=bytes=100-249',
+            },
+            {
+                sessionId: 'session123',
+                teamId: 1,
+                blockLength: 200,
+                startTimestamp: 2000,
+                endTimestamp: 3000,
+                blockUrl: 's3://bucket/file1?range=bytes=250-449',
+            },
+        ]
 
-        await store.storeSessionBlock(metadata)
+        await store.storeSessionBlocks(blocks)
 
-        expect(mockProducer.produce).toHaveBeenCalledTimes(1)
-        expect(mockProducer.produce).toHaveBeenCalledWith({
-            topic: 'session_replay_events_v2',
-            key: Buffer.from('session123'),
-            value: expect.any(Buffer),
-        })
+        expect(mockProducer.produce).toHaveBeenCalledTimes(3)
+        const producedEvents = mockProducer.produce.mock.calls.map((call) => JSON.parse(call[0].value!.toString()))
 
-        // Parse the produced value to verify its contents
-        const producedValue = JSON.parse(mockProducer.produce.mock.calls[0][0].value!.toString())
-        expect(producedValue).toEqual({
-            uuid: expect.any(String),
-            session_id: 'session123',
-            team_id: 1,
-            start_timestamp: 1000,
-            end_timestamp: 2000,
-            urls: expect.any(Array),
-        })
+        expect(producedEvents).toMatchObject([
+            {
+                uuid: expect.any(String),
+                session_id: 'session123',
+                team_id: 1,
+                start_timestamp: 1000,
+                end_timestamp: 2000,
+                block_url: 's3://bucket/file1?range=bytes=0-99',
+            },
+            {
+                uuid: expect.any(String),
+                session_id: 'different456',
+                team_id: 2,
+                start_timestamp: 1500,
+                end_timestamp: 2500,
+                block_url: 's3://bucket/file1?range=bytes=100-249',
+            },
+            {
+                uuid: expect.any(String),
+                session_id: 'session123',
+                team_id: 1,
+                start_timestamp: 2000,
+                end_timestamp: 3000,
+                block_url: 's3://bucket/file1?range=bytes=250-449',
+            },
+        ])
+
+        // Verify UUIDs are unique
+        const uuids = producedEvents.map((event) => event.uuid)
+        expect(new Set(uuids).size).toBe(3)
+
+        // Verify keys are set to correct session IDs
+        expect(mockProducer.produce.mock.calls[0][0].key).toEqual(Buffer.from('session123'))
+        expect(mockProducer.produce.mock.calls[1][0].key).toEqual(Buffer.from('different456'))
+        expect(mockProducer.produce.mock.calls[2][0].key).toEqual(Buffer.from('session123'))
     })
 
-    it('should generate unique UUIDs for each event', async () => {
-        const metadata = {
-            sessionId: 'session123',
-            teamId: 1,
-            startTimestamp: 1000,
-            endTimestamp: 2000,
-            blockStartOffset: 0,
-            blockLength: 100,
-        }
-
-        await store.storeSessionBlock(metadata)
-        await store.storeSessionBlock(metadata)
-
-        const firstUuid = JSON.parse(mockProducer.produce.mock.calls[0][0].value!.toString()).uuid
-        const secondUuid = JSON.parse(mockProducer.produce.mock.calls[1][0].value!.toString()).uuid
-
-        expect(firstUuid).not.toEqual(secondUuid)
-        expect(validateUuid(firstUuid)).toBe(true)
-        expect(validateUuid(secondUuid)).toBe(true)
-        expect(uuidVersion(firstUuid)).toBe(4)
-        expect(uuidVersion(secondUuid)).toBe(4)
+    it('should handle empty blocks array', async () => {
+        await store.storeSessionBlocks([])
+        expect(mockProducer.produce).not.toHaveBeenCalled()
     })
 
     it('should handle producer errors', async () => {
         const error = new Error('Kafka producer error')
         mockProducer.produce.mockRejectedValueOnce(error)
 
-        const metadata = {
-            sessionId: 'session123',
-            teamId: 1,
-            startTimestamp: 1000,
-            endTimestamp: 2000,
-            blockStartOffset: 0,
-            blockLength: 100,
-        }
+        const blocks = [
+            {
+                sessionId: 'session123',
+                teamId: 1,
+                blockLength: 100,
+                startTimestamp: 1000,
+                endTimestamp: 2000,
+                blockUrl: null,
+            },
+        ]
 
-        await expect(store.storeSessionBlock(metadata)).rejects.toThrow(error)
+        await expect(store.storeSessionBlocks(blocks)).rejects.toThrow(error)
+    })
+
+    it('should handle null block urls', async () => {
+        const blocks = [
+            {
+                sessionId: 'session123',
+                teamId: 1,
+                blockLength: 100,
+                startTimestamp: 1000,
+                endTimestamp: 2000,
+                blockUrl: null,
+            },
+        ]
+
+        await store.storeSessionBlocks(blocks)
+
+        const producedEvent = JSON.parse(mockProducer.produce.mock.calls[0][0].value!.toString())
+        expect(producedEvent.block_url).toBeNull()
     })
 })
