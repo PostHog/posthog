@@ -7,13 +7,13 @@ import { retentionLogic } from 'scenes/retention/retentionLogic'
 
 export function RetentionDatePicker(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { dateRange, dateMappings, period } = useValues(retentionLogic(insightProps))
+    const { dateRange, dateMappings } = useValues(retentionLogic(insightProps))
     const { updateDateRange } = useActions(retentionLogic(insightProps))
 
     return (
         <DateFilter
             dateTo={dateRange?.date_to ?? undefined}
-            dateFrom={dateRange?.date_from ?? `-7${period.charAt(0)}`}
+            dateFrom={dateRange?.date_from ?? undefined}
             onChange={(date_from, date_to, explicit_date) => {
                 updateDateRange({ date_from, date_to, explicitDate: explicit_date })
             }}

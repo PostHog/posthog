@@ -4,6 +4,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { RetentionTablePayload } from 'scenes/retention/types'
 
+import { RetentionFilter } from '~/queries/schema'
 import { isRetentionQuery } from '~/queries/utils'
 import { DateMappingOption, InsightLogicProps, RetentionPeriod } from '~/types'
 
@@ -29,14 +30,10 @@ export const retentionLogic = kea<retentionLogicType>([
                 return isRetentionQuery(insightQuery) ? insightData?.result ?? [] : []
             },
         ],
-        period: [
-            (s) => [s.retentionFilter],
-            (retentionFilter): string => (retentionFilter?.period ?? RetentionPeriod.Day).toLowerCase(),
-        ],
         dateMappings: [
-            (s) => [s.period],
-            (period): DateMappingOption[] => {
-                const pluralPeriod = period + 's'
+            (s) => [s.retentionFilter],
+            (retentionFilter: RetentionFilter): DateMappingOption[] => {
+                const pluralPeriod = (retentionFilter?.period ?? RetentionPeriod.Day).toLowerCase() + 's'
                 const periodChar = pluralPeriod.charAt(0)
 
                 return [
