@@ -173,6 +173,8 @@ class TestPlugin(BaseTest):
         self.assertIsNotNone(geoip, "GeoIP transformation should exist")
         if geoip:  # Make type checker happy
             self.assertEqual(geoip.name, "GeoIP")
+            self.assertEqual(geoip.description, "Enrich events with GeoIP data")
+            self.assertEqual(geoip.icon_url, "/static/transformations/geoip.png")
             self.assertEqual(geoip.enabled, True)
             self.assertEqual(geoip.execution_order, 1)
 

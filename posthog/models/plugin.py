@@ -583,7 +583,7 @@ def enable_preinstalled_plugins_for_new_team(sender, instance: Team, created: bo
             from posthog.models.hog_functions.hog_function import HogFunction
             from posthog.api.hog_function_template import HogFunctionTemplates
 
-            geoip_template = HogFunctionTemplates.template("template-geoip")
+            geoip_template = HogFunctionTemplates.template("plugin-posthog-plugin-geoip")
             if not geoip_template:
                 return
 
@@ -591,9 +591,9 @@ def enable_preinstalled_plugins_for_new_team(sender, instance: Team, created: bo
                 team=instance,
                 created_by=kwargs.get("initiating_user"),
                 type="transformation",
-                name=geoip_template.name,
-                description=geoip_template.description,
-                icon_url=geoip_template.icon_url,
+                name="GeoIP",
+                description="Enrich events with GeoIP data",
+                icon_url="/static/transformations/geoip.png",
                 hog=geoip_template.hog,
                 inputs_schema=geoip_template.inputs_schema,
                 enabled=True,
