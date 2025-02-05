@@ -3,15 +3,14 @@ from typing import Optional, TypeVar, Generic, Any
 
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectSetNode
-from posthog.hogql.base import AST, Expr
+from posthog.hogql.base import AST
 from posthog.hogql.errors import BaseHogQLError
 
+_T = TypeVar("_T")
+_T_AST = TypeVar("_T_AST", bound=AST)
 
-T = TypeVar("T")
-T_Expr = TypeVar("T_Expr", bound=Expr)
 
-
-def clone_expr(expr: Expr, clear_types=False, clear_locations=False, inline_subquery_field_names=False) -> Expr:
+def clone_expr(expr: _T_AST, clear_types=False, clear_locations=False, inline_subquery_field_names=False) -> _T_AST:
     """Clone an expression node."""
     return CloningVisitor(
         clear_types=clear_types,
@@ -20,12 +19,12 @@ def clone_expr(expr: Expr, clear_types=False, clear_locations=False, inline_subq
     ).visit(expr)
 
 
-def clear_locations(expr: T_Expr) -> T_Expr:
+def clear_locations(expr: _T_AST) -> _T_AST:
     return CloningVisitor(clear_locations=True).visit(expr)
 
 
-class Visitor(Generic[T]):
-    def visit(self, node: AST | None) -> T:
+class Visitor(Generic[_T]):
+    def visit(self, node: AST | None) -> _T:
         if node is None:
             return node  # type: ignore
 
