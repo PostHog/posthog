@@ -23,6 +23,7 @@
 #
 FROM node:18.19.1-bookworm-slim AS frontend-build
 WORKDIR /code
+ENV NODE_OPTIONS="--max-old-space-size=7168"
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
