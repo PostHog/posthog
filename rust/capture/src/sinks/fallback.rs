@@ -21,6 +21,8 @@ pub struct FallbackSink {
     shutdown_tx: Option<oneshot::Sender<()>>,
 }
 
+// FallbackSink attempts to send events to the primary sink, and if it fails, it will send events to the fallback sink.
+// Optionally pass in a health registry to stop attempting to send events to the primary sink if it becomes unhealthy.
 impl FallbackSink {
     pub fn new<P, F>(primary: P, fallback: F) -> Self
     where

@@ -115,9 +115,12 @@ impl S3Sink {
                             if result.is_ok() {
                                 last_healthcheck = Instant::now();
                             }
+                            // drop the old buffer so the lock is freed and we can keep writing
                             drop(old_buffer.tx.send(result));
                         }
 
+                        // if we haven't written any events the healthcheck will stall
+                        // force healthcheck at least every HEALTH_INTERVAL
                         if last_healthcheck.elapsed() >= HEALTH_INTERVAL {
                             s3sink.healthcheck().await;
                         }
@@ -126,9 +129,8 @@ impl S3Sink {
                         // Final flush on shutdown
                         let mut buffer = s3sink.buffer.lock().await;
                         if !buffer.events.is_empty() {
-                            let mut old_buffer = std::mem::replace(&mut *buffer, EventBuffer::new());
-                            let result = s3sink.flush_buffer(&mut old_buffer).await;
-                            drop(old_buffer.tx.send(result));
+                            let result = s3sink.flush_buffer(&mut buffer).await;
+                            drop(buffer.tx.send(result));
                         }
                         break;
                     }
@@ -215,8 +217,8 @@ impl S3Sink {
             now.month(),
             now.day(),
             now.hour(),
-            hostname,
-            now.timestamp_millis()
+            now.timestamp_millis(),
+            hostname
         );
 
         let mut data = BytesMut::new();
@@ -280,7 +282,8 @@ impl S3Sink {
 impl Drop for S3Sink {
     fn drop(&mut self) {
         if let Some(shutdown) = self.shutdown.take() {
-            drop(shutdown); // Signal background task to stop
+            // we don't actually need to send on the channel, dropping works
+            drop(shutdown);
         }
     }
 }
