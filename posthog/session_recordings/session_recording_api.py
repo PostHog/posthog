@@ -7,7 +7,9 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from json import JSONDecodeError
 from typing import Any, Optional, cast
-from posthoganalytics.ai.openai import OpenAI
+
+# from posthoganalytics.ai.openai import OpenAI
+from openai import OpenAI
 from urllib.parse import urlparse
 
 import posthoganalytics
