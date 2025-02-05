@@ -43,7 +43,43 @@ class TestTemplateLinkedInAds(BaseHogFunctionTemplateTest):
                     "body": {
                         "conversion": "urn:lla:llaPartnerConversion:conversion-rule-12345",
                         "conversionHappenedAt": 1737464596570,
+                        "user": {
+                            "userIds": [
+                                {
+                                    "idType": "SHA256_EMAIL",
+                                    "idValue": "3edfaed7454eedb3c72bad566901af8bfbed1181816dde6db91dfff0f0cffa98",
+                                },
+                                {"idType": "LINKEDIN_FIRST_PARTY_ADS_TRACKING_UUID", "idValue": "abc"},
+                            ],
+                            "userInfo": {
+                                "lastName": "AI",
+                                "firstName": "Max",
+                                "companyName": "PostHog",
+                                "countryCode": "US",
+                            },
+                        },
+                        "eventId": "event-12345",
                         "conversionValue": {"currencyCode": "USD", "amount": "100"},
+                    },
+                },
+            )
+        )
+
+    def test_does_not_contain_an_empty_conversion_value_object(self):
+        self.run_function(self._inputs(conversionValue=None, currencyCode=None))
+        assert self.get_mock_fetch_calls()[0] == snapshot(
+            (
+                "https://api.linkedin.com/rest/conversionEvents",
+                {
+                    "method": "POST",
+                    "headers": {
+                        "Authorization": "Bearer oauth-1234",
+                        "Content-Type": "application/json",
+                        "LinkedIn-Version": "202409",
+                    },
+                    "body": {
+                        "conversion": "urn:lla:llaPartnerConversion:conversion-rule-12345",
+                        "conversionHappenedAt": 1737464596570,
                         "user": {
                             "userIds": [
                                 {
