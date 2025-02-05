@@ -31,7 +31,6 @@ export const laudspeakerPlugin: LegacyDestinationPlugin = {
                 label: 'Laudspeaker API Key',
                 type: 'string',
                 description: 'Provide API key for your Laudspeaker account found on the settings page.',
-                default: '',
                 required: true,
                 secret: true,
             },

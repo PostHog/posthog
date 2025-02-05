@@ -22,7 +22,6 @@ export const intercomPlugin: LegacyDestinationPlugin = {
                 type: 'string',
                 description:
                     'Create an [Intercom app](https://developers.intercom.com/building-apps/), then go to Configure > Authentication to find your key.',
-                default: '',
                 required: true,
                 secret: true,
             },

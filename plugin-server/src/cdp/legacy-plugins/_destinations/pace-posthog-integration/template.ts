@@ -22,7 +22,6 @@ export const pacePlugin: LegacyDestinationPlugin = {
                 description: 'API key provided by Pace.',
                 label: 'API Key',
                 type: 'string',
-                default: '',
                 required: true,
                 secret: true,
             },

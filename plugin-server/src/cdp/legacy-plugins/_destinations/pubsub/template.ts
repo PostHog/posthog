@@ -20,9 +20,7 @@ export const pubsubPlugin: LegacyDestinationPlugin = {
             {
                 key: 'googleCloudKeyJson',
                 label: 'JSON file with your google cloud key',
-                type: 'attachment',
-                description: '',
-                default: '',
+                type: 'json',
                 required: true,
                 secret: true,
             },
@@ -31,7 +29,6 @@ export const pubsubPlugin: LegacyDestinationPlugin = {
                 label: 'Topic ID',
                 type: 'string',
                 description: 'A topic will be created if it does not exist.',
-                default: '',
                 required: true,
                 secret: false,
             },

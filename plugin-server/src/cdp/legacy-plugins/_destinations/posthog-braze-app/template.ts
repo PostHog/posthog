@@ -22,7 +22,6 @@ export const brazePlugin: LegacyDestinationPlugin = {
                 type: 'choice',
                 description:
                     'The endpoint identifier where your Braze instance is located, [see the docs here](https://www.braze.com/docs/api/basics)',
-                default: '',
                 required: true,
                 secret: false,
                 choices: [
@@ -69,7 +68,6 @@ export const brazePlugin: LegacyDestinationPlugin = {
                 label: 'API Key',
                 type: 'string',
                 description: 'Your Braze API Key, [see the docs here](https://www.braze.com/docs/api/api_key/)',
-                default: '',
                 required: true,
                 secret: true,
             },

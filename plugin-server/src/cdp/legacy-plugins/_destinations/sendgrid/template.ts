@@ -22,7 +22,6 @@ export const sendgridPlugin: LegacyDestinationPlugin = {
                 label: 'Sendgrid API Key',
                 type: 'string',
                 description: 'The key needs PUT access',
-                default: '',
                 required: true,
                 secret: true,
             },

@@ -31,7 +31,6 @@ export const rudderstackPlugin: LegacyDestinationPlugin = {
                 label: 'RudderStack Source Writekey',
                 type: 'string',
                 description: 'Provide source writekey',
-                default: '',
                 required: true,
                 secret: true,
             },

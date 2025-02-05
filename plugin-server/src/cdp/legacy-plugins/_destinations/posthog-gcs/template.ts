@@ -20,9 +20,7 @@ export const gcsPlugin: LegacyDestinationPlugin = {
             {
                 key: 'googleCloudKeyJson',
                 label: 'JSON file with your google cloud key',
-                type: 'attachment',
-                description: '',
-                default: '',
+                type: 'json',
                 required: true,
                 secret: true,
             },
@@ -31,7 +29,6 @@ export const gcsPlugin: LegacyDestinationPlugin = {
                 label: 'Table ID',
                 type: 'string',
                 description: 'Bucket name',
-                default: '',
                 required: true,
                 secret: false,
             },
