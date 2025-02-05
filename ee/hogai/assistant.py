@@ -7,6 +7,7 @@ from langchain_core.callbacks.base import BaseCallbackHandler
 from langchain_core.messages import AIMessageChunk
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
+import posthoganalytics
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel
 
@@ -88,13 +89,18 @@ class Assistant:
         self._graph = AssistantGraph(team).compile_full_graph()
         self._chunks = AIMessageChunk(content="")
         self._state = None
-        self._callback_handler = CallbackHandler(
-            distinct_id=user.distinct_id if user else None,
-            properties={
-                "conversation_id": str(self._conversation.id),
-                "is_first_conversation": is_new_conversation,
-            },
-            trace_id=trace_id,
+        self._callback_handler = (
+            CallbackHandler(
+                posthoganalytics.default_client,
+                distinct_id=user.distinct_id if user else None,
+                properties={
+                    "conversation_id": str(self._conversation.id),
+                    "is_first_conversation": is_new_conversation,
+                },
+                trace_id=trace_id,
+            )
+            if posthoganalytics.default_client
+            else None
         )
 
     def stream(self):
