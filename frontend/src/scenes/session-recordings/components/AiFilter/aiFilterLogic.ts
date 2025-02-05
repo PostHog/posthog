@@ -9,14 +9,6 @@ import {
 import { RecordingUniversalFilters } from '~/types'
 
 import type { aiFilterLogicType } from './aiFilterLogicType'
-import { initialPrompt, propertiesPrompt } from './AiFilterPrompts'
-
-const defaultMessages = [
-    {
-        role: 'system',
-        content: initialPrompt + propertiesPrompt,
-    } as ChatCompletionSystemMessageParam,
-]
 
 export interface AiFilterLogicProps {
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
@@ -48,11 +40,7 @@ export const aiFilterLogic = kea<aiFilterLogicType>([
     }),
     reducers({
         messages: [
-            defaultMessages as (
-                | ChatCompletionSystemMessageParam
-                | ChatCompletionAssistantMessageParam
-                | ChatCompletionUserMessageParam
-            )[],
+            [],
             {
                 setMessages: (_, { messages }) => messages,
             },
@@ -104,7 +92,7 @@ export const aiFilterLogic = kea<aiFilterLogicType>([
             actions.setIsLoading(false)
         },
         handleReset: () => {
-            actions.setMessages(defaultMessages)
+            actions.setMessages([])
             props.resetFilters()
         },
     })),

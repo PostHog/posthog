@@ -36,7 +36,7 @@ export function AiFilter({ logic }: { logic: BuiltLogic<sessionRecordingsPlaylis
                             <>
                                 <div className="gap-2 justify-center flex flex-col">
                                     <div>
-                                        {messages.length > 1 && (
+                                        {messages.length > 0 && (
                                             <div className="max-w-1/2 min-w-96">
                                                 {messages
                                                     .filter((message) => message.role !== 'system')
@@ -66,7 +66,7 @@ export function AiFilter({ logic }: { logic: BuiltLogic<sessionRecordingsPlaylis
                                                     ))}
                                             </div>
                                         )}
-                                        {messages.length > 1 && (
+                                        {messages.length > 0 && (
                                             <div>
                                                 <LemonButton
                                                     icon={<IconTrash />}
@@ -106,7 +106,7 @@ export function AiFilter({ logic }: { logic: BuiltLogic<sessionRecordingsPlaylis
                                             </div>
                                         </div>
                                     </div>
-                                    {messages.length === 1 && (
+                                    {messages.length === 0 && (
                                         <div>
                                             <strong className="text-sm">People usually ask Max AI:</strong>
                                             <LemonButton

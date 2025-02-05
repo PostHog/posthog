@@ -54,6 +54,7 @@ from posthog.storage import object_storage
 from posthog.session_recordings.ai_data.ai_filter_schema import AI_FILTER_SCHEMA
 from posthog.session_recordings.ai_data.ai_regex_schema import AI_REGEX_SCHEMA
 from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
+from posthog.session_recordings.ai_data.ai_filter_prompts import AI_FILTER_INITIAL_PROMPT, AI_FILTER_PROPERTIES_PROMPT
 
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",
@@ -833,7 +834,11 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         serializer = AiRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        messages = serializer.validated_data["messages"]
+        # Create system prompt by combining the initial and properties prompts
+        system_message = {"role": "system", "content": AI_FILTER_INITIAL_PROMPT + AI_FILTER_PROPERTIES_PROMPT}
+        # Combine system prompt with user messages
+        messages = [system_message] + serializer.validated_data["messages"]
+
         client = _get_openai_client()
 
         completion = client.chat.completions.create(
