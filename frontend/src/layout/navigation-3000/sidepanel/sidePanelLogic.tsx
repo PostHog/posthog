@@ -30,7 +30,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             preflightLogic,
             ['isCloudOrDev'],
             activationLogic,
-            ['isReady', 'hasCompletedAllTasks', 'hasCompletedFirstOnboarding'],
+            ['shouldShowActivationTab'],
             sidePanelStateLogic,
             ['selectedTab', 'sidePanelOpen'],
             // We need to mount this to ensure that marking as read works when the panel closes
@@ -48,22 +48,8 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
     selectors({
         enabledTabs: [
-            (s) => [
-                s.isCloudOrDev,
-                s.isReady,
-                s.hasCompletedAllTasks,
-                s.hasCompletedFirstOnboarding,
-                s.featureFlags,
-                s.sceneSidePanelContext,
-            ],
-            (
-                isCloudOrDev,
-                isReady,
-                hasCompletedAllTasks,
-                hasCompletedFirstOnboarding,
-                featureflags,
-                sceneSidePanelContext
-            ) => {
+            (s) => [s.isCloudOrDev, s.featureFlags, s.sceneSidePanelContext],
+            (isCloudOrDev, featureflags, sceneSidePanelContext) => {
                 const tabs: SidePanelTab[] = []
 
                 tabs.push(SidePanelTab.Notebooks)
@@ -71,13 +57,15 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 if (isCloudOrDev) {
                     tabs.push(SidePanelTab.Support)
                 }
+
+                tabs.push(SidePanelTab.Activation)
+
                 tabs.push(SidePanelTab.Activity)
+
                 if (featureflags[FEATURE_FLAGS.DISCUSSIONS]) {
                     tabs.push(SidePanelTab.Discussion)
                 }
-                if (isReady && hasCompletedFirstOnboarding && !hasCompletedAllTasks) {
-                    tabs.push(SidePanelTab.Activation)
-                }
+
                 if (
                     featureflags[FEATURE_FLAGS.ROLE_BASED_ACCESS_CONTROL] &&
                     sceneSidePanelContext.access_control_resource &&
@@ -98,8 +86,24 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
         ],
 
         visibleTabs: [
-            (s) => [s.enabledTabs, s.selectedTab, s.sidePanelOpen, s.unreadCount, s.status, s.hasAvailableFeature],
-            (enabledTabs, selectedTab, sidePanelOpen, unreadCount, status, hasAvailableFeature): SidePanelTab[] => {
+            (s) => [
+                s.enabledTabs,
+                s.selectedTab,
+                s.sidePanelOpen,
+                s.unreadCount,
+                s.status,
+                s.hasAvailableFeature,
+                s.shouldShowActivationTab,
+            ],
+            (
+                enabledTabs,
+                selectedTab,
+                sidePanelOpen,
+                unreadCount,
+                status,
+                hasAvailableFeature,
+                shouldShowActivationTab
+            ): SidePanelTab[] => {
                 return enabledTabs.filter((tab) => {
                     if (tab === selectedTab && sidePanelOpen) {
                         return true
@@ -115,6 +119,10 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
                     if (tab === SidePanelTab.Status && status !== 'operational') {
                         return true
+                    }
+
+                    if (tab === SidePanelTab.Activation && !shouldShowActivationTab) {
+                        return false
                     }
 
                     // Hide certain tabs unless they are selected

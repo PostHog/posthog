@@ -7,10 +7,11 @@ import {
     IconTestTube,
     IconToggle,
 } from '@posthog/icons'
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
+import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import posthog from 'posthog-js'
@@ -60,14 +61,21 @@ const CACHE_PREFIX = 'v1'
 export const activationLogic = kea<activationLogicType>([
     path(['lib', 'components', 'ActivationSidebar', 'activationLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeam'], membersLogic, ['memberCount'], sidePanelStateLogic, ['modalMode']],
+        values: [
+            teamLogic,
+            ['currentTeam'],
+            membersLogic,
+            ['memberCount'],
+            sidePanelStateLogic,
+            ['modalMode'],
+            reverseProxyCheckerLogic,
+            ['hasReverseProxy'],
+        ],
         actions: [
             teamLogic,
-            ['updateCurrentTeam'],
+            ['loadCurrentTeam', 'updateCurrentTeam'],
             inviteLogic,
             ['showInviteModal'],
-            sidePanelStateLogic,
-            ['openSidePanel'],
             sidePanelSettingsLogic,
             ['openSettingsPanel'],
             sidePanelStateLogic,
@@ -152,7 +160,7 @@ export const activationLogic = kea<activationLogicType>([
                     (key) => currentTeam?.has_completed_onboarding_for?.[key] === true
                 ),
         ],
-        hasHiddenSections: [(s) => [s.sections], (sections) => sections.filter((s) => !s.hasIntent).length > 0],
+        hasHiddenSections: [(s) => [s.sections], (sections) => sections.filter((s) => !s.visible).length > 0],
         tasks: [
             (s) => [s.savedOnboardingTasks],
             (savedOnboardingTasks) => {
@@ -168,18 +176,34 @@ export const activationLogic = kea<activationLogicType>([
                 return tasks
             },
         ],
-        activeTasks: [(s) => [s.tasks], (tasks) => tasks.filter((task) => !task.completed && !task.skipped)],
+        visibleTasks: [
+            (s) => [s.tasks, s.sections],
+            (tasks, sections) => {
+                return tasks.filter((task) => sections.find((s) => s.key === task.section)?.visible)
+            },
+        ],
+        activeTasks: [
+            (s) => [s.visibleTasks],
+            (visibleTasks) => visibleTasks.filter((task) => !task.completed && !task.skipped),
+        ],
         completionPercent: [
-            (s) => [s.tasks],
-            (tasks) => {
-                const totalDone = tasks.filter((task) => task.completed).length
-                const totalAll = tasks.length
-                const percent = totalAll > 0 ? Math.round((totalDone / totalAll) * 100) : 0
+            (s) => [s.visibleTasks],
+            (visibleTasks) => {
+                const doneTasks = visibleTasks.filter((task) => task.completed || task.skipped).length
+                const percent = visibleTasks.length > 0 ? Math.round((doneTasks / visibleTasks.length) * 100) : 0
                 // Return at least 5 to ensure a visible fraction on the progress circle
                 return percent >= 5 ? percent : 5
             },
         ],
-        hasCompletedAllTasks: [(s) => [s.tasks], (tasks) => tasks.every((task) => task.completed)],
+        shouldShowActivationTab: [
+            (s) => [s.isReady, s.hasCompletedFirstOnboarding, s.hasCompletedAllVisibleTasks],
+            (isReady, hasCompletedFirstOnboarding, hasCompletedAllVisibleTasks) =>
+                isReady && hasCompletedFirstOnboarding && !hasCompletedAllVisibleTasks,
+        ],
+        hasCompletedAllVisibleTasks: [
+            (s) => [s.visibleTasks],
+            (visibleTasks) => visibleTasks.every((task) => task.completed),
+        ],
         productsWithIntent: [
             (s) => [s.currentTeam],
             (currentTeam: TeamType | TeamPublicType | null) => {
@@ -198,8 +222,8 @@ export const activationLogic = kea<activationLogicType>([
                         ...section,
                         key: sectionKey as ActivationSection,
                         open: currentTeamOpenSections.includes(sectionKey as ActivationSection),
-                        hasIntent:
-                            ['quick_start', 'product_analytics'].includes(sectionKey) ||
+                        visible:
+                            sectionKey === ActivationSection.QuickStart ||
                             productsWithIntent?.includes(sectionKey as ProductKey),
                     }
                 })
@@ -236,13 +260,13 @@ export const activationLogic = kea<activationLogicType>([
                     router.actions.push(urls.eventDefinitions())
                     break
                 case ActivationTask.CreateFeatureFlag:
-                    router.actions.push(urls.featureFlag('new'))
+                    router.actions.push(urls.featureFlags())
                     break
                 case ActivationTask.UpdateFeatureFlagReleaseConditions:
                     router.actions.push(urls.featureFlags())
                     break
                 case ActivationTask.LaunchExperiment:
-                    router.actions.push(urls.experiment('new'))
+                    router.actions.push(urls.experiments())
                     break
                 case ActivationTask.ConnectSource:
                     router.actions.push(urls.pipelineNodeNew(PipelineStage.Source))
@@ -321,11 +345,6 @@ export const activationLogic = kea<activationLogicType>([
             }
         },
         onTeamLoad: () => {
-            if (values.currentTeam?.id && values.currentTeamOpenSections.length === 0) {
-                const sectionsWithIntent = values.sections.filter((s) => s.hasIntent).map((s) => s.key)
-                actions.setOpenSections(values.currentTeam.id, sectionsWithIntent)
-            }
-
             if (
                 values.currentTeam?.session_recording_opt_in &&
                 values.savedOnboardingTasks[ActivationTask.SetupSessionRecordings] !== ActivationTaskStatus.COMPLETED
@@ -341,6 +360,10 @@ export const activationLogic = kea<activationLogicType>([
             }
         },
     })),
+    afterMount(({ actions }) => {
+        actions.loadCustomEvents({})
+        actions.loadCurrentTeam()
+    }),
     permanentlyMount(),
 ])
 
@@ -517,7 +540,7 @@ export const ACTIVATION_TASKS: ActivationTaskDefinition[] = [
     },
     {
         id: ActivationTask.ConnectDestination,
-        title: 'Send data to a destination',
+        title: 'Connect a destination',
         canSkip: true,
         section: ActivationSection.DataWarehouse,
         dependsOn: [

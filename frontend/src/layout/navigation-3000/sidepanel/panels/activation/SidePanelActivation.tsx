@@ -48,7 +48,7 @@ export const SidePanelActivation = (): JSX.Element | null => {
                 </div>
                 <div className="divide-y divide-muted-alt">
                     {sections
-                        .filter((section) => section.hasIntent)
+                        .filter((section) => section.visible)
                         .map((section) => (
                             <div className="px-4" key={section.key}>
                                 <ActivationSectionComponent sectionKey={section.key} section={section} />
@@ -71,7 +71,7 @@ export const SidePanelActivation = (): JSX.Element | null => {
                         <div className="divide-y divide-muted-alt">
                             {showHiddenSections &&
                                 sections
-                                    .filter((section) => !section.hasIntent)
+                                    .filter((section) => !section.visible)
                                     .map((section) => (
                                         <div className="px-4" key={section.key}>
                                             <ActivationSectionComponent sectionKey={section.key} section={section} />
@@ -93,7 +93,7 @@ export const SidePanelActivationIcon = ({ className }: { className?: LemonIconPr
             progress={completionPercent / 100}
             strokePercentage={0.15}
             size={20}
-            className={clsx('text-accent-primary', className)}
+            className={clsx(activeTasks.length > 0 ? 'text-accent-primary' : 'text-muted-alt', className)}
         >
             <span className="text-xs font-semibold">{activeTasks.length}</span>
         </LemonProgressCircle>
@@ -117,13 +117,13 @@ const ActivationSectionComponent = ({
     }
 
     const handleClick = (): void => {
-        if (section.hasIntent) {
+        if (section.visible) {
             toggleSectionOpen(sectionKey)
         }
     }
 
     const handleAddProduct = (): void => {
-        if (!section.hasIntent) {
+        if (!section.visible) {
             addIntentForSection(sectionKey)
         }
         if (!section.open) {
@@ -139,28 +139,28 @@ const ActivationSectionComponent = ({
             <button
                 className={clsx(
                     'flex items-center justify-between select-none w-full',
-                    section.hasIntent && 'cursor-pointer'
+                    section.visible && 'cursor-pointer'
                 )}
-                onClick={section.hasIntent ? handleClick : undefined}
+                onClick={section.visible ? handleClick : undefined}
             >
                 <div className="flex items-center gap-2">
                     {section.icon}
                     <h4 className="m-0 font-semibold text-[16px]">{section.title}</h4>
                 </div>
                 <div className="flex items-center gap-2">
-                    {section.hasIntent && (
+                    {section.visible && (
                         <span className="text-sm text-muted-alt font-medium">
                             {itemsCompleted} of {totalItems} complete
                         </span>
                     )}
-                    {section.hasIntent ? (
+                    {section.visible ? (
                         <IconChevronRight className={clsx('h-4 w-4', section.open && 'rotate-90')} />
                     ) : (
                         <IconPlus onClick={handleAddProduct} className="h-4 w-4" />
                     )}
                 </div>
             </button>
-            {section.hasIntent && section.open && (
+            {section.visible && section.open && (
                 <ul className="space-y-2 mt-2">
                     {sectionTasks.map((task: ActivationTaskType) => (
                         <ActivationTask key={task.id} {...task} />

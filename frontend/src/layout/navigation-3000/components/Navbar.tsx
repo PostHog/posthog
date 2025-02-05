@@ -19,9 +19,9 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SidePanelTab } from '~/types'
 
 import { navigation3000Logic } from '../navigationLogic'
-import { activationLogic } from '../sidepanel/panels/activation/activationLogic'
 import { SidePanelActivationIcon } from '../sidepanel/panels/activation/SidePanelActivation'
 import { sidePanelLogic } from '../sidepanel/sidePanelLogic'
+import { sidePanelStateLogic } from '../sidepanel/sidePanelStateLogic'
 import { KeyboardShortcut } from './KeyboardShortcut'
 import { NavbarButton } from './NavbarButton'
 
@@ -34,7 +34,7 @@ export function Navbar(): JSX.Element {
     const { toggleNavCollapsed, hideNavOnMobile, showSidebar, hideSidebar } = useActions(navigation3000Logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { toggleSearchBar } = useActions(commandBarLogic)
-    const { openSidePanel } = useActions(activationLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
     const { visibleTabs } = useValues(sidePanelLogic)
 
     const containerRef = useRef<HTMLDivElement | null>(null)

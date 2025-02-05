@@ -838,8 +838,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             ['loadSources'],
             teamLogic,
             ['addProductIntent'],
-            activationLogic,
-            ['markTaskAsCompleted'],
         ],
     }),
     reducers({
@@ -1174,8 +1172,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     source_type: values.selectedConnector.name,
                 })
 
-                actions.markTaskAsCompleted(ActivationTask.ConnectSource)
                 lemonToast.success('New Data Resource Created')
+
+                activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.ConnectSource)
+
                 actions.setSourceId(id)
                 actions.resetSourceConnectionDetails()
                 actions.loadSources(null)

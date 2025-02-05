@@ -10,7 +10,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { BillingProductV2AddonType, Breadcrumb, OnboardingProduct, ProductKey, ReplayTabs, SidePanelTab } from '~/types'
 
@@ -320,10 +319,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 }
             }
 
-            const mountedActivationLogic = activationLogic.findMounted()
-
-            if (mountedActivationLogic && mountedActivationLogic.values.isReady && values.isFirstProductOnboarding) {
-                mountedActivationLogic.actions.openSidePanel(SidePanelTab.Activation)
+            if (values.isFirstProductOnboarding) {
+                actions.openSidePanel(SidePanelTab.Activation)
             }
         },
         setAllOnboardingSteps: () => {

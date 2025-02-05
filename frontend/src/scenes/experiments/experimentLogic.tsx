@@ -149,8 +149,6 @@ export const experimentLogic = kea<experimentLogicType>([
             ['addProductIntent'],
             featureFlagsLogic,
             ['updateFlag'],
-            activationLogic,
-            ['markTaskAsCompleted'],
         ],
     })),
     actions({
@@ -693,7 +691,7 @@ export const experimentLogic = kea<experimentLogicType>([
             const startDate = dayjs()
             actions.updateExperiment({ start_date: startDate.toISOString() })
             values.experiment && eventUsageLogic.actions.reportExperimentLaunched(values.experiment, startDate)
-            actions.markTaskAsCompleted(ActivationTask.LaunchExperiment)
+            activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.LaunchExperiment)
         },
         changeExperimentStartDate: async ({ startDate }) => {
             actions.updateExperiment({ start_date: startDate })

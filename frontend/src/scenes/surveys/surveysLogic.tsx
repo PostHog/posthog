@@ -42,14 +42,14 @@ export const surveysLogic = kea<surveysLogicType>([
     path(['scenes', 'surveys', 'surveysLogic']),
     connect(() => ({
         values: [userLogic, ['hasAvailableFeature'], teamLogic, ['currentTeam', 'currentTeamLoading']],
-        actions: [teamLogic, ['loadCurrentTeam'], activationLogic, ['markTaskAsCompleted']],
+        actions: [teamLogic, ['loadCurrentTeam']],
     })),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setSurveysFilters: (filters: Partial<SurveysFilters>, replace?: boolean) => ({ filters, replace }),
         setTab: (tab: SurveysTabs) => ({ tab }),
     }),
-    loaders(({ actions, values }) => ({
+    loaders(({ values }) => ({
         surveys: {
             __default: [] as Survey[],
             loadSurveys: async () => {
@@ -62,10 +62,6 @@ export const surveysLogic = kea<surveysLogicType>([
             },
             updateSurvey: async ({ id, updatePayload }) => {
                 const updatedSurvey = await api.surveys.update(id, { ...updatePayload })
-
-                if (updatedSurvey.start_date) {
-                    actions.markTaskAsCompleted(ActivationTask.LaunchSurvey)
-                }
 
                 return values.surveys.map((survey) => (survey.id === id ? updatedSurvey : survey))
             },
@@ -119,7 +115,7 @@ export const surveysLogic = kea<surveysLogicType>([
         },
         loadResponsesCountSuccess: () => {
             if (Object.values(values.surveysResponsesCount).some((count) => count > 0)) {
-                actions.markTaskAsCompleted(ActivationTask.LaunchSurvey)
+                activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.CollectSurveyResponses)
             }
         },
         setTab: ({ tab }) => {

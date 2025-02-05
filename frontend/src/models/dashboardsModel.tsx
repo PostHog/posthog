@@ -20,7 +20,7 @@ import type { dashboardsModelType } from './dashboardsModelType'
 export const dashboardsModel = kea<dashboardsModelType>([
     path(['models', 'dashboardsModel']),
     connect({
-        actions: [tagsModel, ['loadTags'], activationLogic, ['markTaskAsCompleted']],
+        actions: [tagsModel, ['loadTags']],
     }),
     actions(() => ({
         // we page through the dashboards and need to manually track when that is finished
@@ -286,7 +286,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
             }
         },
         addDashboardSuccess: ({ dashboard }) => {
-            actions.markTaskAsCompleted(ActivationTask.CreateFirstDashboard)
+            activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.CreateFirstDashboard)
 
             if (router.values.location.pathname.includes('onboarding')) {
                 // don't send a toast if we're in onboarding

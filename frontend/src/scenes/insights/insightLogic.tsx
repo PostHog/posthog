@@ -76,7 +76,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             sceneLogic,
             ['activeScene'],
         ],
-        actions: [tagsModel, ['loadTags'], activationLogic, ['markTaskAsCompleted']],
+        actions: [tagsModel, ['loadTags']],
         logic: [eventUsageLogic, dashboardsModel],
     })),
 
@@ -426,7 +426,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             }
         },
         saveInsightSuccess: async () => {
-            actions.markTaskAsCompleted(ActivationTask.CreateFirstInsight)
+            activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.CreateFirstInsight)
         },
         saveAs: async ({ redirectToViewMode, persist }) => {
             LemonDialog.openForm({

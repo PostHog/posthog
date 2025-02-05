@@ -6,8 +6,6 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isDomain } from 'lib/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 
-import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
-
 import type { proxyLogicType } from './proxyLogicType'
 
 export type ProxyRecord = {
@@ -24,7 +22,6 @@ export const proxyLogic = kea<proxyLogicType>([
     path(['scenes', 'project', 'Settings', 'proxyLogic']),
     connect({
         values: [organizationLogic, ['currentOrganization']],
-        actions: [activationLogic, ['markTaskAsCompleted']],
     }),
     actions(() => ({
         collapseForm: true,
@@ -75,7 +72,6 @@ export const proxyLogic = kea<proxyLogicType>([
         deleteRecordFailure: () => actions.loadRecords(),
         createRecordSuccess: () => {
             actions.loadRecords()
-            actions.markTaskAsCompleted(ActivationTask.SetUpReverseProxy)
         },
         maybeRefreshRecords: () => {
             if (values.shouldRefreshRecords) {

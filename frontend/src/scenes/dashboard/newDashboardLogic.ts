@@ -9,7 +9,6 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { legacyEntityToNode, sanitizeRetentionEntity } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
@@ -106,7 +105,6 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
     connect({
         logic: [dashboardsModel],
         values: [featureFlagLogic, ['featureFlags']],
-        actions: [activationLogic, ['markTaskAsCompleted']],
     }),
     actions({
         setIsLoading: (isLoading: boolean) => ({ isLoading }),

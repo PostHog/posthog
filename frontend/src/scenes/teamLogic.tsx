@@ -241,7 +241,12 @@ export const teamLogic = kea<teamLogicType>([
         loadCurrentTeamSuccess: ({ currentTeam }) => {
             if (currentTeam) {
                 ApiConfig.setCurrentTeamId(currentTeam.id)
-                activationLogic.findMounted()?.actions.onTeamLoad()
+                activationLogic.findMounted()?.actions?.onTeamLoad()
+            }
+        },
+        updateCurrentTeamSuccess: ({ currentTeam }) => {
+            if (currentTeam) {
+                activationLogic.findMounted()?.actions?.onTeamLoad()
             }
         },
         createTeamSuccess: ({ currentTeam }) => {

@@ -16,6 +16,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { performQuery } from '~/queries/query'
@@ -897,7 +898,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
     listeners(({ actions, values, cache }) => ({
         loadTemplateSuccess: () => actions.resetForm(),
         loadHogFunctionSuccess: () => actions.resetForm(),
-        upsertHogFunctionSuccess: () => actions.resetForm(),
+        upsertHogFunctionSuccess: () => {
+            actions.resetForm()
+            activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.ConnectDestination)
+        },
 
         upsertHogFunctionFailure: ({ errorObject }) => {
             const maybeValidationError = errorObject.data
