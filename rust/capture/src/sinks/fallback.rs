@@ -112,7 +112,6 @@ impl Event for FallbackSink {
                 Err(e) => Err(e),
             }
         } else {
-            error!("Primary sink unhealthy, falling back");
             counter!("capture_fallback_sink_failovers_total").increment(1);
             self.fallback.send(event).await
         }
@@ -131,7 +130,6 @@ impl Event for FallbackSink {
                 Err(e) => Err(e),
             }
         } else {
-            error!("Primary sink unhealthy, falling back");
             counter!("capture_fallback_sink_failovers_total").increment(1);
             self.fallback.send_batch(events).await
         }
