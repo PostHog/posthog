@@ -11,7 +11,7 @@ export const engagePlugin: LegacyDestinationPlugin = {
         type: 'destination',
         id: 'plugin-posthog-engage-so-plugin',
         name: 'Engage',
-        description: 'Send user and event data to Engage for personalized  engagement.',
+        description: 'Send user and event data to Engage for personalized engagement.',
         icon_url: 'https://raw.githubusercontent.com/engage-so/posthog-plugin/main/logo.png',
         category: [],
         hog: 'return event',
