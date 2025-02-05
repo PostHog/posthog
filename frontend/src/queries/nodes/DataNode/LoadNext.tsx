@@ -70,10 +70,6 @@ export function LoadNext({ query }: LoadNextProps): JSX.Element {
 export function LoadPreviewText(): JSX.Element {
     const { numberOfRows, hasMoreData } = useValues(dataNodeLogic)
 
-    if (!hasMoreData) {
-        return <></>
-    }
-
     return (
         <>
             Showing {hasMoreData && (numberOfRows ?? 0) > 1 ? 'first ' : ' '}
