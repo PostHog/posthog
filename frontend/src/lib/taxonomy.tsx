@@ -1553,12 +1553,12 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         $end_current_url: {
             label: 'Entry URL',
-            description: 'The first URL visited in this session.',
+            description: 'The last URL visited in this session.',
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
         $end_pathname: {
             label: 'Entry pathname',
-            description: 'The first pathname visited in this session.',
+            description: 'The last pathname visited in this session.',
             examples: ['/interesting-article'],
         },
         $exit_current_url: {
