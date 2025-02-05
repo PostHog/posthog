@@ -136,6 +136,7 @@ export function DeltaChart({
         countDataForVariant,
         exposureCountDataForVariant,
         metricResultsLoading,
+        secondaryMetricResultsLoading,
         featureFlags,
     } = useValues(experimentLogic)
 
@@ -164,6 +165,8 @@ export function DeltaChart({
         }
         return 0
     }
+
+    const resultsLoading = isSecondary ? secondaryMetricResultsLoading : metricResultsLoading
 
     const BAR_HEIGHT = 10 + getScaleAddition(variants.length)
     const BAR_PADDING = 10 + getScaleAddition(variants.length)
@@ -544,7 +547,7 @@ export function DeltaChart({
                             </svg>
                         </div>
                     </div>
-                ) : metricResultsLoading ? (
+                ) : resultsLoading ? (
                     <svg
                         ref={chartSvgRef}
                         viewBox={`0 0 ${VIEW_BOX_WIDTH} ${chartHeight}`}
