@@ -122,10 +122,38 @@ def _extract_series_label(series: dict) -> str:
     return _replace_breakdown_labels(name)
 
 
-def _format_trends_results(results: list[dict]) -> str:
+def _format_trends_aggregated_values(results: list[dict]) -> str:
+    # Get dates and series labels
+    result = results[0]
+    dates = result.get("action", {}).get("days") or []
+    if len(dates) == 0:
+        range = "All time"
+    else:
+        range = f"{dates[0]} to {dates[-1]}"
+
+    series_labels = []
+    for series in results:
+        label = f"Aggregated value for {_extract_series_label(series)}"
+        series_labels.append(label)
+
+    # Build header row
+    matrix: list[list[str]] = []
+    header = ["Date range", *series_labels]
+    matrix.append(header)
+
+    row = [range]
+    for series in results:
+        row.append(_format_number(series["aggregated_value"]))
+    matrix.append(row)
+
+    return _format_matrix(matrix)
+
+
+def _format_trends_non_aggregated_values(results: list[dict]) -> str:
     # Get dates and series labels
     result = results[0]
     dates = result["days"]
+
     series_labels = []
     for series in results:
         label = _extract_series_label(series)
@@ -140,11 +168,21 @@ def _format_trends_results(results: list[dict]) -> str:
     # Build data rows
     for i, date in enumerate(dates):
         row = [_strip_datetime_seconds(date)]
-        for result in results:
-            row.append(_format_number(result["data"][i]))
+        for series in results:
+            row.append(_format_number(series["data"][i]))
         matrix.append(row)
 
     return _format_matrix(matrix)
+
+
+def _format_trends_results(results: list[dict]) -> str:
+    # Get dates and series labels
+    result = results[0]
+    aggregation_applied = result.get("aggregated_value") is not None
+    if aggregation_applied:
+        return _format_trends_aggregated_values(results)
+    else:
+        return _format_trends_non_aggregated_values(results)
 
 
 def compress_and_format_trends_results(results: list[dict]) -> str:
