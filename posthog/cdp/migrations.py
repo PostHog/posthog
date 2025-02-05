@@ -171,7 +171,9 @@ def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool
         return hog_functions
 
 
-def migrate_legacy_plugins(dry_run=True, team_ids=None, test_mode=True, kind: str = "transformation"):
+def migrate_legacy_plugins(
+    dry_run=True, team_ids=None, test_mode=True, kind: str = "transformation", batch_size=100, limit: int | None = None
+):
     # Get all legacy plugin_configs that are active with their attachments and global values
     # Plugins are huge (JS and assets) so we only grab the bits we really need
 
@@ -205,7 +207,10 @@ def migrate_legacy_plugins(dry_run=True, team_ids=None, test_mode=True, kind: st
     if team_ids:
         legacy_plugins = legacy_plugins.filter(team_id__in=team_ids)
 
-    paginator = Paginator(legacy_plugins, 100)
+    if limit:
+        legacy_plugins = legacy_plugins[:limit]
+
+    paginator = Paginator(legacy_plugins, batch_size)
     for page_number in paginator.page_range:
         page = paginator.page(page_number)
 
