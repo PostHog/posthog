@@ -18,31 +18,40 @@ export const engagePlugin: LegacyDestinationPlugin = {
         inputs_schema: [
             {
                 key: 'publicKey',
-                description: 'Get your public key from your Engage dashboard (Settings -> Account)',
+                label: 'Public key',
                 type: 'string',
+                description: 'Get your public key from your Engage dashboard (Settings -> Account)',
                 default: '',
                 required: true,
                 secret: true,
             },
             {
                 key: 'secret',
-                description: 'Get your private key from your Engage dashboard (Settings -> Account)',
+                label: 'Private key',
                 type: 'string',
+                description: 'Get your private key from your Engage dashboard (Settings -> Account)',
                 default: '',
                 required: true,
                 secret: true,
             },
             {
                 key: 'filter',
+                label: 'Event filter',
+                type: 'choice',
                 description:
                     'Sending events for only identified users ensures user and event data for anonymous users are not sent to Engage. However, note that if they are later identified, you will miss the leading events before identification.',
-                type: 'choice',
                 default: 'Send events for all users',
-                required: true,
-                secret: true,
+                required: false,
+                secret: false,
                 choices: [
-                    { value: 'Send events for all users', label: 'Send events for all users' },
-                    { value: 'Only send events for identified users', label: 'Only send events for identified users' },
+                    {
+                        value: 'Send events for all users',
+                        label: 'Send events for all users',
+                    },
+                    {
+                        value: 'Only send events for identified users',
+                        label: 'Only send events for identified users',
+                    },
                 ],
             },
         ],

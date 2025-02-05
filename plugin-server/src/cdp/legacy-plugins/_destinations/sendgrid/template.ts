@@ -19,20 +19,22 @@ export const sendgridPlugin: LegacyDestinationPlugin = {
         inputs_schema: [
             {
                 key: 'sendgridApiKey',
-                description: 'The key needs PUT access',
+                label: 'Sendgrid API Key',
                 type: 'string',
+                description: 'The key needs PUT access',
                 default: '',
                 required: true,
                 secret: true,
             },
             {
                 key: 'customFields',
+                label: 'Custom fields',
+                type: 'string',
                 description:
                     'Comma separated list of additional properties that will be sent to Sendgrid as custom fields. Optionally, you can define an alternative key for the field in Sendgrid. E.g. myProp1=my_prop1,myProp2=my_prop2',
-                type: 'string',
                 default: '',
-                required: true,
-                secret: true,
+                required: false,
+                secret: false,
             },
         ],
     },

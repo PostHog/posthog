@@ -19,16 +19,18 @@ export const rudderstackPlugin: LegacyDestinationPlugin = {
         inputs_schema: [
             {
                 key: 'dataPlaneUrl',
-                description: 'Provide RudderStack server url, append v1/batch path',
+                label: 'RudderStack Server URL',
                 type: 'string',
+                description: 'Provide RudderStack server url, append v1/batch path',
                 default: 'https://hosted.rudderlabs.com/v1/batch',
                 required: true,
-                secret: true,
+                secret: false,
             },
             {
                 key: 'writeKey',
-                description: 'Provide source writekey',
+                label: 'RudderStack Source Writekey',
                 type: 'string',
+                description: 'Provide source writekey',
                 default: '',
                 required: true,
                 secret: true,
