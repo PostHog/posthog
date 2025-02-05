@@ -70,6 +70,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         addTab: (tab: QueryTab) => ({ tab }),
         createTab: (query?: string, view?: DataWarehouseSavedQuery) => ({ query, view }),
         deleteTab: (tab: QueryTab) => ({ tab }),
+        _deleteTab: (tab: QueryTab) => ({ tab }),
         removeTab: (tab: QueryTab) => ({ tab }),
         selectTab: (tab: QueryTab) => ({ tab }),
         setLocalState: (key: string, value: any) => ({ key, value }),
@@ -250,6 +251,21 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             path && actions.setLocalState(activeModelStateKey(props.key), path)
         },
         deleteTab: ({ tab: tabToRemove }) => {
+            if (values.queryInput !== '') {
+                LemonDialog.open({
+                    title: 'Delete query',
+                    description: 'Are you sure you want to delete this query?',
+                    primaryButton: {
+                        children: 'Delete',
+                        status: 'danger',
+                        onClick: () => actions._deleteTab(tabToRemove),
+                    },
+                })
+            } else {
+                actions._deleteTab(tabToRemove)
+            }
+        },
+        _deleteTab: ({ tab: tabToRemove }) => {
             if (props.monaco) {
                 const model = props.monaco.editor.getModel(tabToRemove.uri)
                 if (tabToRemove.uri.toString() === values.activeModelUri?.uri.toString()) {
@@ -475,7 +491,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         deleteDataWarehouseSavedQuerySuccess: ({ payload: viewId }) => {
             const tabToRemove = values.allTabs.find((tab) => tab.view?.id === viewId)
             if (tabToRemove) {
-                actions.deleteTab(tabToRemove)
+                actions._deleteTab(tabToRemove)
             }
             lemonToast.success('View deleted')
         },
