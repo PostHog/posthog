@@ -8,6 +8,7 @@ import { router } from 'kea-router'
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
@@ -19,6 +20,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { getFilterLabel } from 'lib/taxonomy'
 import { capitalizeFirstLetter, dateFilterToText, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
@@ -235,6 +237,13 @@ export function FeatureFlagReleaseConditions({
                                     ) : (
                                         <LemonButton icon={<span className="text-sm">&</span>} size="small" />
                                     )}
+                                    {property?.type !== 'cohort' &&
+                                        getFilterLabel(
+                                            property.key,
+                                            property.type === 'person'
+                                                ? TaxonomicFilterGroupType.PersonProperties
+                                                : TaxonomicFilterGroupType.EventProperties
+                                        )}
                                     <LemonSnack>{property.type === 'cohort' ? 'Cohort' : property.key} </LemonSnack>
                                     {isPropertyFilterWithOperator(property) ? (
                                         <span>{allOperatorsToHumanName(property.operator)} </span>
