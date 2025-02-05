@@ -27,7 +27,7 @@ export function BatchExportBackfillModal({ id }: BatchExportBackfillModalLogicPr
 
     return (
         <LemonModal
-            title="Backfill batch export"
+            title="Run backfill"
             onClose={closeBackfillModal}
             isOpen={isBackfillModalOpen}
             width="30rem"
