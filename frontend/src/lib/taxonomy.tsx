@@ -1559,7 +1559,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $end_pathname: {
             label: 'Entry pathname',
             description: 'The first pathname visited in this session.',
-            examples: ['/interesting-article?parameter=true'],
+            examples: ['/interesting-article'],
         },
         $exit_current_url: {
             label: 'Exit URL',
@@ -1569,7 +1569,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $exit_pathname: {
             label: 'Exit pathname',
             description: 'The last pathname visited in this session. (deprecated, use $end_pathname)',
-            examples: ['https://example.com/interesting-article?parameter=true'],
+            examples: ['/interesting-article'],
         },
         $pageview_count: {
             label: 'Pageview count',
