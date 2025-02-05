@@ -18,6 +18,7 @@ from posthog.test.base import (
     _create_event,
     _create_person,
     flush_persons_and_events,
+    snapshot_clickhouse_queries,
 )
 from freezegun import freeze_time
 from django.utils import timezone
@@ -82,6 +83,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @flaky(max_runs=10, min_passes=1)
     @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
     def test_query_runner_standard_flow_v2_stats(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
@@ -304,6 +306,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
         ]
     )
+    @snapshot_clickhouse_queries
     def test_query_runner_with_internal_filters(self, name: str, filter: dict, expected_results: dict):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
