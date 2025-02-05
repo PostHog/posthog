@@ -21,9 +21,8 @@ export const avoPlugin: LegacyDestinationPlugin = {
                 key: 'avoApiKey',
                 label: 'Avo API Key',
                 type: 'string',
-                default: '',
                 required: true,
-                secret: false,
+                secret: true,
             },
             {
                 key: 'environment',
