@@ -21,7 +21,7 @@ from flaky import flaky
 
 
 @override_settings(IN_UNIT_TESTING=True)
-class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
+class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def create_feature_flag(self, key="test-experiment"):
         return FeatureFlag.objects.create(
             name=f"Test experiment flag: {key}",
