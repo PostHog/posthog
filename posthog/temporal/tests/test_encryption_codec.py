@@ -58,7 +58,7 @@ async def test_payloads_are_encrypted():
     # input to the workflow (inputs).
     expected_results = (
         no_op_result_str,
-        {"arg": input_str, "is_backfill": False},
+        {"arg": input_str, "backfill_details": None},
         dataclasses.asdict(inputs),
     )
 

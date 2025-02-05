@@ -120,7 +120,7 @@ async def test_record_batch_producer_uses_extra_query_parameters(clickhouse_clie
     producer_task = await producer.start(
         queue=queue,
         team_id=team_id,
-        is_backfill=False,
+        backfill_details=None,
         model_name="events",
         full_range=(data_interval_start, data_interval_end),
         done_ranges=[],

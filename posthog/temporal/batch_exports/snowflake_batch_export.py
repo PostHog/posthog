@@ -21,7 +21,6 @@ from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import (
-    BackfillDetails,
     BatchExportField,
     BatchExportInsertInputs,
     BatchExportModel,
@@ -767,6 +766,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
             queue=queue,
             model_name=model_name,
             is_backfill=inputs.get_is_backfill(),
+            backfill_details=inputs.backfill_details,
             team_id=inputs.team_id,
             full_range=full_range,
             done_ranges=done_ranges,
@@ -944,12 +944,8 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             run_id=run_id,
-            backfill_details=BackfillDetails(
-                backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
-                is_earliest_backfill=is_earliest_backfill,
-                start_at=inputs.backfill_details.start_at if inputs.backfill_details else None,
-                end_at=inputs.backfill_details.end_at if inputs.backfill_details else None,
-            ),
+            backfill_details=inputs.backfill_details,
+            is_backfill=is_backfill,
             batch_export_model=inputs.batch_export_model,
             batch_export_schema=inputs.batch_export_schema,
         )

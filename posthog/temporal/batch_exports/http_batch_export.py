@@ -10,7 +10,6 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.service import (
-    BackfillDetails,
     BatchExportField,
     BatchExportInsertInputs,
     HttpBatchExportInputs,
@@ -356,12 +355,8 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
             include_events=inputs.include_events,
             batch_export_schema=inputs.batch_export_schema,
             run_id=run_id,
-            backfill_details=BackfillDetails(
-                backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
-                is_earliest_backfill=is_earliest_backfill,
-                start_at=inputs.backfill_details.start_at if inputs.backfill_details else None,
-                end_at=inputs.backfill_details.end_at if inputs.backfill_details else None,
-            ),
+            backfill_details=inputs.backfill_details,
+            is_backfill=is_backfill,
             batch_export_model=inputs.batch_export_model,
         )
 
