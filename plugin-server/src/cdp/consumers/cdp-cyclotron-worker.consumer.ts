@@ -13,37 +13,31 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     protected name = 'CdpCyclotronWorker'
     private cyclotronWorker?: CyclotronWorker
     private runningWorker: Promise<void> | undefined
-    protected queue: 'hog' | 'fetch' = 'hog'
+    protected queue: 'hog' | 'fetch' | 'plugin' = 'hog'
     protected hogTypes: HogFunctionTypeType[] = ['destination', 'internal_destination']
 
-    public async processBatch(invocations: HogFunctionInvocation[]): Promise<void> {
+    public async processInvocations(invocations: HogFunctionInvocation[]): Promise<HogFunctionInvocationResult[]> {
+        return await this.runManyWithHeartbeat(invocations, (item) => this.hogExecutor.execute(item))
+    }
+
+    public async processBatch(invocations: HogFunctionInvocation[]): Promise<HogFunctionInvocationResult[]> {
         if (!invocations.length) {
-            return
+            return []
         }
 
         const invocationResults = await runInstrumentedFunction({
             statsKey: `cdpConsumer.handleEachBatch.executeInvocations`,
-            func: async () => {
-                // NOTE: this service will never do fetching (unless we decide we want to do it in node at some point, its only used for e2e testing)
-                // fetchExecutor would use rusty-hook to send a fetch request but thats no longer the case
-                // we are currentyl going to execute the fetch locally for testing purposes
-                // as nothing should ever land on the deprecated fetch queue this should be safe.
-                const fetchQueue = invocations.filter((item) => item.queue === 'fetch')
-                const fetchResults = await this.runManyWithHeartbeat(fetchQueue, (item) =>
-                    this.fetchExecutor.execute(item)
-                )
-                const hogQueue = invocations.filter((item) => item.queue === 'hog')
-                const hogResults = await this.runManyWithHeartbeat(hogQueue, (item) => this.hogExecutor.execute(item))
-                return [...hogResults, ...(fetchResults.filter(Boolean) as HogFunctionInvocationResult[])]
-            },
+            func: async () => await this.processInvocations(invocations),
         })
 
         await this.processInvocationResults(invocationResults)
         await this.updateJobs(invocationResults)
         await this.produceQueuedMessages()
+
+        return invocationResults
     }
 
-    private async updateJobs(invocations: HogFunctionInvocationResult[]) {
+    protected async updateJobs(invocations: HogFunctionInvocationResult[]) {
         await Promise.all(
             invocations.map((item) => {
                 if (item.invocation.queue === 'fetch') {
@@ -94,7 +88,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             if (!hogFunction) {
                 // Here we need to mark the job as failed
 
-                status.error('Error finding hog function', {
+                status.error('⚠️', 'Error finding hog function', {
                     id: job.functionId,
                 })
                 this.cyclotronWorker.updateJob(job.id, 'failed')
@@ -140,4 +134,11 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
 export class CdpCyclotronWorkerFetch extends CdpCyclotronWorker {
     protected name = 'CdpCyclotronWorkerFetch'
     protected queue = 'fetch' as const
+
+    public async processInvocations(invocations: HogFunctionInvocation[]): Promise<HogFunctionInvocationResult[]> {
+        // NOTE: this service will never do fetching (unless we decide we want to do it in node at some point, its only used for e2e testing)
+        return (await this.runManyWithHeartbeat(invocations, (item) => this.fetchExecutor.execute(item))).filter(
+            Boolean
+        ) as HogFunctionInvocationResult[]
+    }
 }

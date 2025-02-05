@@ -63,7 +63,8 @@ export function hasPortWildcard(input: unknown): boolean {
 export const validateProposedUrl = (
     proposedUrl: string,
     currentUrls: string[],
-    onlyAllowDomains: boolean = false
+    onlyAllowDomains: boolean = false,
+    allowWildCards: boolean = true
 ): string | undefined => {
     if (!isURL(proposedUrl)) {
         return 'Please enter a valid URL'
@@ -77,7 +78,16 @@ export const validateProposedUrl = (
         return "Please enter a valid domain (URLs with a path aren't allowed)"
     }
 
-    if (proposedUrl.indexOf('*') > -1 && !proposedUrl.match(/^(.*)\*[^*]*\.[^*]+\.[^*]+$/)) {
+    const hasWildCard = proposedUrl.indexOf('*') > -1
+    if (hasWildCard && allowWildCards === false) {
+        return 'Wildcards are not allowed'
+    }
+
+    if (
+        hasWildCard &&
+        !/^https?:\/\/((\*\.)?localhost|localhost)(:\d+)?$/.test(proposedUrl) && // Allow http://*.localhost and localhost with ports
+        !proposedUrl.match(/^(.*)\*[^*]*\.[^*]+\.[^*]+$/)
+    ) {
         return 'Wildcards can only be used for subdomains'
     }
 
@@ -180,18 +190,17 @@ export interface AuthorizedUrlListLogicProps {
     actionId: number | null
     experimentId: ExperimentIdType | null
     type: AuthorizedUrlListType
-    query: string | null | undefined
+    allowWildCards?: boolean
 }
 
 export const defaultAuthorizedUrlProperties = {
     actionId: null,
     experimentId: null,
-    query: null,
 }
 
 export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
     path((key) => ['lib', 'components', 'AuthorizedUrlList', 'authorizedUrlListLogic', key]),
-    key((props) => (props.experimentId ? `${props.type}-${props.experimentId}` : `${props.type}-${props.actionId}`)),
+    key((props) => `${props.type}-${props.experimentId}-${props.actionId}`), // Some will be undefined but that's ok, this avoids experiment/action with same ID sharing same store
     props({} as AuthorizedUrlListLogicProps),
     connect({
         values: [teamLogic, ['currentTeam', 'currentTeamId']],
@@ -252,11 +261,17 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
     afterMount(({ actions }) => {
         actions.loadSuggestions()
     }),
-    forms(({ values, actions }) => ({
+    forms(({ values, actions, props }) => ({
         proposedUrl: {
             defaults: { url: '' } as ProposeNewUrlFormType,
             errors: ({ url }) => ({
-                url: validateProposedUrl(url, values.authorizedUrls, values.onlyAllowDomains),
+                // default to allowing wildcards because that was the original behavior
+                url: validateProposedUrl(
+                    url,
+                    values.authorizedUrls,
+                    values.onlyAllowDomains,
+                    props.allowWildCards ?? true
+                ),
             }),
             submit: async ({ url }) => {
                 if (values.editUrlIndex !== null && values.editUrlIndex >= 0) {

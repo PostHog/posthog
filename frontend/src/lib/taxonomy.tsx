@@ -184,6 +184,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             description:
                 'A generative AI trace. Usually a trace tracks a single user interaction and contains one or more AI generation calls',
         },
+        $ai_span: {
+            label: 'AI Span',
+            description:
+                'A generative AI span. Usually a span tracks a unit of work for a trace of generative AI models (LLMs)',
+        },
         $ai_metric: {
             label: 'AI Metric',
             description: 'An evaluation metric for a trace of generative AI models (LLMs)',
@@ -263,6 +268,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
     },
     event_properties: {
+        $last_posthog_reset: {
+            label: 'Timestamp of last call to `Reset` in the web sdk',
+            description: 'The timestamp of the last call to `Reset` in the web SDK. This can be useful for debugging.',
+            system: true,
+        },
         distinct_id: {} as CoreFilterDefinition, // Copied from `metadata` down below
         $session_duration: {} as CoreFilterDefinition, // Copied from `sessions` down below
         $session_is_sampled: {
@@ -613,7 +623,7 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         $geoip_accuracy_radius: {
             label: 'GeoIP detection accuracy radius',
-            description: "Accuracy radius of the location matched to this event's IP address.",
+            description: "Accuracy radius of the location matched to this event's IP address (in kilometers).",
             examples: ['50'],
         },
         $geoip_subdivision_1_confidence: {
@@ -652,6 +662,16 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         $is_emulator: {
             label: 'Is Emulator',
             description: 'Indicates whether the app is running on an emulator or a physical device',
+            examples: ['true', 'false'],
+        },
+        $is_mac_catalyst_app: {
+            label: 'Is Mac Catalyst App',
+            description: 'Indicates whether the app is a Mac Catalyst app running on macOS',
+            examples: ['true', 'false'],
+        },
+        $is_ios_running_on_mac: {
+            label: 'Is iOS App Running on Mac',
+            description: 'Indicates whether the app is an iOS app running on macOS (Apple Silicon)',
             examples: ['true', 'false'],
         },
         $device_name: {
@@ -1454,11 +1474,6 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'AI Output State (LLM)',
             description: 'Output state of the LLM agent',
         },
-        $ai_trace_name: {
-            label: 'AI Trace Name (LLM)',
-            description: 'The name given to this trace of LLM API calls',
-            examples: ['LangGraph'],
-        },
         $ai_provider: {
             label: 'AI Provider (LLM)',
             description: 'The provider of the AI model used to generate the output from the LLM API',
@@ -1489,6 +1504,21 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
             label: 'AI Feedback Text (LLM)',
             description: 'The text provided by the user for feedback on the LLM trace',
             examples: ['"The response was helpful, but it did not use the provided context."'],
+        },
+        $ai_parent_id: {
+            label: 'AI Parent ID (LLM)',
+            description: 'The parent span ID of a span or generation, used to group a trace into a tree view',
+            examples: ['bdf42359-9364-4db7-8958-c001f28c9255'],
+        },
+        $ai_span_id: {
+            label: 'AI Span ID (LLM)',
+            description: 'The unique identifier for a LLM trace, generation, or span.',
+            examples: ['bdf42359-9364-4db7-8958-c001f28c9255'],
+        },
+        $ai_span_name: {
+            label: 'AI Span Name (LLM)',
+            description: 'The name given to this LLM trace, generation, or span.',
+            examples: ['summarize_text'],
         },
     },
     numerical_event_properties: {}, // Same as event properties, see assignment below
@@ -1870,4 +1900,14 @@ export function getCoreFilterDefinition(
 export function getFilterLabel(key: PropertyKey, type: TaxonomicFilterGroupType): string {
     const data = getCoreFilterDefinition(key, type)
     return (data ? data.label : key)?.trim() ?? '(empty string)'
+}
+
+export function getPropertyKey(value: string, type: TaxonomicFilterGroupType): string {
+    // Find the key by looking through the mapping
+    const group = CORE_FILTER_DEFINITIONS_BY_GROUP[type]
+    if (group) {
+        const foundKey = Object.entries(group).find(([_, def]) => (def as any).label === value || _ === value)?.[0]
+        return foundKey || value
+    }
+    return value
 }

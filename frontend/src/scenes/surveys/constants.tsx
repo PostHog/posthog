@@ -3,10 +3,10 @@ import { allOperatorsMapping } from 'lib/utils'
 import {
     Survey,
     SurveyAppearance,
+    SurveyMatchType,
     SurveyQuestionDescriptionContentType,
     SurveyQuestionType,
     SurveyType,
-    SurveyUrlMatchType,
 } from '~/types'
 
 export const SURVEY_EVENT_NAME = 'survey sent'
@@ -20,14 +20,14 @@ export const SurveyQuestionLabel = {
     [SurveyQuestionType.MultipleChoice]: 'Multiple choice select',
 }
 
-// Create SurveyUrlMatchTypeLabels using allOperatorsMapping
-export const SurveyUrlMatchTypeLabels = {
-    [SurveyUrlMatchType.Exact]: allOperatorsMapping[SurveyUrlMatchType.Exact],
-    [SurveyUrlMatchType.IsNot]: allOperatorsMapping[SurveyUrlMatchType.IsNot],
-    [SurveyUrlMatchType.Contains]: allOperatorsMapping[SurveyUrlMatchType.Contains],
-    [SurveyUrlMatchType.NotIContains]: allOperatorsMapping[SurveyUrlMatchType.NotIContains],
-    [SurveyUrlMatchType.Regex]: allOperatorsMapping[SurveyUrlMatchType.Regex],
-    [SurveyUrlMatchType.NotRegex]: allOperatorsMapping[SurveyUrlMatchType.NotRegex],
+// Create SurveyMatchTypeLabels using allOperatorsMapping
+export const SurveyMatchTypeLabels = {
+    [SurveyMatchType.Exact]: allOperatorsMapping[SurveyMatchType.Exact],
+    [SurveyMatchType.IsNot]: allOperatorsMapping[SurveyMatchType.IsNot],
+    [SurveyMatchType.Contains]: allOperatorsMapping[SurveyMatchType.Contains],
+    [SurveyMatchType.NotIContains]: allOperatorsMapping[SurveyMatchType.NotIContains],
+    [SurveyMatchType.Regex]: allOperatorsMapping[SurveyMatchType.Regex],
+    [SurveyMatchType.NotRegex]: allOperatorsMapping[SurveyMatchType.NotRegex],
 }
 
 export const defaultSurveyAppearance = {
@@ -43,6 +43,9 @@ export const defaultSurveyAppearance = {
     displayThankYouMessage: true,
     thankYouMessageHeader: 'Thank you for your feedback!',
     position: 'right',
+    widgetType: 'tab' as const,
+    widgetLabel: 'Feedback',
+    widgetColor: 'black',
 }
 
 export const defaultSurveyFieldValues = {

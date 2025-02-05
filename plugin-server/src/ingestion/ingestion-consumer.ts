@@ -37,8 +37,10 @@ const histogramKafkaBatchSizeKb = new Histogram({
     buckets: [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity],
 })
 
-type GroupedIncomingEvents = {
-    [key: string]: { message: Message; event: PipelineEvent }[]
+type IncomingEvent = { message: Message; event: PipelineEvent }
+
+type IncomingEventsByDistinctId = {
+    [key: string]: IncomingEvent[]
 }
 
 const PERSON_EVENTS = new Set(['$set', '$identify', '$create_alias', '$merge_dangerously', '$groupidentify'])
@@ -61,6 +63,7 @@ export class IngestionConsumer {
     protected heartbeat = () => {}
     protected promises: Set<Promise<any>> = new Set()
     protected kafkaProducer?: KafkaProducerWrapper
+    protected kafkaOverflowProducer?: KafkaProducerWrapper
     public hogTransformer: HogTransformerService
 
     private overflowRateLimiter: MemoryRateLimiter
@@ -102,6 +105,11 @@ export class IngestionConsumer {
                 this.kafkaProducer = producer
                 this.kafkaProducer.producer.connect()
             }),
+            // TRICKY: When we produce overflow events they are back to the kafka we are consuming from
+            KafkaProducerWrapper.create(this.hub, 'consumer').then((producer) => {
+                this.kafkaOverflowProducer = producer
+                this.kafkaOverflowProducer.producer.connect()
+            }),
             this.startKafkaConsumer({
                 topic: this.topic,
                 groupId: this.groupId,
@@ -120,7 +128,10 @@ export class IngestionConsumer {
         await this.batchConsumer?.stop()
         status.info('🔁', `${this.name} - stopping kafka producer`)
         await this.kafkaProducer?.disconnect()
-
+        status.info('🔁', `${this.name} - stopping kafka overflow producer`)
+        await this.kafkaOverflowProducer?.disconnect()
+        status.info('🔁', `${this.name} - stopping hog transformer`)
+        await this.hogTransformer.stop()
         status.info('👍', `${this.name} - stopped!`)
     }
 
@@ -134,9 +145,27 @@ export class IngestionConsumer {
         return promise
     }
 
+    private runInstrumented<T>(name: string, func: () => Promise<T>): Promise<T> {
+        return runInstrumentedFunction<T>({ statsKey: `ingestionConsumer.${name}`, func })
+    }
+
     public async handleKafkaBatch(messages: Message[]) {
-        const parsedMessages = await this.parseKafkaBatch(messages)
-        await this.processBatch(parsedMessages)
+        const parsedMessages = await this.runInstrumented('parseKafkaMessages', () => this.parseKafkaBatch(messages))
+
+        await this.runInstrumented('processBatch', async () => {
+            await Promise.all(
+                Object.values(parsedMessages).map(async (x) => {
+                    return await this.runInstrumented('processEventsForDistinctId', () =>
+                        this.processEventsForDistinctId(x)
+                    )
+                })
+            )
+        })
+
+        status.debug('🔁', `Waiting for promises`, { promises: this.promises.size })
+        await this.runInstrumented('awaitScheduledWork', () => Promise.all(this.promises))
+        status.debug('🔁', `Processed batch`)
+
         for (const message of messages) {
             if (message.timestamp) {
                 latestOffsetTimestampGauge
@@ -146,62 +175,69 @@ export class IngestionConsumer {
         }
     }
 
-    public async processBatch(groupedIncomingEvents: GroupedIncomingEvents): Promise<void> {
-        try {
-            await this.runManyWithHeartbeat(Object.values(groupedIncomingEvents), async (eventsForDistinctId) => {
-                // Process every message sequentially, stash promises to await on later
-                for (const { message, event } of eventsForDistinctId) {
-                    // Track $set usage in events that aren't known to use it, before ingestion adds anything there
-                    if (
-                        event.properties &&
-                        !PERSON_EVENTS.has(event.event) &&
-                        !KNOWN_SET_EVENTS.has(event.event) &&
-                        ('$set' in event.properties || '$set_once' in event.properties || '$unset' in event.properties)
-                    ) {
-                        setUsageInNonPersonEventsCounter.inc()
-                    }
+    private async processEventsForDistinctId(incomingEvents: IncomingEvent[]): Promise<void> {
+        // Process every message sequentially, stash promises to await on later
+        for (const { message, event } of incomingEvents) {
+            // Track $set usage in events that aren't known to use it, before ingestion adds anything there
+            if (
+                event.properties &&
+                !PERSON_EVENTS.has(event.event) &&
+                !KNOWN_SET_EVENTS.has(event.event) &&
+                ('$set' in event.properties || '$set_once' in event.properties || '$unset' in event.properties)
+            ) {
+                setUsageInNonPersonEventsCounter.inc()
+            }
 
-                    const eventKey = `${event.token}:${event.distinct_id}`
-                    // Check the rate limiter and emit to overflow if necessary
-                    const isBelowRateLimit = this.overflowRateLimiter.consume(eventKey, 1, message.timestamp)
-                    if (this.overflowEnabled() && !isBelowRateLimit) {
-                        status.debug('🔁', `Sending to overflow`, {
-                            event,
-                        })
-                        ingestionPartitionKeyOverflowed.labels(`${event.team_id ?? event.token}`).inc()
-                        if (this.ingestionWarningLimiter.consume(eventKey, 1)) {
-                            status.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)
-                        }
-
-                        void this.scheduleWork(this.emitToOverflow([message]))
-                        continue
-                    }
-
-                    const runner = this.getEventPipelineRunner(event)
-                    try {
-                        await runner.run()
-                    } catch (error) {
-                        await this.handleProcessingError(error, message, event)
-                    }
-
-                    // TRICKY: We want to later catch anything that goes wrong with flushing
-                    // the promises so we can send the event to the DLQ
-                    this.scheduleWork(Promise.all(runner.getPromises())).catch((error) => {
-                        return this.handleProcessingError(error, message, event)
+            try {
+                status.debug('🔁', `Processing event`, {
+                    event,
+                })
+                const eventKey = `${event.token}:${event.distinct_id}`
+                // Check the rate limiter and emit to overflow if necessary
+                const isBelowRateLimit = this.overflowRateLimiter.consume(eventKey, 1, message.timestamp)
+                if (this.overflowEnabled() && !isBelowRateLimit) {
+                    status.debug('🔁', `Sending to overflow`, {
+                        event,
                     })
+                    ingestionPartitionKeyOverflowed.labels(`${event.team_id ?? event.token}`).inc()
+                    if (this.ingestionWarningLimiter.consume(eventKey, 1)) {
+                        status.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)
+                    }
+
+                    void this.scheduleWork(this.emitToOverflow([message]))
+                    continue
                 }
-            })
 
-            await Promise.all(this.promises)
-        } catch (error) {
-            status.error('🔥', `Error processing batch`, {
-                stack: error.stack,
-                error: error,
-            })
+                const runner = this.getEventPipelineRunner(event)
+                try {
+                    await runner.run()
+                } catch (error) {
+                    await this.handleProcessingError(error, message, event)
+                }
 
-            throw error
-        } finally {
-            this.promises.clear()
+                // TRICKY: We want to later catch anything that goes wrong with flushing
+                // the promises so we can send the event to the DLQ
+                this.scheduleWork(Promise.all(runner.getPromises())).catch((error) => {
+                    return this.handleProcessingError(error, message, event)
+                })
+
+                // const result = await this.runInstrumented('runEventPipeline', () => this.runEventPipeline(event))
+
+                // status.debug('🔁', `Processed event`, {
+                //     event,
+                // })
+
+                // // This contains the Kafka producer ACKs & message promises, to avoid blocking after every message.
+                // result.ackPromises?.forEach((promise) => {
+                //     void this.scheduleWork(
+                //         promise.catch(async (error) => {
+                //             await this.handleProcessingError(error, message, event)
+                //         })
+                //     )
+                // })
+            } catch (error) {
+                await this.handleProcessingError(error, message, event)
+            }
         }
     }
 
@@ -210,77 +246,53 @@ export class IngestionConsumer {
         return new EventPipelineRunnerV2(this.hub, event)
     }
 
-    private parseKafkaBatch(messages: Message[]): Promise<GroupedIncomingEvents> {
-        return runInstrumentedFunction({
-            statsKey: `ingestionConsumer.handleEachBatch.parseKafkaMessages`,
-            func: () => {
-                const batches: GroupedIncomingEvents = {}
+    private parseKafkaBatch(messages: Message[]): Promise<IncomingEventsByDistinctId> {
+        const batches: IncomingEventsByDistinctId = {}
 
-                for (const message of messages) {
-                    let distinctId: string | undefined
-                    let token: string | undefined
+        for (const message of messages) {
+            let distinctId: string | undefined
+            let token: string | undefined
 
-                    // Parse the headers so we can early exit if found and should be dropped
-                    message.headers?.forEach((header) => {
-                        if (header.key === 'distinct_id') {
-                            distinctId = header.value.toString()
-                        }
-                        if (header.key === 'token') {
-                            token = header.value.toString()
-                        }
-                    })
-
-                    if (this.shouldDropEvent(token, distinctId)) {
-                        this.logDroppedEvent(token, distinctId)
-                        continue
-                    }
-
-                    // Parse the message payload into the event object
-                    const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
-                    const combinedEvent: PipelineEvent = { ...JSON.parse(dataStr), ...rawEvent }
-                    const event: PipelineEvent = normalizeEvent({
-                        ...combinedEvent,
-                    })
-
-                    // In case the headers were not set we check the parsed message now
-                    if (this.shouldDropEvent(combinedEvent.token, combinedEvent.distinct_id)) {
-                        this.logDroppedEvent(combinedEvent.token, combinedEvent.distinct_id)
-                        continue
-                    }
-
-                    const eventKey = `${event.token}:${event.distinct_id}`
-
-                    // We collect the events grouped by token and distinct_id so that we can process batches in parallel whilst keeping the order of events
-                    // for a given distinct_id
-                    if (!batches[eventKey]) {
-                        batches[eventKey] = []
-                    }
-
-                    batches[eventKey].push({ message, event })
+            // Parse the headers so we can early exit if found and should be dropped
+            message.headers?.forEach((header) => {
+                if (header.key === 'distinct_id') {
+                    distinctId = header.value.toString()
                 }
+                if (header.key === 'token') {
+                    token = header.value.toString()
+                }
+            })
 
-                return Promise.resolve(batches)
-            },
-        })
-    }
+            if (this.shouldDropEvent(token, distinctId)) {
+                this.logDroppedEvent(token, distinctId)
+                continue
+            }
 
-    private async runWithHeartbeat<T>(func: () => Promise<T> | T): Promise<T> {
-        // Helper function to ensure that looping over lots of hog functions doesn't block up the thread, killing the consumer
-        const res = await func()
-        this.heartbeat()
-        await new Promise((resolve) => process.nextTick(resolve))
+            // Parse the message payload into the event object
+            const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
+            const combinedEvent: PipelineEvent = { ...JSON.parse(dataStr), ...rawEvent }
+            const event: PipelineEvent = normalizeEvent({
+                ...combinedEvent,
+            })
 
-        return res
-    }
+            // In case the headers were not set we check the parsed message now
+            if (this.shouldDropEvent(combinedEvent.token, combinedEvent.distinct_id)) {
+                this.logDroppedEvent(combinedEvent.token, combinedEvent.distinct_id)
+                continue
+            }
 
-    private async runManyWithHeartbeat<T, R>(items: T[], func: (item: T) => Promise<R> | R): Promise<R[]> {
-        // Helper function to ensure that looping over lots of hog functions doesn't block up the event loop, leading to healthcheck failures
-        const results = []
+            const eventKey = `${event.token}:${event.distinct_id}`
 
-        for (const item of items) {
-            results.push(await this.runWithHeartbeat(() => func(item)))
+            // We collect the events grouped by token and distinct_id so that we can process batches in parallel whilst keeping the order of events
+            // for a given distinct_id
+            if (!batches[eventKey]) {
+                batches[eventKey] = []
+            }
+
+            batches[eventKey].push({ message, event })
         }
-        return results
+
+        return Promise.resolve(batches)
     }
 
     private async startKafkaConsumer(options: {
@@ -418,7 +430,7 @@ export class IngestionConsumer {
 
         await Promise.all(
             kafkaMessages.map((message) =>
-                this.kafkaProducer!.produce({
+                this.kafkaOverflowProducer!.produce({
                     topic: this.overflowTopic!,
                     value: message.value,
                     // ``message.key`` should not be undefined here, but in the

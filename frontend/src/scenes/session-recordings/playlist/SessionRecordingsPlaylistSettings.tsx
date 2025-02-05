@@ -141,8 +141,12 @@ export function SessionRecordingsPlaylistTopSettings({
     const { setAutoplayDirection, setPlaybackMode } = useActions(playerSettingsLogic)
 
     return (
-        <SettingsBar border="none" className="justify-end">
-            {filters && setFilters ? <SortedBy filters={filters} setFilters={setFilters} /> : null}
+        <SettingsBar border="none" className="justify-between">
+            {filters && setFilters ? (
+                <span className="text-xs font-normal inline-flex items-center ml-2">
+                    Sort by: <SortedBy filters={filters} setFilters={setFilters} />
+                </span>
+            ) : null}
             <SettingsMenu
                 items={[
                     {

@@ -230,6 +230,7 @@ class BatchExport(UUIDModel):
         default=Model.EVENTS,
         help_text="Which model this BatchExport is exporting.",
     )
+    filters = models.JSONField(null=True, blank=True)
 
     @property
     def latest_runs(self):
@@ -254,7 +255,7 @@ class BatchExport(UUIDModel):
 
 class BatchExportBackfill(UUIDModel):
     class Status(models.TextChoices):
-        """Possible states of the BatchExportRun."""
+        """Possible states of the BatchExportBackfill."""
 
         CANCELLED = "Cancelled"
         COMPLETED = "Completed"
@@ -295,3 +296,11 @@ class BatchExportBackfill(UUIDModel):
         start_at = self.start_at.astimezone(tz=dt.UTC).isoformat() if self.start_at else "START"
 
         return f"{self.batch_export.id}-Backfill-{start_at}-{end_at}"
+
+    @property
+    def total_runs(self) -> int | None:
+        """Return the total number of runs for this backfill, based on the number of intervals."""
+        if not self.start_at or not self.end_at:
+            # just return None in this case since we don't have enough information to calculate the total runs
+            return None
+        return (self.end_at - self.start_at) // self.batch_export.interval_time_delta

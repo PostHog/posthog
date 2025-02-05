@@ -19,6 +19,7 @@ from posthog.models.integration import (
     SlackIntegration,
     GoogleCloudIntegration,
     GoogleAdsIntegration,
+    LinkedInAdsIntegration,
 )
 
 
@@ -138,3 +139,36 @@ class IntegrationViewSet(
         response_data = {"accessibleAccounts": google_ads.list_google_ads_accessible_accounts()}
         cache.set(key, response_data, 60)
         return Response(response_data)
+
+    @action(methods=["GET"], detail=True, url_path="linkedin_ads_conversion_rules")
+    def linkedin_ad_conversion_rules(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        linkedin_ads = LinkedInAdsIntegration(instance)
+        account_id = request.query_params.get("accountId")
+
+        response = linkedin_ads.list_linkedin_ads_conversion_rules(account_id)
+        conversion_rules = [
+            {
+                "id": conversionRule["id"],
+                "name": conversionRule["name"],
+            }
+            for conversionRule in response.get("elements", [])
+        ]
+
+        return Response({"conversionRules": conversion_rules})
+
+    @action(methods=["GET"], detail=True, url_path="linkedin_ads_accounts")
+    def linkedin_ad_accounts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        linkedin_ads = LinkedInAdsIntegration(instance)
+
+        accounts = [
+            {
+                "id": account["id"],
+                "name": account["name"],
+                "reference": account["reference"],
+            }
+            for account in linkedin_ads.list_linkedin_ads_accounts()["elements"]
+        ]
+
+        return Response({"adAccounts": accounts})

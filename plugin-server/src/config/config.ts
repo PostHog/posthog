@@ -180,9 +180,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_OVERFLOW_MIN_PER_BATCH: 1_000_000, // All sessions consume at least 1MB/batch, to penalise poor batching
         SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS: 0, // 0 disables stats collection
         SESSION_RECORDING_KAFKA_FETCH_MIN_BYTES: 1_048_576, // 1MB
-        // Session recording V2
-        SESSION_RECORDING_MAX_BATCH_SIZE_KB: 100 * 1024, // 100MB
-        SESSION_RECORDING_MAX_BATCH_AGE_MS: 10 * 1000, // 10 seconds
 
         ENCRYPTION_SALT_KEYS: isDevEnv() || isTestEnv() ? '00beef0000beef0000beef0000beef00' : '',
 
@@ -197,7 +194,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_WATCHER_TTL: 60 * 60 * 24, // This is really long as it is essentially only important to make sure the key is eventually deleted
         CDP_WATCHER_REFILL_RATE: 10,
         CDP_WATCHER_DISABLED_TEMPORARY_MAX_COUNT: 3,
-        CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS: '',
         CDP_HOG_FILTERS_TELEMETRY_TEAMS: '',
         CDP_REDIS_PASSWORD: '',
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
@@ -223,8 +219,19 @@ export function getDefaultConfig(): PluginsServerConfig {
         INGESTION_CONSUMER_OVERFLOW_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
         INGESTION_CONSUMER_DLQ_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
 
+        // Session recording V2
+        SESSION_RECORDING_MAX_BATCH_SIZE_KB: 100 * 1024, // 100MB
+        SESSION_RECORDING_MAX_BATCH_AGE_MS: 10 * 1000, // 10 seconds
+        SESSION_RECORDING_V2_S3_BUCKET: 'posthog',
+        SESSION_RECORDING_V2_S3_PREFIX: 'session_recording_batches',
+        SESSION_RECORDING_V2_S3_ENDPOINT: 'http://localhost:19000',
+        SESSION_RECORDING_V2_S3_REGION: 'us-east-1',
+        SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'object_storage_root_user',
+        SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'object_storage_root_password',
+
         // Hog Transformations (Alpha)
-        HOG_TRANSFORMATIONS_ENABLED: true,
+        HOG_TRANSFORMATIONS_ENABLED: false,
+        HOG_TRANSFORMATIONS_COMPARISON_PERCENTAGE: 0,
 
         // Cookieless
         COOKIELESS_FORCE_STATELESS_MODE: false,

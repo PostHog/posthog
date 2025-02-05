@@ -118,7 +118,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         return self.series.math in ["weekly_active", "monthly_active"]
 
     def is_first_time_ever_math(self):
-        return self.series.math == "first_time_for_user"
+        return self.series.math in {"first_time_for_user", "first_matching_event_for_user"}
 
     def is_first_matching_event(self):
         return self.series.math == "first_matching_event_for_user"
@@ -288,13 +288,13 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 SELECT
                     d.timestamp,
                     COUNT(DISTINCT actor_id) AS counts
-                FROM (
+                FROM {cross_join_select_query} e
+                CROSS JOIN (
                     SELECT
                         {date_to_start_of_interval} - {number_interval_period} AS timestamp
                     FROM
                         numbers(dateDiff({interval}, {date_from_start_of_interval} - {inclusive_lookback}, {date_to}))
                 ) d
-                CROSS JOIN {cross_join_select_query} e
                 WHERE
                     e.timestamp <= d.timestamp + INTERVAL 1 DAY AND
                     e.timestamp > d.timestamp - {exclusive_lookback}
@@ -465,7 +465,6 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         events_where_clause: ast.Expr,
         sample_value: ast.RatioExpr,
         event_name_filter: ast.Expr | None = None,
-        is_first_matching_event: bool = False,
     ):
         date_placeholders = self.query_date_range.to_placeholders()
         date_from = parse_expr(
@@ -479,6 +478,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
         events_query = ast.SelectQuery(select=[])
         parent_select = self._first_time_parent_query(events_query)
+        is_first_matching_event = self.is_first_matching_event()
 
         class QueryOrchestrator:
             events_query_builder: FirstTimeForUserEventsQueryAlternator
