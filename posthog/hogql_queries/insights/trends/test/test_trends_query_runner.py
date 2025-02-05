@@ -5108,7 +5108,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="$pageview",
             distinct_id="p1",
-            timestamp="2020-01-06T12:00:00Z",
+            timestamp="2020-01-06T13:00:00Z",
             properties={"$browser": "Firefox"},
         )
 
