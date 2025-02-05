@@ -132,7 +132,7 @@ impl ClickHouseEvent {
         // Sometimes properties are REALLY big, so we may as well do this.
         let props_str = self.properties.take();
         let parsed = match &props_str {
-            Some(properties) => serde_json::from_str(&properties),
+            Some(properties) => serde_json::from_str(properties),
             None => Ok(HashMap::new()),
         };
 
