@@ -432,8 +432,9 @@ export function LineGraph_({
                 ...tickOptions,
                 display: !hideYAxis,
                 ...(yAxisScaleType !== 'log10' && { precision }), // Precision is not supported for the log scale
-                callback: (value) => formatPercentStackAxisValue(trendsFilter, value, isPercentStackView),
-                color: (context) => {
+                callback: (value: number | string) =>
+                    formatPercentStackAxisValue(trendsFilter, value, isPercentStackView),
+                color: (context: any) => {
                     if (context.tick) {
                         for (const annotation of goalLinesWithColor) {
                             if (context.tick.value === annotation.value) {
@@ -445,15 +446,17 @@ export function LineGraph_({
                     return colors.axisLabel as Color
                 },
             },
-            afterTickToLabelConversion: (axis) => {
-                if (axis.id !== 'y') {
+            afterTickToLabelConversion: (axis: { id: string; ticks: { value: number }[] }) => {
+                if (!axis.id.startsWith('y')) {
                     return
                 }
 
-                const nonAnnotationTicks = axis.ticks.filter(({ value }) => !goalLinesY.includes(value))
+                const nonAnnotationTicks = axis.ticks.filter(
+                    ({ value }: { value: number }) => !goalLinesY.includes(value)
+                )
                 const annotationTicks = goalLines.map((value) => ({
-                    value,
-                    label: `⬤ ${formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)}`,
+                    value: value.value,
+                    label: `⬤ ${formatPercentStackAxisValue(trendsFilter, value.value, isPercentStackView)}`,
                 }))
 
                 // Guarantee that all annotations exist as ticks
@@ -462,11 +465,15 @@ export function LineGraph_({
             grid: gridOptions,
         }
 
-        const axes = {
+        type YAxisConfig = typeof defaultYAxisConfig & {
+            position: 'left' | 'right'
+        }
+
+        const axes: Record<string, YAxisConfig> = {
             y: {
                 ...defaultYAxisConfig,
                 position: 'left',
-            } as const,
+            },
         }
 
         if (showMultipleYAxes) {
@@ -474,7 +481,7 @@ export function LineGraph_({
                 axes[`y${i}`] = {
                     ...defaultYAxisConfig,
                     position: i % 2 === 0 ? 'left' : 'right',
-                } as const
+                }
             }
         }
 
@@ -585,7 +592,7 @@ export function LineGraph_({
                 },
                 legend: legend,
                 annotation: {
-                    annotations: goalLines.reduce((acc, annotation, idx) => {
+                    annotations: goalLines.reduce((acc: Record<string, any>, annotation, idx) => {
                         acc[`line-${idx}`] = {
                             type: 'line',
                             yMin: annotation.value,

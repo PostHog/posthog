@@ -4,7 +4,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { insightVizDataLogic } from '../insightVizDataLogic'
 
-export function ShowMultipleYAxesFilter(): JSX.Element | null {
+export function ShowMultipleYAxesFilter(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { showMultipleYAxes } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
