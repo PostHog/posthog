@@ -18,6 +18,7 @@ export const pacePlugin: LegacyDestinationPlugin = {
         hog: `return event`,
         inputs_schema: [
             {
+                templating: false,
                 key: 'api_key',
                 description: 'API key provided by Pace.',
                 label: 'API Key',

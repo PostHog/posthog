@@ -17,14 +17,15 @@ export const downsamplingPlugin: LegacyTransformationPlugin = {
         inputs_schema: [
             {
                 type: 'string',
+                templating: false,
                 key: 'percentage',
                 label: '% of events to keep',
                 default: '100',
                 required: false,
-                templating: false,
             },
             {
                 type: 'choice',
+                templating: false,
                 key: 'samplingMethod',
                 label: 'Sampling method',
                 choices: [

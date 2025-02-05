@@ -18,6 +18,7 @@ export const gcsPlugin: LegacyDestinationPlugin = {
         hog: 'return event',
         inputs_schema: [
             {
+                templating: false,
                 key: 'googleCloudKeyJson',
                 label: 'JSON file with your google cloud key',
                 type: 'json',
@@ -25,6 +26,7 @@ export const gcsPlugin: LegacyDestinationPlugin = {
                 secret: true,
             },
             {
+                templating: false,
                 key: 'bucketName',
                 label: 'Table ID',
                 type: 'string',
@@ -33,6 +35,7 @@ export const gcsPlugin: LegacyDestinationPlugin = {
                 secret: false,
             },
             {
+                templating: false,
                 key: 'exportEventsToIgnore',
                 label: 'Events to ignore',
                 type: 'string',

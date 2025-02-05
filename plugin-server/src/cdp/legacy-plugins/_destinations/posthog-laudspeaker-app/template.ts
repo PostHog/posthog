@@ -18,6 +18,7 @@ export const laudspeakerPlugin: LegacyDestinationPlugin = {
         hog: 'return event',
         inputs_schema: [
             {
+                templating: false,
                 key: 'dataPlaneUrl',
                 label: 'Laudspeaker API URL',
                 type: 'string',
@@ -27,6 +28,7 @@ export const laudspeakerPlugin: LegacyDestinationPlugin = {
                 secret: false,
             },
             {
+                templating: false,
                 key: 'writeKey',
                 label: 'Laudspeaker API Key',
                 type: 'string',
@@ -35,6 +37,7 @@ export const laudspeakerPlugin: LegacyDestinationPlugin = {
                 secret: true,
             },
             {
+                templating: false,
                 key: 'phEmail',
                 label: 'Email attribute name',
                 type: 'string',
@@ -44,6 +47,7 @@ export const laudspeakerPlugin: LegacyDestinationPlugin = {
                 secret: false,
             },
             {
+                templating: false,
                 key: 'phPhoneNumber',
                 label: 'Phone number attribute name',
                 type: 'string',
@@ -53,6 +57,7 @@ export const laudspeakerPlugin: LegacyDestinationPlugin = {
                 secret: false,
             },
             {
+                templating: false,
                 key: 'phDeviceToken',
                 label: 'Device Token attribute name',
                 type: 'string',
@@ -62,6 +67,7 @@ export const laudspeakerPlugin: LegacyDestinationPlugin = {
                 secret: false,
             },
             {
+                templating: false,
                 key: 'phCustom',
                 label: 'Custom field attribute name',
                 type: 'string',

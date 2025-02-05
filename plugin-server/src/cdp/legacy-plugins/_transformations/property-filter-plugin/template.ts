@@ -16,8 +16,8 @@ export const propertyFilterPlugin: LegacyTransformationPlugin = {
         hog: `return event`,
         inputs_schema: [
             {
-                key: 'properties',
                 templating: false,
+                key: 'properties',
                 label: 'Properties to filter out',
                 type: 'string',
                 description: 'A comma-separated list of properties to filter out (e.g. $ip, $current_url)',

@@ -17,6 +17,7 @@ export const intercomPlugin: LegacyDestinationPlugin = {
         hog: `return event`,
         inputs_schema: [
             {
+                templating: false,
                 key: 'intercomApiKey',
                 label: 'Intercom API Key',
                 type: 'string',
@@ -26,6 +27,7 @@ export const intercomPlugin: LegacyDestinationPlugin = {
                 secret: true,
             },
             {
+                templating: false,
                 key: 'triggeringEvents',
                 label: 'Triggering events',
                 type: 'string',
@@ -36,6 +38,7 @@ export const intercomPlugin: LegacyDestinationPlugin = {
                 secret: false,
             },
             {
+                templating: false,
                 key: 'ignoredEmailDomains',
                 label: 'Email domains to skip',
                 type: 'string',
@@ -46,6 +49,7 @@ export const intercomPlugin: LegacyDestinationPlugin = {
                 secret: false,
             },
             {
+                templating: false,
                 key: 'useEuropeanDataStorage',
                 label: 'Send events to European Data Hosting',
                 type: 'choice',

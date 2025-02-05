@@ -17,6 +17,7 @@ export const engagePlugin: LegacyDestinationPlugin = {
         hog: 'return event',
         inputs_schema: [
             {
+                templating: false,
                 key: 'publicKey',
                 label: 'Public key',
                 type: 'string',
@@ -25,6 +26,7 @@ export const engagePlugin: LegacyDestinationPlugin = {
                 secret: true,
             },
             {
+                templating: false,
                 key: 'secret',
                 label: 'Private key',
                 type: 'string',
@@ -33,6 +35,7 @@ export const engagePlugin: LegacyDestinationPlugin = {
                 secret: true,
             },
             {
+                templating: false,
                 key: 'filter',
                 label: 'Event filter',
                 type: 'choice',

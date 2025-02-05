@@ -18,6 +18,7 @@ export const hubspotPlugin: LegacyDestinationPlugin = {
         hog: `return event`,
         inputs_schema: [
             {
+                templating: false,
                 key: 'hubspotAccessToken',
                 description: 'Can be acquired under Profile Preferences -> Integrations -> Private Apps',
                 label: 'Hubspot Access Token',
@@ -26,6 +27,7 @@ export const hubspotPlugin: LegacyDestinationPlugin = {
                 secret: true,
             },
             {
+                templating: false,
                 key: 'triggeringEvents',
                 description:
                     'A comma-separated list of PostHog events you want to trigger Contact creation in HubSpot. By default, we recommend using the $identify event.',
@@ -35,6 +37,7 @@ export const hubspotPlugin: LegacyDestinationPlugin = {
                 required: true,
             },
             {
+                templating: false,
                 key: 'additionalPropertyMappings',
                 description:
                     'A mapping of additional PostHog event or person properties to map to newly created Hubspot Contacts. Provide a comma-separated mapping of: personPropertylabel:hubSpotPropertyName',
@@ -44,6 +47,7 @@ export const hubspotPlugin: LegacyDestinationPlugin = {
                 required: false,
             },
             {
+                templating: false,
                 key: 'ignoredEmails',
                 description:
                     'A comma-separated list of email domains to ignore and not create contacts for in Hubspot.',

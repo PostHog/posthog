@@ -15,6 +15,7 @@ export const taxonomyPlugin: LegacyTransformationPlugin = {
         hog: `return event`,
         inputs_schema: [
             {
+                templating: false,
                 key: 'defaultNamingConvention',
                 templating: false,
                 label: 'Select your default naming pattern',

@@ -15,6 +15,7 @@ export const semverFlattenerPlugin: LegacyTransformationPlugin = {
         hog: `return event`,
         inputs_schema: [
             {
+                templating: false,
                 key: 'properties',
                 templating: false,
                 label: 'comma separated properties to explode version number from',

@@ -18,6 +18,7 @@ export const sendgridPlugin: LegacyDestinationPlugin = {
         hog: 'return event',
         inputs_schema: [
             {
+                templating: false,
                 key: 'sendgridApiKey',
                 label: 'Sendgrid API Key',
                 type: 'string',
@@ -26,6 +27,7 @@ export const sendgridPlugin: LegacyDestinationPlugin = {
                 secret: true,
             },
             {
+                templating: false,
                 key: 'customFields',
                 label: 'Custom fields',
                 type: 'string',

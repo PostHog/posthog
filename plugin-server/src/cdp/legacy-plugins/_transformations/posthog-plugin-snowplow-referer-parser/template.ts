@@ -16,8 +16,8 @@ export const posthogPluginSnowplowRefererParser: LegacyTransformationPlugin = {
         hog: `return event`,
         inputs_schema: [
             {
-                key: 'internal_domains',
                 templating: false,
+                key: 'internal_domains',
                 label: 'Internal domains (comma delimited)',
                 type: 'string',
                 description: 'Consider these domains as direct referrers. Example: `example.com,blog.example.com`',

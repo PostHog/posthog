@@ -17,6 +17,7 @@ export const brazePlugin: LegacyDestinationPlugin = {
         hog: 'return event',
         inputs_schema: [
             {
+                templating: false,
                 key: 'brazeEndpoint',
                 label: 'Braze REST Endpoint',
                 type: 'choice',
@@ -64,6 +65,7 @@ export const brazePlugin: LegacyDestinationPlugin = {
                 ],
             },
             {
+                templating: false,
                 key: 'apiKey',
                 label: 'API Key',
                 type: 'string',
@@ -72,6 +74,7 @@ export const brazePlugin: LegacyDestinationPlugin = {
                 secret: true,
             },
             {
+                templating: false,
                 key: 'eventsToExport',
                 label: 'Events to Export',
                 type: 'string',
@@ -82,6 +85,7 @@ export const brazePlugin: LegacyDestinationPlugin = {
                 secret: false,
             },
             {
+                templating: false,
                 key: 'userPropertiesToExport',
                 label: 'User Properties to Export',
                 type: 'string',
@@ -92,6 +96,7 @@ export const brazePlugin: LegacyDestinationPlugin = {
                 secret: false,
             },
             {
+                templating: false,
                 key: 'eventsToExportUserPropertiesFrom',
                 label: 'Events for user properties search',
                 type: 'string',

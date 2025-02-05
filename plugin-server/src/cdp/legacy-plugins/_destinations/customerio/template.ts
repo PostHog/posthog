@@ -18,6 +18,7 @@ export const customerioPlugin: LegacyDestinationPlugin = {
         hog: `return event`,
         inputs_schema: [
             {
+                templating: false,
                 key: 'customerioSiteId',
                 description: 'Provided during Customer.io setup.',
                 label: 'Customer.io Site ID',
@@ -26,6 +27,7 @@ export const customerioPlugin: LegacyDestinationPlugin = {
                 secret: true,
             },
             {
+                templating: false,
                 key: 'customerioToken',
                 description: 'Provided during Customer.io setup.',
                 label: 'Customer.io API Key',
@@ -34,6 +36,7 @@ export const customerioPlugin: LegacyDestinationPlugin = {
                 secret: true,
             },
             {
+                templating: false,
                 key: 'host',
                 label: 'Tracking Endpoint',
                 description: 'Use the EU variant if your Customer.io account is based in the EU region.',
@@ -45,6 +48,7 @@ export const customerioPlugin: LegacyDestinationPlugin = {
                 ],
             },
             {
+                templating: false,
                 key: 'identifyByEmail',
                 label: 'Identify by email',
                 description:
@@ -57,6 +61,7 @@ export const customerioPlugin: LegacyDestinationPlugin = {
                 ],
             },
             {
+                templating: false,
                 key: 'sendEventsFromAnonymousUsers',
                 label: 'Filtering of Anonymous Users',
                 type: 'choice',
@@ -76,6 +81,7 @@ export const customerioPlugin: LegacyDestinationPlugin = {
                 ],
             },
             {
+                templating: false,
                 key: 'eventsToSend',
                 label: 'PostHog Event Allowlist',
                 type: 'string',

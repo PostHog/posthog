@@ -18,6 +18,7 @@ export const patternsPlugin: LegacyDestinationPlugin = {
         hog: 'return event',
         inputs_schema: [
             {
+                templating: false,
                 key: 'webhookUrl',
                 label: 'Patterns Webhook URL',
                 type: 'string',
@@ -25,6 +26,7 @@ export const patternsPlugin: LegacyDestinationPlugin = {
                 secret: false,
             },
             {
+                templating: false,
                 key: 'allowedEventTypes',
                 label: 'Event types to send to Patterns (comma-separated)',
                 type: 'string',

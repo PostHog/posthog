@@ -18,6 +18,7 @@ export const pubsubPlugin: LegacyDestinationPlugin = {
         hog: 'return event',
         inputs_schema: [
             {
+                templating: false,
                 key: 'googleCloudKeyJson',
                 label: 'JSON file with your google cloud key',
                 type: 'json',
@@ -25,6 +26,7 @@ export const pubsubPlugin: LegacyDestinationPlugin = {
                 secret: true,
             },
             {
+                templating: false,
                 key: 'topicId',
                 label: 'Topic ID',
                 type: 'string',
@@ -33,6 +35,7 @@ export const pubsubPlugin: LegacyDestinationPlugin = {
                 secret: false,
             },
             {
+                templating: false,
                 key: 'exportEventsToIgnore',
                 label: 'Events to ignore',
                 type: 'string',
@@ -42,6 +45,7 @@ export const pubsubPlugin: LegacyDestinationPlugin = {
                 secret: false,
             },
             {
+                templating: false,
                 key: 'exportEventsBufferBytes',
                 label: 'Maximum upload size in bytes',
                 type: 'string',
@@ -52,6 +56,7 @@ export const pubsubPlugin: LegacyDestinationPlugin = {
                 secret: false,
             },
             {
+                templating: false,
                 key: 'exportEventsBufferSeconds',
                 label: 'Export events at least every X seconds',
                 type: 'string',

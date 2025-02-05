@@ -18,6 +18,7 @@ export const rudderstackPlugin: LegacyDestinationPlugin = {
         hog: 'return event',
         inputs_schema: [
             {
+                templating: false,
                 key: 'dataPlaneUrl',
                 label: 'RudderStack Server URL',
                 type: 'string',
@@ -27,6 +28,7 @@ export const rudderstackPlugin: LegacyDestinationPlugin = {
                 secret: false,
             },
             {
+                templating: false,
                 key: 'writeKey',
                 label: 'RudderStack Source Writekey',
                 type: 'string',

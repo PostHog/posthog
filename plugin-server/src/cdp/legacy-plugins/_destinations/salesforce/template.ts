@@ -18,6 +18,7 @@ export const salesforcePlugin: LegacyDestinationPlugin = {
         hog: 'return event',
         inputs_schema: [
             {
+                templating: false,
                 key: 'salesforceHost',
                 label: 'Salesforce Service Host',
                 type: 'string',
@@ -26,6 +27,7 @@ export const salesforcePlugin: LegacyDestinationPlugin = {
                 secret: false,
             },
             {
+                templating: false,
                 key: 'username',
                 label: 'Username',
                 type: 'string',
@@ -33,6 +35,7 @@ export const salesforcePlugin: LegacyDestinationPlugin = {
                 secret: false,
             },
             {
+                templating: false,
                 key: 'password',
                 label: 'Password',
                 type: 'string',
@@ -40,6 +43,7 @@ export const salesforcePlugin: LegacyDestinationPlugin = {
                 secret: true,
             },
             {
+                templating: false,
                 key: 'consumerKey',
                 label: 'Consumer key',
                 type: 'string',
@@ -47,6 +51,7 @@ export const salesforcePlugin: LegacyDestinationPlugin = {
                 secret: true,
             },
             {
+                templating: false,
                 key: 'consumerSecret',
                 label: 'Consumer secret',
                 type: 'string',
@@ -54,6 +59,7 @@ export const salesforcePlugin: LegacyDestinationPlugin = {
                 secret: true,
             },
             {
+                templating: false,
                 key: 'eventsToInclude',
                 label: 'Events to include',
                 type: 'string',
@@ -63,6 +69,7 @@ export const salesforcePlugin: LegacyDestinationPlugin = {
                 secret: false,
             },
             {
+                templating: false,
                 key: 'eventPath',
                 label: 'Path of the url where events will go to. No leading forward slash',
                 type: 'string',
@@ -71,6 +78,7 @@ export const salesforcePlugin: LegacyDestinationPlugin = {
                 secret: false,
             },
             {
+                templating: false,
                 key: 'eventMethodType',
                 label: 'The type of method for the event url',
                 type: 'string',
@@ -79,6 +87,7 @@ export const salesforcePlugin: LegacyDestinationPlugin = {
                 secret: false,
             },
             {
+                templating: false,
                 key: 'propertiesToInclude',
                 label: 'Properties to include',
                 type: 'string',
@@ -89,6 +98,7 @@ export const salesforcePlugin: LegacyDestinationPlugin = {
                 secret: false,
             },
             {
+                templating: false,
                 key: 'eventEndpointMapping',
                 label: 'Event endpoint mapping',
                 type: 'json',
@@ -99,6 +109,7 @@ export const salesforcePlugin: LegacyDestinationPlugin = {
                 secret: false,
             },
             {
+                templating: false,
                 key: 'fieldMappings',
                 label: 'Event to salesforce field mapping',
                 type: 'json',
@@ -109,6 +120,7 @@ export const salesforcePlugin: LegacyDestinationPlugin = {
                 secret: false,
             },
             {
+                templating: false,
                 key: 'debugLogging',
                 label: 'Enable debug logging',
                 type: 'choice',

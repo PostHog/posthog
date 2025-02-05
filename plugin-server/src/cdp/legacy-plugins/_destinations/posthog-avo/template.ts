@@ -18,6 +18,7 @@ export const avoPlugin: LegacyDestinationPlugin = {
         hog: 'return event',
         inputs_schema: [
             {
+                templating: false,
                 key: 'avoApiKey',
                 label: 'Avo API Key',
                 type: 'string',
@@ -25,6 +26,7 @@ export const avoPlugin: LegacyDestinationPlugin = {
                 secret: true,
             },
             {
+                templating: false,
                 key: 'environment',
                 label: 'Environment',
                 type: 'string',
@@ -33,6 +35,7 @@ export const avoPlugin: LegacyDestinationPlugin = {
                 secret: false,
             },
             {
+                templating: false,
                 key: 'appName',
                 label: 'App name',
                 type: 'string',
@@ -41,6 +44,7 @@ export const avoPlugin: LegacyDestinationPlugin = {
                 secret: false,
             },
             {
+                templating: false,
                 key: 'excludeEvents',
                 label: 'Events to exclude',
                 type: 'string',
@@ -50,6 +54,7 @@ export const avoPlugin: LegacyDestinationPlugin = {
                 secret: false,
             },
             {
+                templating: false,
                 key: 'includeEvents',
                 label: 'Events to include',
                 type: 'string',
@@ -59,6 +64,7 @@ export const avoPlugin: LegacyDestinationPlugin = {
                 secret: false,
             },
             {
+                templating: false,
                 key: 'excludeProperties',
                 label: 'Properties to exclude',
                 type: 'string',
@@ -68,6 +74,7 @@ export const avoPlugin: LegacyDestinationPlugin = {
                 secret: false,
             },
             {
+                templating: false,
                 key: 'includeProperties',
                 label: 'Properties to include',
                 type: 'string',

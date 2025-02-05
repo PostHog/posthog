@@ -17,6 +17,7 @@ export const replicatorPlugin: LegacyDestinationPlugin = {
         hog: 'return event',
         inputs_schema: [
             {
+                templating: false,
                 key: 'host',
                 label: 'Host',
                 type: 'string',
@@ -25,6 +26,7 @@ export const replicatorPlugin: LegacyDestinationPlugin = {
                 secret: false,
             },
             {
+                templating: false,
                 key: 'project_api_key',
                 label: 'Project API Key',
                 type: 'string',
@@ -33,6 +35,7 @@ export const replicatorPlugin: LegacyDestinationPlugin = {
                 secret: false,
             },
             {
+                templating: false,
                 key: 'replication',
                 label: 'Replication',
                 type: 'string',
@@ -42,6 +45,7 @@ export const replicatorPlugin: LegacyDestinationPlugin = {
                 secret: false,
             },
             {
+                templating: false,
                 key: 'events_to_ignore',
                 label: 'Events to ignore',
                 type: 'string',
@@ -51,6 +55,7 @@ export const replicatorPlugin: LegacyDestinationPlugin = {
                 secret: false,
             },
             {
+                templating: false,
                 key: 'disable_geoip',
                 label: 'Disable Geo IP?',
                 type: 'choice',
