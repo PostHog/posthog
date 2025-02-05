@@ -1,5 +1,5 @@
 {
-    "name": "posthog",
+    "name": "@posthog/frontend",
     "description": "",
     "version": "0.0.0",
     "repository": {
@@ -15,7 +15,7 @@
     "engines": {
         "node": ">=18 <19"
     },
-    "packageManager": "pnpm@8.10.5",
+    "packageManager": "pnpm@9.15.4",
     "scripts": {
         "copy-scripts": "mkdir -p frontend/dist/ && ./bin/copy-posthog-js",
         "test": "pnpm test:unit && pnpm test:visual",
@@ -79,10 +79,11 @@
         "@posthog/hogvm": "^1.0.67",
         "@posthog/icons": "0.10.0",
         "@posthog/plugin-scaffold": "^1.4.4",
-        "@radix-ui/react-accordion": "^1.2.2",
-        "@react-hook/size": "^2.1.2",
+        "@posthog/rrweb": "0.0.8",
         "@posthog/rrweb-plugin-console-record": "0.0.8",
         "@posthog/rrweb-types": "0.0.8",
+        "@radix-ui/react-accordion": "^1.2.2",
+        "@react-hook/size": "^2.1.2",
         "@sentry/react": "7.112.1",
         "@stripe/react-stripe-js": "^2.8.0",
         "@stripe/stripe-js": "^4.5.0",
@@ -190,7 +191,6 @@
         "react-transition-group": "^4.4.5",
         "react-virtualized": "^9.22.5",
         "resize-observer-polyfill": "^1.5.1",
-        "@posthog/rrweb": "0.0.8",
         "sass": "^1.26.2",
         "tailwind-merge": "^2.2.2",
         "tailwindcss": "3.4.1",
@@ -211,6 +211,8 @@
         "@babel/preset-react": "^7.22.5",
         "@babel/preset-typescript": "^7.22.5",
         "@cypress/webpack-preprocessor": "^6.0.2",
+        "@parcel/packager-ts": "2.13.3",
+        "@parcel/transformer-typescript-types": "2.13.3",
         "@playwright/test": "1.45.0",
         "@sentry/types": "7.112.1",
         "@storybook/addon-a11y": "^7.6.4",
@@ -339,6 +341,7 @@
             "typescript": "~4.9.5"
         },
         "patchedDependencies": {
+            "node-rdkafka@2.17.0": "patches/node-rdkafka@2.17.0.patch",
             "heatmap.js@2.0.5": "patches/heatmap.js@2.0.5.patch",
             "dayjs@1.11.11": "patches/dayjs@1.11.11.patch"
         }

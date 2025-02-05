@@ -1483,6 +1483,7 @@ export interface SessionRecordingUpdateType {
     analyzed?: boolean
     player_metadata?: Record<string, any> | null
     durations?: Record<string, any> | null
+    $pathname: string
 }
 
 export interface SessionRecordingPropertiesType {
@@ -2775,7 +2776,9 @@ export interface Survey {
         url: string
         selector: string
         seenSurveyWaitPeriodInDays?: number
-        urlMatchType?: SurveyUrlMatchType
+        urlMatchType?: SurveyMatchType
+        deviceTypes?: string[]
+        deviceTypesMatchType?: SurveyMatchType
         actions: {
             values: {
                 id: number
@@ -2810,7 +2813,7 @@ export interface Survey {
     response_sampling_daily_limits?: string[] | null
 }
 
-export enum SurveyUrlMatchType {
+export enum SurveyMatchType {
     Exact = PropertyOperator.Exact,
     IsNot = PropertyOperator.IsNot,
     Contains = PropertyOperator.IContains,
