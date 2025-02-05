@@ -194,7 +194,6 @@ export function AuthorizedUrlList({
         <div>
             <div className="flex items-center mb-4 gap-2 justify-between">
                 <LemonInput
-                    type="search"
                     placeholder={`Search for authorized ${onlyAllowDomains ? 'domains' : 'URLs'}`}
                     onChange={setSearchTerm}
                     value={searchTerm}
