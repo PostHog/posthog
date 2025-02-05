@@ -51,6 +51,8 @@ export const aiRegexHelperLogic = kea<aiRegexHelperLogicType>([
     listeners(({ actions, values }) => ({
         handleGenerateRegex: async () => {
             actions.setIsLoading(true)
+            actions.setError('')
+            actions.setGeneratedRegex('')
 
             const content = await api.recordings.aiRegex(values.input)
 

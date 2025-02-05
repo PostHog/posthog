@@ -8,8 +8,9 @@ from datetime import UTC, datetime, timedelta
 from json import JSONDecodeError
 from typing import Any, Optional, cast
 
-# from posthoganalytics.ai.openai import OpenAI
-from openai import OpenAI
+from posthoganalytics.ai.openai import OpenAI
+
+# from openai import OpenAI
 from urllib.parse import urlparse
 
 import posthoganalytics
@@ -86,35 +87,6 @@ STREAM_RESPONSE_TO_CLIENT_HISTOGRAM = Histogram(
     "session_snapshots_stream_response_to_client_histogram",
     "Time taken to stream a session snapshot to the client",
 )
-
-
-class MessageSerializer(serializers.Serializer):
-    role = serializers.ChoiceField(choices=["user", "assistant", "system"])
-    content = serializers.CharField()
-
-
-class AiRequestSerializer(serializers.Serializer):
-    messages = MessageSerializer(many=True)
-
-
-class AiFiltersResponseSerializer(serializers.Serializer):
-    result = serializers.CharField(required=True)
-    data = serializers.JSONField(required=True)
-
-    def to_representation(self, instance):
-        return {"result": instance["result"], "data": instance["data"]}
-
-
-class RegexRequestSerializer(serializers.Serializer):
-    regex = serializers.CharField()
-
-
-class AiRegexResponseSerializer(serializers.Serializer):
-    result = serializers.ChoiceField(choices=["success", "error"], required=True)
-    data = serializers.DictField(child=serializers.CharField(), required=True)
-
-    def to_representation(self, instance):
-        return {"result": instance["result"], "data": instance["data"]}
 
 
 class SurrogatePairSafeJSONEncoder(JSONEncoder):
@@ -860,24 +832,19 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         else:
             raise exceptions.ValidationError(f"Invalid version: {version}")
 
-    @extend_schema(
-        description="Generate session recording filters using AI",
-        request=AiRequestSerializer,
-        responses={200: AiFiltersResponseSerializer},
-    )
+    @extend_schema(description="Generate session recording filters using AI")
     @action(methods=["POST"], detail=False, url_path="ai/filters")
     def ai_filters(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Generate session recording filters using AI."""
         if not request.user.is_authenticated:
             raise exceptions.NotAuthenticated()
 
-        serializer = AiRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        if "messages" not in request.data:
+            raise exceptions.ValidationError("Missing required field: messages")
 
         # Create system prompt by combining the initial and properties prompts
         system_message = {"role": "system", "content": AI_FILTER_INITIAL_PROMPT + AI_FILTER_PROPERTIES_PROMPT}
         # Combine system prompt with user messages
-        messages = [system_message] + serializer.validated_data["messages"]
+        messages = [system_message] + request.data["messages"]
 
         client = _get_openai_client()
 
@@ -892,23 +859,19 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
     @extend_schema(
         description="Generate regex patterns using AI",
-        request=RegexRequestSerializer,
-        responses={200: AiRegexResponseSerializer},
     )
     @action(methods=["POST"], detail=False, url_path="ai/regex")
     def ai_regex(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Generate regex patterns using AI."""
         if not request.user.is_authenticated:
             raise exceptions.NotAuthenticated()
 
-        serializer = RegexRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        if "regex" not in request.data:
+            raise exceptions.ValidationError("Missing required field: regex")
 
-        regex = serializer.validated_data["regex"]
         # Convert messages to list of dictionaries with proper typing
         messages = [
             {"role": "system", "content": str(AI_REGEX_PROMPTS)},  # Ensure content is a string
-            {"role": "user", "content": str(regex)},  # Ensure content is a string
+            {"role": "user", "content": str(request.data["regex"])},  # Ensure content is a string
         ]
 
         client = _get_openai_client()
@@ -1076,5 +1039,4 @@ def _get_openai_client() -> OpenAI:
     if not client:
         raise exceptions.ValidationError("PostHog analytics client is not configured")
 
-    # return OpenAI(posthog_client=client)
-    return OpenAI()
+    return OpenAI(posthog_client=client)

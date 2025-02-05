@@ -60,7 +60,11 @@ export function AiRegexHelper(): JSX.Element {
                         </div>
                     </div>
                 )}
-                {error && <LemonBanner type="error">{error}</LemonBanner>}
+                {error && (
+                    <LemonBanner type="error" className="mt-2">
+                        {error}
+                    </LemonBanner>
+                )}
             </LemonModal>
         </>
     )
