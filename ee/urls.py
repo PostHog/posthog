@@ -102,7 +102,9 @@ def extend_api_router() -> None:
         r"conversations", conversation.ConversationViewSet, "environment_conversations", ["team_id"]
     )
 
-    environments_router.register(r"core_memory", core_memory.CoreMemoryViewSet, "environment_core_memory", ["team_id"])
+    environments_router.register(
+        r"core_memory", core_memory.MaxCoreMemoryViewSet, "environment_core_memory", ["team_id"]
+    )
 
 
 # The admin interface is disabled on self-hosted instances, as its misuse can be unsafe

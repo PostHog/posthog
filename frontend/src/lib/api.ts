@@ -2689,7 +2689,7 @@ const api = {
                 data: coreMemory,
             })
         },
-        async update(coreMemoryId: CoreMemory['id'], coreMemory: Partial<CoreMemory>): Promise<CoreMemory> {
+        async update(coreMemoryId: CoreMemory['id'], coreMemory: Pick<CoreMemory, 'text'>): Promise<CoreMemory> {
             return await new ApiRequest().coreMemoryDetail(coreMemoryId).update({ data: coreMemory })
         },
     },

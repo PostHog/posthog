@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from django.db import transaction
 from rest_framework import status
 
@@ -54,6 +56,41 @@ class TestCoreMemoryAPI(APIBaseTest):
         self.assertEqual(response.json()["text"], "Updated memory")
         self.core_memory.refresh_from_db()
         self.assertEqual(self.core_memory.text, "Updated memory")
+
+    def test_patch_core_memory_id_is_immutable(self):
+        pk = self.core_memory.pk
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/core_memory/{self.core_memory.pk}",
+            {"text": "Updated memory", "id": uuid4()},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], str(pk))
+        self.core_memory.refresh_from_db()
+        self.assertEqual(self.core_memory.pk, pk)
+
+    def test_patch_blank_memory(self):
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/core_memory/{self.core_memory.pk}", {"text": ""}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["text"], "")
+
+    def test_cannot_patch_null_memory(self):
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/core_memory/{self.core_memory.pk}", {"text": None}
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_post_blank_memory(self):
+        self.core_memory.delete()
+        response = self.client.post(f"/api/environments/{self.team.pk}/core_memory", {"text": ""})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["text"], "")
+
+    def test_cannot_post_null_memory(self):
+        self.core_memory.delete()
+        response = self.client.post(f"/api/environments/{self.team.pk}/core_memory", {"text": None})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_cannot_retrieve_other_team_memory(self):
         response = self.client.get(f"/api/environments/{self.team.pk}/core_memory/{self.other_core_memory.pk}")

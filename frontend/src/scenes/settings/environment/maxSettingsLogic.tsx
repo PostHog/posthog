@@ -49,15 +49,13 @@ export const maxSettingsLogic = kea<maxSettingsLogicType>([
                 const response = await api.coreMemory.list()
                 return response.results[0] || null
             },
-            createCoreMemory: async (data: CoreMemoryForm) => {
-                const response = await api.coreMemory.create(data)
-                lemonToast.success('The Max’s memory has been created.')
-                return response
-            },
             updateCoreMemory: async (data: CoreMemoryForm) => {
                 if (!values.coreMemory) {
-                    throw new Error('No core memory loaded.')
+                    const response = await api.coreMemory.create(data)
+                    lemonToast.success('The Max’s memory has been created.')
+                    return response
                 }
+
                 const response = await api.coreMemory.update(values.coreMemory.id, data)
                 lemonToast.success('The Max’s memory has been updated.')
                 return response
@@ -65,15 +63,11 @@ export const maxSettingsLogic = kea<maxSettingsLogicType>([
         },
     })),
 
-    forms(({ actions, values }) => ({
+    forms(({ actions }) => ({
         coreMemoryForm: {
             defaults: { text: '' } as CoreMemoryForm,
             submit: ({ text }) => {
-                if (values.coreMemory) {
-                    actions.updateCoreMemory({ text })
-                } else {
-                    actions.createCoreMemory({ text })
-                }
+                actions.updateCoreMemory({ text })
             },
         },
     })),
