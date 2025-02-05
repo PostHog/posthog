@@ -1,5 +1,5 @@
 import { IconExpand45, IconGear, IconInfo, IconOpenSidebar, IconX } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
@@ -146,11 +146,10 @@ const PathCleaningToggle = (): JSX.Element => {
             <LemonButton
                 icon={<IconBranch />}
                 onClick={() => setIsPathCleaningEnabled(!isPathCleaningEnabled)}
-                type={isPathCleaningEnabled ? 'primary' : 'secondary'}
-                active={isPathCleaningEnabled}
+                type="secondary"
                 size="small"
             >
-                Path cleaning: <strong className="ml-1">{isPathCleaningEnabled ? 'On' : 'Off'}</strong>
+                Path cleaning: <LemonSwitch checked={isPathCleaningEnabled} className="ml-1" size="xsmall" />
             </LemonButton>
         </Tooltip>
     )

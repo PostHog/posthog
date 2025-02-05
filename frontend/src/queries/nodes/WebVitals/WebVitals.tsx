@@ -7,7 +7,7 @@ import { AnyResponseType, WebVitalsQuery, WebVitalsQueryResponse } from '~/queri
 import { QueryContext } from '~/queries/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
-import { getMetric, LONG_METRIC_NAME } from './definitions'
+import { getMetric } from './definitions'
 import { WebVitalsContent } from './WebVitalsContent'
 import { WebVitalsTab } from './WebVitalsTab'
 
@@ -58,28 +58,24 @@ export function WebVitals(props: {
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 cursor-pointer border-b divide-y sm:divide-y-2 xl:divide-y-0 divide-x-0 sm:divide-x xl:divide-x-2">
                 <WebVitalsTab
                     metric="INP"
-                    label={LONG_METRIC_NAME.INP}
                     value={INP}
                     isActive={webVitalsTab === 'INP'}
                     setTab={() => setWebVitalsTab('INP')}
                 />
                 <WebVitalsTab
                     metric="LCP"
-                    label={LONG_METRIC_NAME.LCP}
                     value={LCP}
                     isActive={webVitalsTab === 'LCP'}
                     setTab={() => setWebVitalsTab('LCP')}
                 />
                 <WebVitalsTab
                     metric="FCP"
-                    label={LONG_METRIC_NAME.FCP}
                     value={FCP}
                     isActive={webVitalsTab === 'FCP'}
                     setTab={() => setWebVitalsTab('FCP')}
                 />
                 <WebVitalsTab
                     metric="CLS"
-                    label={LONG_METRIC_NAME.CLS}
                     value={CLS}
                     isActive={webVitalsTab === 'CLS'}
                     setTab={() => setWebVitalsTab('CLS')}
