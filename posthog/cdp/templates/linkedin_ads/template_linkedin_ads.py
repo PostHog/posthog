@@ -13,7 +13,6 @@ template: HogFunctionTemplate = HogFunctionTemplate(
 let body := {
     'conversion': f'urn:lla:llaPartnerConversion:{inputs.conversionRuleId}',
     'conversionHappenedAt': inputs.conversionDateTime,
-    'conversionValue': {},
     'user': {
         'userIds': [],
         'userInfo': {}
@@ -22,9 +21,11 @@ let body := {
 }
 
 if (not empty(inputs.currencyCode)) {
+    body.conversionValue := {}
     body.conversionValue.currencyCode := inputs.currencyCode
 }
 if (not empty(inputs.conversionValue)) {
+    body.conversionValue := {}
     body.conversionValue.amount := inputs.conversionValue
 }
 
