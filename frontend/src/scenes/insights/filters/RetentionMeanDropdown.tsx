@@ -35,11 +35,15 @@ export function RetentionMeanDropdown(): JSX.Element | null {
                     value: 'simple',
                     labelInMenu: 'Simple mean',
                     label: 'Simple mean',
+                    tooltip:
+                        'Calculates the average retention rate across all cohorts by giving equal weight to each cohort, regardless of its size.',
                 },
                 {
                     value: 'weighted',
                     labelInMenu: 'Weighted mean',
                     label: 'Weighted mean',
+                    tooltip:
+                        'Calculates the average retention rate by giving more weight to larger cohorts, accounting for different cohort sizes in the final mean.',
                 },
             ]}
         />
