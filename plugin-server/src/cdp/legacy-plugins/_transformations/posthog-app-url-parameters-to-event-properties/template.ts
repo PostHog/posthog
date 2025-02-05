@@ -6,7 +6,7 @@ export const posthogAppUrlParametersToEventProperties: LegacyTransformationPlugi
     setupPlugin: setupPlugin as any,
     template: {
         free: true,
-        status: 'deprecated',
+        status: 'stable',
         type: 'transformation',
         id: 'plugin-posthog-app-url-parameters-to-event-properties',
         name: 'URL parameters to event properties',

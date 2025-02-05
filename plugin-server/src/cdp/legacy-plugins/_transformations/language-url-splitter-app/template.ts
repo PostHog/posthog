@@ -5,7 +5,7 @@ export const languageUrlSplitterApp: LegacyTransformationPlugin = {
     processEvent,
     template: {
         free: true,
-        status: 'deprecated',
+        status: 'stable',
         type: 'transformation',
         id: 'plugin-language-url-splitter-app',
         name: 'Language URL stripper',
