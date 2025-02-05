@@ -10,6 +10,10 @@ import { FALLBACK_CANVAS_WIDTH, HIDE_PATH_CARD_HEIGHT } from './Paths'
 import { isSelectedPathStartOrEnd, PathNodeData, PathTargetLink, roundedRect } from './pathUtils'
 import { Paths } from './types'
 
+const NODE_WIDTH = 48
+const NODE_BORDER_RADIUS = 8
+const NODE_PADDING = 64
+
 const createCanvas = (canvasRef: RefObject<HTMLDivElement>, width: number, height: number): D3Selector => {
     return d3
         .select(canvasRef.current)
@@ -21,13 +25,22 @@ const createCanvas = (canvasRef: RefObject<HTMLDivElement>, width: number, heigh
 }
 
 const createSankeyGenerator = (width: number, height: number): Sankey.SankeyLayout<any, any, any> => {
+    const marginLeft = 0 + NODE_BORDER_RADIUS,
+        marginTop = 0,
+        marginRight = 0 + NODE_BORDER_RADIUS,
+        marginBottom = 0
     // @ts-expect-error - d3 sankey typing things
     return new Sankey.sankey()
         .nodeId((d: PathNodeData) => d.name)
         .nodeAlign(Sankey.sankeyJustify)
         .nodeSort(null)
-        .nodeWidth(15)
+        .nodeWidth(NODE_WIDTH - 2 * NODE_BORDER_RADIUS)
+        .nodePadding(NODE_PADDING)
         .size([width, height])
+        .extent([
+            [marginLeft, marginTop], // top-left coordinates
+            [width - marginRight, height - marginBottom], // bottom-right coordinates
+        ])
 }
 
 const appendPathNodes = (
@@ -41,10 +54,11 @@ const appendPathNodes = (
         .selectAll('rect')
         .data(nodes)
         .join('rect')
-        .attr('x', (d: PathNodeData) => d.x0 + 1)
+        .attr('x', (d: PathNodeData) => d.x0 - NODE_BORDER_RADIUS)
         .attr('y', (d: PathNodeData) => d.y0)
+        .attr('rx', NODE_BORDER_RADIUS)
         .attr('height', (d: PathNodeData) => d.y1 - d.y0)
-        .attr('width', (d: PathNodeData) => d.x1 - d.x0 - 2)
+        .attr('width', (d: PathNodeData) => d.x1 - d.x0 + 2 * NODE_BORDER_RADIUS)
         .attr('fill', (d: PathNodeData) => {
             let c
             for (const link of d.sourceLinks) {
@@ -226,9 +240,9 @@ export function renderPaths(
     const { nodes, links } = sankey(clonedPaths)
 
     setNodeCards(nodes.map((node: PathNodeData) => ({ ...node, visible: node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT })))
-
-    appendPathNodes(svg, nodes, pathsFilter, funnelPathsFilter, setNodeCards)
-    appendDropoffs(svg)
     appendPathLinks(svg, links, nodes, setNodeCards)
+    appendDropoffs(svg)
+    appendPathNodes(svg, nodes, pathsFilter, funnelPathsFilter, setNodeCards)
+
     addChartAxisLines(svg, height, nodes, maxLayer)
 }
