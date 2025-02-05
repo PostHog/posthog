@@ -1,6 +1,5 @@
 from unittest.mock import patch
 
-from django.test import override_settings
 from langchain_core.messages import AIMessage as LangchainAIMessage, HumanMessage as LangchainHumanMessage
 from langchain_core.runnables import RunnableLambda
 from parameterized import parameterized
@@ -8,11 +7,10 @@ from parameterized import parameterized
 from ee.hogai.root.nodes import RootNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import AssistantMessage, HumanMessage, RouterMessage
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 
-@override_settings(IN_UNIT_TESTING=True)
-class TestRootNode(ClickhouseTestMixin, APIBaseTest):
+class TestRootNode(ClickhouseTestMixin, BaseTest):
     def test_router(self):
         node = RootNode(self.team)
         state = AssistantState(messages=[RouterMessage(content="trends")])
