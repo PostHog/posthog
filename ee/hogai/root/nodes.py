@@ -6,8 +6,8 @@ from langchain_core.messages import AIMessage as LangchainAIMessage, HumanMessag
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, Field
-
+from pydantic import BaseModel, Field, ValidationError
+from langchain_core.output_parsers import PydanticToolsParser
 from ee.hogai.root.prompts import POST_QUERY_USER_PROMPT, ROOT_INSIGHT_DESCRIPTION_PROMPT, ROOT_SYSTEM_PROMPT
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -22,8 +22,11 @@ class retrieve_data_for_question(BaseModel):
     Retrieve results for a specific data question.
     """
 
-    query_title: str = Field(description="The title of the query being asked.")
+    query_description: str = Field(description="The description of the query being asked.")
     query_kind: Literal["trends", "funnel", "retention"] = Field(description=ROOT_INSIGHT_DESCRIPTION_PROMPT)
+
+
+root_tools_parser = PydanticToolsParser(tools=[retrieve_data_for_question])
 
 
 class RootNode(AssistantNode):
@@ -50,10 +53,23 @@ class RootNode(AssistantNode):
         )
 
         state_messages: list[BaseModel] = []
+
         if message.content:  # Should practically always be set, but with tool case this is not _guaranteed_
             state_messages.append(AssistantMessage(content=str(message.content), id=str(uuid4())))
+
         if message.tool_calls:
-            state_messages.append(RouterMessage(content=message.tool_calls[0]["args"]["query_kind"], id=str(uuid4())))
+            try:
+                tool_calls: list[retrieve_data_for_question] = root_tools_parser.invoke(message, config=config)
+            except ValidationError:
+                pass  # TODO: Retry generation using this error message
+            else:
+                state_messages.append(
+                    RouterMessage(
+                        content=tool_calls[0].query_kind,
+                        id=str(uuid4()),
+                    )
+                )
+
         return PartialAssistantState(messages=state_messages)
 
     def router(self, state: AssistantState) -> RouteName:
@@ -66,11 +82,11 @@ class RootNode(AssistantNode):
     def _model(self):
         # Research suggests temperature is not _massively_ correlated with creativity, hence even in this very
         # conversational context we're using a temperature of 0, for near determinism (https://arxiv.org/html/2405.00492v1)
-        return ChatOpenAI(model="gpt-4o", temperature=0.0, streaming=True, stream_usage=True).bind_tools(
-            [retrieve_data_for_question]
-        )
+        return ChatOpenAI(
+            model="gpt-4o", temperature=0.0, streaming=True, stream_usage=True, parallel_tool_calls=False
+        ).bind_tools([retrieve_data_for_question])
 
-    def _construct_messages(self, state: AssistantState):
+    def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
         history: list[BaseMessage] = []
         for message in state.messages:
             if isinstance(message, HumanMessage):
@@ -78,7 +94,7 @@ class RootNode(AssistantNode):
             elif isinstance(message, AssistantMessage):
                 history.append(LangchainAIMessage(content=message.content))
             elif isinstance(message, RouterMessage):
-                history.append(LangchainAIMessage(content=f"Generating a {message.content} query…"))
+                history.append(LangchainAIMessage(content=f"Generating a {message.content} query..."))
         if state.messages and isinstance(state.messages[-1], AssistantMessage):
             history.append(LangchainHumanMessage(content=POST_QUERY_USER_PROMPT))
         return history

@@ -73,12 +73,10 @@ class AssistantGraph:
             "retention": AssistantNodeName.RETENTION_PLANNER,
             "end": AssistantNodeName.END,
         }
-        router_node = RootNode(self._team)
-        builder.add_node(AssistantNodeName.ROOT, router_node.run)
+        root_node = RootNode(self._team)
+        builder.add_node(AssistantNodeName.ROOT, root_node.run)
         builder.add_conditional_edges(
-            AssistantNodeName.ROOT,
-            router_node.router,
-            path_map=cast(dict[Hashable, str], path_map),
+            AssistantNodeName.ROOT, root_node.router, path_map=cast(dict[Hashable, str], path_map)
         )
         return self
 
