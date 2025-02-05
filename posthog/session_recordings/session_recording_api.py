@@ -56,7 +56,7 @@ from posthog.session_recordings.realtime_snapshots import (
     publish_subscription,
 )
 from posthog.storage import object_storage
-from posthog.session_recordings.ai_data.ai_filter_schema import AI_FILTER_SCHEMA
+from posthog.session_recordings.ai_data.ai_filter_schema import AiFilterSchema
 from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
 from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
 from posthog.session_recordings.ai_data.ai_filter_prompts import AI_FILTER_INITIAL_PROMPT, AI_FILTER_PROPERTIES_PROMPT
@@ -848,10 +848,10 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         client = _get_openai_client()
 
-        completion = client.chat.completions.create(
+        completion = client.beta.chat.completions.parse(
             model="gpt-4o-mini",
             messages=messages,
-            response_format={"type": "json_schema", "json_schema": AI_FILTER_SCHEMA},
+            response_format=AiFilterSchema,
         )
 
         response_content = json.loads(completion.choices[0].message.content)
