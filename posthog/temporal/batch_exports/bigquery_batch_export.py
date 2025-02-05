@@ -100,6 +100,7 @@ def get_bigquery_fields_from_record_schema(
         if name == "_inserted_at":
             continue
 
+        repeated = False
         pa_field = record_schema.field(name)
 
         if pa.types.is_string(pa_field.type) or isinstance(pa_field.type, JsonType):
@@ -124,10 +125,14 @@ def get_bigquery_fields_from_record_schema(
         elif pa.types.is_timestamp(pa_field.type):
             bq_type = "TIMESTAMP"
 
-        else:
-            raise TypeError(f"Unsupported type: {pa_field.type}")
+        elif pa.types.is_list(pa_field.type) and pa.types.is_string(pa_field.type.value_type):
+            bq_type = "STRING"
+            repeated = True
 
-        bq_schema.append(bigquery.SchemaField(name, bq_type))
+        else:
+            raise TypeError(f"Unsupported type in field '{name}': '{pa_field.type}'")
+
+        bq_schema.append(bigquery.SchemaField(name, bq_type, mode="REPEATED" if repeated else "NULLABLE"))
 
     return bq_schema
 
@@ -249,6 +254,7 @@ class BigQueryClient(bigquery.Client):
         mutable: bool,
         stage_fields_cast_to_json: collections.abc.Sequence[str] | None = None,
         merge_key: collections.abc.Iterable[bigquery.SchemaField] | None = None,
+        update_key: collections.abc.Iterable[str] | None = None,
     ):
         """Merge two tables in BigQuery.
 
@@ -270,11 +276,15 @@ class BigQueryClient(bigquery.Client):
                 final_table, stage_table, stage_fields_cast_to_json=stage_fields_cast_to_json
             )
         else:
-            if merge_key is None:
-                raise ValueError("Merge key must be defined when merging a mutable model")
+            if merge_key is None or update_key is None:
+                raise ValueError("Merge key and update key must be defined when merging a mutable model")
 
-            return await self.amerge_person_tables(
-                final_table, stage_table, merge_key=merge_key, stage_fields_cast_to_json=stage_fields_cast_to_json
+            return await self.amerge_mutable_tables(
+                final_table,
+                stage_table,
+                merge_key=merge_key,
+                update_key=update_key,
+                stage_fields_cast_to_json=stage_fields_cast_to_json,
             )
 
     async def acheck_for_query_permissions_on_table(
@@ -354,13 +364,12 @@ class BigQueryClient(bigquery.Client):
         query_job = self.query(query, job_config=job_config)
         return await asyncio.to_thread(query_job.result)
 
-    async def amerge_person_tables(
+    async def amerge_mutable_tables(
         self,
         final_table: bigquery.Table,
         stage_table: bigquery.Table,
         merge_key: collections.abc.Iterable[bigquery.SchemaField],
-        person_version_key: str = "person_version",
-        person_distinct_id_version_key: str = "person_distinct_id_version",
+        update_key: collections.abc.Iterable[str],
         stage_fields_cast_to_json: collections.abc.Sequence[str] | None = None,
     ):
         """Merge two identical person model tables in BigQuery."""
@@ -377,6 +386,14 @@ class BigQueryClient(bigquery.Client):
             if n > 0:
                 merge_condition += " AND "
             merge_condition += f"final.`{field.name}` = stage.`{field.name}`"
+
+        update_condition = "AND ("
+
+        for n, field in enumerate(update_key):
+            if n > 0:
+                update_condition += " OR "
+            update_condition += f"final.`{field}` = stage.`{field}`"
+        update_condition += ")"
 
         update_clause = ""
         values = ""
@@ -438,7 +455,7 @@ class BigQueryClient(bigquery.Client):
         ) stage
         {merge_condition}
 
-        WHEN MATCHED AND (stage.`{person_version_key}` > final.`{person_version_key}` OR stage.`{person_distinct_id_version_key}` > final.`{person_distinct_id_version_key}`) THEN
+        WHEN MATCHED {update_condition} THEN
             UPDATE SET
                 {update_clause}
         WHEN NOT MATCHED BY TARGET THEN
@@ -696,19 +713,24 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         ]
 
         mutable = False
-        merge_key = (
-            bigquery.SchemaField("team_id", "INT64"),
-            bigquery.SchemaField("distinct_id", "STRING"),
-        )
+        merge_key = None
+        update_key = None
         if isinstance(inputs.batch_export_model, BatchExportModel):
             if inputs.batch_export_model.name == "persons":
                 mutable = True
+                merge_key = (
+                    bigquery.SchemaField("team_id", "INT64"),
+                    bigquery.SchemaField("distinct_id", "STRING"),
+                )
+
+                update_key = ("person_version", "person_distinct_id_version")
             elif inputs.batch_export_model.name == "sessions":
                 mutable = True
                 merge_key = (
                     bigquery.SchemaField("team_id", "INT64"),
                     bigquery.SchemaField("session_id", "STRING"),
                 )
+                update_key = ("end_timestamp",)
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
         stage_table_name = f"stage_{inputs.table_id}_{data_interval_end_str}_{inputs.team_id}"
@@ -766,6 +788,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                             stage_table=bigquery_stage_table,
                             mutable=mutable,
                             merge_key=merge_key,
+                            update_key=update_key,
                             stage_fields_cast_to_json=json_columns,
                         )
 
