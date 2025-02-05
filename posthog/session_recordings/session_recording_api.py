@@ -8,9 +8,7 @@ from datetime import UTC, datetime, timedelta
 from json import JSONDecodeError
 from typing import Any, Optional, cast
 
-# from posthoganalytics.ai.openai import OpenAI
-
-from openai import OpenAI
+from posthoganalytics.ai.openai import OpenAI
 from urllib.parse import urlparse
 
 import posthoganalytics
@@ -1037,5 +1035,4 @@ def _get_openai_client() -> OpenAI:
     if not client:
         raise exceptions.ValidationError("PostHog analytics client is not configured")
 
-    # return OpenAI(posthog_client=client)
-    return OpenAI()
+    return OpenAI(posthog_client=client)
