@@ -290,7 +290,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             lookahead = (
                 ast.Call(name="toIntervalDay", args=[ast.Constant(value=7)])
                 if self.query_date_range.interval_type == IntervalType.WEEK
-                else ast.Call(name="toIntervalDay", args=[ast.Constant(value=30)])
+                else ast.Call(name="toIntervalMonth", args=[ast.Constant(value=1)])
             )
 
         query = cast(
@@ -308,8 +308,8 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 ) d
                 CROSS JOIN {cross_join_select_query} e
                 WHERE
-                    e.timestamp <= d.timestamp + {lookahead} AND
-                    e.timestamp > d.timestamp - {exclusive_lookback}
+                    e.timestamp < d.timestamp + {lookahead} AND
+                    e.timestamp >= d.timestamp - {exclusive_lookback}
                 GROUP BY d.timestamp
                 ORDER BY d.timestamp
             """,
