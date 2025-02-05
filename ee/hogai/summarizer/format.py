@@ -125,7 +125,7 @@ def _extract_series_label(series: dict) -> str:
 def _format_trends_aggregated_values(results: list[dict]) -> str:
     # Get dates and series labels
     result = results[0]
-    dates = result["action"].get("days") or []
+    dates = result.get("action", {}).get("days") or []
     if len(dates) == 0:
         range = "All time"
     else:
