@@ -6,7 +6,7 @@ export const pluginStonlyUtmExtractor: LegacyTransformationPlugin = {
     processEvent,
     template: {
         free: true,
-        status: 'alpha',
+        status: 'deprecated',
         type: 'transformation',
         id: 'plugin-stonly-utm-extractor',
         name: 'UTM Extractor',

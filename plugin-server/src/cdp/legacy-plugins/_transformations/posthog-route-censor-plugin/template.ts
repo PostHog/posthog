@@ -9,7 +9,7 @@ export const posthogRouteCensorPlugin: LegacyTransformationPlugin = {
     setupPlugin: setupPlugin as any,
     template: {
         free: true,
-        status: 'alpha',
+        status: 'deprecated',
         type: 'transformation',
         id: 'plugin-posthog-route-censor-plugin',
         name: 'Route Censor',

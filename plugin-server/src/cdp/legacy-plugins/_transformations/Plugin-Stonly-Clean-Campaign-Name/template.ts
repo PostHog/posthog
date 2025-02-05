@@ -6,7 +6,7 @@ export const pluginStonlyCleanCampaignName: LegacyTransformationPlugin = {
     processEvent,
     template: {
         free: true,
-        status: 'alpha',
+        status: 'deprecated',
         type: 'transformation',
         id: 'plugin-stonly-clean-campaign-name',
         name: 'Clean Campaign Name',

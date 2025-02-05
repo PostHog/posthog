@@ -6,7 +6,7 @@ export const posthogPluginSnowplowRefererParser: LegacyTransformationPlugin = {
     processEvent,
     template: {
         free: true,
-        status: 'alpha',
+        status: 'deprecated',
         type: 'transformation',
         id: 'plugin-posthog-snowplow-referer-parser',
         name: 'UTM Referrer',

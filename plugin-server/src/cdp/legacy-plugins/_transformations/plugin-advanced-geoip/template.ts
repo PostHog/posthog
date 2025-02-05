@@ -6,7 +6,7 @@ export const pluginAdvancedGeoip: LegacyTransformationPlugin = {
     processEvent,
     template: {
         free: true,
-        status: 'alpha',
+        status: 'deprecated',
         type: 'transformation',
         id: 'plugin-advanced-geoip',
         name: 'Advanced GeoIP',

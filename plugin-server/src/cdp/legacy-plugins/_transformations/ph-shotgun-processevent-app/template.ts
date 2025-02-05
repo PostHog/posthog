@@ -5,7 +5,7 @@ export const phShotgunProcessEventApp: LegacyTransformationPlugin = {
     processEvent,
     template: {
         free: true,
-        status: 'alpha',
+        status: 'deprecated',
         type: 'transformation',
         id: 'plugin-ph-shotgun-processevent-app',
         name: 'Shotgun Process Event App',
