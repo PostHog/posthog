@@ -570,9 +570,7 @@ export function isQueryTooLarge(query: Node<Record<string, any>>): boolean {
     return queryLength > 1024 * 1024
 }
 
-export function parseDraftQueryFromLocalStorage(
-    query: string
-): { query: Node<Record<string, any>>; timestamp: number } | null {
+function parseAndMigrateQuery<T>(query: string): T | null {
     try {
         const parsedQuery = JSON.parse(query)
         // We made a database migration to convert showMean from a boolean to a string,
@@ -587,6 +585,12 @@ export function parseDraftQueryFromLocalStorage(
         console.error('Error parsing query', e)
         return null
     }
+}
+
+export function parseDraftQueryFromLocalStorage(
+    query: string
+): { query: Node<Record<string, any>>; timestamp: number } | null {
+    return parseAndMigrateQuery(query)
 }
 
 export function crushDraftQueryForLocalStorage(query: Node<Record<string, any>>, timestamp: number): string {
@@ -594,20 +598,7 @@ export function crushDraftQueryForLocalStorage(query: Node<Record<string, any>>,
 }
 
 export function parseDraftQueryFromURL(query: string): Node<Record<string, any>> | null {
-    try {
-        const parsedQuery = JSON.parse(query)
-        // We made a database migration to convert showMean from a boolean to a string,
-        // to allow for weighted and simple mean in retention tables. This ensures older URLs
-        // are parsed correctly.
-        const retentionFilter = parsedQuery?.source?.retentionFilter
-        if (retentionFilter && 'showMean' in retentionFilter && typeof retentionFilter.showMean === 'boolean') {
-            retentionFilter.showMean = retentionFilter.showMean ? 'simple' : null
-        }
-        return parsedQuery
-    } catch (e) {
-        console.error('Error parsing query', e)
-        return null
-    }
+    return parseAndMigrateQuery(query)
 }
 
 export function crushDraftQueryForURL(query: Node<Record<string, any>>): string {
