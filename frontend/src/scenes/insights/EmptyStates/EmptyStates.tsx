@@ -201,7 +201,7 @@ export function StatelessInsightLoadingState({
         10000
 
     return (
-        <div data-attr="insight-empty-state" className="insights-loading-state rounded p-4 m-2 h-full w-full">
+        <div data-attr="insight-empty-state" className="insights-loading-state rounded p-4 m-2 h-full">
             <div className="flex flex-col gap-1">
                 <span
                     className={clsx(
