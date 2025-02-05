@@ -20,7 +20,7 @@ let body := {
     'eventId' : inputs.eventId
 }
 
-if (not empty(inputs.conversionValue) or not empty(inputs.conversionValue)) {
+if (not empty(inputs.conversionValue) or not empty(inputs.currencyCode)) {
     body.conversionValue := {}
 }
 if (not empty(inputs.currencyCode)) {
