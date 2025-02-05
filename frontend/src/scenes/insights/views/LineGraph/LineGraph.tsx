@@ -518,7 +518,7 @@ export function LineGraph_({
         }
         const gridOptions: Partial<GridLineOptions> = {
             color: (context) => {
-                if (goalLinesY.includes(context.tick?.value)) {
+                if (goalLinesY.includes(context.tick?.value) || showMultipleYAxes) {
                     return 'transparent'
                 }
 
