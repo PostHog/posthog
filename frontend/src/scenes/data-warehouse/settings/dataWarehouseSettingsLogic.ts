@@ -130,12 +130,6 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 }),
             },
         ],
-        dataWarehouseSourcesLoaded: [
-            false,
-            {
-                loadSourcesSuccess: () => true,
-            },
-        ],
     })),
     selectors({
         selfManagedTables: [

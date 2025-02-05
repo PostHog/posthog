@@ -2667,9 +2667,6 @@ const api = {
         async update(data: ProductIntentProperties): Promise<TeamType> {
             return await new ApiRequest().addProductIntent().update({ data })
         },
-        async list(): Promise<ProductIntent[]> {
-            return await new ApiRequest().productIntents().get()
-        },
     },
 
     queryURL: (): string => {

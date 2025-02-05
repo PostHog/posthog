@@ -122,20 +122,6 @@ export const surveysLogic = kea<surveysLogicType>([
             actions.setSurveysFilters({ ...values.filters, archived: tab === SurveysTabs.Archived })
         },
     })),
-    reducers({
-        surveysLoaded: [
-            false,
-            {
-                loadSurveysSuccess: () => true,
-            },
-        ],
-        surveysResponsesCountLoaded: [
-            false,
-            {
-                loadResponsesCountSuccess: () => true,
-            },
-        ],
-    }),
     selectors({
         searchedSurveys: [
             (selectors) => [selectors.surveys, selectors.searchTerm, selectors.filters],

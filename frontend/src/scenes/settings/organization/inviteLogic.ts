@@ -95,12 +95,6 @@ export const inviteLogic = kea<inviteLogicType>([
                 locationChanged: () => false,
             },
         ],
-        invitesLoaded: [
-            false,
-            {
-                loadInvitesSuccess: () => true,
-            },
-        ],
         invitesToSend: [
             [EMPTY_INVITE] as InviteRowState[],
             {

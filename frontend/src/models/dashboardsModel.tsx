@@ -210,12 +210,6 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 restoreDashboard: (state, { redirect }) => (typeof redirect !== 'undefined' ? redirect : state),
             },
         ],
-        dashboardsLoaded: [
-            false,
-            {
-                loadDashboardsSuccess: () => true,
-            },
-        ],
         rawDashboards: [
             {} as Record<string, DashboardBasicType | DashboardType<QueryBasedInsightModel>>,
             {

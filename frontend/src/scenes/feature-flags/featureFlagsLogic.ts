@@ -108,12 +108,6 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 results: state.results.filter((flag) => flag.id !== id),
             }),
         },
-        featureFlagsLoaded: [
-            false,
-            {
-                loadFeatureFlagsSuccess: () => true,
-            },
-        ],
         activeTab: [
             FeatureFlagsTab.OVERVIEW as FeatureFlagsTab,
             {
