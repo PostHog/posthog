@@ -15,8 +15,8 @@ from posthog.settings import (
 from posthog.schema import (
     DataWarehouseNode,
     EventsNode,
+    ExperimentQuery,
     ExperimentSignificanceCode,
-    ExperimentTrendsQuery,
     ExperimentTrendsQueryResponse,
     TrendsQuery,
 )
@@ -188,9 +188,9 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ff_property = f"$feature/{feature_flag.key}"
         count_query = TrendsQuery(series=[EventsNode(event="$pageview")])
 
-        experiment_query = ExperimentTrendsQuery(
+        experiment_query = ExperimentQuery(
             experiment_id=experiment.id,
-            kind="ExperimentTrendsQuery",
+            kind="ExperimentQuery",
             count_query=count_query,
             exposure_query=None,
         )
@@ -258,9 +258,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
-        )
+        query_runner = ExperimentQueryRunner(query=ExperimentQuery(**experiment.metrics[0]["query"]), team=self.team)
         self.assertEqual(query_runner.stats_version, 2)
         result = query_runner.calculate()
 
@@ -445,9 +443,9 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         feature_flag_property = f"$feature/{feature_flag.key}"
         count_query = TrendsQuery(series=[EventsNode(event="$pageview")], filterTestAccounts=True)
 
-        experiment_query = ExperimentTrendsQuery(
+        experiment_query = ExperimentQuery(
             experiment_id=experiment.id,
-            kind="ExperimentTrendsQuery",
+            kind="ExperimentQuery",
             count_query=count_query,
             exposure_query=None,
         )
@@ -517,9 +515,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         elif name == "cohort_dynamic" and cohort:
             cohort.calculate_people_ch(pending_version=0)
 
-        query_runner = ExperimentQueryRunner(
-            query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
-        )
+        query_runner = ExperimentQueryRunner(query=ExperimentQuery(**experiment.metrics[0]["query"]), team=self.team)
         # "feature_flags" and "element" filter out all events
         if name == "feature_flags" or name == "element":
             with self.assertRaises(ValueError) as context:
@@ -538,9 +534,9 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         ## Run again with filterTestAccounts=False
         count_query = TrendsQuery(series=[EventsNode(event="$pageview")], filterTestAccounts=False)
-        experiment_query = ExperimentTrendsQuery(
+        experiment_query = ExperimentQuery(
             experiment_id=experiment.id,
-            kind="ExperimentTrendsQuery",
+            kind="ExperimentQuery",
             count_query=count_query,
             exposure_query=None,
         )
@@ -548,9 +544,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(
-            query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
-        )
+        query_runner = ExperimentQueryRunner(query=ExperimentQuery(**experiment.metrics[0]["query"]), team=self.team)
         result = query_runner.calculate()
 
         trend_result = cast(ExperimentTrendsQueryResponse, result)
@@ -724,9 +718,9 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         exposure_query = TrendsQuery(series=[EventsNode(event="$feature_flag_called")], filterTestAccounts=True)
 
-        experiment_query = ExperimentTrendsQuery(
+        experiment_query = ExperimentQuery(
             experiment_id=experiment.id,
-            kind="ExperimentTrendsQuery",
+            kind="ExperimentQuery",
             count_query=count_query,
             exposure_query=exposure_query,
         )
@@ -833,9 +827,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         elif name == "cohort_dynamic" and cohort:
             cohort.calculate_people_ch(pending_version=0)
 
-        query_runner = ExperimentQueryRunner(
-            query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
-        )
+        query_runner = ExperimentQueryRunner(query=ExperimentQuery(**experiment.metrics[0]["query"]), team=self.team)
         # "feature_flags" and "element" filter out all events
         if name == "feature_flags" or name == "element":
             with freeze_time("2023-01-07"), self.assertRaises(ValueError) as context:
@@ -874,9 +866,9 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         exposure_query = TrendsQuery(series=[EventsNode(event="$feature_flag_called")], filterTestAccounts=False)
 
-        experiment_query = ExperimentTrendsQuery(
+        experiment_query = ExperimentQuery(
             experiment_id=experiment.id,
-            kind="ExperimentTrendsQuery",
+            kind="ExperimentQuery",
             count_query=count_query,
             exposure_query=exposure_query,
         )
@@ -884,9 +876,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(
-            query=ExperimentTrendsQuery(**experiment.metrics[0]["query"]), team=self.team
-        )
+        query_runner = ExperimentQueryRunner(query=ExperimentQuery(**experiment.metrics[0]["query"]), team=self.team)
         with freeze_time("2023-01-07"):
             result = query_runner.calculate()
 

@@ -29,7 +29,7 @@ from posthog.schema import (
     CachedExperimentTrendsQueryResponse,
     DataWarehouseNode,
     ExperimentSignificanceCode,
-    ExperimentTrendsQuery,
+    ExperimentQuery,
     ExperimentTrendsQueryResponse,
     ExperimentVariantTrendsBaseStats,
     DateRange,
@@ -41,7 +41,7 @@ from datetime import datetime, timedelta, UTC
 
 
 class ExperimentQueryRunner(QueryRunner):
-    query: ExperimentTrendsQuery
+    query: ExperimentQuery
     response: ExperimentTrendsQueryResponse
     cached_response: CachedExperimentTrendsQueryResponse
 
