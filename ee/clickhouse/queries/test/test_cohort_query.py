@@ -65,15 +65,6 @@ def execute(filter: Filter, team: Team):
     return res, q, params
 
 
-def execute2(filter: Filter, team: Team):
-    cohort_query = CohortQuery(filter=filter, team=team)
-    q, params = cohort_query.get_query()
-    res = sync_execute(q, {**params, **filter.hogql_context.values})
-    unittest.TestCase().assertCountEqual(res, cohort_query.hogql_result.results)
-    assert ["id"] == cohort_query.hogql_result.columns
-    return res, q, params, cohort_query.clickhouse_query
-
-
 class TestCohortQuery(ClickhouseTestMixin, BaseTest):
     @snapshot_clickhouse_queries
     def test_basic_query(self):
@@ -3518,18 +3509,22 @@ class TestCohortNegationValidation(BaseTest):
             }
         }
 
-        res, q, params, ch = execute2(
-            Filter(
+        cohort_query1 = CohortQuery(
+            filter=Filter(
                 data=filter_data,
                 team=self.team,
             ),
-            self.team,
+            team=self.team,
         )
-        res1, q1, params1, ch1 = execute2(
-            Filter(
+        cohort_query2 = CohortQuery(
+            filter=Filter(
                 data=filter_data,
                 team=other_team,
             ),
-            other_team,
+            team=other_team,
         )
-        assert 1 == len(res)
+
+        assert (
+            cohort_query1.clickhouse_query.replace(f"team_id, {self.team.pk}", f"team_id, {str(other_team.pk)}")
+            == cohort_query2.clickhouse_query
+        )

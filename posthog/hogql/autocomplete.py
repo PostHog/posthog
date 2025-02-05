@@ -566,7 +566,7 @@ def get_hogql_autocomplete(
                                     with timings.measure("property_filter"):
                                         property_query = PropertyDefinition.objects.filter(
                                             name__contains=match_term,
-                                            team_id=team.pk,
+                                            project_id=team.project_id,
                                             type=property_type,
                                         )
 

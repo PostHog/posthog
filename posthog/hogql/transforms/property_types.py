@@ -13,6 +13,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
+from posthog.models import Team
 from posthog.models.property import PropertyName, TableColumn
 from posthog.schema import PersonsOnEventsMode
 from posthog.hogql.database.s3_table import S3Table
@@ -24,6 +25,9 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
     if not context or not context.team_id:
         return
 
+    if not context.team:
+        context.team = Team.objects.get(id=context.team_id)
+
     # find all properties
     property_finder = PropertyFinder(context)
     property_finder.visit(node)
@@ -32,7 +36,7 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
     event_property_values = (
         PropertyDefinition.objects.filter(
             name__in=property_finder.event_properties,
-            team_id=context.team_id,
+            project_id=context.team.project_id,
             type__in=[None, PropertyDefinition.Type.EVENT],
         ).values_list("name", "property_type")
         if property_finder.event_properties
@@ -43,7 +47,7 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
     person_property_values = (
         PropertyDefinition.objects.filter(
             name__in=property_finder.person_properties,
-            team_id=context.team_id,
+            project_id=context.team.project_id,
             type=PropertyDefinition.Type.PERSON,
         ).values_list("name", "property_type")
         if property_finder.person_properties
@@ -57,7 +61,7 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
             continue
         group_property_values = PropertyDefinition.objects.filter(
             name__in=properties,
-            team_id=context.team_id,
+            project_id=context.team.project_id,
             type=PropertyDefinition.Type.GROUP,
             group_type_index=group_id,
         ).values_list("name", "property_type")
