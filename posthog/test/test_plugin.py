@@ -154,10 +154,19 @@ class TestPlugin(BaseTest):
     def test_plugins_preinstalled_when_hog_transformations_disabled(self):
         org = Organization.objects.create(name="Test Org")
 
+        # Create a preinstalled GeoIP plugin
+        geoip_plugin = Plugin.objects.create(
+            organization=org,
+            name="GeoIP",
+            url="https://www.npmjs.com/package/@posthog/geoip-plugin",
+            is_preinstalled=True,
+        )
+
         # Verify GeoIP plugin was installed
         plugins = Plugin.objects.filter(organization=org)
         geoip_plugins = plugins.filter(url__contains="geoip-plugin")
         self.assertEqual(geoip_plugins.count(), 1)
+        self.assertEqual(geoip_plugins.first(), geoip_plugin)
 
     @override_settings(USE_HOG_TRANSFORMATION_FOR_GEOIP_ON_PROJECT_CREATION=True, DISABLE_MMDB=False)
     def test_geoip_transformation_created_when_enabled(self):
@@ -208,6 +217,11 @@ class TestPlugin(BaseTest):
             name="GeoIP",
             url="https://www.npmjs.com/package/@posthog/geoip-plugin",
             is_preinstalled=True,
+        )
+
+        # Create team after plugin is created to trigger the enable_preinstalled_plugins_for_new_team signal
+        team = Team.objects.create_with_data(
+            organization=self.organization, name="Test Team 2", initiating_user=self.user
         )
 
         # Verify plugin was enabled for team
