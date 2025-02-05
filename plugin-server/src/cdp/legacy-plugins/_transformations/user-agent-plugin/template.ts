@@ -17,7 +17,6 @@ export const userAgentPlugin: LegacyTransformationPlugin = {
         hog: `return event`,
         inputs_schema: [
             {
-                templating: false,
                 key: 'overrideUserAgentDetails',
                 templating: false,
                 label: 'Can override existing browser related properties of event?',
@@ -28,7 +27,6 @@ export const userAgentPlugin: LegacyTransformationPlugin = {
                 required: false,
             },
             {
-                templating: false,
                 key: 'enableSegmentAnalyticsJs',
                 templating: false,
                 label: 'Automatically read segment_userAgent property, automatically sent by Segment via analytics.js?',
@@ -43,7 +41,6 @@ export const userAgentPlugin: LegacyTransformationPlugin = {
                 required: false,
             },
             {
-                templating: false,
                 key: 'debugMode',
                 templating: false,
                 type: 'choice',

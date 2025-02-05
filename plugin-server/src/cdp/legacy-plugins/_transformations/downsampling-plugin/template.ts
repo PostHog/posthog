@@ -34,7 +34,6 @@ export const downsamplingPlugin: LegacyTransformationPlugin = {
                 ],
                 default: 'Distinct ID aware sampling',
                 required: false,
-                templating: false,
             },
         ],
     },
