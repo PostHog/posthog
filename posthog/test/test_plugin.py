@@ -142,7 +142,7 @@ class TestPlugin(BaseTest):
             is_staff=True,
         )
 
-    @override_settings(HOG_TRANSFORMATIONS_ENABLED=True)
+    @override_settings(USE_HOG_TRANSFORMATION_FOR_GEOIP_ON_PROJECT_CREATION=True)
     def test_plugins_not_preinstalled_when_hog_transformations_enabled(self):
         org = Organization.objects.create(name="Test Org")
 
@@ -150,7 +150,7 @@ class TestPlugin(BaseTest):
         plugins = Plugin.objects.filter(organization=org)
         self.assertEqual(plugins.count(), 0)
 
-    @override_settings(HOG_TRANSFORMATIONS_ENABLED=False)
+    @override_settings(USE_HOG_TRANSFORMATION_FOR_GEOIP_ON_PROJECT_CREATION=False)
     def test_plugins_preinstalled_when_hog_transformations_disabled(self):
         org = Organization.objects.create(name="Test Org")
 
@@ -159,7 +159,7 @@ class TestPlugin(BaseTest):
         geoip_plugins = plugins.filter(url__contains="geoip-plugin")
         self.assertEqual(geoip_plugins.count(), 1)
 
-    @override_settings(HOG_TRANSFORMATIONS_ENABLED=True, DISABLE_MMDB=False)
+    @override_settings(USE_HOG_TRANSFORMATION_FOR_GEOIP_ON_PROJECT_CREATION=True, DISABLE_MMDB=False)
     def test_geoip_transformation_created_when_enabled(self):
         team = Team.objects.create_with_data(
             organization=self.organization, name="Test Team", initiating_user=self.user
@@ -180,7 +180,7 @@ class TestPlugin(BaseTest):
         plugin_configs = PluginConfig.objects.filter(team=team)
         self.assertEqual(plugin_configs.count(), 0)
 
-    @override_settings(HOG_TRANSFORMATIONS_ENABLED=True, DISABLE_MMDB=True)
+    @override_settings(USE_HOG_TRANSFORMATION_FOR_GEOIP_ON_PROJECT_CREATION=True, DISABLE_MMDB=True)
     def test_no_geoip_created_when_mmdb_disabled(self):
         team = Team.objects.create_with_data(
             organization=self.organization, name="Test Team", initiating_user=self.user
@@ -194,7 +194,7 @@ class TestPlugin(BaseTest):
         plugin_configs = PluginConfig.objects.filter(team=team)
         self.assertEqual(plugin_configs.count(), 0)
 
-    @override_settings(HOG_TRANSFORMATIONS_ENABLED=False)
+    @override_settings(USE_HOG_TRANSFORMATION_FOR_GEOIP_ON_PROJECT_CREATION=False)
     def test_plugins_enabled_when_transformations_disabled(self):
         team = Team.objects.create_with_data(
             organization=self.organization, name="Test Team", initiating_user=self.user

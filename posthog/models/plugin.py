@@ -552,8 +552,8 @@ def validate_plugin_job_payload(plugin: Plugin, job_type: str, payload: dict[str
 
 @receiver(models.signals.post_save, sender=Organization)
 def preinstall_plugins_for_new_organization(sender, instance: Organization, created: bool, **kwargs):
-    # Skip plugin installation if HOG transformations are enabled
-    if getattr(settings, "HOG_TRANSFORMATIONS_ENABLED", True):
+    # Skip plugin installation if using HOG transformations for GeoIP
+    if settings.USE_HOG_TRANSFORMATION_FOR_GEOIP_ON_PROJECT_CREATION:
         return
 
     if created and not is_cloud() and can_install_plugins(instance):
@@ -577,7 +577,7 @@ def enable_preinstalled_plugins_for_new_team(sender, instance: Team, created: bo
     if not created or not can_configure_plugins(instance.organization):
         return
 
-    if getattr(settings, "HOG_TRANSFORMATIONS_ENABLED", True):
+    if settings.USE_HOG_TRANSFORMATION_FOR_GEOIP_ON_PROJECT_CREATION:
         if not settings.DISABLE_MMDB:
             # New way: Create GeoIP transformation
             from posthog.models.hog_functions.hog_function import HogFunction
@@ -591,11 +591,11 @@ def enable_preinstalled_plugins_for_new_team(sender, instance: Team, created: bo
                 team=instance,
                 created_by=kwargs.get("initiating_user"),
                 type="transformation",
-                name=geoip_template["name"],
-                description=geoip_template["description"],
-                icon_url=geoip_template["icon_url"],
-                hog=geoip_template["hog"],
-                inputs_schema=geoip_template["inputs_schema"],
+                name=geoip_template.name,
+                description=geoip_template.description,
+                icon_url=geoip_template.icon_url,
+                hog=geoip_template.hog,
+                inputs_schema=geoip_template.inputs_schema,
                 enabled=True,
                 execution_order=1,
             )
