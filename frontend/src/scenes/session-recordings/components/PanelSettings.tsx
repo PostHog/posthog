@@ -25,14 +25,12 @@ interface SettingsMenuProps extends Omit<LemonMenuProps, 'items' | 'children'> {
     closeOnClickInside?: boolean
 }
 
-export function SettingsBar({
-    children,
-    border,
-    className,
-}: PropsWithChildren<{
+export type SettingsBarProps = PropsWithChildren<{
     border: 'bottom' | 'top' | 'all' | 'none'
     className?: string
-}>): JSX.Element {
+}>
+
+export function SettingsBar({ children, border, className }: SettingsBarProps): JSX.Element {
     return (
         <div
             className={clsx(
