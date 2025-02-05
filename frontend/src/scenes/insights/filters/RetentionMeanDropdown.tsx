@@ -1,9 +1,10 @@
 import { LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { RETENTION_MEAN_NONE } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-export type RetentionMeanType = 'simple' | 'weighted' | null
+export type RetentionMeanType = 'simple' | 'weighted' | typeof RETENTION_MEAN_NONE
 
 export function RetentionMeanDropdown(): JSX.Element | null {
     const { insightProps, canEditInsight } = useValues(insightLogic)
@@ -11,7 +12,7 @@ export function RetentionMeanDropdown(): JSX.Element | null {
     const { retentionFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
-    const showMean = retentionFilter?.showMean || null
+    const showMean = retentionFilter?.showMean || RETENTION_MEAN_NONE
 
     if (!canEditInsight) {
         return null
@@ -27,7 +28,7 @@ export function RetentionMeanDropdown(): JSX.Element | null {
             }}
             options={[
                 {
-                    value: null,
+                    value: RETENTION_MEAN_NONE,
                     labelInMenu: 'No mean calculation',
                     label: 'No mean calculation',
                 },
