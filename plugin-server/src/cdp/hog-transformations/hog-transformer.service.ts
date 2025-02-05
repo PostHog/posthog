@@ -194,9 +194,12 @@ export class HogTransformerService {
             func: async () => {
                 const teamHogFunctions = this.hogFunctionManager.getTeamHogFunctions(event.team_id)
                 const results: HogFunctionInvocationResult[] = []
+                const transformationsSucceeded: string[] = event.properties?.$transformations_succeeded || []
+                const transformationsFailed: string[] = event.properties?.$transformations_failed || []
 
                 // For now, execute each transformation function in sequence
                 for (const hogFunction of teamHogFunctions) {
+                    const transformationIdentifier = `${hogFunction.name} (${hogFunction.id})`
                     const result = await this.executeHogFunction(hogFunction, this.createInvocationGlobals(event))
 
                     results.push(result)
@@ -207,13 +210,14 @@ export class HogTransformerService {
                             function_id: hogFunction.id,
                             team_id: event.team_id,
                         })
+                        transformationsFailed.push(transformationIdentifier)
                         continue
                     }
 
                     if (!result.execResult) {
-                        // TODO: Correct this - if we have no result but a successful execution then we should be dropping the event
                         status.warn('⚠️', 'Execution result is null - dropping event')
                         hogTransformationDroppedEvents.inc()
+                        transformationsFailed.push(transformationIdentifier)
                         return {
                             event: null,
                             invocationResults: results,
@@ -232,6 +236,7 @@ export class HogTransformerService {
                         status.error('⚠️', 'Invalid transformation result - missing or invalid properties', {
                             function_id: hogFunction.id,
                         })
+                        transformationsFailed.push(transformationIdentifier)
                         continue
                     }
 
@@ -246,9 +251,21 @@ export class HogTransformerService {
                                 function_id: hogFunction.id,
                                 event: transformedEvent.event,
                             })
+                            transformationsFailed.push(transformationIdentifier)
                             continue
                         }
                         event.event = transformedEvent.event
+                    }
+
+                    transformationsSucceeded.push(transformationIdentifier)
+                }
+
+                // Only add the properties if there were transformations
+                if (transformationsSucceeded.length > 0 || transformationsFailed.length > 0) {
+                    event.properties = {
+                        ...event.properties,
+                        $transformations_succeeded: transformationsSucceeded,
+                        $transformations_failed: transformationsFailed,
                     }
                 }
 
