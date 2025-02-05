@@ -87,7 +87,7 @@ RUN pnpm run build:cyclotron && pnpm build
 # as we will copy it to the last image.
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
     corepack enable && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --prod
+    pnpm --filter=@posthog/plugin-server install --frozen-lockfile --store-dir /tmp/pnpm-store --prod
 
 #
 # ---------------------------------------------------------
