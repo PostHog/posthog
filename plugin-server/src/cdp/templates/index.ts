@@ -7,6 +7,7 @@ import { template as pluginAdvancedGeoipTemplate } from '../legacy-plugins/_tran
 import { template as posthogNetdataEventProcessingPluginTemplate } from '../legacy-plugins/_transformations/plugin-netdata-event-processing/template'
 import { template as pluginStonlyCleanCampaignNameTemplate } from '../legacy-plugins/_transformations/Plugin-Stonly-Clean-Campaign-Name/template'
 import { template as pluginStonlyUtmExtractorTemplate } from '../legacy-plugins/_transformations/plugin-stonly-UTM-Extractor/template'
+import { template as pluginPosthogAnonymizationTemplate } from '../legacy-plugins/_transformations/posthog-anonymization/template'
 import { template as posthogAppUnduplicatorTemplate } from '../legacy-plugins/_transformations/posthog-app-unduplicator/template'
 import { template as posthogAppUrlParametersToEventPropertiesTemplate } from '../legacy-plugins/_transformations/posthog-app-url-parameters-to-event-properties/template'
 import { template as posthogFilterOutTemplate } from '../legacy-plugins/_transformations/posthog-filter-out-plugin/template'
@@ -53,6 +54,7 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_DEPRECATED: HogFunctionTempl
     posthogPluginGeoipTemplate,
     posthogSnowplowRefererParserTemplate,
     posthogRouteCensorPluginTemplate,
+    pluginPosthogAnonymizationTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES: HogFunctionTemplate[] = [

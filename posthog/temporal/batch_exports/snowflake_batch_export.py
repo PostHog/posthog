@@ -828,7 +828,9 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
         )
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
         stagle_table_name = (
-            f"stage_{inputs.table_name}_{data_interval_end_str}" if requires_merge else inputs.table_name
+            f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}"
+            if requires_merge
+            else inputs.table_name
         )
 
         async with SnowflakeClient.from_inputs(inputs).connect() as snow_client:

@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from typing import Any
 from dateutil import parser
 import uuid
+import orjson
 import pyarrow as pa
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from dlt.sources import DltResource
@@ -260,6 +261,15 @@ def _convert_uuid_to_string(table_data: list[Any]) -> list[dict]:
     ]
 
 
+def _json_dumps(obj: Any) -> str:
+    try:
+        return orjson.dumps(obj).decode("utf-8")
+    except TypeError as e:
+        if str(e) == "Integer exceeds 64-bit range":
+            return json.dumps(obj)
+        raise TypeError(e)
+
+
 def table_from_py_list(table_data: list[Any]) -> pa.Table:
     try:
         if len(table_data) == 0:
@@ -276,6 +286,9 @@ def table_from_py_list(table_data: list[Any]) -> pa.Table:
 
         for row in table_data:
             for column, value in row.items():
+                if value is None:
+                    continue
+
                 column_types[column].add(type(value))
 
         inconsistent_columns = {column: types for column, types in column_types.items() if len(types) > 1}
@@ -289,6 +302,16 @@ def table_from_py_list(table_data: list[Any]) -> pa.Table:
                 value = row[column_name]
                 if not isinstance(value, list):
                     row[column_name] = [value]
+
+        # Convert any dict/lists to json strings to avoid schema mismatches in nested objects
+        for column_name, types in column_types.items():
+            has_dict_or_list = any(issubclass(column_type, dict | list) for column_type in types)
+            if not has_dict_or_list:
+                continue
+
+            for row in table_data:
+                value = row[column_name]
+                row[column_name] = _json_dumps(value)
 
         return pa.Table.from_pylist(table_data)
 
