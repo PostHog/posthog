@@ -63,6 +63,7 @@ export const laudspeakerPlugin: LegacyDestinationPlugin = {
             },
             {
                 key: 'phCustom',
+                label: 'Custom field attribute name',
                 type: 'string',
                 description: 'Provide attribute name for your custom field.',
                 default: '',
