@@ -273,7 +273,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
     },
     "event_properties": {
         "$last_posthog_reset": {
-            "label": "Timestamp of last call to `Reset`in the web sdk",
+            "label": "Timestamp of last call to `Reset` in the web sdk",
             "description": "The timestamp of the last call to `Reset` in the web SDK. This can be useful for debugging.",
             "ignored_in_assistant": True,
             "system": True,
