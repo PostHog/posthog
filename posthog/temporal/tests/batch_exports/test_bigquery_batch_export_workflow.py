@@ -824,9 +824,9 @@ async def test_insert_into_bigquery_activity_merges_sessions_data_in_follow_up_r
     """Test that the `insert_into_bigquery_activity` merges new versions of rows.
 
     This unit tests looks at the mutability handling capabilities of the aforementioned activity.
-    We will generate a new entry in the persons table for half of the persons exported in a first
+    We will generate a new entry in the raw_sessions table for the one session exported in the first
     run of the activity. We expect the new entries to have replaced the old ones in BigQuery after
-    the second run.
+    the second run with the same time range.
     """
     model = BatchExportModel(name="sessions", schema=None)
     table_id = f"test_insert_activity_mutability_table_sessions_{ateam.pk}"
@@ -842,8 +842,9 @@ async def test_insert_into_bigquery_activity_merges_sessions_data_in_follow_up_r
     )
 
     with freeze_time(TEST_TIME) as frozen_time:
-        await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
+        records_completed = await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
 
+        assert records_completed == 1
         ingested_timestamp = frozen_time().replace(tzinfo=dt.UTC)
 
         await assert_clickhouse_records_in_bigquery(
@@ -859,25 +860,34 @@ async def test_insert_into_bigquery_activity_merges_sessions_data_in_follow_up_r
         )
 
     events_to_export_created, _ = generate_test_data
+    event = events_to_export_created[0]
 
-    for event in events_to_export_created[: len(events_to_export_created) // 2]:
-        events_to_export_created, _, _ = await generate_test_events_in_clickhouse(
-            client=clickhouse_client,
-            team_id=ateam.pk,
-            start_time=data_interval_start,
-            end_time=data_interval_end,
-            count=1,
-            count_outside_range=0,
-            count_other_team=0,
-            duplicate=False,
-            properties=event["properties"],
-            person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
-            event_name=event["event"],
-            table="sharded_events",
-        )
+    new_data_interval_start, new_data_interval_end = (
+        data_interval_start + dt.timedelta(hours=1),
+        data_interval_end + dt.timedelta(hours=1),
+    )
+    _, _, _ = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=ateam.pk,
+        start_time=new_data_interval_start,
+        end_time=new_data_interval_end,
+        count=1,
+        count_outside_range=0,
+        count_other_team=0,
+        duplicate=False,
+        properties=event["properties"],
+        person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
+        event_name=event["event"],
+        table="sharded_events",
+    )
+
+    insert_inputs.data_interval_start = new_data_interval_start.isoformat()
+    insert_inputs.data_interval_end = new_data_interval_end.isoformat()
 
     with freeze_time(TEST_TIME) as frozen_time:
-        await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
+        records_completed = await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
+
+        assert records_completed == 1
 
         ingested_timestamp = frozen_time().replace(tzinfo=dt.UTC)
 
@@ -887,11 +897,17 @@ async def test_insert_into_bigquery_activity_merges_sessions_data_in_follow_up_r
             table_id=table_id,
             dataset_id=bigquery_dataset.dataset_id,
             team_id=ateam.pk,
-            date_ranges=[(data_interval_start, data_interval_end)],
+            date_ranges=[(new_data_interval_start, new_data_interval_end)],
             batch_export_model=model,
             min_ingested_timestamp=ingested_timestamp,
             sort_key="session_id",
         )
+
+    query_job = bigquery_client.query(f"SELECT * FROM {bigquery_dataset.dataset_id}.{table_id}")
+    result = query_job.result()
+    rows = list(result)
+    assert len(rows) == 1
+    assert rows[0]["session_id"] == event["properties"]["$session_id"]
 
 
 async def test_insert_into_bigquery_activity_handles_person_schema_changes(

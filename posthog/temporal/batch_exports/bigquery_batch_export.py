@@ -392,7 +392,7 @@ class BigQueryClient(bigquery.Client):
         for n, field in enumerate(update_key):
             if n > 0:
                 update_condition += " OR "
-            update_condition += f"final.`{field}` = stage.`{field}`"
+            update_condition += f"final.`{field}` < stage.`{field}`"
         update_condition += ")"
 
         update_clause = ""
