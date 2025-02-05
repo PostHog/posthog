@@ -149,10 +149,10 @@ class RetentionReference(StrEnum):
     PREVIOUS = "previous"
 
 
-class ShowMean(Enum):
+class ShowMean(StrEnum):
     SIMPLE = "simple"
     WEIGHTED = "weighted"
-    NONE_TYPE_NONE = None
+    NONE = "none"
 
 
 class AssistantSetPropertyFilterOperator(StrEnum):
