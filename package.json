@@ -60,7 +60,8 @@
     "dependencies": {
         "husky": "^7.0.4",
         "lint-staged": "~10.2.13",
-        "turbo": "^2.3.4"
+        "turbo": "^2.3.4",
+        "@posthog/hogvm": "^1.0.67"
     },
     "devDependencies": {
         "@typescript-eslint/eslint-plugin": "^7.1.1",
