@@ -1,3 +1,5 @@
+@import '../../styles/base';
+
 #button-toolbar {
     position: fixed;
     top: 0;
@@ -113,7 +115,7 @@
     // fixed width so that animations work when changing width
     width: var(--toolbar-width-expanded);
     overflow: hidden;
-    color: var(--text-3000);
+    color: var(--text-primary);
     background-color: var(--bg-primary);
     filter: drop-shadow(0 5px 10px var(--trace-3000));
     border: 1px solid var(--border-bold-3000);
