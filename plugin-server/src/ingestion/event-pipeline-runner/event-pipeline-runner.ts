@@ -3,6 +3,7 @@ import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
+import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KAFKA_INGESTION_WARNINGS } from '../../config/kafka-topics'
 import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
 import { runInstrumentedFunction } from '../../main/utils'
@@ -40,9 +41,9 @@ export class EventDroppedError extends Error {
     }
 }
 
-export const droppedEventFromPluginServerCounter = new Counter({
-    name: 'event_pipeline_plugin_dropped_events_total',
-    help: 'Count of events dropped by plugins',
+export const droppedEventFromTransformationsCounter = new Counter({
+    name: 'event_pipeline_transform_dropped_events_total',
+    help: 'Count of events dropped by transformations',
 })
 
 export class EventPipelineRunnerV2 {
@@ -54,7 +55,7 @@ export class EventPipelineRunnerV2 {
     private person?: Person
     private groupTypeManager: GroupTypeManager
 
-    constructor(private hub: Hub, private originalEvent: PipelineEvent) {
+    constructor(private hub: Hub, private originalEvent: PipelineEvent, private hogTransformer: HogTransformerService) {
         this.event = {
             ...this.originalEvent,
             properties: {
@@ -159,8 +160,15 @@ export class EventPipelineRunnerV2 {
 
         const pluginProcessed = await this.processPlugins()
         if (!pluginProcessed) {
-            droppedEventFromPluginServerCounter.inc()
+            droppedEventFromTransformationsCounter.inc()
             // NOTE: In this case we just return as it is expected, not an ingestion error
+            return
+        }
+
+        const result = await this.hogTransformer.transformEventAndProduceMessages(this.event)
+
+        if (!result.event) {
+            droppedEventFromTransformationsCounter.inc()
             return
         }
 

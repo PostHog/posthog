@@ -220,21 +220,6 @@ export class IngestionConsumer {
                 this.scheduleWork(Promise.all(runner.getPromises())).catch((error) => {
                     return this.handleProcessingError(error, message, event)
                 })
-
-                // const result = await this.runInstrumented('runEventPipeline', () => this.runEventPipeline(event))
-
-                // status.debug('🔁', `Processed event`, {
-                //     event,
-                // })
-
-                // // This contains the Kafka producer ACKs & message promises, to avoid blocking after every message.
-                // result.ackPromises?.forEach((promise) => {
-                //     void this.scheduleWork(
-                //         promise.catch(async (error) => {
-                //             await this.handleProcessingError(error, message, event)
-                //         })
-                //     )
-                // })
             } catch (error) {
                 await this.handleProcessingError(error, message, event)
             }
@@ -243,7 +228,7 @@ export class IngestionConsumer {
 
     private getEventPipelineRunner(event: PipelineEvent): EventPipelineRunnerV2 {
         // Mostly a helper method for testing
-        return new EventPipelineRunnerV2(this.hub, event)
+        return new EventPipelineRunnerV2(this.hub, event, this.hogTransformer)
     }
 
     private parseKafkaBatch(messages: Message[]): Promise<IncomingEventsByDistinctId> {
