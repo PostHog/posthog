@@ -13,6 +13,7 @@ from ee.models.rbac.role import Role, RoleMembership
 from ee.models.rbac.access_control import AccessControl
 from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
 from ee.models.explicit_team_membership import ExplicitTeamMembership
+from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
 
 
 class TestOrganizationAPI(APIBaseTest):
@@ -347,36 +348,70 @@ class TestOrganizationRbacMigrations(APIBaseTest):
         self.assertEqual(access_control.resource, "feature_flag")
         self.assertEqual(access_control.resource_id, str(feature_flag.id))
 
-    def test_migrate_feature_flags_rbac_with_multiple_flags(self):
+    def test_migrate_feature_flags_rbac_with_org_view_only(self):
         self.client.force_login(self.admin_user)
 
+        # Create organization-wide view-only access
+        OrganizationResourceAccess.objects.create(
+            organization=self.organization,
+            resource="feature flags",
+            access_level=21,  # view only
+        )
+
         # Create multiple feature flags
+        feature_flags = []
         for i in range(3):
             feature_flag = FeatureFlag.objects.create(
                 team=self.team, created_by=self.admin_user, key=f"test-flag-{i}", name=f"Test Flag {i}"
             )
-            FeatureFlagRoleAccess.objects.create(
-                feature_flag=feature_flag,
-                role=self.admin_role,
-            )
+            feature_flags.append(feature_flag)
 
         response = self.client.post(f"/api/organizations/{self.organization.id}/migrate_access_control/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["status"], True)
 
+        # Should create viewer access for all flags
+        viewer_access = AccessControl.objects.filter(
+            resource="feature_flag",
+            access_level="viewer",
+            role__isnull=True,
+        )
+        self.assertEqual(viewer_access.count(), 3)
+
+        # Should create editor access for admin role (feature_flags_access_level=37)
+        editor_access = AccessControl.objects.filter(
+            resource="feature_flag",
+            access_level="editor",
+            role=self.admin_role,
+        )
+        self.assertEqual(editor_access.count(), 3)
+
+    def test_migrate_feature_flags_rbac_with_specific_role_access(self):
+        self.client.force_login(self.admin_user)
+
+        # Create a test feature flag
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.admin_user, key="test-flag", name="Test Flag"
+        )
+
+        # Create specific role access
+        FeatureFlagRoleAccess.objects.create(
+            feature_flag=feature_flag,
+            role=self.admin_role,
+        )
+
+        response = self.client.post(f"/api/organizations/{self.organization.id}/migrate_access_control/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["status"], True)
+
+        # Verify specific role access was migrated
         self.assertEqual(FeatureFlagRoleAccess.objects.count(), 0)
-        self.assertEqual(AccessControl.objects.filter(resource="feature_flag").count(), 3)
-
-        feature_flags = FeatureFlag.objects.all()
-        self.assertEqual(len(feature_flags), 3)
-        feature_flag_ids = [feature_flag.id for feature_flag in feature_flags]
-
-        access_controls = AccessControl.objects.filter(resource="feature_flag")
-        self.assertEqual(len(access_controls), 3)
-        for access_control in access_controls:
-            self.assertEqual(access_control.access_level, "editor")
-            self.assertEqual(access_control.resource, "feature_flag")
-            self.assertIn(int(access_control.resource_id), feature_flag_ids)
+        access_control = AccessControl.objects.get(
+            resource="feature_flag",
+            resource_id=str(feature_flag.id),
+            role=self.admin_role,
+        )
+        self.assertEqual(access_control.access_level, "editor")
 
     def test_migrate_team_rbac_as_admin(self):
         # Create a new team with access control enabled
