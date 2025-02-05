@@ -4,15 +4,15 @@ export const costs: ModelRow[] = [
     {
         model: 'deepseek-r1-distill-qwen-1.5b',
         cost: {
-            prompt_token: 1.8e-7,
-            completion_token: 1.8e-7,
+            prompt_token: 0.00000018,
+            completion_token: 0.00000018,
         },
     },
     {
         model: 'deepseek-r1-distill-qwen-32b',
         cost: {
-            prompt_token: 5e-7,
-            completion_token: 0.00000488,
+            prompt_token: 0.00000012,
+            completion_token: 0.00000018,
         },
     },
     {
@@ -23,10 +23,17 @@ export const costs: ModelRow[] = [
         },
     },
     {
+        model: 'deepseek-r1-distill-llama-70b:free',
+        cost: {
+            prompt_token: 0,
+            completion_token: 0,
+        },
+    },
+    {
         model: 'deepseek-r1-distill-llama-70b',
         cost: {
-            prompt_token: 2.3e-7,
-            completion_token: 6.9e-7,
+            prompt_token: 0.00000023,
+            completion_token: 0.00000069,
         },
     },
     {
@@ -39,7 +46,7 @@ export const costs: ModelRow[] = [
     {
         model: 'deepseek-r1',
         cost: {
-            prompt_token: 8e-7,
+            prompt_token: 0.00000075,
             completion_token: 0.0000024,
         },
     },
@@ -53,8 +60,8 @@ export const costs: ModelRow[] = [
     {
         model: 'deepseek-chat',
         cost: {
-            prompt_token: 5e-7,
-            completion_token: 0.0000015,
+            prompt_token: 0.00000049,
+            completion_token: 0.00000089,
         },
     },
     {

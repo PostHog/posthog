@@ -10,29 +10,18 @@ import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
-import {
-    ExperimentDraftType,
-    ExperimentForm,
-    WebExperiment,
-    WebExperimentTransform,
-    WebExperimentVariant,
-} from '~/toolbar/types'
+import { WebExperiment, WebExperimentDraftType, WebExperimentForm, WebExperimentTransform } from '~/toolbar/types'
 import { elementToQuery } from '~/toolbar/utils'
 import { Experiment, ExperimentIdType } from '~/types'
 
 import type { experimentsTabLogicType } from './experimentsTabLogicType'
 
-function newExperiment(): ExperimentForm {
+function newExperiment(): WebExperimentForm {
     return {
         name: '',
         variants: {
             control: {
-                transforms: [
-                    {
-                        text: '',
-                        html: '',
-                    } as unknown as WebExperimentTransform,
-                ],
+                transforms: [],
                 rollout_percentage: 50,
             },
             test: {
@@ -40,13 +29,13 @@ function newExperiment(): ExperimentForm {
                 transforms: [
                     {
                         text: '',
-                        html: '',
-                    } as unknown as WebExperimentTransform,
+                    },
                 ],
                 rollout_percentage: 50,
             },
         },
-    } as unknown as ExperimentForm
+        original_html_state: {},
+    }
 }
 
 const EXPERIMENT_HEADER_TARGETS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']
@@ -99,7 +88,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             variant,
             index,
         }),
-        saveExperiment: (formValues: ExperimentForm) => ({ formValues }),
+        saveExperiment: (formValues: WebExperimentForm) => ({ formValues }),
         showButtonExperiments: true,
         hideButtonExperiments: true,
         setShowExperimentsTooltip: (showExperimentsTooltip: boolean) => ({ showExperimentsTooltip }),
@@ -182,7 +171,11 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
 
     forms(({ values, actions }) => ({
         experimentForm: {
-            defaults: { name: null, variants: [{}] as unknown as WebExperimentVariant[] } as unknown as ExperimentForm,
+            defaults: {
+                name: '',
+                variants: {},
+                original_html_state: {},
+            } as WebExperimentForm,
             errors: ({ name }) => ({
                 name: !name ? 'Please enter a name for this experiment' : undefined,
             }),
@@ -197,7 +190,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                 const { apiURL, temporaryToken } = values
                 const { selectedExperimentId } = values
 
-                let response: Experiment
+                let response: WebExperiment
                 try {
                     if (selectedExperimentId && selectedExperimentId !== 'new') {
                         response = await api.update(
@@ -239,7 +232,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
     selectors({
         removeVariantAvailable: [
             (s) => [s.experimentForm, s.selectedExperimentId],
-            (experimentForm: ExperimentForm, selectedExperimentId: number | 'new' | null): boolean | undefined => {
+            (experimentForm: WebExperimentForm, selectedExperimentId: number | 'new' | null): boolean | undefined => {
                 /*Only show the remove button if all of these conditions are met:
                 1. Its a new Experiment
                 2. The experiment is still in draft form
@@ -254,7 +247,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
         ],
         addVariantAvailable: [
             (s) => [s.experimentForm, s.selectedExperimentId],
-            (experimentForm: ExperimentForm, selectedExperimentId: number | 'new' | null): boolean | undefined => {
+            (experimentForm: WebExperimentForm, selectedExperimentId: number | 'new' | null): boolean | undefined => {
                 /*Only show the add button if all of these conditions are met:
                 1. Its a new Experiment
                 2. The experiment is still in draft form*/
@@ -263,7 +256,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
         ],
         selectedExperiment: [
             (s) => [s.selectedExperimentId, s.allExperiments],
-            (selectedExperimentId, allExperiments: WebExperiment[]): Experiment | ExperimentDraftType | null => {
+            (selectedExperimentId, allExperiments: WebExperiment[]): Experiment | WebExperimentDraftType | null => {
                 if (selectedExperimentId === 'new') {
                     return newExperiment()
                 }
@@ -273,7 +266,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
     }),
 
     subscriptions(({ actions }) => ({
-        selectedExperiment: (selectedExperiment: Experiment | ExperimentDraftType | null) => {
+        selectedExperiment: (selectedExperiment: Experiment | WebExperimentDraftType | null) => {
             if (!selectedExperiment) {
                 actions.setExperimentFormValues({ name: '', variants: {} })
             } else {
@@ -302,24 +295,45 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
             }
         },
         newExperiment: () => {
-            // if (!values.buttonExperimentsVisible) {
             actions.showButtonExperiments()
-            // }
             toolbarLogic.actions.setVisibleMenu('experiments')
         },
         inspectElementSelected: ({ element, variant, index }) => {
-            if (values.experimentForm && values.experimentForm.variants) {
-                const eVariant = values.experimentForm.variants[variant]
-                if (eVariant) {
-                    if (index !== null && eVariant.transforms.length > index) {
-                        const transform = eVariant.transforms[index]
-                        transform.selector = element.id ? `#${element.id}` : elementToQuery(element, [])
-                        if (element.textContent) {
-                            transform.text = element.textContent
-                        }
-                        transform.html = element.innerHTML
-                        actions.setExperimentFormValue('variants', values.experimentForm.variants)
+            if (values.experimentForm?.variants) {
+                const currentVariant = values.experimentForm.variants[variant]
+                if (currentVariant && index !== null && currentVariant.transforms.length > index) {
+                    const selector = element.id ? `#${element.id}` : elementToQuery(element, [])
+                    if (!selector) {
+                        return
                     }
+
+                    // Update state
+                    const updatedVariants = {
+                        ...values.experimentForm.variants,
+                        [variant]: {
+                            ...currentVariant,
+                            transforms: currentVariant.transforms.map((t, i) =>
+                                i === index
+                                    ? {
+                                          ...t,
+                                          selector,
+                                          text: element.textContent || t.text,
+                                          //   html: element.innerHTML, We set one or the other!
+                                      }
+                                    : t
+                            ),
+                        },
+                    }
+                    actions.setExperimentFormValue('variants', updatedVariants)
+
+                    // Save the original state to undo transforms on variant change
+                    actions.setExperimentFormValue('original_html_state', {
+                        ...values.experimentForm.original_html_state,
+                        [selector]: {
+                            innerHTML: element.innerHTML,
+                            textContent: element.textContent,
+                        },
+                    })
                 }
             }
         },
@@ -418,7 +432,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                         {
                             text: '',
                             html: '',
-                        } as unknown as WebExperimentTransform,
+                        },
                     ],
                     conditions: null,
                     rollout_percentage: 0,
@@ -439,7 +453,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                     webVariant.transforms.push({
                         text: '',
                         html: '',
-                    } as unknown as WebExperimentTransform)
+                    })
 
                     actions.setExperimentFormValue('variants', values.experimentForm.variants)
                     actions.selectVariant(variant)
