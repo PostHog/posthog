@@ -5,7 +5,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { compactNumber } from 'lib/utils'
 import { useMemo } from 'react'
 
-import { BillingProductV2Type, BillingProductV2AddonType } from '~/types'
+import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
 import { BillingGaugeItemType } from './types'
 
