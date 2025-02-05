@@ -6,6 +6,7 @@ import {
     LemonSwitch,
     LemonTable,
     LemonTag,
+    LemonTagType,
     Link,
     Spinner,
     Tooltip,
@@ -42,7 +43,7 @@ interface SchemaTableProps {
     isLoading: boolean
 }
 
-const StatusTagSetting = {
+const StatusTagSetting: Record<string, LemonTagType> = {
     Running: 'primary',
     Completed: 'success',
     Error: 'danger',
@@ -204,13 +205,17 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                     {
                         title: 'Status',
                         key: 'status',
-                        render: function RenderStatus(_, schema) {
+                        render: (_, schema) => {
                             if (!schema.status) {
                                 return null
                             }
+                            const tagType = StatusTagSetting[schema.status] || 'default'
+                            const tagContent = <LemonTag type={tagType}>{schema.status}</LemonTag>
 
-                            return (
-                                <LemonTag type={StatusTagSetting[schema.status] || 'default'}>{schema.status}</LemonTag>
+                            return schema.latest_error ? (
+                                <Tooltip title={schema.latest_error}>{tagContent}</Tooltip>
+                            ) : (
+                                tagContent
                             )
                         },
                     },
