@@ -363,7 +363,7 @@ class SnowflakeClient:
             CREATE TABLE IF NOT EXISTS "{table_name}" (
                 {field_ddl}
             )
-            COMMENT = 'PostHog generated events table'
+            COMMENT = 'PostHog generated table'
             """,
         )
 
@@ -799,9 +799,18 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                 known_variant_columns=known_variant_columns,
             )
 
-        requires_merge = (
-            isinstance(inputs.batch_export_model, BatchExportModel) and inputs.batch_export_model.name == "persons"
+        requires_merge = False
+        merge_key = (
+            ("team_id", "INT64"),
+            ("distinct_id", "STRING"),
         )
+        if isinstance(inputs.batch_export_model, BatchExportModel):
+            if inputs.batch_export_model.name == "persons":
+                requires_merge = True
+            elif inputs.batch_export_model.name == "sessions":
+                requires_merge = True
+                merge_key = (("team_id", "INT64"), ("session_id", "STRING"))
+
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
         stagle_table_name = (
             f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}"
@@ -843,10 +852,6 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                 )
 
                 if requires_merge:
-                    merge_key = (
-                        ("team_id", "INT64"),
-                        ("distinct_id", "STRING"),
-                    )
                     await snow_client.amerge_person_tables(
                         final_table=snow_table,
                         stage_table=snow_stage_table,

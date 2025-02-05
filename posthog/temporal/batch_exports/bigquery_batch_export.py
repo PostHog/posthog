@@ -694,6 +694,22 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         stage_schema = [
             bigquery.SchemaField(field.name, "STRING") if field.name in json_columns else field for field in schema
         ]
+
+        mutable = False
+        merge_key = (
+            bigquery.SchemaField("team_id", "INT64"),
+            bigquery.SchemaField("distinct_id", "STRING"),
+        )
+        if isinstance(inputs.batch_export_model, BatchExportModel):
+            if inputs.batch_export_model.name == "persons":
+                mutable = True
+            elif inputs.batch_export_model.name == "sessions":
+                mutable = True
+                merge_key = (
+                    bigquery.SchemaField("team_id", "INT64"),
+                    bigquery.SchemaField("session_id", "STRING"),
+                )
+
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
         stage_table_name = f"stage_{inputs.table_id}_{data_interval_end_str}_{inputs.team_id}"
 
@@ -745,14 +761,10 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                     )
 
                     if can_perform_merge:
-                        merge_key = (
-                            bigquery.SchemaField("team_id", "INT64"),
-                            bigquery.SchemaField("distinct_id", "STRING"),
-                        )
                         await bq_client.amerge_tables(
                             final_table=bigquery_table,
                             stage_table=bigquery_stage_table,
-                            mutable=True if model_name == "persons" else False,
+                            mutable=mutable,
                             merge_key=merge_key,
                             stage_fields_cast_to_json=json_columns,
                         )

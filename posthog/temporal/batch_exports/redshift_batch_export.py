@@ -426,9 +426,21 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
                 record_batch_schema, known_super_columns=known_super_columns, use_super=properties_type == "SUPER"
             )
 
-        requires_merge = (
-            isinstance(inputs.batch_export_model, BatchExportModel) and inputs.batch_export_model.name == "persons"
+        requires_merge = False
+        merge_key: Fields = (
+            ("team_id", "INT"),
+            ("distinct_id", "TEXT"),
         )
+        if isinstance(inputs.batch_export_model, BatchExportModel):
+            if inputs.batch_export_model.name == "persons":
+                requires_merge = True
+            elif inputs.batch_export_model.name == "sessions":
+                requires_merge = True
+                merge_key = (
+                    ("team_id", "INT"),
+                    ("session_id", "TEXT"),
+                )
+
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
         stagle_table_name = (
             f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}"
@@ -491,10 +503,6 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
                 )
 
                 if requires_merge:
-                    merge_key: Fields = (
-                        ("team_id", "INT"),
-                        ("distinct_id", "TEXT"),
-                    )
                     await redshift_client.amerge_identical_tables(
                         final_table_name=redshift_table,
                         stage_table_name=redshift_stage_table,
