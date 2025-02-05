@@ -3419,43 +3419,15 @@ class TestCohortNegationValidation(BaseTest):
         res, q, params = execute(filter, self.team)
         assert 1 == len(res)
 
-    def test_teams(self):
+    def test_project_properties(self):
         PropertyDefinition.objects.create(
             team=self.team,
-            name="createdDate",
+            name="bool_key",
             property_type="Boolean",
             type=PropertyDefinition.Type.EVENT,
         )
 
         other_team = Team.objects.create(organization=self.organization, project=self.project)
-
-        _create_person(
-            team_id=self.team.pk,
-            distinct_ids=["p1"],
-            properties={"name": "test", "email": "test@posthog.com"},
-        )
-
-        _create_person(
-            team_id=other_team.pk,
-            distinct_ids=["p2"],
-            properties={"name": "test", "email": "test@posthog.com"},
-        )
-
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            properties={"createdDate": "true"},
-            timestamp=datetime.now(),
-            distinct_id="p1",
-        )
-
-        _create_event(
-            team=other_team,
-            event="$pageview",
-            properties={"createdDate": "true"},
-            timestamp=datetime.now(),
-            distinct_id="p2",
-        )
 
         action = Action.objects.create(
             team=self.team,
@@ -3465,7 +3437,7 @@ class TestCohortNegationValidation(BaseTest):
                     "event": "$pageview",
                     "properties": [
                         {
-                            "key": "createdDate",
+                            "key": "bool_key",
                             "operator": "exact",
                             "value": ["true"],
                             "type": "event",
