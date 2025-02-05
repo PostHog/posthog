@@ -4,7 +4,7 @@
 !.storybook
 !babel.config.js
 !bin
-!common/hogvm/python
+!common/hogvm
 !common/plugin_transpiler/*.*
 !common/plugin_transpiler/src
 !dags
@@ -28,6 +28,7 @@
 !plugin-server/tsconfig.eslint.json
 !plugin-server/tsconfig.json
 !pnpm-lock.yaml
+!pnpm-workspace.yaml
 !posthog
 !posthog.json
 !products

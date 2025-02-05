@@ -1,5 +1,5 @@
 {
-    "name": "plugin_transpiler",
+    "name": "@posthog/plugin-transpiler",
     "version": "1.0.0",
     "description": "Transpiles site apps TSX to browser JS via stdin/stdout",
     "main": "transpile.mjs",
