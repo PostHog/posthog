@@ -268,6 +268,11 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
     },
     event_properties: {
+        $last_posthog_reset: {
+            label: 'Timestamp of last call to `Reset` in the web sdk',
+            description: 'The timestamp of the last call to `Reset` in the web SDK. This can be useful for debugging.',
+            system: true,
+        },
         distinct_id: {} as CoreFilterDefinition, // Copied from `metadata` down below
         $session_duration: {} as CoreFilterDefinition, // Copied from `sessions` down below
         $session_is_sampled: {
@@ -1553,23 +1558,23 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         $end_current_url: {
             label: 'Entry URL',
-            description: 'The first URL visited in this session.',
+            description: 'The last URL visited in this session.',
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
         $end_pathname: {
             label: 'Entry pathname',
-            description: 'The first pathname visited in this session.',
-            examples: ['/interesting-article?parameter=true'],
+            description: 'The last pathname visited in this session.',
+            examples: ['/interesting-article'],
         },
         $exit_current_url: {
             label: 'Exit URL',
-            description: 'The last URL visited in this session.',
+            description: 'The last URL visited in this session. (deprecated, use $end_current_url)',
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
         $exit_pathname: {
             label: 'Exit pathname',
-            description: 'The last pathname visited in this session.',
-            examples: ['https://example.com/interesting-article?parameter=true'],
+            description: 'The last pathname visited in this session. (deprecated, use $end_pathname)',
+            examples: ['/interesting-article'],
         },
         $pageview_count: {
             label: 'Pageview count',
@@ -1895,4 +1900,14 @@ export function getCoreFilterDefinition(
 export function getFilterLabel(key: PropertyKey, type: TaxonomicFilterGroupType): string {
     const data = getCoreFilterDefinition(key, type)
     return (data ? data.label : key)?.trim() ?? '(empty string)'
+}
+
+export function getPropertyKey(value: string, type: TaxonomicFilterGroupType): string {
+    // Find the key by looking through the mapping
+    const group = CORE_FILTER_DEFINITIONS_BY_GROUP[type]
+    if (group) {
+        const foundKey = Object.entries(group).find(([_, def]) => (def as any).label === value || _ === value)?.[0]
+        return foundKey || value
+    }
+    return value
 }

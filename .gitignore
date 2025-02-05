@@ -15,6 +15,7 @@ __pycache__/
 .eslintcache
 .idea
 .mypy_cache
+.parcel-cache
 # pyenv local config
 .python-version
 .temp-deepeval-cache.json

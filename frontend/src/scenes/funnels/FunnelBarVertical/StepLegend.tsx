@@ -11,7 +11,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, ChartParams, FunnelStepWithConversionMetrics } from '~/types'
+import { AvailableFeature, ChartParams, FunnelStepReference, FunnelStepWithConversionMetrics } from '~/types'
 
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
 import { FunnelStepMore } from '../FunnelStepMore'
@@ -25,7 +25,7 @@ type StepLegendProps = {
 
 export function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
+    const { aggregationTargetLabel, funnelsFilter } = useValues(funnelDataLogic(insightProps))
     const { canOpenPersonModal, isInExperimentContext } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForStep } = useActions(funnelPersonsModalLogic(insightProps))
     const { hasAvailableFeature } = useValues(userLogic)
@@ -74,7 +74,11 @@ export function StepLegend({ step, stepIndex, showTime, showPersonsModal }: Step
                         <>
                             {capitalizeFirstLetter(aggregationTargetLabel.plural)} who completed this step,
                             <br />
-                            with conversion rate relative to the first step
+                            with conversion rate relative to the{' '}
+                            {funnelsFilter?.funnelStepReference === FunnelStepReference.previous
+                                ? 'previous'
+                                : 'first'}{' '}
+                            step
                         </>
                     }
                     placement="right"

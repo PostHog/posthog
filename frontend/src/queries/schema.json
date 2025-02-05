@@ -13873,6 +13873,10 @@
                     "default": false,
                     "type": "boolean"
                 },
+                "showMultipleYAxes": {
+                    "default": false,
+                    "type": "boolean"
+                },
                 "showPercentStackView": {
                     "default": false,
                     "type": "boolean"
@@ -13943,6 +13947,9 @@
                     "type": "boolean"
                 },
                 "show_legend": {
+                    "type": "boolean"
+                },
+                "show_multiple_y_axes": {
                     "type": "boolean"
                 },
                 "show_percent_stack_view": {
