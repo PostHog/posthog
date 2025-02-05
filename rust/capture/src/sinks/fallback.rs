@@ -12,7 +12,7 @@ use metrics::counter;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tracing::instrument;
-use tracing::log::error;
+use tracing::log::{error, warn};
 
 pub struct FallbackSink {
     primary: Arc<Box<dyn Event + Send + Sync + 'static>>,
@@ -59,6 +59,12 @@ impl FallbackSink {
                             .get(&primary_component_name)
                             .unwrap()
                             .is_healthy();
+                        let was_healthy = thread_healthy.load(Ordering::Relaxed);
+                        if was_healthy && !is_healthy {
+                            error!("primary sink has become unhealthy");
+                        } else if !was_healthy && is_healthy {
+                            warn!("primary sink has recovered");
+                        }
                         thread_healthy.store(is_healthy, Ordering::Relaxed);
                     }
                     _ = &mut shutdown_rx => {
