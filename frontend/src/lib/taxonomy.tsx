@@ -1563,12 +1563,12 @@ export const CORE_FILTER_DEFINITIONS_BY_GROUP = {
         },
         $exit_current_url: {
             label: 'Exit URL',
-            description: 'The last URL visited in this session.',
+            description: 'The last URL visited in this session. (deprecated, use $end_current_url)',
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
         $exit_pathname: {
             label: 'Exit pathname',
-            description: 'The last pathname visited in this session.',
+            description: 'The last pathname visited in this session. (deprecated, use $end_pathname)',
             examples: ['https://example.com/interesting-article?parameter=true'],
         },
         $pageview_count: {
