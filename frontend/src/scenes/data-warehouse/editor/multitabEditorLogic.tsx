@@ -251,7 +251,17 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             path && actions.setLocalState(activeModelStateKey(props.key), path)
         },
         deleteTab: ({ tab: tabToRemove }) => {
-            if (values.queryInput !== '') {
+            if (values.activeModelUri?.view && values.queryInput !== values.sourceQuery.source.query) {
+                LemonDialog.open({
+                    title: 'Close tab',
+                    description: 'Are you sure you want to close this tab? There are unsaved changes.',
+                    primaryButton: {
+                        children: 'Close',
+                        status: 'danger',
+                        onClick: () => actions._deleteTab(tabToRemove),
+                    },
+                })
+            } else if (values.queryInput !== '' && !values.activeModelUri?.view) {
                 LemonDialog.open({
                     title: 'Delete query',
                     description: 'Are you sure you want to delete this query?',
