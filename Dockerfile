@@ -37,7 +37,7 @@ COPY products/ products/
 COPY ee/frontend/ ee/frontend/
 COPY ./bin/ ./bin/
 COPY babel.config.js tsconfig.json webpack.config.js ./
-RUN pnpm build
+RUN pnpm build --concurrency=2
 
 #
 # ---------------------------------------------------------
