@@ -83,7 +83,7 @@ function createEntry(entry) {
             rules: [
                 {
                     test: /\.[jt]sx?$/,
-                    exclude: /(node_modules)/,
+                    exclude: /(node_modules|frontend\/dist)/,
                     use: {
                         loader: 'babel-loader',
                     },
@@ -105,6 +105,7 @@ function createEntry(entry) {
                             },
                         },
                     ].filter((a) => a),
+                    exclude: /frontend\/dist/
                 },
                 {
                     // Apply rule for less files (used to import and override AntD)
@@ -120,6 +121,7 @@ function createEntry(entry) {
                             },
                         },
                     ],
+                    exclude: /frontend\/dist/
                 },
 
                 {
@@ -138,6 +140,7 @@ function createEntry(entry) {
                             },
                         },
                     ],
+                    exclude: /frontend\/dist/
                 },
                 {
                     // Apply rule for fonts files
@@ -152,6 +155,7 @@ function createEntry(entry) {
                             },
                         },
                     ],
+                    exclude: /frontend\/dist/
                 },
                 {
                     // Apply rule for sound files
@@ -166,6 +170,7 @@ function createEntry(entry) {
                             },
                         },
                     ],
+                    exclude: /frontend\/dist/
                 },
                 // probably only need this because we're using webpack v4
                 {
