@@ -474,7 +474,7 @@ describe('CDP API', () => {
 
             expect(res.body.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
-                  "Executing plugin posthog-filter-out-plugin",
+                  "Executing plugin plugin-posthog-filter-out-plugin",
                   "Execution successful",
                 ]
             `)
@@ -504,7 +504,7 @@ describe('CDP API', () => {
 
             expect(res.body.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
-                  "Executing plugin posthog-filter-out-plugin",
+                  "Executing plugin plugin-posthog-filter-out-plugin",
                   "Execution successful",
                 ]
             `)
