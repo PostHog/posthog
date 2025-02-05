@@ -12,6 +12,7 @@ import {
 
 import { billingLogic } from './billingLogic'
 import { FeatureFlagUsageNotice, getTierDescription } from './BillingProduct'
+import { billingProductLogic } from './billingProductLogic'
 
 function Subrows(props: ProductPricingTierSubrows): JSX.Element {
     return (
@@ -28,6 +29,7 @@ export const BillingProductPricingTable = ({
     usageKey?: string
 }): JSX.Element => {
     const { billing } = useValues(billingLogic)
+    const { isSessionReplayWithAddons } = useValues(billingProductLogic({ product }))
 
     const tableColumns: LemonTableColumns<BillingTableTierRow> = [
         {
@@ -158,14 +160,13 @@ export const BillingProductPricingTable = ({
                           volume: 'Total',
                           basePrice: '',
                           usage: '',
-                          total:
-                              product.type === 'session_replay' && 'addons' in product && product.addons?.length > 0
-                                  ? `$${
-                                        ('current_amount_usd_before_addons' in product
-                                            ? product.current_amount_usd_before_addons
-                                            : '0.00') || '0.00'
-                                    }`
-                                  : `$${product.current_amount_usd || '0.00'}`,
+                          total: isSessionReplayWithAddons
+                              ? `$${
+                                    ('current_amount_usd_before_addons' in product
+                                        ? product.current_amount_usd_before_addons
+                                        : '0.00') || '0.00'
+                                }`
+                              : `$${product.current_amount_usd || '0.00'}`,
                           projectedTotal: `$${product.projected_amount_usd || '0.00'}`,
                           subrows: { rows: [], columns: [] },
                       },

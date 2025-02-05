@@ -53,6 +53,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         currentAndUpgradePlans,
         surveyID,
         billingProductLoading,
+        isSessionReplayWithAddons,
     } = useValues(billingProductLogic({ product }))
     const {
         setShowTierBreakdown,
@@ -261,9 +262,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                             <div className="font-bold text-3xl leading-7">
                                                                 {humanFriendlyCurrency(
                                                                     parseFloat(
-                                                                        product.type === 'session_replay' &&
-                                                                            'addons' in product &&
-                                                                            product.addons?.length > 0
+                                                                        isSessionReplayWithAddons
                                                                             ? product.current_amount_usd_before_addons ||
                                                                                   '0'
                                                                             : product.current_amount_usd || '0'

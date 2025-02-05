@@ -333,6 +333,11 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     .concat(' (required)')
             },
         ],
+        isSessionReplayWithAddons: [
+            (_s, p) => [p.product],
+            (product): boolean =>
+                product.type === 'session_replay' && 'addons' in product && product.addons?.length > 0,
+        ],
     })),
     listeners(({ actions, values, props }) => ({
         updateBillingLimitsSuccess: () => {
