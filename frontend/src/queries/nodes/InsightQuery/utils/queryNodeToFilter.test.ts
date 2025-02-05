@@ -93,6 +93,7 @@ describe('queryNodeToFilter', () => {
                 showLabelsOnSeries: true,
                 showPercentStackView: true,
                 yAxisScaleType: 'log10',
+                showMultipleYAxes: false,
                 hiddenLegendIndexes: [1, 2],
             },
             compareFilter: {
