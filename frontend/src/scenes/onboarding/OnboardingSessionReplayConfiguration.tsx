@@ -28,7 +28,7 @@ export function OnboardingSessionReplayConfiguration({ stepKey }: { stepKey: Onb
                 <div className="hidden md:block flex-shrink-0">
                     <FilmCameraHog className="w-36 h-auto" />
                 </div>
-                <div className="flex-1 border border-gray-200 rounded-lg bg-white p-4">
+                <div className="flex-1 border border-gray-200 rounded-lg bg-bg-light dark:bg-bg-depth p-4">
                     <h4 className="text-lg font-semibold mb-2">Why enable Session Replay?</h4>
                     <ul className="space-y-2 text-muted">
                         <li>

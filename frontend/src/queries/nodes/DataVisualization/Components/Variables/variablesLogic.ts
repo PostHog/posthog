@@ -146,7 +146,10 @@ export const variablesLogic = kea<variablesLogicType>([
     }),
     listeners(({ props, values, actions }) => ({
         addVariable: () => {
-            actions.updateSourceQuery()
+            // dashboard items handle source query separately
+            if (!props.readOnly) {
+                actions.updateSourceQuery()
+            }
         },
         removeVariable: () => {
             actions.updateSourceQuery()
