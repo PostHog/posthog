@@ -115,7 +115,10 @@ export const salesforcePlugin: LegacyDestinationPlugin = {
                 default: 'debug logging off',
                 required: true,
                 secret: true,
-                choices: [{}, {}],
+                choices: [
+                    { value: 'debug logging off', label: 'debug logging off' },
+                    { value: 'debug logging on', label: 'debug logging on' },
+                ],
             },
         ],
     },
