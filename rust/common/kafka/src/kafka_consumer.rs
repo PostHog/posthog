@@ -145,4 +145,8 @@ impl Offset {
             .store_offset(&inner.topic, self.partition, self.offset)?;
         Ok(())
     }
+
+    pub fn get_value(&self) -> i64 {
+        self.offset
+    }
 }

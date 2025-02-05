@@ -93,10 +93,14 @@ async fn main() {
             let event = match handle_event(context.clone(), event).await {
                 Ok(e) => e,
                 Err(e) => {
-                    error!("Error handling event: {:?}", e);
+                    error!(
+                        "Error handling event: {:?}; offset: {:?}",
+                        e,
+                        offset.get_value()
+                    );
                     // If we get an unhandled error, it means we have some logical error in the code, or a
                     // dependency is down, and we should just fall over.
-                    panic!("Unhandled error: {:?}", e);
+                    panic!("Unhandled error: {:?}; offset: {:?}", e, offset.get_value());
                 }
             };
 
