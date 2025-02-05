@@ -79,7 +79,7 @@ export const activationLogic = kea<activationLogicType>([
             sidePanelSettingsLogic,
             ['openSettingsPanel'],
             sidePanelStateLogic,
-            ['closeSidePanel'],
+            ['openSidePanel', 'closeSidePanel'],
             teamLogic,
             ['addProductIntent'],
         ],
@@ -337,6 +337,19 @@ export const activationLogic = kea<activationLogicType>([
                     ? values.currentTeamOpenSections.filter((s) => s !== section)
                     : [...values.currentTeamOpenSections, section]
                 actions.setOpenSections(values.currentTeam.id, openSections)
+            }
+        },
+        openSidePanel: () => {
+            if (values.currentTeamOpenSections.length === 0 && values.currentTeam?.id) {
+                const sectionsToOpen = values.sections
+                    .filter(
+                        (s) =>
+                            s.key === ActivationSection.QuickStart ||
+                            values.productsWithIntent?.includes(s.key as unknown as ProductKey)
+                    )
+                    .map((s) => s.key)
+
+                actions.setOpenSections(values.currentTeam.id, sectionsToOpen)
             }
         },
         loadCustomEventsSuccess: () => {

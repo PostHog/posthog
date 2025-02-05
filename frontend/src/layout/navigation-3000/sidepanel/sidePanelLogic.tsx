@@ -1,7 +1,9 @@
 import { connect, kea, path, selectors } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
@@ -42,14 +44,16 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             ['hasAvailableFeature'],
             sidePanelContextLogic,
             ['sceneSidePanelContext'],
+            teamLogic,
+            ['currentTeam'],
         ],
         actions: [sidePanelStateLogic, ['closeSidePanel', 'openSidePanel']],
     }),
 
     selectors({
         enabledTabs: [
-            (s) => [s.isCloudOrDev, s.featureFlags, s.sceneSidePanelContext],
-            (isCloudOrDev, featureflags, sceneSidePanelContext) => {
+            (s) => [s.isCloudOrDev, s.featureFlags, s.sceneSidePanelContext, s.currentTeam],
+            (isCloudOrDev, featureflags, sceneSidePanelContext, currentTeam) => {
                 const tabs: SidePanelTab[] = []
 
                 tabs.push(SidePanelTab.Notebooks)
@@ -58,7 +62,14 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     tabs.push(SidePanelTab.Support)
                 }
 
-                tabs.push(SidePanelTab.Activation)
+                if (currentTeam?.created_at) {
+                    const teamCreatedAt = dayjs(currentTeam.created_at)
+
+                    // Remove cutoff date condition after 2025-03-07
+                    if (teamCreatedAt.diff(dayjs(), 'day') < -1 && teamCreatedAt.isAfter(dayjs('2025-02-02'))) {
+                        tabs.push(SidePanelTab.Activation)
+                    }
+                }
 
                 tabs.push(SidePanelTab.Activity)
 
