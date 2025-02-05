@@ -41,11 +41,11 @@ export function InsightEmptyState({
     return (
         <div
             data-attr="insight-empty-state"
-            className="insights-empty-state rounded p-4 m-2 h-full w-full flex flex-col items-center justify-center"
+            className="flex flex-col flex-1 rounded p-4 m-2 w-full items-center justify-center"
         >
             <IconArchive className="text-5xl mb-2 text-tertiary" />
             <h2 className="text-xl leading-tight">{heading}</h2>
-            <p className="text-sm text-center text-balance">{detail}</p>
+            <p className="text-sm text-center text-balance text-tertiary">{detail}</p>
         </div>
     )
 }
@@ -201,7 +201,7 @@ export function StatelessInsightLoadingState({
         10000
 
     return (
-        <div data-attr="insight-empty-state" className="insights-empty-state rounded p-4 m-2 h-full w-full">
+        <div data-attr="insight-empty-state" className="insights-loading-state rounded p-4 m-2 h-full w-full">
             <div className="flex flex-col gap-1">
                 <span
                     className={clsx(
@@ -264,7 +264,7 @@ export function InsightLoadingState({
             queryId={queryId}
             pollResponse={insightPollResponse}
             suggestion={
-                <div className="flex items-center rounded gap-x-3 max-w-120 m-2">
+                <div className="flex items-center rounded gap-x-3 max-w-120">
                     {personsOnEventsMode === 'person_id_override_properties_joined' ? (
                         <>
                             <p className="text-xs m-0">
@@ -302,7 +302,7 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
     const { openSupportForm } = useActions(supportLogic)
 
     return (
-        <div data-attr="insight-empty-state" className="insights-empty-state rounded p-4 m-2 h-full w-full">
+        <div data-attr="insight-empty-state" className="rounded p-4 m-2 h-full w-full">
             <h2 className="text-xl leading-tight mb-6">
                 <IconWarning className="text-xl shrink-0 mr-2" />
                 Your query took too long to complete
@@ -330,13 +330,13 @@ export function InsightValidationError({ detail, query }: { detail: string; quer
     return (
         <div
             data-attr="insight-empty-state"
-            className="insights-empty-state flex flex-col items-center justify-center gap-2 rounded p-4 m-2 h-full w-full"
+            className="flex flex-col items-center justify-center gap-2 rounded p-4 m-2 h-full w-full"
         >
-            <IconWarning className="text-5xl shrink-0" />
+            <IconWarning className="text-4xl shrink-0 text-muted" />
 
             <h2
                 data-attr="insight-loading-too-long"
-                className="text-xl leading-tight"
+                className="text-xl font-bold leading-tight"
                 // TODO: Use an actual `text-warning` color once @adamleithp changes are live
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ color: 'var(--warning)' }}
@@ -346,7 +346,7 @@ export function InsightValidationError({ detail, query }: { detail: string; quer
                 {/* but rather that it's something with the definition of the query itself */}
             </h2>
 
-            <p className="text-sm text-balance">{detail}</p>
+            <p className="text-sm text-center text-balance text-muted max-w-120">{detail}</p>
             <QueryDebuggerButton query={query} />
 
             {detail.includes('Exclusion') && (
@@ -383,7 +383,7 @@ export function InsightErrorState({ excludeDetail, title, query, queryId }: Insi
     return (
         <div
             data-attr="insight-empty-state"
-            className="insights-empty-state flex flex-col items-center gap-2 justify-center rounded p-4 m-2 h-full w-full"
+            className="flex flex-col items-center gap-2 justify-center rounded p-4 m-2 h-full w-full"
         >
             <IconErrorOutline className="text-5xl shrink-0" />
 

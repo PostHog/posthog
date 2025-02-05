@@ -3,7 +3,7 @@ import { Meta, StoryFn } from '@storybook/react'
 import { LOADING_MESSAGES } from './EmptyStates'
 
 const meta: Meta = {
-    title: 'Scenes-App/Insights/LoadingMessages',
+    title: 'Scenes-App/Insights/Loading Messages',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
