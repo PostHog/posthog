@@ -61,7 +61,7 @@ function EmptyState({
 
         if (suggestionURLs.length > 0) {
             return (
-                <p>
+                <p className="mb-0">
                     There are no authorized {domainOrUrl}s. <br />
                     We've found some URLs you've used PostHog from in the last 3 days. Consider authorizing them.
                     <br />
@@ -198,6 +198,7 @@ export function AuthorizedUrlList({
                     placeholder={`Search for authorized ${onlyAllowDomains ? 'domains' : 'URLs'}`}
                     onChange={setSearchTerm}
                     value={searchTerm}
+                    className="w-full"
                 />
                 <LemonButton onClick={newUrl} type="secondary" icon={<IconPlus />} data-attr="toolbar-add-url">
                     {addText}
