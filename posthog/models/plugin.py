@@ -552,10 +552,6 @@ def validate_plugin_job_payload(plugin: Plugin, job_type: str, payload: dict[str
 
 @receiver(models.signals.post_save, sender=Organization)
 def preinstall_plugins_for_new_organization(sender, instance: Organization, created: bool, **kwargs):
-    # Skip plugin installation if using HOG transformations for GeoIP
-    if settings.USE_HOG_TRANSFORMATION_FOR_GEOIP_ON_PROJECT_CREATION:
-        return
-
     if created and not is_cloud() and can_install_plugins(instance):
         for plugin_url in settings.PLUGINS_PREINSTALLED_URLS:
             try:
