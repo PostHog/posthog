@@ -50,7 +50,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                         {
                             "id": "xyz",
                             "name": "retrieve_data_for_question",
-                            "args": {"query_title": "Foobar", "query_kind": insight_type},
+                            "args": {"query_description": "Foobar", "query_kind": insight_type},
                         }
                     ],
                 )
@@ -87,7 +87,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                         {
                             "id": "xyz",
                             "name": "retrieve_data_for_question",
-                            "args": {"query_title": "Foobar", "query_kind": insight_type},
+                            "args": {"query_description": "Foobar", "query_kind": insight_type},
                         }
                     ],
                 )

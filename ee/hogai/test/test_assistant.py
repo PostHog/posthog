@@ -86,6 +86,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         return output
 
     def assertConversationEqual(self, output: list[tuple[str, Any]], expected_output: list[tuple[str, Any]]):
+        self.assertEqual(len(output), len(expected_output), output)
         for i, ((output_msg_type, output_msg), (expected_msg_type, expected_msg)) in enumerate(
             zip(output, expected_output)
         ):
@@ -133,13 +134,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     "type": "ai/reasoning",
                     "content": "Picking relevant events and properties",  # For TrendsPlannerToolsNode
                     "substeps": [],
-                },
-            ),
-            (
-                "message",
-                {
-                    "type": "ai",
-                    "content": "Foobar",  # QueryExecutor merits no ReasoningMessage, we output its results outright
                 },
             ),
         ]
@@ -259,6 +253,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             output = self._run_assistant_graph(graph, conversation=self.conversation, message="It's straightforward")
             expected_output = [
                 ("message", HumanMessage(content="It's straightforward")),
+                ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
                 ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
                 ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
             ]
@@ -455,7 +450,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                             {
                                 "id": "xyz",
                                 "name": "retrieve_data_for_question",
-                                "args": {"query_title": "Foobar", "query_kind": "trends"},
+                                "args": {"query_description": "Foobar", "query_kind": "trends"},
                             }
                         ],
                     )
@@ -519,7 +514,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                             {
                                 "id": "xyz",
                                 "name": "retrieve_data_for_question",
-                                "args": {"query_title": "Foobar", "query_kind": "funnel"},
+                                "args": {"query_description": "Foobar", "query_kind": "funnel"},
                             }
                         ],
                     )
