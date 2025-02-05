@@ -1,5 +1,5 @@
 import { status } from '../../../../utils/status'
-import { SessionBatchFileStorage, SessionBatchFileWriter, WriteSessionResult } from './session-batch-file-writer'
+import { SessionBatchFileStorage, SessionBatchFileWriter, WriteSessionResult } from './session-batch-file-storage'
 
 class BlackholeBatchFileWriter implements SessionBatchFileWriter {
     public writeSession(buffer: Buffer): Promise<WriteSessionResult> {

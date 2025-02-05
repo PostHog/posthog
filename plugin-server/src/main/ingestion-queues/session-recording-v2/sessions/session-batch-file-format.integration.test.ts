@@ -28,7 +28,7 @@ import snappy from 'snappy'
 
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithTeam } from '../teams/types'
-import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-writer'
+import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionBlockMetadata } from './session-block-metadata'
 import { SessionMetadataStore } from './session-metadata-store'

@@ -1,6 +1,6 @@
 import { status } from '../../../../utils/status'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
-import { SessionBatchFileStorage } from './session-batch-file-writer'
+import { SessionBatchFileStorage } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionMetadataStore } from './session-metadata-store'
 

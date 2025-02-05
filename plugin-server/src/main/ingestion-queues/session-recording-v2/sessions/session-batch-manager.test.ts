@@ -1,5 +1,5 @@
 import { KafkaOffsetManager } from '../kafka/offset-manager'
-import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-writer'
+import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
 import { SessionBatchManager } from './session-batch-manager'
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionMetadataStore } from './session-metadata-store'

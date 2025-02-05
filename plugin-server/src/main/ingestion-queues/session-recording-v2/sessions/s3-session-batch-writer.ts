@@ -4,7 +4,7 @@ import { randomBytes } from 'crypto'
 import { PassThrough } from 'stream'
 
 import { status } from '../../../../utils/status'
-import { SessionBatchFileStorage, SessionBatchFileWriter, WriteSessionResult } from './session-batch-file-writer'
+import { SessionBatchFileStorage, SessionBatchFileWriter, WriteSessionResult } from './session-batch-file-storage'
 
 class S3SessionBatchFileWriter implements SessionBatchFileWriter {
     private stream: PassThrough
