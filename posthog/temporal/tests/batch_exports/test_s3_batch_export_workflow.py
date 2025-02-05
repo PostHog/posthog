@@ -51,7 +51,7 @@ from posthog.temporal.batch_exports.s3_batch_export import (
 from posthog.temporal.batch_exports.spmc import Producer, RecordBatchQueue, SessionsRecordBatchModel
 from posthog.temporal.batch_exports.temporary_file import UnsupportedFileFormatError
 from posthog.temporal.common.clickhouse import ClickHouseClient
-from posthog.temporal.tests.batch_exports.utils import mocked_start_batch_export_run
+from posthog.temporal.tests.batch_exports.utils import get_record_batch_from_queue, mocked_start_batch_export_run
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
@@ -212,21 +212,6 @@ async def read_json_file_from_s3(s3_compatible_client, bucket_name, key) -> list
     data = await s3_object["Body"].read()
     data = read_s3_data_as_json(data, None)
     return data[0]
-
-
-async def get_record_batch_from_queue(queue, produce_task):
-    while not queue.empty() or not produce_task.done():
-        try:
-            record_batch = queue.get_nowait()
-        except asyncio.QueueEmpty:
-            if produce_task.done():
-                break
-            else:
-                await asyncio.sleep(0.1)
-                continue
-
-        return record_batch
-    return None
 
 
 async def assert_clickhouse_records_in_s3(
@@ -467,12 +452,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3(
         records_exported == len(events_to_export_created)
         or records_exported == len(persons_to_export_created)
         or records_exported == len([event for event in events_to_export_created if event["properties"] is not None])
-        or (
-            isinstance(model, BatchExportModel)
-            and model.name == "sessions"
-            and records_exported
-            == len([event for event in events_to_export_created if event["properties"] is not None]) * 2
-        )
+        or (isinstance(model, BatchExportModel) and model.name == "sessions" and records_exported == 1)
     )
 
     await assert_clickhouse_records_in_s3(
@@ -825,12 +805,7 @@ async def test_insert_into_s3_activity_puts_data_into_s3_using_async(
         records_exported == len(events_to_export_created)
         or records_exported == len(persons_to_export_created)
         or records_exported == len([event for event in events_to_export_created if event["properties"] is not None])
-        or (
-            isinstance(model, BatchExportModel)
-            and model.name == "sessions"
-            and records_exported
-            == len([event for event in events_to_export_created if event["properties"] is not None]) * 2
-        )
+        or (isinstance(model, BatchExportModel) and model.name == "sessions" and records_exported == 1)
     )
 
     await assert_clickhouse_records_in_s3(

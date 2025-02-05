@@ -8,7 +8,6 @@ import typing
 import uuid
 
 from posthog.models.raw_sessions.sql import RAW_SESSION_TABLE_BACKFILL_SELECT_SQL
-from posthog.models.utils import uuid7
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.datetimes import date_range
 
@@ -131,9 +130,7 @@ async def insert_event_values_in_clickhouse(
                 event["_timestamp"],
                 event["person_id"],
                 event["team_id"],
-                json.dumps({**{"$session_id": str(uuid7())}, **event["properties"]})
-                if isinstance(event["properties"], dict)
-                else event["properties"],
+                json.dumps(event["properties"]) if isinstance(event["properties"], dict) else event["properties"],
                 event["elements_chain"],
                 event["distinct_id"],
                 event["inserted_at"],
@@ -239,7 +236,7 @@ async def generate_test_events_in_clickhouse(
         team_id=team_id,
         possible_datetimes=possible_datetimes_outside_range,
         event_name=event_name,
-        properties=properties,
+        properties={k: v for k, v in properties.items() if k != "$session_id"} if properties is not None else None,
         person_properties=person_properties,
         inserted_at=inserted_at,
         distinct_ids=distinct_ids,

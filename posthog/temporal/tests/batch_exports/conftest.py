@@ -9,6 +9,7 @@ import temporalio.worker
 from psycopg import sql
 
 from posthog import constants
+from posthog.models.utils import uuid7
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,
@@ -255,13 +256,22 @@ def data_interval_end(request, interval):
 
 
 @pytest.fixture
-def test_properties(request):
-    """Set test data properties."""
+def session_id(request) -> str:
     try:
         return request.param
     except AttributeError:
         pass
-    return {"$browser": "Chrome", "$os": "Mac OS X", "prop": "value"}
+    return str(uuid7())
+
+
+@pytest.fixture
+def test_properties(request, session_id):
+    """Set test data properties."""
+    try:
+        return {**{"$session_id": session_id}, **request.param}
+    except AttributeError:
+        pass
+    return {"$browser": "Chrome", "$os": "Mac OS X", "prop": "value", "$session_id": session_id}
 
 
 @pytest.fixture
