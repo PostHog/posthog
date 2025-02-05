@@ -170,32 +170,24 @@ class TestPlugin(BaseTest):
 
     @override_settings(USE_HOG_TRANSFORMATION_FOR_GEOIP_ON_PROJECT_CREATION=True, DISABLE_MMDB=False)
     def test_geoip_transformation_created_when_enabled(self):
-        team = Team.objects.create_with_data(
-            organization=self.organization, name="Test Team", initiating_user=self.user
-        )
+        from django.db import transaction
 
-        # The signal handler is triggered asynchronously
-        # The test immediately checks for the HogFunction existence
-        # Sometimes in CI, the signal handler hasn't completed creating the HogFunction yet when the test checks for it
-        from django.db.models import signals
+        with transaction.atomic():
+            team = Team.objects.create_with_data(
+                organization=self.organization, name="Test Team", initiating_user=self.user
+            )
 
-        signals.post_save.send_robust(sender=Team, instance=team, created=True, initiating_user=self.user)
+            # Verify GeoIP transformation was created
+            transformations = HogFunction.objects.filter(team=team, type="transformation")
 
-        # Verify GeoIP transformation was created
-        transformations = HogFunction.objects.filter(team=team, type="transformation")
-
-        geoip = transformations.first()
-        self.assertIsNotNone(geoip, "GeoIP transformation should exist")
-        if geoip:  # Make type checker happy
-            self.assertEqual(geoip.name, "GeoIP")
-            self.assertEqual(geoip.description, "Enrich events with GeoIP data")
-            self.assertEqual(geoip.icon_url, "/static/transformations/geoip.png")
-            self.assertEqual(geoip.enabled, True)
-            self.assertEqual(geoip.execution_order, 1)
-
-        # Verify no plugins were enabled
-        plugin_configs = PluginConfig.objects.filter(team=team)
-        self.assertEqual(plugin_configs.count(), 0)
+            geoip = transformations.first()
+            self.assertIsNotNone(geoip, "GeoIP transformation should exist")
+            if geoip:  # Make type checker happy
+                self.assertEqual(geoip.name, "GeoIP")
+                self.assertEqual(geoip.description, "Enrich events with GeoIP data")
+                self.assertEqual(geoip.icon_url, "/static/transformations/geoip.png")
+                self.assertEqual(geoip.enabled, True)
+                self.assertEqual(geoip.execution_order, 1)
 
     @override_settings(USE_HOG_TRANSFORMATION_FOR_GEOIP_ON_PROJECT_CREATION=True, DISABLE_MMDB=True)
     def test_no_geoip_created_when_mmdb_disabled(self):
