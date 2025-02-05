@@ -16,7 +16,7 @@ import { StatusTag } from './components'
 import { ExperimentDates } from './ExperimentDates'
 
 export function Info(): JSX.Element {
-    const { experiment, featureFlags, metricResults, metricsResultsLoading, secondaryMetricResultsLoading } =
+    const { experiment, featureFlags, metricResults, metricResultsLoading, secondaryMetricResultsLoading } =
         useValues(experimentLogic)
     const { updateExperiment, setExperimentStatsVersion, refreshExperimentResults } = useActions(experimentLogic)
 
@@ -119,7 +119,7 @@ export function Info(): JSX.Element {
                                                 : ''
                                         }`}
                                     >
-                                        {metricsResultsLoading || secondaryMetricResultsLoading
+                                        {metricResultsLoading || secondaryMetricResultsLoading
                                             ? 'Loading…'
                                             : lastRefresh
                                             ? dayjs(lastRefresh).fromNow()
