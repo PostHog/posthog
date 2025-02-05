@@ -27,6 +27,7 @@ export interface PropertyValueProps {
     eventNames?: string[]
     addRelativeDateTimeOptions?: boolean
     forceSingleSelect?: boolean
+    inputClassName?: string
 }
 
 export function PropertyValue({
@@ -41,6 +42,7 @@ export function PropertyValue({
     eventNames = [],
     addRelativeDateTimeOptions = false,
     forceSingleSelect = false,
+    inputClassName = undefined,
 }: PropertyValueProps): JSX.Element {
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
@@ -130,6 +132,7 @@ export function PropertyValue({
 
     return (
         <LemonInputSelect
+            className={inputClassName}
             data-attr="prop-val"
             loading={options[propertyKey]?.status === 'loading'}
             value={formattedValues}
