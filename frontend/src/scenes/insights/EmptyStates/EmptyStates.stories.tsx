@@ -9,7 +9,6 @@ import { InsightShortId } from '~/types'
 
 import insight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
 import { insightVizDataLogic } from '../insightVizDataLogic'
-import { LOADING_MESSAGES } from './EmptyStates'
 import funnelOneStep from './funnelOneStep.json'
 
 type Story = StoryObj<typeof App>
@@ -149,19 +148,3 @@ LongLoading.parameters = {
 }
 
 export const FunnelSingleStep: Story = createInsightStory(funnelOneStep as any)
-
-export const LoadingMessages: StoryFn = () => {
-    return (
-        <ul>
-            {LOADING_MESSAGES.map((message) => (
-                <li key={message}>{message}</li>
-            ))}
-        </ul>
-    )
-}
-LoadingMessages.parameters = {
-    testOptions: {
-        waitForLoadersToDisappear: false,
-        waitForSelector: undefined, // Unset the default selector or else this won't ever finish running
-    },
-}
