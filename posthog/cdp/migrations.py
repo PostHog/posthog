@@ -103,10 +103,11 @@ def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool
                     if contents:
                         inputs[attachment.key] = {"value": contents}
 
-            team = teams_cache.get(plugin_config["team_id"])
+            team = teams_cache.get(plugin_config["team_id"]) or Team.objects.get(id=plugin_config["team_id"])
             if not team:
-                team = Team.objects.get(id=plugin_config["team_id"])
-                teams_cache[plugin_config["team_id"]] = team
+                raise Exception(f"Team not found: {plugin_config['team_id']}")
+
+            teams_cache[plugin_config["team_id"]] = team
 
             serializer_context = {"team": team, "get_team": (lambda t=team: t)}
 
