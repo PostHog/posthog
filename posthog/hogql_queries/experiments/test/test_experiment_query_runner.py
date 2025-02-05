@@ -189,8 +189,10 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(control_variant.absolute_exposure, 2.0)
         self.assertEqual(control_variant.count, 3.0)
-        self.assertEqual(control_variant.exposure, 1.0)
+        # In the new query runner, the exposure value is the same as the absolute exposure value
+        self.assertEqual(control_variant.exposure, 2.0)
 
         self.assertEqual(test_variant.absolute_exposure, 2.0)
         self.assertEqual(test_variant.count, 5.0)
-        self.assertEqual(test_variant.exposure, 1.0)
+        # In the new query runner, the exposure value is the same as the absolute exposure value
+        self.assertEqual(test_variant.exposure, 2.0)
