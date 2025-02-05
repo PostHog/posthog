@@ -1,0 +1,32 @@
+import { LegacyDestinationPlugin } from '../../types'
+import { onEvent } from './index'
+
+// NOTE: This is a deprecated plugin and should never be shown to new users
+
+export const pacePlugin: LegacyDestinationPlugin = {
+    setupPlugin: () => Promise.resolve(),
+    onEvent,
+    template: {
+        free: false,
+        status: 'deprecated',
+        type: 'destination',
+        id: 'plugin-pace-posthog-integration',
+        name: 'Pace Integration',
+        description:
+            'Pace is a tool that equips sellers with relevant insights at the right time so they can spend time growing revenue. It allows them to convert, retain, and grow customers by prioritizing time and effort on the users who need it most.',
+        icon_url: 'https://raw.githubusercontent.com/PostHog/pace-posthog-integration/main/logo.png',
+        category: [],
+        hog: `return event`,
+        inputs_schema: [
+            {
+                key: 'api_key',
+                description: 'API key provided by Pace.',
+                label: 'API Key',
+                type: 'string',
+                default: '',
+                required: true,
+                secret: true,
+            },
+        ],
+    },
+}
