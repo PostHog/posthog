@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { encodeParams } from 'kea-router'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 import { WebVitalsMetric } from '~/queries/schema'
@@ -53,7 +54,11 @@ export const webVitalsToolbarLogic = kea<webVitalsToolbarLogicType>([
                 getWebVitals: async (_, breakpoint) => {
                     // If web vitals autocapture is disabled, we don't want to fetch the data
                     // because it's likely we won't have any data
-                    if (!values.posthog?.webVitalsAutocapture?.isEnabled) {
+                    if (
+                        !values.posthog?.webVitalsAutocapture?.isEnabled &&
+                        !inStorybook() &&
+                        !inStorybookTestRunner()
+                    ) {
                         return { LCP: null, FCP: null, CLS: null, INP: null } as WebVitalsMetrics
                     }
 
@@ -113,7 +118,7 @@ export const webVitalsToolbarLogic = kea<webVitalsToolbarLogicType>([
 
         // Listen to posthog events and capture them
         // Guarantee that we won't even attempt to show web vitals data if the feature is disabled
-        if (!values.posthog?.webVitalsAutocapture?.isEnabled) {
+        if (!values.posthog?.webVitalsAutocapture?.isEnabled && !inStorybook() && !inStorybookTestRunner()) {
             actions.nullifyLocalWebVitals()
         } else {
             const METRICS_AND_PROPERTIES: Record<WebVitalsMetric, string> = {
@@ -122,6 +127,7 @@ export const webVitalsToolbarLogic = kea<webVitalsToolbarLogicType>([
                 CLS: '$web_vitals_CLS_value',
                 INP: '$web_vitals_INP_value',
             }
+
             values.posthog?.on('eventCaptured', (event) => {
                 if (event.event === '$web_vitals') {
                     for (const [metric, property] of Object.entries(METRICS_AND_PROPERTIES)) {
