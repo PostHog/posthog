@@ -8,12 +8,14 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, PipelineEvent, Team } from '../../../src/types'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
+import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { EventPipelineRunnerV2 } from './event-pipeline-runner'
 
 describe('EventPipelineRunner', () => {
     let hub: Hub
     let team: Team
     let fixedTime: DateTime
+    let hogTransformer: HogTransformerService
 
     const createEvent = (event?: Partial<PipelineEvent>): PipelineEvent => ({
         distinct_id: 'user-1',
@@ -30,7 +32,7 @@ describe('EventPipelineRunner', () => {
     })
 
     const createRunner = (event?: Partial<PipelineEvent>) => {
-        const runner = new EventPipelineRunnerV2(hub, createEvent(event))
+        const runner = new EventPipelineRunnerV2(hub, createEvent(event), hogTransformer)
         jest.spyOn(runner as any, 'captureIngestionWarning')
         jest.spyOn(runner as any, 'dropEvent')
         return runner
@@ -44,10 +46,13 @@ describe('EventPipelineRunner', () => {
         hub = await createHub()
         hub.kafkaProducer = mockProducer
         team = await getFirstTeam(hub)
+        hogTransformer = new HogTransformerService(hub)
+        await hogTransformer.start()
     })
 
     afterEach(async () => {
         jest.restoreAllMocks()
+        await hogTransformer.stop()
         await closeHub(hub)
     })
 
