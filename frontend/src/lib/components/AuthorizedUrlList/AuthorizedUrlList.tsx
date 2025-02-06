@@ -317,7 +317,7 @@ export function AuthorizedUrlList({
                                                         </>
                                                     ),
                                                 },
-                                                'data-attr': 'saved-insights-new-insight-dropdown',
+                                                'data-attr': 'launch-toolbar-sideaction-dropdown',
                                             }}
                                         >
                                             Launch
