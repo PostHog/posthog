@@ -3,8 +3,8 @@ import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 
 import { Hub } from '~/src/types'
-import { PostgresUse } from '~/src/utils/db/postgres'
 
+import { PostgresUse } from '../../utils/db/postgres'
 import { Response, trackedFetch } from '../../utils/fetch'
 import { status } from '../../utils/status'
 import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '../legacy-plugins'
