@@ -1,7 +1,7 @@
 import { LemonBanner, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { inStorybookTestRunner } from 'lib/utils'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import {
@@ -27,7 +27,7 @@ export const WebVitalsToolbarMenu = (): JSX.Element => {
         <ToolbarMenu>
             <ToolbarMenu.Body>
                 <div className="flex flex-col gap-2">
-                    {!posthog?.webVitalsAutocapture?.isEnabled && (
+                    {!posthog?.webVitalsAutocapture?.isEnabled && !inStorybookTestRunner() && !inStorybook() && (
                         <LemonBanner type="warning">
                             Web vitals are not enabled for this project so you won't see any data here. Enable it on the{' '}
                             <Link to={urls.settings()}>settings page</Link> to start capturing web vitals.
@@ -143,7 +143,8 @@ const DottedTooltip = ({ children, title }: { children: React.ReactNode; title: 
 }
 
 const WebVitalsToolbarSpinner = (): JSX.Element => {
-    // Avoid showing a spinner in Storybook Test Runner, because tests won't ever finish waiting for them to disappear
+    // Avoid showing a spinner in Storybook Test Runner,
+    // because tests won't ever finish waiting for them to disappear
     if (inStorybookTestRunner()) {
         return <></>
     }
