@@ -54,3 +54,30 @@ fn python_exceptions() {
 
     assert_eq!(frames.len(), 31);
 }
+
+#[test]
+fn node_exceptions() {
+    let props: RawErrProps =
+        serde_json::from_str(include_str!("./static/node_err_props.json")).unwrap();
+
+    let frames = props
+        .exception_list
+        .into_iter()
+        .map(|e| e.stack.unwrap())
+        .flat_map(|t| {
+            let Stacktrace::Raw { frames } = t else {
+                panic!("Expected a Raw stacktrace")
+            };
+            frames
+        })
+        .map(|f| {
+            let RawFrame::JavaScriptNode(f) = f else {
+                panic!("Expected a Node frame")
+            };
+            let f: Frame = (&f).into();
+            f
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(frames.len(), 4);
+}
