@@ -278,7 +278,9 @@ class ExperimentQueryRunner(QueryRunner):
 
         return experiment_variant_results_query
 
-    def _evaluate_experiment_query(self) -> list[ExperimentVariantTrendsBaseStats]:
+    def _evaluate_experiment_query(
+        self,
+    ) -> list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats]:
         response = execute_hogql_query(
             query=self._get_experiment_query(),
             team=self.team,
