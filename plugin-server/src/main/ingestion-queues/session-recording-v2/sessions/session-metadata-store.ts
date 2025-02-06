@@ -18,8 +18,8 @@ export class SessionMetadataStore {
             session_id: metadata.sessionId,
             team_id: metadata.teamId,
             distinct_id: metadata.distinctId,
-            start_timestamp: metadata.startTimestamp,
-            end_timestamp: metadata.endTimestamp,
+            first_timestamp: metadata.startTimestamp,
+            last_timestamp: metadata.endTimestamp,
             block_url: metadata.blockUrl,
         }))
 
