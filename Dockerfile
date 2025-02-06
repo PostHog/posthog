@@ -174,6 +174,12 @@ RUN curl https://packages.microsoft.com/config/debian/11/prod.list | tee /etc/ap
 RUN apt-get update
 RUN ACCEPT_EULA=Y apt-get install -y msodbcsql18
 
+# Install openjdk@17 for pyspark
+RUN apt-get update --fix-missing
+RUN apt install -y openjdk-17-jdk
+ENV JAVA_HOME /usr/lib/jvm/java-17-openjdk-arm64
+ENV PATH $JAVA_HOME/bin:$PATH
+
 # Install NodeJS 18.
 RUN apt-get install -y --no-install-recommends \
     "curl" \
