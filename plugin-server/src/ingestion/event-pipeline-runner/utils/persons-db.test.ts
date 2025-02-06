@@ -1,33 +1,28 @@
 import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 
-import { defaultConfig } from '../../src/config/config'
-import { fetchTeam, fetchTeamByToken } from '../../src/services/team-manager'
-import { Hub, Person, PropertyOperator, PropertyUpdateOperation, RawAction, Team } from '../../src/types'
-import { DB } from '../../src/utils/db/db'
-import { DependencyUnavailableError, RedisOperationError } from '../../src/utils/db/error'
-import { generateKafkaPersonUpdateMessage } from '../../src/utils/db/utils'
-import { closeHub, createHub } from '../../src/utils/hub'
-import { PostgresRouter, PostgresUse } from '../../src/utils/postgres'
-import { RaceConditionError, UUIDT } from '../../src/utils/utils'
-import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
-import { createOrganization, createTeam, getFirstTeam, insertRow, resetTestDatabase } from '../helpers/sql'
-import { plugin60 } from './../helpers/plugins'
+import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../../_tests/helpers/clickhouse'
+import { createOrganization, createTeam, getFirstTeam, insertRow, resetTestDatabase } from '../../../_tests/helpers/sql'
+import { defaultConfig } from '../../../config/config'
+import { fetchTeam, fetchTeamByToken } from '../../../services/team-manager'
+import { Hub, Person, PropertyUpdateOperation, Team } from '../../../types'
+import { DependencyUnavailableError } from '../../../utils/errors'
+import { closeHub, createHub } from '../../../utils/hub'
+import { PostgresRouter, PostgresUse } from '../../../utils/postgres'
+import { RaceConditionError, UUIDT } from '../../../utils/utils'
+import { PersonsDB } from './persons-db'
+import { generateKafkaPersonUpdateMessage } from './utils'
 
-jest.mock('../../src/utils/status')
+jest.mock('../../../utils/status')
 
 describe('DB', () => {
     let hub: Hub
-    let db: DB
+    let db: PersonsDB
 
     beforeEach(async () => {
         hub = await createHub()
-        await resetTestDatabase(undefined, {}, {}, { withExtendedTestData: false })
-        db = hub.db
-
-        const redis = await hub.redisPool.acquire()
-        await redis.flushdb()
-        await db.redisPool.release(redis)
+        await resetTestDatabase(undefined, {})
+        db = new PersonsDB(hub.postgres, hub.kafkaProducer)
     })
 
     afterEach(async () => {
@@ -38,7 +33,7 @@ describe('DB', () => {
     const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
 
     async function fetchPersonByPersonId(teamId: number, personId: number): Promise<Person | undefined> {
-        const selectResult = await db.postgres.query(
+        const selectResult = await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `SELECT * FROM posthog_person WHERE team_id = $1 AND id = $2`,
             [teamId, personId],
@@ -55,7 +50,7 @@ describe('DB', () => {
         // This will conflict, but shouldn't throw an error
         await db.addPersonlessDistinctId(team.id, 'addPersonlessDistinctId')
 
-        const result = await db.postgres.query(
+        const result = await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             'SELECT id FROM posthog_personlessdistinctid WHERE team_id = $1 AND distinct_id = $2',
             [team.id, 'addPersonlessDistinctId'],
@@ -388,82 +383,13 @@ describe('DB', () => {
         })
     })
 
-    describe('addOrUpdatePublicJob', () => {
-        it('updates the column if the job name is new', async () => {
-            await insertRow(db.postgres, 'posthog_plugin', { ...plugin60, id: 88 })
-
-            const jobName = 'newJob'
-            const jobPayload = { foo: 'string' }
-            await db.addOrUpdatePublicJob(88, jobName, jobPayload)
-            const publicJobs = (
-                await db.postgres.query(
-                    PostgresUse.COMMON_WRITE,
-                    'SELECT public_jobs FROM posthog_plugin WHERE id = $1',
-                    [88],
-                    'testPublicJob1'
-                )
-            ).rows[0].public_jobs
-
-            expect(publicJobs[jobName]).toEqual(jobPayload)
-        })
-
-        it('updates the column if the job payload is new', async () => {
-            await insertRow(db.postgres, 'posthog_plugin', { ...plugin60, id: 88, public_jobs: { foo: 'number' } })
-
-            const jobName = 'newJob'
-            const jobPayload = { foo: 'string' }
-            await db.addOrUpdatePublicJob(88, jobName, jobPayload)
-            const publicJobs = (
-                await db.postgres.query(
-                    PostgresUse.COMMON_WRITE,
-                    'SELECT public_jobs FROM posthog_plugin WHERE id = $1',
-                    [88],
-                    'testPublicJob1'
-                )
-            ).rows[0].public_jobs
-
-            expect(publicJobs[jobName]).toEqual(jobPayload)
-        })
-    })
-
-    describe('getPluginSource', () => {
-        let team: Team
-        let plugin: number
-
-        beforeEach(async () => {
-            team = await getFirstTeam(hub)
-            const plug = await db.postgres.query(
-                PostgresUse.COMMON_WRITE,
-                'INSERT INTO posthog_plugin (name, organization_id, config_schema, from_json, from_web, is_global, is_preinstalled, is_stateless, created_at, capabilities) values($1, $2, $3, false, false, false, false, false, $4, $5) RETURNING id',
-                ['My Plug', team.organization_id, [], new Date(), {}],
-                ''
-            )
-            plugin = plug.rows[0].id
-        })
-
-        test('fetches from the database', async () => {
-            let source = await db.getPluginSource(plugin, 'index.ts')
-            expect(source).toBe(null)
-
-            await db.postgres.query(
-                PostgresUse.COMMON_WRITE,
-                'INSERT INTO posthog_pluginsourcefile (id, plugin_id, filename, source) values($1, $2, $3, $4)',
-                [new UUIDT().toString(), plugin, 'index.ts', 'USE THE SOURCE'],
-                ''
-            )
-
-            source = await db.getPluginSource(plugin, 'index.ts')
-            expect(source).toBe('USE THE SOURCE')
-        })
-    })
-
     describe('updateCohortsAndFeatureFlagsForMerge()', () => {
         let team: Team
         let sourcePersonID: Person['id']
         let targetPersonID: Person['id']
 
         async function getAllHashKeyOverrides(): Promise<any> {
-            const result = await db.postgres.query(
+            const result = await hub.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 'SELECT feature_flag_key, hash_key, person_id FROM posthog_featureflaghashkeyoverride',
                 [],
@@ -505,13 +431,13 @@ describe('DB', () => {
         })
 
         it('updates all valid keys when target person had no overrides', async () => {
-            await insertRow(db.postgres, 'posthog_featureflaghashkeyoverride', {
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
                 team_id: team.id,
                 person_id: sourcePersonID,
                 feature_flag_key: 'aloha',
                 hash_key: 'override_value_for_aloha',
             })
-            await insertRow(db.postgres, 'posthog_featureflaghashkeyoverride', {
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
                 team_id: team.id,
                 person_id: sourcePersonID,
                 feature_flag_key: 'beta-feature',
@@ -540,19 +466,19 @@ describe('DB', () => {
         })
 
         it('updates all valid keys when conflicts with target person', async () => {
-            await insertRow(db.postgres, 'posthog_featureflaghashkeyoverride', {
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
                 team_id: team.id,
                 person_id: sourcePersonID,
                 feature_flag_key: 'aloha',
                 hash_key: 'override_value_for_aloha',
             })
-            await insertRow(db.postgres, 'posthog_featureflaghashkeyoverride', {
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
                 team_id: team.id,
                 person_id: sourcePersonID,
                 feature_flag_key: 'beta-feature',
                 hash_key: 'override_value_for_beta_feature',
             })
-            await insertRow(db.postgres, 'posthog_featureflaghashkeyoverride', {
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
                 team_id: team.id,
                 person_id: targetPersonID,
                 feature_flag_key: 'beta-feature',
@@ -581,13 +507,13 @@ describe('DB', () => {
         })
 
         it('updates nothing when target person overrides exist', async () => {
-            await insertRow(db.postgres, 'posthog_featureflaghashkeyoverride', {
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
                 team_id: team.id,
                 person_id: targetPersonID,
                 feature_flag_key: 'aloha',
                 hash_key: 'override_value_for_aloha',
             })
-            await insertRow(db.postgres, 'posthog_featureflaghashkeyoverride', {
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
                 team_id: team.id,
                 person_id: targetPersonID,
                 feature_flag_key: 'beta-feature',
@@ -618,8 +544,8 @@ describe('DB', () => {
 
     describe('fetchTeam()', () => {
         it('fetches a team by id', async () => {
-            const organizationId = await createOrganization(db.postgres)
-            const teamId = await createTeam(db.postgres, organizationId, 'token1')
+            const organizationId = await createOrganization(hub.postgres)
+            const teamId = await createTeam(hub.postgres, organizationId, 'token1')
 
             const fetchedTeam = await fetchTeam(hub.postgres, teamId)
             expect(fetchedTeam).toEqual({
@@ -650,8 +576,8 @@ describe('DB', () => {
 
     describe('fetchTeamByToken()', () => {
         it('fetches a team by token', async () => {
-            const organizationId = await createOrganization(db.postgres)
-            const teamId = await createTeam(db.postgres, organizationId, 'token2')
+            const organizationId = await createOrganization(hub.postgres)
+            const teamId = await createTeam(hub.postgres, organizationId, 'token2')
 
             const fetchedTeam = await fetchTeamByToken(hub.postgres, 'token2')
             expect(fetchedTeam).toEqual({
