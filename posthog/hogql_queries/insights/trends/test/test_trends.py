@@ -6916,18 +6916,20 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             result[0]["days"],
             [
-                "2020-01-09 06:00:00",
-                "2020-01-09 07:00:00",
-                "2020-01-09 08:00:00",
-                "2020-01-09 09:00:00",
-                "2020-01-09 10:00:00",
-                "2020-01-09 11:00:00",
-                "2020-01-09 12:00:00",
-                "2020-01-09 13:00:00",
-                "2020-01-09 14:00:00",
-                "2020-01-09 15:00:00",
-                "2020-01-09 16:00:00",
-                "2020-01-09 17:00:00",
+                # p1 and p2 have an event on the 9th.
+                # p0 has an event at 11am and 12 am on the 3rd.
+                "2020-01-09 06:00:00",  # 3
+                "2020-01-09 07:00:00",  # 3
+                "2020-01-09 08:00:00",  # 3
+                "2020-01-09 09:00:00",  # 3
+                "2020-01-09 10:00:00",  # 3
+                "2020-01-09 11:00:00",  # 3
+                "2020-01-09 12:00:00",  # 3
+                "2020-01-09 13:00:00",  # 2
+                "2020-01-09 14:00:00",  # 2
+                "2020-01-09 15:00:00",  # 2
+                "2020-01-09 16:00:00",  # 2
+                "2020-01-09 17:00:00",  # 2
             ],
         )
 
@@ -6938,7 +6940,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # the first day of the month, and not the last. If they saw just Jan-2077, the more general case would work.
         self.assertEqual(
             result[0]["data"],
-            [3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0],
+            [3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 2.0, 2.0, 2.0, 2.0, 2.0],
         )
 
     def test_weekly_active_users_daily_based_on_action_with_zero_person_ids(self):
