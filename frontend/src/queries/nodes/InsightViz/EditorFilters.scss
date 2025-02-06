@@ -1,12 +1,14 @@
+@import '../../../styles/mixins';
+
 .EditorFiltersWrapper {
     --editor-panel-group-min-width: 24rem;
 
     flex-shrink: 0;
-    background: var(--bg-surface-primary);
+    background: var(--bg-light);
 
     &:not(.EditorFiltersWrapper--embedded) {
         padding: 1rem;
-        border: 1px solid var(--border-primary);
+        border: 1px solid var(--border);
         border-radius: var(--radius);
     }
 

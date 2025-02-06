@@ -58,8 +58,9 @@ function PathsTarget({ position, insightProps }: PathTargetProps): JSX.Element {
                     }: ${_getStepNameAtIndex(funnelSource, index > 0 ? index + shift : index * -1)}`}</span>
                 </div>
             )
+        } else {
+            return <span />
         }
-        return <span />
     }
 
     function getStartPointLabel(): JSX.Element {
@@ -69,28 +70,32 @@ function PathsTarget({ position, insightProps }: PathTargetProps): JSX.Element {
             } else if (funnelPathType === FunnelPathType.between) {
                 // funnel_step targets the later of the 2 events when specifying between so the start point index is shifted back 1
                 return _getStepLabel(funnelSource, funnelStep, -1)
+            } else {
+                return <span />
             }
-            return <span />
+        } else {
+            return startPoint ? (
+                <span className="label">{startPoint}</span>
+            ) : (
+                <span className="label text-muted">Add start point</span>
+            )
         }
-        return startPoint ? (
-            <span className="label">{startPoint}</span>
-        ) : (
-            <span className="label text-secondary">Add start point</span>
-        )
     }
 
     function getEndPointLabel(): JSX.Element {
         if (funnelPathType) {
             if (funnelPathType === FunnelPathType.before || funnelPathType === FunnelPathType.between) {
                 return _getStepLabel(funnelSource, funnelStep)
+            } else {
+                return <span />
             }
-            return <span />
+        } else {
+            return endPoint ? (
+                <span className="label">{endPoint}</span>
+            ) : (
+                <span className="label text-muted">Add end point</span>
+            )
         }
-        return endPoint ? (
-            <span className="label">{endPoint}</span>
-        ) : (
-            <span className="label text-secondary">Add end point</span>
-        )
     }
 
     const positionOptions = {

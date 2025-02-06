@@ -31,7 +31,7 @@ export function MetricTag({ properties }: MetricTagProps): JSX.Element {
     )
 
     return (
-        <LemonTag className="bg-surface-primary cursor-default">
+        <LemonTag className="bg-bg-light cursor-default">
             <CopyToClipboardInline
                 iconSize="xsmall"
                 description="metric"

@@ -1,7 +1,6 @@
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -64,14 +63,9 @@ export function PersonPreview(props: PersonPreviewProps): JSX.Element | null {
                 <LemonButton size="small" icon={<IconOpenInNew />} to={url} />
             </div>
 
-            <ScrollableShadows direction="vertical">
-                <PropertiesTable
-                    properties={person.properties}
-                    type={PropertyDefinitionType.Person}
-                    sortProperties
-                    embedded={false}
-                />
-            </ScrollableShadows>
+            <div className="flex-1 overflow-y-auto border-t">
+                <PropertiesTable properties={person.properties} type={PropertyDefinitionType.Person} sortProperties />
+            </div>
         </div>
     )
 }

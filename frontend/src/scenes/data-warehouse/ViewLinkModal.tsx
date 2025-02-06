@@ -198,9 +198,7 @@ export function ViewLinkForm(): JSX.Element {
                         >
                             <div>
                                 <h3 className="l4 mt-2">Advanced settings</h3>
-                                <div className="text-secondary mb-2 font-medium">
-                                    Customize how the fields are accessed
-                                </div>
+                                <div className="text-muted mb-2 font-medium">Customize how the fields are accessed</div>
                             </div>
                         </LemonButton>
                     </div>

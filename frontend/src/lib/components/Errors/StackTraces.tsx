@@ -54,9 +54,7 @@ export function ChainedStackTraces({
                         >
                             <div className="space-y-0.5">
                                 <h3 className="StackTrace__type mb-0">{type}</h3>
-                                <div className="StackTrace__value line-clamp-2 text-secondary italic text-xs">
-                                    {value}
-                                </div>
+                                <div className="StackTrace__value line-clamp-2 text-muted italic text-xs">{value}</div>
                             </div>
                             <Trace frames={frames || []} showAllFrames={showAllFrames} embedded={embedded} />
                         </div>
@@ -90,13 +88,13 @@ function Trace({
                             <span>{source}</span>
                             {resolved_name ? (
                                 <div className="flex space-x-0.5">
-                                    <span className="text-secondary">in</span>
+                                    <span className="text-muted">in</span>
                                     <span>{resolved_name}</span>
                                 </div>
                             ) : null}
                             {line ? (
                                 <div className="flex space-x-0.5">
-                                    <span className="text-secondary">@</span>
+                                    <span className="text-muted">@</span>
                                     <span>
                                         {line}
                                         {column && `:${column}`}
@@ -153,7 +151,7 @@ function FrameContextLine({
     highlight?: boolean
 }): JSX.Element {
     return (
-        <div className={highlight ? 'bg-fill-error-highlight' : 'bg-surface-primary'}>
+        <div className={highlight ? 'bg-accent-3000' : 'bg-bg-light'}>
             {lines
                 .sort((l) => l.number)
                 .map(({ number, line }) => (

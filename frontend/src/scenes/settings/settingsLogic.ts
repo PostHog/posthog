@@ -38,21 +38,21 @@ export const settingsLogic = kea<settingsLogicType>([
 
     reducers(({ props }) => ({
         selectedLevelRaw: [
-            props.settingLevelId ?? 'project',
+            (props.settingLevelId ?? 'project') as SettingLevelId,
             {
                 selectLevel: (_, { level }) => level,
                 selectSection: (_, { level }) => level,
             },
         ],
         selectedSectionIdRaw: [
-            props.sectionId ?? null,
+            (props.sectionId ?? null) as SettingSectionId | null,
             {
                 selectLevel: () => null,
                 selectSection: (_, { section }) => section,
             },
         ],
         selectedSettingId: [
-            props.settingId ?? null,
+            (props.settingId ?? null) as SettingId | null,
             {
                 selectLevel: () => null,
                 selectSection: () => null,

@@ -3,14 +3,14 @@
         margin: 0 auto;
         border-spacing: 0;
         border-collapse: separate;
-        border: 1px solid var(--border-primary);
+        border: 1px solid var(--border);
         border-radius: var(--radius);
 
         td {
             padding: 0.5rem 1rem;
             text-align: center;
-            border-top: 1px solid var(--border-primary);
-            border-left: 1px solid var(--border-primary);
+            border-top: 1px solid var(--border);
+            border-left: 1px solid var(--border);
 
             .percentage {
                 padding-bottom: 0.25rem;
@@ -23,7 +23,7 @@
         }
 
         .table-title {
-            color: var(--text-secondary);
+            color: var(--muted-alt);
 
             td {
                 border-top: none;
@@ -33,9 +33,9 @@
         thead,
         .horizontal-header {
             font-weight: bold;
-            color: var(--text-secondary);
+            color: var(--muted);
             text-transform: uppercase;
-            background-color: var(--bg-primary);
+            background-color: var(--bg-3000);
         }
 
         tbody {

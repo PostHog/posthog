@@ -10,8 +10,8 @@
     overflow: hidden;
     font-size: 0.8125rem;
     pointer-events: none;
-    background: var(--bg-surface-primary);
-    border: 1px solid var(--border-primary);
+    background: var(--bg-light);
+    border: 1px solid var(--border);
     border-radius: var(--radius);
     box-shadow: var(--shadow-elevation-3000);
 
@@ -32,7 +32,7 @@
         border-bottom-left-radius: 0;
 
         &:not(:last-child) {
-            border-bottom: 1px solid var(--border-primary);
+            border-bottom: 1px solid var(--border);
         }
 
         .insights-label {
@@ -70,7 +70,7 @@
                 overflow: hidden;
                 color: var(--primary-alt);
                 vertical-align: middle;
-                background-color: var(--border-primary);
+                background-color: var(--border-3000);
                 border: 0;
             }
         }
@@ -79,9 +79,9 @@
     .table-subtext {
         padding: 0.5rem 1rem;
         font-size: 0.75rem;
-        color: var(--text-secondary);
+        color: var(--muted);
         text-align: center;
-        background-color: var(--bg-surface-primary);
+        background-color: var(--bg-light);
 
         .table-subtext-truncated {
             margin-bottom: 4px;

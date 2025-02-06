@@ -175,7 +175,7 @@ export default function SurveyEdit(): JSX.Element {
                     onChange={(section) => {
                         setSelectedSection(section)
                     }}
-                    className="bg-surface-primary"
+                    className="bg-bg-light"
                     panels={[
                         {
                             key: SurveyEditSection.Presentation,
@@ -467,7 +467,7 @@ export default function SurveyEdit(): JSX.Element {
                                                 icon={<IconPlus />}
                                                 sideIcon={
                                                     surveysMultipleQuestionsAvailable ? null : (
-                                                        <IconLock className="ml-1 text-base text-secondary" />
+                                                        <IconLock className="ml-1 text-base text-muted" />
                                                     )
                                                 }
                                                 disabledReason={
@@ -598,7 +598,7 @@ export default function SurveyEdit(): JSX.Element {
                                         data-attr="survey-display-conditions-select"
                                     />
                                     {!hasTargetingSet ? (
-                                        <span className="text-secondary">
+                                        <span className="text-muted">
                                             Survey <b>will be released to everyone</b>
                                         </span>
                                     ) : (

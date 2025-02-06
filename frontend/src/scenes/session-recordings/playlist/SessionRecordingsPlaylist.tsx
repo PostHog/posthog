@@ -86,7 +86,7 @@ export function SessionRecordingsPlaylist({
         render: ({ item, isActive }) => <SessionRecordingPreview recording={item} isActive={isActive} pinned={false} />,
         footer: (
             <div className="p-4">
-                <div className="h-10 flex items-center justify-center gap-2 text-secondary">
+                <div className="h-10 flex items-center justify-center gap-2 text-muted-alt">
                     {sessionRecordingsResponseLoading ? (
                         <>
                             <Spinner textColored /> Loading older recordings
@@ -175,7 +175,7 @@ const ListEmptyState = (): JSX.Element => {
     const { setFilters } = useActions(sessionRecordingsPlaylistLogic)
 
     return (
-        <div className="p-3 text-sm text-secondary">
+        <div className="p-3 text-sm text-muted-alt">
             {sessionRecordingsAPIErrored ? (
                 <LemonBanner type="error">Error while trying to load recordings.</LemonBanner>
             ) : unusableEventsInFilter.length ? (

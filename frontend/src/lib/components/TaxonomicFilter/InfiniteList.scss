@@ -40,7 +40,7 @@
                     vertical-align: middle;
 
                     &.taxonomy-icon-muted {
-                        color: var(--text-secondary);
+                        color: var(--muted-alt);
                     }
 
                     &.taxonomy-icon-verified {
@@ -66,7 +66,7 @@
         }
 
         &.hover {
-            background-color: var(--bg-primary);
+            background-color: var(--bg-3000);
             border-radius: var(--radius);
         }
 

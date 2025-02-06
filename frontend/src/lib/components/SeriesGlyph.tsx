@@ -96,11 +96,11 @@ export function ExperimentVariantNumber({ className, index }: ExperimentVariantN
         <SeriesGlyph
             className={className}
             style={{
-                borderColor: 'var(--text-secondary)',
-                color: 'var(--text-secondary)',
+                borderColor: 'var(--muted)',
+                color: 'var(--muted)',
                 backgroundColor: isDarkModeOn
-                    ? RGBToRGBA(lightenDarkenColor('var(--text-secondary)', -20), 0.3)
-                    : hexToRGBA('var(--text-secondary)', 0.2),
+                    ? RGBToRGBA(lightenDarkenColor('var(--muted)', -20), 0.3)
+                    : hexToRGBA('var(--muted)', 0.2),
             }}
         >
             {index}

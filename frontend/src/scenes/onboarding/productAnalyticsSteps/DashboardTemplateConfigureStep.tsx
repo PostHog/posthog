@@ -62,7 +62,7 @@ const UrlInput = ({ iframeRef }: { iframeRef: React.RefObject<HTMLIFrameElement>
                 }}
                 prefix={
                     <span className="-mr-2 flex items-center">
-                        <div className="bg-primary rounded">
+                        <div className="bg-bg-3000 rounded">
                             <LemonInputSelect
                                 mode="single"
                                 value={[browserUrl || 'my-website.com']}
@@ -142,7 +142,7 @@ export const SiteChooser = (): JSX.Element => {
                                 the HTML snippet wherever you want to track events, then come back here.
                             </p>
                             {isCloud && (
-                                <p className="text-secondary italic">
+                                <p className="text-muted italic">
                                     Note: Sites must be served over HTTPS to be selected.
                                 </p>
                             )}
@@ -165,13 +165,13 @@ export const SiteChooser = (): JSX.Element => {
                         </>
                     ) : (
                         <>
-                            <p className="text-secondary">
+                            <p className="text-muted">
                                 Hm, it looks like you haven't ingested any events from a website yet. To select actions
                                 from your site, head back to the{' '}
                                 <Link onClick={() => setStepKey(OnboardingStepKey.INSTALL)}>install step</Link> to
                                 install posthog-js in your frontend.
                             </p>
-                            <p className="text-secondary">
+                            <p className="text-muted">
                                 You can still create a dashboard using custom event names, though it's not quite as fun.
                             </p>
                             <LemonButton onClick={() => setStepKey(OnboardingStepKey.INSTALL)} type="primary">

@@ -43,7 +43,7 @@
     }
 
     &.LemonRow--status-muted {
-        background: var(--bg-primary);
+        background: var(--bg-3000);
     }
 
     &.LemonRow--disabled {
@@ -68,7 +68,7 @@
 }
 
 .LemonRow--outlined {
-    border: 1px solid var(--border-primary);
+    border: 1px solid var(--border);
 }
 
 .LemonRow--full-width {
@@ -145,7 +145,7 @@
     display: flex;
     flex-shrink: 0;
     font-size: 1.5rem;
-    color: var(--text-secondary);
+    color: var(--muted-alt);
     transition: background-color 200ms ease, color 200ms ease;
 }
 

@@ -1,5 +1,4 @@
 @import '../../../styles/mixins';
-@import '../../../styles/vars';
 
 .BridgePage {
     position: relative;
@@ -64,7 +63,7 @@
         width: 100%;
         margin: 1rem 0;
         font-weight: 500;
-        color: var(--text-secondary);
+        color: var(--muted);
     }
 
     .BridgePage__left {

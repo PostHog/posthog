@@ -214,6 +214,7 @@ export function SidePanel(): JSX.Element | null {
                     </div>
                 ) : null}
             </div>
+            <Resizer {...resizerLogicProps} offset="3rem" />
 
             {PanelConent ? (
                 <div className="SidePanel3000__content">

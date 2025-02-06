@@ -1,5 +1,4 @@
 @import '../../../../styles/mixins';
-@import '../../../../styles/vars';
 
 .BoldNumber {
     display: flex;
@@ -37,6 +36,6 @@
     margin-top: 0.5rem;
     margin-bottom: -1.5rem;
     font-weight: 500;
-    color: var(--text-secondary);
+    color: var(--muted-alt);
     cursor: default;
 }

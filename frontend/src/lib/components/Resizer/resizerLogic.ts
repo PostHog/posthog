@@ -26,8 +26,6 @@ const removeAllListeners = (cache: Record<string, any>): void => {
     if (cache.onMouseUp) {
         document.removeEventListener('mouseup', cache.onMouseUp)
     }
-
-    document.body.classList.remove('is-resizing')
 }
 
 export const resizerLogic = kea<resizerLogicType>([
@@ -149,9 +147,6 @@ export const resizerLogic = kea<resizerLogicType>([
                     removeAllListeners(cache)
                 }
             }
-            // We need to add this class to the body to make sure that the cursor is
-            // grabbing, and to disable pointer events on all elements except the resizer
-            document.body.classList.add('is-resizing')
             document.addEventListener('mousemove', cache.onMouseMove)
             document.addEventListener('mouseup', cache.onMouseUp)
         },

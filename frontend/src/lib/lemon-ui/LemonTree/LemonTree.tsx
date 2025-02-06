@@ -77,7 +77,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             return (
                 <span
                     className={cn(ICON_CLASSES, {
-                        'text-secondary': item.disabledReason,
+                        'text-muted-alt': item.disabledReason,
                     })}
                 >
                     {item.icon || defaultNodeIcon || <div className={ICON_CLASSES} />}
@@ -118,7 +118,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                     <span
                                         className={cn('', {
                                             'font-semibold': selectedId === item.id,
-                                            'text-secondary': item.disabledReason,
+                                            'text-muted-alt': item.disabledReason,
                                         })}
                                     >
                                         {item.name}

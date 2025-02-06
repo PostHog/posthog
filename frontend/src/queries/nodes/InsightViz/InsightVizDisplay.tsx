@@ -229,7 +229,7 @@ export function InsightVizDisplay({
             <div
                 className={clsx(
                     `InsightVizDisplay InsightVizDisplay--type-${activeView.toLowerCase()} ph-no-capture`,
-                    !embedded && 'border rounded bg-surface-primary'
+                    !embedded && 'border rounded bg-bg-light'
                 )}
                 data-attr="insights-graph"
             >

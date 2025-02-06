@@ -2,13 +2,13 @@
     flex-shrink: 0;
     width: 100%;
     height: 1px;
-    background: var(--border-primary);
+    background: var(--border);
 
     &--dashed {
         background: repeating-linear-gradient(
             to right,
-            var(--border-primary),
-            var(--border-primary) 4px,
+            var(--border),
+            var(--border) 4px,
             transparent 4px,
             transparent 8px
         );
@@ -30,8 +30,8 @@
         &.LemonDivider--dashed {
             background: repeating-linear-gradient(
                 to bottom,
-                var(--border-primary),
-                var(--border-primary) 4px,
+                var(--border),
+                var(--border) 4px,
                 transparent 4px,
                 transparent 8px
             );
@@ -50,7 +50,7 @@
             display: block;
             width: 50%;
             content: '';
-            border-top: 1px solid var(--border-primary);
+            border-top: 1px solid var(--border);
             transform: translateY(50%);
         }
     }

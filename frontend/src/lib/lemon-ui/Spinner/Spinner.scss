@@ -71,7 +71,7 @@
         position: absolute;
         inset: 0;
         content: '';
-        background: var(--bg-surface-primary);
+        background: var(--bg-light);
         opacity: 0.5;
     }
 
@@ -80,6 +80,6 @@
     }
 
     &.SpinnerOverlay--scene-level::before {
-        background: var(--bg-primary);
+        background: var(--bg-3000);
     }
 }

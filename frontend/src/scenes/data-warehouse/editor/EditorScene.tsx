@@ -80,7 +80,7 @@ const EditorSidebarOverlay = (): JSX.Element => {
                         className="font-mono"
                         tooltipMessage={null}
                         description="schema"
-                        iconStyle={{ color: 'var(--text-secondary)' }}
+                        iconStyle={{ color: 'var(--muted-alt)' }}
                         explicitValue={selectedSchema?.name}
                     >
                         {selectedSchema?.name}

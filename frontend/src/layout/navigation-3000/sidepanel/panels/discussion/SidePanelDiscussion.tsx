@@ -59,7 +59,7 @@ export const SidePanelDiscussion = (): JSX.Element => {
                         <span>
                             Discussion{' '}
                             {scope ? (
-                                <span className="font-normal text-secondary">
+                                <span className="font-normal text-muted-alt">
                                     about {item_id ? 'this' : ''} {humanizeScope(scope, !!item_id)}
                                 </span>
                             ) : null}

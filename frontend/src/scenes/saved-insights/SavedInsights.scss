@@ -1,5 +1,4 @@
 @import '../../styles/mixins';
-@import '../../styles/vars';
 
 .saved-insights {
     .new-insight-dropdown-btn {
@@ -8,7 +7,7 @@
         color: white;
         cursor: pointer;
         background-color: var(--accent-primary);
-        border: 1px solid var(--border-primary);
+        border: 1px solid var(--border);
         border-radius: var(--radius);
     }
 
@@ -27,7 +26,7 @@
                 margin-bottom: 1rem;
                 font-size: 5rem;
                 line-height: 1em;
-                color: var(--border-primary);
+                color: var(--border);
                 text-align: center;
             }
 
@@ -41,7 +40,7 @@
                 font-size: 1rem;
                 font-weight: 500;
                 line-height: 1.7rem;
-                color: var(--text-secondary);
+                color: var(--muted);
             }
         }
     }

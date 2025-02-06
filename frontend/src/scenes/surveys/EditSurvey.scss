@@ -2,13 +2,19 @@
     display: none;
 }
 
+.SurveyForm {
+    .LemonCollapsePanel__header {
+        background: var(--border-light);
+    }
+}
+
 .question-choice-open-ended-footer {
     position: absolute;
     bottom: -5px;
     left: 6px;
     padding: 0 5px;
     font-size: 10px;
-    background-color: var(--bg-primary);
+    background-color: var(--bg-3000);
 }
 
 .SurveyQuestionDragHandle {

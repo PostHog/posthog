@@ -30,8 +30,8 @@ export const ActionResult = ({ result, focused }: SearchResultProps): JSX.Elemen
             )}
         >
             <div
-                className={`flex items-center w-full px-2 hover:bg-surface-secondary ${
-                    focused ? 'bg-surface-secondary' : 'bg-surface-primary'
+                className={`flex items-center w-full px-2 hover:bg-bg-3000 ${
+                    focused ? 'bg-bg-3000' : 'bg-bg-light'
                 } border-b cursor-pointer`}
                 onClick={() => {
                     if (isExecutable) {

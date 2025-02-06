@@ -116,7 +116,7 @@ function WaterfallMeta(): JSX.Element | null {
                             <CopyToClipboardInline
                                 description={pageUrl}
                                 explicitValue={pageUrl}
-                                iconStyle={{ color: 'var(--text-secondary)' }}
+                                iconStyle={{ color: 'var(--muted-alt)' }}
                                 selectable={true}
                             />
                         </span>

@@ -9,7 +9,7 @@
     }
 
     &.ActionFilter--bordered {
-        border: 1px solid var(--border-primary);
+        border: 1px solid var(--border);
         border-radius: var(--radius);
 
         .ActionFilterRow {
@@ -18,7 +18,7 @@
             .ActionFilterRow-content {
                 padding: 1rem;
                 margin-bottom: 0;
-                border-bottom: 1px solid var(--border-primary);
+                border-bottom: 1px solid var(--border);
             }
         }
 
@@ -29,8 +29,8 @@
 
         .ActionFilterRow-filters {
             padding: 0.5rem;
-            background-color: var(--bg-primary);
-            border-bottom: 1px solid var(--border-primary);
+            background-color: var(--bg-3000);
+            border-bottom: 1px solid var(--border);
         }
     }
 }

@@ -1,3 +1,5 @@
+import './Elements.scss'
+
 import { useActions, useValues } from 'kea'
 import { compactNumber } from 'lib/utils'
 import { Fragment } from 'react'

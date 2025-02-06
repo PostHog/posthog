@@ -89,7 +89,7 @@ export function FunnelBarHorizontal({
                                 <FunnelStepMore stepIndex={stepIndex} />
                             </div>
                             {step.average_conversion_time && step.average_conversion_time >= Number.EPSILON ? (
-                                <div className="text-secondary">
+                                <div className="text-muted-alt">
                                     Average time to convert:{' '}
                                     <b>{humanFriendlyDuration(step.average_conversion_time, { maxUnits: 2 })}</b>
                                 </div>
@@ -184,7 +184,7 @@ export function FunnelBarHorizontal({
                                         )}
                                     </b>
                                 </ValueInspectorButton>{' '}
-                                <span className="text-secondary grow">
+                                <span className="text-muted-alt grow">
                                     {`(${percentage(step.conversionRates.fromPrevious, 2, true)}) completed step`}
                                 </span>
                             </div>
@@ -209,7 +209,7 @@ export function FunnelBarHorizontal({
                                             )}
                                         </b>
                                     </ValueInspectorButton>{' '}
-                                    <span className="text-secondary">
+                                    <span className="text-muted-alt">
                                         {`(${percentage(1 - step.conversionRates.fromPrevious, 2, true)}) dropped off`}
                                     </span>
                                 </div>

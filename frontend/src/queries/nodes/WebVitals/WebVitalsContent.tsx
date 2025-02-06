@@ -92,7 +92,7 @@ export const WebVitalsContent = ({ webVitalsQueryResponse }: WebVitalsContentPro
                 </span>
             </div>
 
-            <div className="text-xs text-secondary-foreground">
+            <div className="text-xs text-muted-foreground">
                 {quantifier} {experience}
             </div>
 

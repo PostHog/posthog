@@ -10,7 +10,7 @@
         font-size: 0.8rem;
         line-height: 1rem;
         white-space: nowrap;
-        border-left: 1px solid var(--border-primary);
+        border-left: 1px solid var(--border);
 
         &--bottom {
             top: 100%;
@@ -24,11 +24,11 @@
     }
 
     &.BillingGaugeItem--free_tier {
-        background-color: var(--border-primary-opaque);
+        background-color: var(--border-light-opaque);
     }
 
     &.BillingGaugeItem--billing_limit {
-        background-color: var(--border-primary-opaque);
+        background-color: var(--border-light-opaque);
     }
 
     &.BillingGaugeItem--current_usage {
