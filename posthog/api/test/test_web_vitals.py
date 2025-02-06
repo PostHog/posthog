@@ -33,7 +33,7 @@ class TestWebVitalsAPI(ClickhouseTestMixin, APIBaseTest):
 
             # Create events across the last 7 days
             for day in range(7):
-                timestamp = f"2024-01-0{day+1}T12:00:00.000Z"
+                timestamp = f"2024-01-{str(day+1).zfill(2)}T12:00:00.000Z"
 
                 # Create INP events, P90 should be 300
                 _create_event(
