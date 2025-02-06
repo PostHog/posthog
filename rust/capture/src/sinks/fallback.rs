@@ -71,8 +71,8 @@ impl FallbackSink {
                             .get_status()
                             .components
                             .get(&primary_component_name)
-                            .unwrap()
-                            .is_healthy();
+                            .map(|c| c.is_healthy())
+                            .unwrap_or(false);
                         let was_healthy = thread_healthy.load(Ordering::Relaxed);
                         if was_healthy && !is_healthy {
                             error!("primary sink has become unhealthy");
