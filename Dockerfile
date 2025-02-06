@@ -80,9 +80,13 @@ WORKDIR /code/plugin-server
 # the cache hit ratio of the layers above.
 COPY ./plugin-server/src/ ./src/
 COPY ./plugin-server/tests/ ./tests/
-RUN pnpm run build:cyclotron && pnpm build
 
-# As the plugin-server is now built, let’s keep
+# Build cyclotron first with increased memory
+RUN NODE_OPTIONS="--max-old-space-size=4096" pnpm run build:cyclotron
+
+# Then build the plugin server with increased memory
+RUN NODE_OPTIONS="--max-old-space-size=4096" pnpm build
+
 # only prod dependencies in the node_module folder
 # as we will copy it to the last image.
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
