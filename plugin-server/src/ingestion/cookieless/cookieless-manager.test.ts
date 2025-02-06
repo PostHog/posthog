@@ -271,7 +271,7 @@ describe('CookielessManager', () => {
                 await setModeForTeam(mode, teamId)
             })
             it('should give an event a distinct id and session id ', async () => {
-                const [actual] = await hub.cookielessManager.processEvent(event)
+                const actual = await hub.cookielessManager.processEvent(event)
 
                 if (!actual?.properties) {
                     throw new Error('no event or properties')
@@ -281,8 +281,8 @@ describe('CookielessManager', () => {
                 expect(actual.properties.$session_id).toBeDefined()
             })
             it('should give the same session id and distinct id to events with the same hash properties and within the same day and session timeout period', async () => {
-                const [actual1] = await hub.cookielessManager.processEvent(event)
-                const [actual2] = await hub.cookielessManager.processEvent(eventABitLater)
+                const actual1 = await hub.cookielessManager.processEvent(event)
+                const actual2 = await hub.cookielessManager.processEvent(eventABitLater)
 
                 if (!actual1?.properties || !actual2?.properties) {
                     throw new Error('no event or properties')
@@ -292,8 +292,8 @@ describe('CookielessManager', () => {
                 expect(actual2.properties.$session_id).toEqual(actual1.properties.$session_id)
             })
             it('should give different distinct id and session id to a user with a different IP', async () => {
-                const [actual1] = await hub.cookielessManager.processEvent(event)
-                const [actual2] = await hub.cookielessManager.processEvent(eventOtherUser)
+                const actual1 = await hub.cookielessManager.processEvent(event)
+                const actual2 = await hub.cookielessManager.processEvent(eventOtherUser)
                 if (!actual1?.properties || !actual2?.properties) {
                     throw new Error('no event or properties')
                 }
@@ -301,9 +301,9 @@ describe('CookielessManager', () => {
                 expect(actual1.properties.$session_id).not.toEqual(actual2.properties.$session_id)
             })
             it('should give different distinct id and session id to events on different days', async () => {
-                const [actual1] = await hub.cookielessManager.processEvent(event)
+                const actual1 = await hub.cookielessManager.processEvent(event)
                 jest.setSystemTime(differentDay) // advance time to the next day
-                const [actual2] = await hub.cookielessManager.processEvent(eventDifferentDay)
+                const actual2 = await hub.cookielessManager.processEvent(eventDifferentDay)
                 if (!actual1?.properties || !actual2?.properties) {
                     throw new Error('no event or properties')
                 }
@@ -311,7 +311,7 @@ describe('CookielessManager', () => {
                 expect(actual1.properties.$session_id).not.toEqual(actual2.properties.$session_id)
             })
             it('should strip the PII used in the hash', async () => {
-                const [actual] = await hub.cookielessManager.processEvent(eventWithExtra)
+                const actual = await hub.cookielessManager.processEvent(eventWithExtra)
 
                 if (!actual?.properties) {
                     throw new Error('no event or properties')
@@ -322,19 +322,19 @@ describe('CookielessManager', () => {
                 expect(actual.properties.$cookieless_extra).toBeUndefined()
             })
             it('should drop alias and merge events', async () => {
-                const [actual1] = await hub.cookielessManager.processEvent(aliasEvent)
-                const [actual2] = await hub.cookielessManager.processEvent(mergeDangerouslyEvent)
+                const actual1 = await hub.cookielessManager.processEvent(aliasEvent)
+                const actual2 = await hub.cookielessManager.processEvent(mergeDangerouslyEvent)
                 expect(actual1).toBeUndefined()
                 expect(actual2).toBeUndefined()
             })
             it('should pass through non-cookieless events', async () => {
-                const [actual1] = await hub.cookielessManager.processEvent(nonCookielessEvent)
+                const actual1 = await hub.cookielessManager.processEvent(nonCookielessEvent)
                 expect(actual1).toBe(nonCookielessEvent)
             })
             it('should work even if the local salt map is torn down between events (as it can use redis)', async () => {
-                const [actual1] = await hub.cookielessManager.processEvent(event)
+                const actual1 = await hub.cookielessManager.processEvent(event)
                 hub.cookielessManager.deleteAllLocalSalts()
-                const [actual2] = await hub.cookielessManager.processEvent(eventABitLater)
+                const actual2 = await hub.cookielessManager.processEvent(eventABitLater)
 
                 if (!actual1?.properties || !actual2?.properties) {
                     throw new Error('no event or properties')
@@ -344,8 +344,8 @@ describe('CookielessManager', () => {
                 expect(actual2.properties.$session_id).toEqual(actual1.properties.$session_id)
             })
             it('should count as a different user if the extra value is different', async () => {
-                const [actual1] = await hub.cookielessManager.processEvent(event)
-                const [actual2] = await hub.cookielessManager.processEvent(eventWithExtra)
+                const actual1 = await hub.cookielessManager.processEvent(event)
+                const actual2 = await hub.cookielessManager.processEvent(eventWithExtra)
 
                 if (!actual1?.properties || !actual2?.properties) {
                     throw new Error('no event or properties')
@@ -363,8 +363,8 @@ describe('CookielessManager', () => {
             it('should provide the same session ID for events within the same day, later than the session timeout', async () => {
                 // this is actually a limitation of this mode, but we have the same test (with a different outcome) for stateful mode
 
-                const [actual1] = await hub.cookielessManager.processEvent(event)
-                const [actual2] = await hub.cookielessManager.processEvent(eventMuchLater)
+                const actual1 = await hub.cookielessManager.processEvent(event)
+                const actual2 = await hub.cookielessManager.processEvent(eventMuchLater)
 
                 if (!actual1?.properties || !actual2?.properties) {
                     throw new Error('no event or properties')
@@ -376,14 +376,14 @@ describe('CookielessManager', () => {
 
             it('should drop identify events', async () => {
                 // this is also a limitation of this mode
-                const [actual1] = await hub.cookielessManager.processEvent(identifyEvent)
+                const actual1 = await hub.cookielessManager.processEvent(identifyEvent)
                 expect(actual1).toBeUndefined()
             })
 
             it('should work even if redis is cleared (as it can use the local cache))', async () => {
-                const [actual1] = await hub.cookielessManager.processEvent(event)
+                const actual1 = await hub.cookielessManager.processEvent(event)
                 await clearRedis()
-                const [actual2] = await hub.cookielessManager.processEvent(eventABitLater)
+                const actual2 = await hub.cookielessManager.processEvent(eventABitLater)
 
                 if (!actual1?.properties || !actual2?.properties) {
                     throw new Error('no event or properties')
@@ -399,8 +399,8 @@ describe('CookielessManager', () => {
                 await setModeForTeam(CookielessServerHashMode.Stateful, teamId)
             })
             it('should provide a different session ID after session timeout', async () => {
-                const [actual1] = await hub.cookielessManager.processEvent(event)
-                const [actual2] = await hub.cookielessManager.processEvent(eventMuchLater)
+                const actual1 = await hub.cookielessManager.processEvent(event)
+                const actual2 = await hub.cookielessManager.processEvent(eventMuchLater)
 
                 if (!actual1?.properties || !actual2?.properties) {
                     throw new Error('no event or properties')
@@ -410,9 +410,9 @@ describe('CookielessManager', () => {
                 expect(actual2.properties.$session_id).not.toEqual(actual1.properties.$session_id)
             })
             it('should handle a user identifying', async () => {
-                const [actual1] = await hub.cookielessManager.processEvent(event)
-                const [actual2] = await hub.cookielessManager.processEvent(identifyEvent)
-                const [actual3] = await hub.cookielessManager.processEvent(postIdentifyEvent)
+                const actual1 = await hub.cookielessManager.processEvent(event)
+                const actual2 = await hub.cookielessManager.processEvent(identifyEvent)
+                const actual3 = await hub.cookielessManager.processEvent(postIdentifyEvent)
 
                 if (!actual1?.properties || !actual2?.properties || !actual3?.properties) {
                     throw new Error('no event or properties')
@@ -424,9 +424,9 @@ describe('CookielessManager', () => {
                 expect(actual3.properties.$session_id).toEqual(actual1.properties.$session_id)
             })
             it('should handle identify events in an idempotent way', async () => {
-                const [actual1] = await hub.cookielessManager.processEvent(event)
-                const [actual2] = await hub.cookielessManager.processEvent(identifyEvent)
-                const [actual3] = await hub.cookielessManager.processEvent(identifyEvent)
+                const actual1 = await hub.cookielessManager.processEvent(event)
+                const actual2 = await hub.cookielessManager.processEvent(identifyEvent)
+                const actual3 = await hub.cookielessManager.processEvent(identifyEvent)
 
                 if (!actual1?.properties || !actual2?.properties || !actual3?.properties) {
                     throw new Error('no event or properties')
@@ -439,10 +439,10 @@ describe('CookielessManager', () => {
                 expect(actual3.properties.$session_id).toEqual(actual1.properties.$session_id)
             })
             it('should treat anon events after an identify as if there was a logout, and as a different person', async () => {
-                const [actual1] = await hub.cookielessManager.processEvent(event)
-                const [actual2] = await hub.cookielessManager.processEvent(identifyEvent)
-                const [actual3] = await hub.cookielessManager.processEvent(eventABitLater)
-                const [actual4] = await hub.cookielessManager.processEvent(identifyEventABitLater)
+                const actual1 = await hub.cookielessManager.processEvent(event)
+                const actual2 = await hub.cookielessManager.processEvent(identifyEvent)
+                const actual3 = await hub.cookielessManager.processEvent(eventABitLater)
+                const actual4 = await hub.cookielessManager.processEvent(identifyEventABitLater)
 
                 if (!actual1?.properties || !actual2?.properties || !actual3?.properties || !actual4?.properties) {
                     throw new Error('no event or properties')
@@ -466,7 +466,7 @@ describe('CookielessManager', () => {
                 })
                 const spy = jest.spyOn(cookielessRedisErrorCounter, 'labels')
                 const result = await hub.cookielessManager.processEvent(event)
-                expect(result).toEqual([undefined])
+                expect(result).toEqual(undefined)
                 expect(spy.mock.calls[0]).toEqual([{ operation }])
             })
         })
@@ -475,11 +475,11 @@ describe('CookielessManager', () => {
                 await setModeForTeam(CookielessServerHashMode.Disabled, teamId)
             })
             it('should drop all events', async () => {
-                const [actual1] = await hub.cookielessManager.processEvent(event)
+                const actual1 = await hub.cookielessManager.processEvent(event)
                 expect(actual1).toBeUndefined()
             })
             it('should pass through non-cookieless events', async () => {
-                const [actual1] = await hub.cookielessManager.processEvent(nonCookielessEvent)
+                const actual1 = await hub.cookielessManager.processEvent(nonCookielessEvent)
                 expect(actual1).toBe(nonCookielessEvent)
             })
         })
