@@ -483,7 +483,14 @@ def get_teams_with_recording_count_in_period(
             FROM session_replay_events
             WHERE min_first_timestamp BETWEEN %(begin)s AND %(end)s
             GROUP BY session_id
-            HAVING ifNull(argMinMerge(snapshot_source), 'web') == %(snapshot_source)s
+            HAVING
+                CASE
+                    WHEN %(snapshot_source)s = 'mobile' THEN
+                        ifNull(argMinMerge(snapshot_source), 'web') = 'mobile'
+                        AND ifNull(argMinMerge(snapshot_library), '') IN ('posthog-ios', 'posthog-android')
+                    ELSE
+                        ifNull(argMinMerge(snapshot_source), 'web') = %(snapshot_source)s
+                END
         )
         WHERE session_id NOT IN (
             -- we want to exclude sessions that might have events with timestamps
