@@ -209,6 +209,7 @@ class TrendsActorsQueryBuilder:
                 filters=self._events_where_expr(with_date_range_expr=False, with_event_or_action_expr=False),
                 event_or_action_filter=self._event_or_action_where_expr(),
                 ratio=self._ratio_expr(),
+                is_first_matching_event=self.trends_aggregation_operations.is_first_matching_event(),
             )
             query_builder.append_select(actor_col)
             query_builder.extend_select(columns, aggregate=True)
