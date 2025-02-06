@@ -3,13 +3,14 @@
 @import '../../../node_modules/react-toastify/dist/ReactToastify';
 @import 'functions';
 @import 'mixins';
-@import 'tailwindcss/base';
 @import 'tailwindcss/components';
+@import 'tailwindcss/base';
 @import 'tailwindcss/utilities';
 @import 'utilities-legacy'; // TODO: Remove all legacy utilities
 
 // Set variables
-:root {
+:root,
+:host {
     --color-white: hsl(0deg 0% 100%);
     --color-black: hsl(0deg 0% 0%);
 
