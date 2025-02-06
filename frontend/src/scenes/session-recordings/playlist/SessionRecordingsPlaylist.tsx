@@ -1,12 +1,12 @@
 import { LemonBadge, LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { Playlist, PlaylistSection } from 'lib/components/Playlist/Playlist'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
+import { Playlist, PlaylistSection } from 'scenes/session-recordings/playlist/Playlist'
 import { urls } from 'scenes/urls'
 
 import { ReplayTabs } from '~/types'

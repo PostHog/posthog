@@ -1,11 +1,13 @@
 import json
 import os
+import re
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from json import JSONDecodeError
 from typing import Any, Optional, cast
+from urllib.parse import urlparse
 
 import posthoganalytics
 import requests
@@ -232,6 +234,7 @@ class SessionRecordingUpdateSerializer(serializers.Serializer):
     def validate(self, data):
         if not data.get("viewed") and not data.get("analyzed"):
             raise serializers.ValidationError("At least one of 'viewed' or 'analyzed' must be provided.")
+
         return data
 
 
@@ -301,6 +304,34 @@ def query_as_params_to_dict(params_dict: dict) -> dict:
 
     converted.pop("as_query", None)
     return converted
+
+
+def clean_referer_url(current_url: str | None) -> str:
+    try:
+        parsed_url = urlparse(current_url)
+        path = str(parsed_url.path) if parsed_url.path else "unknown"
+
+        path = re.sub(r"^/?project/\d+", "", path)
+
+        path = re.sub(r"^/?person/.*$", "person-page", path)
+
+        path = re.sub(r"^/?insights/[^/]+/edit$", "insight-edit", path)
+
+        path = re.sub(r"^/?insights/[^/]+$", "insight", path)
+
+        path = re.sub(r"^/?data-management/events/[^/]+$", "data-management-events", path)
+        path = re.sub(r"^/?data-management/actions/[^/]+$", "data-management-actions", path)
+
+        path = re.sub(r"^/?replay/[a-fA-F0-9-]+$", "replay-direct", path)
+        path = re.sub(r"^/?replay/playlists/.+$", "replay-playlists-direct", path)
+
+        # remove leading and trailing slashes
+        path = re.sub(r"^/+|/+$", "", path)
+        path = re.sub("/", "-", path)
+        return path or "unknown"
+    except Exception as e:
+        posthoganalytics.capture_exception(e, distinct_id="clean_referer_url", properties={"current_url": current_url})
+        return "unknown"
 
 
 # NOTE: Could we put the sharing stuff in the shared mixin :thinking:
@@ -418,6 +449,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         event_properties = {
             "$current_url": current_url,
+            "cleaned_replay_path": clean_referer_url(current_url),
             "$session_id": session_id,
             "snapshots_load_time": durations.get("snapshots"),
             "metadata_load_time": durations.get("metadata"),

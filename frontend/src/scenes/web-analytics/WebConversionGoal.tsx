@@ -1,3 +1,4 @@
+import { IconCursor } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
@@ -13,10 +14,12 @@ export const WebConversionGoal = (): JSX.Element | null => {
     const [group, setGroup] = useState(TaxonomicFilterGroupType.CustomEvents)
     const value =
         conversionGoal && 'actionId' in conversionGoal ? conversionGoal.actionId : conversionGoal?.customEventName
+
     return (
         <TaxonomicPopover<number | string>
-            groupType={group}
+            allowClear
             data-attr="web-analytics-conversion-filter"
+            groupType={group}
             value={value}
             onChange={(changedValue, groupType) => {
                 if (groupType === TaxonomicFilterGroupType.Actions && typeof changedValue === 'number') {
@@ -47,9 +50,9 @@ export const WebConversionGoal = (): JSX.Element | null => {
                 return <span className="text-overflow max-w-full">{conversionGoal?.customEventName}</span>
             }}
             groupTypes={[TaxonomicFilterGroupType.CustomEvents, TaxonomicFilterGroupType.Actions]}
+            icon={<IconCursor />}
             placeholder="Add conversion goal"
             placeholderClass=""
-            allowClear={true}
             size="small"
         />
     )
