@@ -10,7 +10,6 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::Sender;
-use tokio::sync::oneshot;
 use tokio::sync::Mutex;
 use tokio::task;
 use tokio::time::sleep;
@@ -25,13 +24,16 @@ const FLUSH_INTERVAL: Duration = Duration::from_secs(1);
 const HEALTH_INTERVAL: Duration = Duration::from_secs(10);
 const MAX_BUFFER_SIZE: usize = 4 * 1024 * 1024; // 4MB
 
-pub struct S3Sink {
+struct Inner {
     client: S3Client,
     bucket: String,
     prefix: String,
     buffer: Arc<Mutex<EventBuffer>>,
-    liveness: HealthHandle,
-    shutdown: Option<oneshot::Sender<()>>,
+    liveness: HealthHandle
+}
+
+pub struct S3Sink {
+    inner: Arc<Inner>
 }
 
 struct EventBuffer {
@@ -95,16 +97,19 @@ impl S3Sink {
         let client = S3Client::from_conf(config.build());
         let buffer = Arc::new(Mutex::new(EventBuffer::new()));
 
-        let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
-        let s3sink = S3Sink {
-            client: client.clone(),
-            bucket: bucket.clone(),
-            prefix: prefix.clone(),
-            buffer: buffer.clone(),
-            liveness: liveness.clone(),
-            shutdown: None,
-        };
-        s3sink.healthcheck().await;
+        let inner = Arc::new(Inner {
+            client,
+            bucket,
+            prefix,
+            buffer,
+            liveness
+        });
+
+        // Do initial healthcheck
+        inner.healthcheck().await;
+
+        // Create weak reference for background task
+        let inner_weak = Arc::downgrade(&inner);
 
         // Spawn background task with shutdown handling
         task::spawn(async move {
@@ -112,14 +117,20 @@ impl S3Sink {
             loop {
                 tokio::select! {
                     _ = sleep(Duration::from_millis(10)) => {
-                        let mut buffer = s3sink.buffer.lock().await;
+                        // Try to upgrade weak reference - if it fails, the S3Sink has been dropped
+                        let inner = match inner_weak.upgrade() {
+                            Some(inner) => inner,
+                            None => break, // Exit loop if S3Sink was dropped
+                        };
+
+                        let mut buffer = inner.buffer.lock().await;
                         if buffer.should_flush() {
                             let mut old_buffer = {
                                 // Replace the current buffer with a brand-new one.
                                 std::mem::replace(&mut *buffer, EventBuffer::new())
                             };
 
-                            let result = s3sink.flush_buffer(&mut old_buffer).await;
+                            let result = inner.flush_buffer(&mut old_buffer).await;
                             if result.is_ok() {
                                 last_healthcheck = Instant::now();
                             }
@@ -130,33 +141,19 @@ impl S3Sink {
                         // if we haven't written any events the healthcheck will stall
                         // force healthcheck at least every HEALTH_INTERVAL
                         if last_healthcheck.elapsed() >= HEALTH_INTERVAL {
-                            s3sink.healthcheck().await;
+                            inner.healthcheck().await;
                             last_healthcheck = Instant::now();
                         }
-                    }
-                    _ = &mut shutdown_rx => {
-                        // Final flush on shutdown
-                        let mut buffer = s3sink.buffer.lock().await;
-                        if !buffer.event_bytes.is_empty() {
-                            let result = s3sink.flush_buffer(&mut buffer).await;
-                            drop(buffer.tx.send(result));
-                        }
-                        break;
                     }
                 }
             }
         });
 
-        Ok(S3Sink {
-            client,
-            bucket,
-            prefix,
-            buffer,
-            liveness,
-            shutdown: Some(shutdown_tx),
-        })
+        Ok(S3Sink { inner })
     }
+}
 
+impl Inner {
     async fn healthcheck(&self) {
         // Verify bucket exists and is accessible
         if self
@@ -266,19 +263,11 @@ impl S3Sink {
     }
 }
 
-impl Drop for S3Sink {
-    fn drop(&mut self) {
-        if let Some(shutdown) = self.shutdown.take() {
-            let _ = shutdown.send(());
-        }
-    }
-}
-
 #[async_trait]
 impl Event for S3Sink {
     #[instrument(skip_all)]
     async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        let mut buffer = self.buffer.lock().await;
+        let mut buffer = self.inner.buffer.lock().await;
         buffer.add_event(event)?;
         let mut rx = buffer.tx.subscribe();
         drop(buffer);
@@ -289,7 +278,7 @@ impl Event for S3Sink {
 
     #[instrument(skip_all)]
     async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-        let mut buffer = self.buffer.lock().await;
+        let mut buffer = self.inner.buffer.lock().await;
         for event in events {
             buffer.add_event(event)?;
         }
