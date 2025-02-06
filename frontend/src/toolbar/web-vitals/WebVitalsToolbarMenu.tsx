@@ -2,7 +2,6 @@ import { LemonBanner, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { inStorybookTestRunner } from 'lib/utils'
-import { toolbarConfigLogic } from 'scenes/toolbar/toolbarConfigLogic'
 import { urls } from 'scenes/urls'
 
 import {
@@ -14,6 +13,7 @@ import {
 import { WebVitalsMetric } from '~/queries/schema'
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 
+import { toolbarConfigLogic } from '../toolbarConfigLogic'
 import { WebVitalsMetrics, webVitalsToolbarLogic } from './webVitalsToolbarLogic'
 
 // Same order as in the Web Vitals report
@@ -27,7 +27,7 @@ export const WebVitalsToolbarMenu = (): JSX.Element => {
         <ToolbarMenu>
             <ToolbarMenu.Body>
                 <div className="flex flex-col gap-2">
-                    {!posthog?.config?.webVitalsAutocapture?.isEnabled && (
+                    {!posthog?.webVitalsAutocapture?.isEnabled && (
                         <LemonBanner type="warning">
                             Web vitals are not enabled for this project so you won't see any data here. Enable it on the{' '}
                             <Link to={urls.settings()}>settings page</Link> to start capturing web vitals.
