@@ -4,7 +4,7 @@
 # PostHog has sunset support for self-hosted K8s deployments.
 # See: https://posthog.com/blog/sunsetting-helm-support-posthog
 #
-# Note: for PostHog Cloud remember to update 'Dockerfile.cloud' as appropriate.
+# Note: for PostHog Cloud remember to update ‘Dockerfile.cloud’ as appropriate.
 #
 # The stages are used to:
 #
