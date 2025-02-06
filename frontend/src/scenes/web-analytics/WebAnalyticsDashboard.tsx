@@ -63,7 +63,7 @@ const Filters = (): JSX.Element => {
     return (
         <div
             className={clsx(
-                'sticky z-20 bg-bg-3000 border-b py-2',
+                'sticky z-20 bg-primary border-b py-2',
                 mobileLayout ? 'top-[var(--breadcrumbs-height-full)]' : 'top-[var(--breadcrumbs-height-compact)]'
             )}
         >

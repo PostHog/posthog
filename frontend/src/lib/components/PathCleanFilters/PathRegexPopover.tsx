@@ -31,7 +31,7 @@ export function PathRegexPopover({ filter = {}, onSave, onCancel, isNew = false 
                 <div>
                     <span>Regex</span>
                     <LemonInput defaultValue={regex} onChange={(regex) => setRegex(regex)} onPressEnter={() => false} />
-                    <p className="text-muted">
+                    <p className="text-secondary">
                         <span>
                             Example:{' '}
                             <span title={filter.regex} className="font-mono text-accent-primary text-xs">
