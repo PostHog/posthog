@@ -107,11 +107,13 @@ export const accessControlLogic = kea<accessControlLogicType>([
                             access_level: level,
                         })
 
+                        const oldAccessControl = values.accessControlRoles.find((ac) => ac.role === role)
                         posthog.capture('access control role access level changed', {
                             resource: values.resource,
+                            action: oldAccessControl ? (level === null ? 'removed' : 'changed') : 'added',
                             role: role,
                             access_level: level,
-                            old_access_level: values.accessControlRoles.find((ac) => ac.role === role)?.access_level,
+                            old_access_level: oldAccessControl?.access_level,
                         })
                     }
 
@@ -125,13 +127,15 @@ export const accessControlLogic = kea<accessControlLogicType>([
                             access_level: level,
                         })
 
+                        const oldAccessControl = values.accessControlMembers.find(
+                            (ac) => ac.organization_member === member
+                        )
                         posthog.capture('access control member access level changed', {
                             resource: values.resource,
+                            action: oldAccessControl ? (level === null ? 'removed' : 'changed') : 'added',
                             member: member,
                             access_level: level,
-                            old_access_level: values.accessControlMembers.find(
-                                (ac) => ac.organization_member === member
-                            )?.access_level,
+                            old_access_level: oldAccessControl?.access_level,
                         })
                     }
 
