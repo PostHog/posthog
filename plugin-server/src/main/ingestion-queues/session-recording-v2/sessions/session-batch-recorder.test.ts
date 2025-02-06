@@ -1,3 +1,5 @@
+import { DateTime } from 'luxon'
+
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { ParsedMessageData } from '../kafka/types'
 import { MessageWithTeam } from '../teams/types'
@@ -34,8 +36,8 @@ interface MessageMetadata {
 export class SnappySessionRecorderMock {
     private chunks: Buffer[] = []
     private size: number = 0
-    private startTimestamp: number | null = null
-    private endTimestamp: number | null = null
+    private startDateTime: DateTime | null = null
+    private endDateTime: DateTime | null = null
     private _distinctId: string | null = null
 
     constructor(public readonly sessionId: string, public readonly teamId: number) {}
@@ -48,17 +50,11 @@ export class SnappySessionRecorderMock {
             this._distinctId = message.distinct_id
         }
 
-        if (message.eventsRange.start > 0) {
-            this.startTimestamp =
-                this.startTimestamp === null
-                    ? message.eventsRange.start
-                    : Math.min(this.startTimestamp, message.eventsRange.start)
+        if (!this.startDateTime || message.eventsRange.start < this.startDateTime) {
+            this.startDateTime = message.eventsRange.start
         }
-        if (message.eventsRange.end > 0) {
-            this.endTimestamp =
-                this.endTimestamp === null
-                    ? message.eventsRange.end
-                    : Math.max(this.endTimestamp, message.eventsRange.end)
+        if (!this.endDateTime || message.eventsRange.end > this.endDateTime) {
+            this.endDateTime = message.eventsRange.end
         }
 
         Object.entries(message.eventsByWindowId).forEach(([windowId, events]) => {
@@ -85,8 +81,8 @@ export class SnappySessionRecorderMock {
         return {
             buffer,
             eventCount: this.chunks.length,
-            startTimestamp: this.startTimestamp ?? 0,
-            endTimestamp: this.endTimestamp ?? 0,
+            startDateTime: this.startDateTime ?? DateTime.now(),
+            endDateTime: this.endDateTime ?? DateTime.now(),
         }
     }
 }
@@ -167,8 +163,8 @@ describe('SessionBatchRecorder', () => {
                 window1: events,
             },
             eventsRange: {
-                start: events[0]?.timestamp || 0,
-                end: events[events.length - 1]?.timestamp || 0,
+                start: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
+                end: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
             },
             metadata: {
                 partition: 1,
@@ -244,14 +240,14 @@ describe('SessionBatchRecorder', () => {
                 createMessage('session1', [
                     {
                         type: EventType.Meta,
-                        timestamp: 1000,
+                        timestamp: DateTime.fromISO('2025-01-01T10:00:00.000Z').toMillis(),
                         data: { href: 'https://example.com' },
                     },
                 ]),
                 createMessage('session2', [
                     {
                         type: EventType.Custom,
-                        timestamp: 2000,
+                        timestamp: DateTime.fromISO('2025-01-01T10:00:01.000Z').toMillis(),
                         data: { tag: 'user-interaction' },
                     },
                 ]),
@@ -497,11 +493,12 @@ describe('SessionBatchRecorder', () => {
 
             expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledWith([
                 expect.objectContaining({
+                    blockLength: 100,
                     sessionId: 'session1',
                     teamId: 1,
                     distinctId: 'distinct_id',
-                    startTimestamp: 1000,
-                    endTimestamp: 1000,
+                    startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
+                    endDateTime: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
                     blockUrl: 's3://test/file?range=bytes=0-99',
                 }),
             ])
@@ -532,7 +529,7 @@ describe('SessionBatchRecorder', () => {
                 createMessage('session1', [
                     {
                         type: EventType.FullSnapshot,
-                        timestamp: 1000,
+                        timestamp: DateTime.fromISO('2025-01-01T10:00:00.000Z').toMillis(),
                         data: { source: 1 },
                     },
                 ]),
@@ -541,7 +538,7 @@ describe('SessionBatchRecorder', () => {
                     [
                         {
                             type: EventType.FullSnapshot,
-                            timestamp: 2000,
+                            timestamp: DateTime.fromISO('2025-01-01T10:00:02.000Z').toMillis(),
                             data: { source: 2 },
                         },
                     ],
@@ -560,16 +557,17 @@ describe('SessionBatchRecorder', () => {
                         sessionId: 'session1',
                         teamId: 1,
                         distinctId: 'distinct_id',
-                        startTimestamp: 1000,
-                        endTimestamp: 1000,
+                        startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
+                        endDateTime: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
                         blockUrl: 's3://test/file?range=bytes=0-99',
+                        blockLength: 100,
                     }),
                     expect.objectContaining({
                         sessionId: 'session2',
                         teamId: 2,
                         distinctId: 'other_distinct_id',
-                        startTimestamp: 2000,
-                        endTimestamp: 2000,
+                        startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
+                        endDateTime: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
                         blockUrl: 's3://test/file?range=bytes=0-99',
                     }),
                 ])

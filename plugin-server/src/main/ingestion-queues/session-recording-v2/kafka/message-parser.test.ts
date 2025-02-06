@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon'
 import { promisify } from 'node:util'
 import { Message } from 'node-rdkafka'
 import { gzip } from 'zlib'
@@ -65,8 +66,8 @@ describe('KafkaMessageParser', () => {
                     window1: snapshotItems,
                 },
                 eventsRange: {
-                    start: 1234567890,
-                    end: 1234567891,
+                    start: DateTime.fromMillis(1234567890),
+                    end: DateTime.fromMillis(1234567891),
                 },
                 snapshot_source: undefined,
             })
@@ -103,8 +104,8 @@ describe('KafkaMessageParser', () => {
                     window1: snapshotItems,
                 },
                 eventsRange: {
-                    start: 1234567890,
-                    end: 1234567891,
+                    start: DateTime.fromMillis(1234567890),
+                    end: DateTime.fromMillis(1234567891),
                 },
             })
             expect(KafkaMetrics.incrementMessageDropped).not.toHaveBeenCalled()
@@ -244,8 +245,8 @@ describe('KafkaMessageParser', () => {
                 { type: 4, timestamp: 1234567891 },
             ])
             expect(results[0]?.eventsRange).toEqual({
-                start: 1234567890,
-                end: 1234567891,
+                start: DateTime.fromMillis(1234567890),
+                end: DateTime.fromMillis(1234567891),
             })
         })
 
@@ -274,8 +275,8 @@ describe('KafkaMessageParser', () => {
 
             expect(results).toHaveLength(1)
             expect(results[0]?.eventsRange).toEqual({
-                start: 1234567889, // Should be smallest timestamp
-                end: 1234567893, // Should be largest timestamp
+                start: DateTime.fromMillis(1234567889), // Should be smallest timestamp
+                end: DateTime.fromMillis(1234567893), // Should be largest timestamp
             })
         })
     })

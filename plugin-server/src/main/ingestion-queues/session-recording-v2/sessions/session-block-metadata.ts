@@ -1,3 +1,5 @@
+import { DateTime } from 'luxon'
+
 export interface SessionBlockMetadata {
     /** Unique identifier for the session */
     sessionId: string
@@ -8,9 +10,9 @@ export interface SessionBlockMetadata {
     /** Length of this session block in bytes */
     blockLength: number
     /** Timestamp of the first event in the session block */
-    startTimestamp: number
+    startDateTime: DateTime
     /** Timestamp of the last event in the session block */
-    endTimestamp: number
+    endDateTime: DateTime
     /** URL to the block data with byte range query parameter, if available */
     blockUrl: string | null
 }

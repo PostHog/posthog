@@ -158,7 +158,7 @@ export class SessionBatchRecorder {
         try {
             for (const sessions of this.partitionSessions.values()) {
                 for (const recorder of sessions.values()) {
-                    const { buffer, eventCount, startTimestamp, endTimestamp } = await recorder.end()
+                    const { buffer, eventCount, startDateTime, endDateTime } = await recorder.end()
                     const { bytesWritten, url } = await writer.writeSession(buffer)
 
                     // Track block metadata
@@ -167,8 +167,8 @@ export class SessionBatchRecorder {
                         teamId: recorder.teamId,
                         distinctId: recorder.distinctId,
                         blockLength: bytesWritten,
-                        startTimestamp,
-                        endTimestamp,
+                        startDateTime,
+                        endDateTime,
                         blockUrl: url,
                     })
 

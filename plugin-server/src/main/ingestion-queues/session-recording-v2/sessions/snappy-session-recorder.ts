@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
 import { ParsedMessageData } from '../kafka/types'
@@ -8,9 +9,9 @@ export interface EndResult {
     /** Number of events in the session block */
     eventCount: number
     /** Timestamp of the first event in the session block */
-    startTimestamp: number
+    startDateTime: DateTime
     /** Timestamp of the last event in the session block */
-    endTimestamp: number
+    endDateTime: DateTime
 }
 
 /**
@@ -41,8 +42,8 @@ export class SnappySessionRecorder {
     private eventCount: number = 0
     private rawBytesWritten: number = 0
     private ended = false
-    private startTimestamp: number | null = null
-    private endTimestamp: number | null = null
+    private startDateTime: DateTime | null = null
+    private endDateTime: DateTime | null = null
     private _distinctId: string | null = null
 
     constructor(public readonly sessionId: string, public readonly teamId: number) {}
@@ -71,12 +72,12 @@ export class SnappySessionRecorder {
         // 1. KafkaMessageParser filters out events with zero timestamps
         // 2. KafkaMessageParser drops messages with no events
         // Therefore, eventsRange.start and eventsRange.end will always be present and non-zero
-        this.startTimestamp =
-            this.startTimestamp === null
-                ? message.eventsRange.start
-                : Math.min(this.startTimestamp, message.eventsRange.start)
-        this.endTimestamp =
-            this.endTimestamp === null ? message.eventsRange.end : Math.max(this.endTimestamp, message.eventsRange.end)
+        if (!this.startDateTime || message.eventsRange.start < this.startDateTime) {
+            this.startDateTime = message.eventsRange.start
+        }
+        if (!this.endDateTime || message.eventsRange.end > this.endDateTime) {
+            this.endDateTime = message.eventsRange.end
+        }
 
         Object.entries(message.eventsByWindowId).forEach(([windowId, events]) => {
             events.forEach((event) => {
@@ -121,8 +122,8 @@ export class SnappySessionRecorder {
         return {
             buffer,
             eventCount: this.eventCount,
-            startTimestamp: this.startTimestamp ?? 0,
-            endTimestamp: this.endTimestamp ?? 0,
+            startDateTime: this.startDateTime ?? DateTime.fromMillis(0),
+            endDateTime: this.endDateTime ?? DateTime.fromMillis(0),
         }
     }
 }

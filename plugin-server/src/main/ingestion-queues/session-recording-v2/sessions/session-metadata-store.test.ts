@@ -1,3 +1,5 @@
+import { DateTime } from 'luxon'
+
 import { KafkaProducerWrapper, TopicMessage } from '../../../../kafka/producer'
 import { SessionMetadataStore } from './session-metadata-store'
 
@@ -20,8 +22,8 @@ describe('SessionMetadataStore', () => {
                 teamId: 1,
                 distinctId: 'user1',
                 blockLength: 100,
-                startTimestamp: 1000,
-                endTimestamp: 2000,
+                startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
+                endDateTime: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
                 blockUrl: 's3://bucket/file1?range=bytes=0-99',
             },
             {
@@ -29,8 +31,8 @@ describe('SessionMetadataStore', () => {
                 teamId: 2,
                 distinctId: 'user2',
                 blockLength: 150,
-                startTimestamp: 1500,
-                endTimestamp: 2500,
+                startDateTime: DateTime.fromISO('2025-01-01T10:00:01.500Z'),
+                endDateTime: DateTime.fromISO('2025-01-01T10:00:03.500Z'),
                 blockUrl: 's3://bucket/file1?range=bytes=100-249',
             },
             {
@@ -38,8 +40,8 @@ describe('SessionMetadataStore', () => {
                 teamId: 1,
                 distinctId: 'user1',
                 blockLength: 200,
-                startTimestamp: 2000,
-                endTimestamp: 3000,
+                startDateTime: DateTime.fromISO('2025-01-01T10:00:03.000Z'),
+                endDateTime: DateTime.fromISO('2025-01-01T10:00:05.000Z'),
                 blockUrl: 's3://bucket/file1?range=bytes=250-449',
             },
         ]
@@ -58,8 +60,8 @@ describe('SessionMetadataStore', () => {
                 session_id: 'session123',
                 team_id: 1,
                 distinct_id: 'user1',
-                start_timestamp: 1000,
-                end_timestamp: 2000,
+                first_timestamp: '2025-01-01 10:00:00.000',
+                last_timestamp: '2025-01-01 10:00:02.000',
                 block_url: 's3://bucket/file1?range=bytes=0-99',
             },
             {
@@ -67,8 +69,8 @@ describe('SessionMetadataStore', () => {
                 session_id: 'different456',
                 team_id: 2,
                 distinct_id: 'user2',
-                start_timestamp: 1500,
-                end_timestamp: 2500,
+                first_timestamp: '2025-01-01 10:00:01.500',
+                last_timestamp: '2025-01-01 10:00:03.500',
                 block_url: 's3://bucket/file1?range=bytes=100-249',
             },
             {
@@ -76,8 +78,8 @@ describe('SessionMetadataStore', () => {
                 session_id: 'session123',
                 team_id: 1,
                 distinct_id: 'user1',
-                start_timestamp: 2000,
-                end_timestamp: 3000,
+                first_timestamp: '2025-01-01 10:00:03.000',
+                last_timestamp: '2025-01-01 10:00:05.000',
                 block_url: 's3://bucket/file1?range=bytes=250-449',
             },
         ])
@@ -110,8 +112,8 @@ describe('SessionMetadataStore', () => {
                 teamId: 1,
                 distinctId: 'user1',
                 blockLength: 100,
-                startTimestamp: 1000,
-                endTimestamp: 2000,
+                startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
+                endDateTime: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
                 blockUrl: null,
             },
         ]
@@ -126,8 +128,8 @@ describe('SessionMetadataStore', () => {
                 teamId: 1,
                 distinctId: 'user1',
                 blockLength: 100,
-                startTimestamp: 1000,
-                endTimestamp: 2000,
+                startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
+                endDateTime: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
                 blockUrl: null,
             },
         ]
