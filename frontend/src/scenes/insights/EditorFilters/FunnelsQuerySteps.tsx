@@ -55,7 +55,7 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                 filters={actionFilters}
                 setFilters={setActionFilters}
                 typeKey={keyForInsightLogicProps('new')(insightProps)}
-                mathAvailability={mathAvailability}
+                mathAvailability={MathAvailability.FunnelsOnly}
                 hideDeleteBtn={filterSteps.length === 1}
                 buttonCopy="Add step"
                 showSeriesIndicator={showSeriesIndicator}
