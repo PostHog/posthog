@@ -12,8 +12,8 @@ import { DateTime } from 'luxon'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
 import { ClickHouseEvent, Database, Hub, LogLevel, Person, PluginsServerConfig, Team } from '../../src/types'
-import { closeHub, createHub } from '../../src/utils/db/hub'
-import { PostgresUse } from '../../src/utils/db/postgres'
+import { closeHub, createHub } from '../../src/utils/hub'
+import { PostgresUse } from '../../src/utils/postgres'
 import { personInitialAndUTMProperties } from '../../src/utils/db/utils'
 import { posthog } from '../../src/utils/posthog'
 import { UUIDT } from '../../src/utils/utils'
@@ -246,7 +246,7 @@ test('merge people', async () => {
 })
 
 test('capture new person', async () => {
-    await hub.db.postgres.query(
+    await hub.postgres.query(
         PostgresUse.COMMON_WRITE,
         `UPDATE posthog_team
          SET ingested_event = $1
@@ -607,12 +607,7 @@ test('ip override', async () => {
 })
 
 test('anonymized ip capture', async () => {
-    await hub.db.postgres.query(
-        PostgresUse.COMMON_WRITE,
-        'update posthog_team set anonymize_ips = $1',
-        [true],
-        'testTag'
-    )
+    await hub.postgres.query(PostgresUse.COMMON_WRITE, 'update posthog_team set anonymize_ips = $1', [true], 'testTag')
     await createPerson(hub, team, ['asdfasdfasdf'])
 
     await processEvent(
@@ -862,7 +857,7 @@ test('long htext', async () => {
 })
 
 test('capture first team event', async () => {
-    await hub.db.postgres.query(
+    await hub.postgres.query(
         PostgresUse.COMMON_WRITE,
         `UPDATE posthog_team
          SET ingested_event = $1

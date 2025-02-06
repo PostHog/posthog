@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 
 import { KafkaProducerWrapper } from '../../../../src/kafka/producer'
 import { ISOTimestamp, Person, PipelineEvent, PreIngestionEvent, RawKafkaEvent } from '../../../../src/types'
-import { createEventsToDropByToken } from '../../../../src/utils/db/hub'
+import { createEventsToDropByToken } from '../../../../src/utils/hub'
 import { cookielessServerHashStep } from '../../../../src/worker/ingestion/event-pipeline/cookielessServerHashStep'
 import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/createEventStep'
 import { emitEventStep } from '../../../../src/worker/ingestion/event-pipeline/emitEventStep'

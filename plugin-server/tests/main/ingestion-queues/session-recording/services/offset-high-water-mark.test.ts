@@ -6,7 +6,7 @@ import {
     OffsetHighWaterMarks,
 } from '../../../../../src/main/ingestion-queues/session-recording/services/offset-high-water-marker'
 import { Hub } from '../../../../../src/types'
-import { closeHub, createHub } from '../../../../../src/utils/db/hub'
+import { closeHub, createHub } from '../../../../../src/utils/hub'
 
 describe('session offset high-water mark', () => {
     jest.setTimeout(1000)

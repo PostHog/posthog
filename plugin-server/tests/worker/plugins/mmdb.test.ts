@@ -5,7 +5,7 @@ import fetch from 'node-fetch'
 import { join } from 'path'
 
 import { Hub, LogLevel } from '../../../src/types'
-import { closeHub, createHub } from '../../../src/utils/db/hub'
+import { closeHub, createHub } from '../../../src/utils/hub'
 import { setupMmdb } from '../../../src/worker/plugins/mmdb'
 import { resetTestDatabase } from '../../helpers/sql'
 

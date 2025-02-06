@@ -2,7 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
 import { Hub } from '../../../../src/types'
-import { closeHub, createHub } from '../../../../src/utils/db/hub'
+import { closeHub, createHub } from '../../../../src/utils/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { normalizeEventStep } from '../../../../src/worker/ingestion/event-pipeline/normalizeEventStep'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
@@ -26,8 +26,8 @@ describe('processPersonsStep()', () => {
             hub: hub,
             eventsProcessor: new EventsProcessor(hub),
         }
-        const organizationId = await createOrganization(runner.hub.db.postgres)
-        teamId = await createTeam(runner.hub.db.postgres, organizationId)
+        const organizationId = await createOrganization(runner.hub.postgres)
+        teamId = await createTeam(runner.hub.postgres, organizationId)
         uuid = new UUIDT().toString()
 
         pluginEvent = {

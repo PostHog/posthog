@@ -1,7 +1,7 @@
 import { Hub } from '../../../src/types'
 import { createPluginActivityLog } from '../../../src/utils/db/activity-log'
-import { closeHub, createHub } from '../../../src/utils/db/hub'
-import { PostgresUse } from '../../../src/utils/db/postgres'
+import { closeHub, createHub } from '../../../src/utils/hub'
+import { PostgresUse } from '../../../src/utils/postgres'
 import { pluginConfig39 } from '../../helpers/plugins'
 import { resetTestDatabase } from '../../helpers/sql'
 
@@ -33,7 +33,7 @@ describe('createPluginActivityLog()', () => {
     })
 
     async function fetchPluginActivityLogs(hub: Hub): Promise<Array<ActivityLog>> {
-        const result = await hub.db.postgres.query<ActivityLog>(
+        const result = await hub.postgres.query<ActivityLog>(
             PostgresUse.COMMON_READ,
             `SELECT * FROM posthog_activitylog`,
             [],

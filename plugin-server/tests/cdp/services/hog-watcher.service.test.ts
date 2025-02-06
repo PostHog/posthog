@@ -12,7 +12,7 @@ import {
 } from '../../../src/cdp/services/hog-watcher.service'
 import { HogFunctionInvocationResult } from '../../../src/cdp/types'
 import { Hub } from '../../../src/types'
-import { closeHub, createHub } from '../../../src/utils/db/hub'
+import { closeHub, createHub } from '../../../src/utils/hub'
 import { delay } from '../../../src/utils/utils'
 import { createInvocation } from '../fixtures'
 import { deleteKeysWithPrefix } from '../helpers/redis'

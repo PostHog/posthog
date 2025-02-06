@@ -1,6 +1,6 @@
 import { Hub, PropertyOperator } from '../../../src/types'
-import { closeHub, createHub } from '../../../src/utils/db/hub'
-import { PostgresUse } from '../../../src/utils/db/postgres'
+import { closeHub, createHub } from '../../../src/utils/hub'
+import { PostgresUse } from '../../../src/utils/postgres'
 import { ActionManager } from '../../../src/worker/ingestion/action-manager'
 import { resetTestDatabase } from '../../helpers/sql'
 
@@ -47,7 +47,7 @@ describe('ActionManager', () => {
             ],
         })
 
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_action SET slack_message_format='test' WHERE id = $1`,
             [ACTION_ID],
@@ -114,7 +114,7 @@ describe('ActionManager', () => {
             ],
         })
 
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_action
              SET deleted = TRUE

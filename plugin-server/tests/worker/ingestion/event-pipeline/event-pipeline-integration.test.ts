@@ -3,8 +3,8 @@ import { DateTime } from 'luxon'
 import fetch from 'node-fetch'
 
 import { CookielessServerHashMode, Hook, Hub } from '../../../../src/types'
-import { closeHub, createHub } from '../../../../src/utils/db/hub'
-import { PostgresUse } from '../../../../src/utils/db/postgres'
+import { closeHub, createHub } from '../../../../src/utils/hub'
+import { PostgresUse } from '../../../../src/utils/postgres'
 import { convertToPostIngestionEvent } from '../../../../src/utils/event'
 import { UUIDT } from '../../../../src/utils/utils'
 import { ActionManager } from '../../../../src/worker/ingestion/action-manager'
@@ -44,11 +44,11 @@ describe('Event Pipeline integration test', () => {
         process.env.SITE_URL = 'https://example.com'
         hub = await createHub()
 
-        actionManager = new ActionManager(hub.db.postgres, hub)
+        actionManager = new ActionManager(hub.postgres, hub)
         await actionManager.start()
-        actionMatcher = new ActionMatcher(hub.db.postgres, actionManager, hub.teamManager)
+        actionMatcher = new ActionMatcher(hub.postgres, actionManager, hub.teamManager)
         hookCannon = new HookCommander(
-            hub.db.postgres,
+            hub.postgres,
             hub.teamManager,
             hub.organizationManager,
             hub.rustyHook,
@@ -135,7 +135,7 @@ describe('Event Pipeline integration test', () => {
     })
 
     it('fires a webhook', async () => {
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_team SET slack_incoming_webhook = 'https://webhook.example.com/'`,
             [],
@@ -172,14 +172,14 @@ describe('Event Pipeline integration test', () => {
     it('fires a REST hook', async () => {
         const timestamp = new Date().toISOString()
 
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_organization
                 SET available_product_features = array ['{"key": "zapier", "name": "zapier"}'::jsonb]`,
             [],
             'testTag'
         )
-        await insertRow(hub.db.postgres, 'ee_hook', {
+        await insertRow(hub.postgres, 'ee_hook', {
             id: 'abc',
             team_id: 2,
             user_id: commonUserId,
@@ -267,7 +267,7 @@ describe('Event Pipeline integration test', () => {
     })
 
     it('can process a cookieless event', async () => {
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_team SET cookieless_server_hash_mode = $1 WHERE id = $2`,
             [CookielessServerHashMode.Stateful, 2],
@@ -313,7 +313,7 @@ describe('Event Pipeline integration test', () => {
     })
 
     it('drops cookieless event if the team has cookieless disabled', async () => {
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_team SET cookieless_server_hash_mode = $1 WHERE id = $2`,
             [CookielessServerHashMode.Disabled, 2],

@@ -1,9 +1,9 @@
 import { DateTime } from 'luxon'
 
 import { defaultConfig } from '../../src/config/config'
+import { PersonsDB } from '../../src/ingestion/event-pipeline-runner/utils/persons-db'
 import { Config, Hub, InternalPerson, ProjectId, RawOrganization, RawPerson, Team, TeamId } from '../../src/types'
-import { PersonsDB } from '../../src/utils/db/persons-db'
-import { PostgresRouter, PostgresUse } from '../../src/utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '../../src/utils/postgres'
 import { UUIDT } from '../../src/utils/utils'
 import {
     commonOrganizationId,

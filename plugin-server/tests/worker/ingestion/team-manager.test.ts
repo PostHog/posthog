@@ -1,7 +1,7 @@
 import { Settings } from 'luxon'
 
 import { defaultConfig } from '../../../src/config/config'
-import { PostgresRouter, PostgresUse } from '../../../src/utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '../../../src/utils/postgres'
 import { TeamManager } from '../../../src/worker/ingestion/team-manager'
 import { resetTestDatabase } from '../../helpers/sql'
 

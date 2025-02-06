@@ -1,7 +1,7 @@
 import fetch from 'node-fetch'
 
 import { Hub, PluginTaskType } from '../../src/types'
-import { closeHub, createHub } from '../../src/utils/db/hub'
+import { closeHub, createHub } from '../../src/utils/hub'
 import { pluginDigest } from '../../src/utils/utils'
 import { LazyPluginVM } from '../../src/worker/vm/lazy'
 import { plugin60, pluginConfig39 } from '../helpers/plugins'

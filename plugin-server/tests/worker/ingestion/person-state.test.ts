@@ -3,8 +3,8 @@ import { DateTime } from 'luxon'
 
 import { Database, Hub, InternalPerson } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
-import { closeHub, createHub } from '../../../src/utils/db/hub'
-import { PostgresUse } from '../../../src/utils/db/postgres'
+import { closeHub, createHub } from '../../../src/utils/hub'
+import { PostgresUse } from '../../../src/utils/postgres'
 import { defaultRetryConfig } from '../../../src/utils/retries'
 import { UUIDT } from '../../../src/utils/utils'
 import { PersonState } from '../../../src/worker/ingestion/person-state'
@@ -38,11 +38,11 @@ describe('PersonState.update()', () => {
         hub = await createHub({})
         await hub.db.clickhouseQuery('SYSTEM STOP MERGES')
 
-        organizationId = await createOrganization(hub.db.postgres)
+        organizationId = await createOrganization(hub.postgres)
     })
 
     beforeEach(async () => {
-        teamId = await createTeam(hub.db.postgres, organizationId)
+        teamId = await createTeam(hub.postgres, organizationId)
 
         newUserUuid = uuidFromDistinctId(teamId, newUserDistinctId)
         oldUserUuid = uuidFromDistinctId(teamId, oldUserDistinctId)
@@ -125,7 +125,7 @@ describe('PersonState.update()', () => {
                 uuid: event_uuid,
             }).updateProperties()
 
-            const otherTeamId = await createTeam(hub.db.postgres, organizationId)
+            const otherTeamId = await createTeam(hub.postgres, organizationId)
             teamId = otherTeamId
             const [personOtherTeam, kafkaAcksOther] = await personState({
                 event: '$pageview',
@@ -1646,13 +1646,13 @@ describe('PersonState.update()', () => {
             )
 
             // existing overrides
-            await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
                 team_id: teamId,
                 person_id: anonPerson.id,
                 feature_flag_key: 'beta-feature',
                 hash_key: 'example_id',
             })
-            await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
                 team_id: teamId,
                 person_id: identifiedPerson.id,
                 feature_flag_key: 'multivariate-flag',
@@ -1676,7 +1676,7 @@ describe('PersonState.update()', () => {
             expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['anonymous_id', 'new_distinct_id'])
             expect(person.is_identified).toEqual(true)
 
-            const result = await hub.db.postgres.query(
+            const result = await hub.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `SELECT "feature_flag_key", "person_id", "hash_key" FROM "posthog_featureflaghashkeyoverride" WHERE "team_id" = $1`,
                 [teamId],
@@ -1724,19 +1724,19 @@ describe('PersonState.update()', () => {
 
             // existing overrides for both anonPerson and identifiedPerson
             // which implies a clash when they are merged
-            await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
                 team_id: teamId,
                 person_id: anonPerson.id,
                 feature_flag_key: 'beta-feature',
                 hash_key: 'anon_id',
             })
-            await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
                 team_id: teamId,
                 person_id: identifiedPerson.id,
                 feature_flag_key: 'beta-feature',
                 hash_key: 'identified_id',
             })
-            await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
                 team_id: teamId,
                 person_id: anonPerson.id,
                 feature_flag_key: 'multivariate-flag',
@@ -1761,7 +1761,7 @@ describe('PersonState.update()', () => {
             expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['anonymous_id', 'new_distinct_id'])
             expect(person.is_identified).toEqual(true)
 
-            const result = await hub.db.postgres.query(
+            const result = await hub.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `SELECT "feature_flag_key", "person_id", "hash_key" FROM "posthog_featureflaghashkeyoverride" WHERE "team_id" = $1`,
                 [teamId],
@@ -1807,13 +1807,13 @@ describe('PersonState.update()', () => {
                 [{ distinctId: 'new_distinct_id' }]
             )
 
-            await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
                 team_id: teamId,
                 person_id: identifiedPerson.id,
                 feature_flag_key: 'beta-feature',
                 hash_key: 'example_id',
             })
-            await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
+            await insertRow(hub.postgres, 'posthog_featureflaghashkeyoverride', {
                 team_id: teamId,
                 person_id: identifiedPerson.id,
                 feature_flag_key: 'multivariate-flag',
@@ -1834,7 +1834,7 @@ describe('PersonState.update()', () => {
             expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['anonymous_id', 'new_distinct_id'])
             expect(person.is_identified).toEqual(true)
 
-            const result = await hub.db.postgres.query(
+            const result = await hub.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `SELECT "feature_flag_key", "person_id", "hash_key" FROM "posthog_featureflaghashkeyoverride" WHERE "team_id" = $1`,
                 [teamId],
@@ -2007,7 +2007,7 @@ describe('PersonState.update()', () => {
             const state: PersonState = personState({}, hub)
             // break postgres
             const error = new DependencyUnavailableError('testing', 'Postgres', new Error('test'))
-            jest.spyOn(hub.db.postgres, 'transaction').mockImplementation(() => {
+            jest.spyOn(hub.postgres, 'transaction').mockImplementation(() => {
                 throw error
             })
             jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
@@ -2021,8 +2021,8 @@ describe('PersonState.update()', () => {
             ).rejects.toThrow(error)
             await hub.db.kafkaProducer.flush()
 
-            expect(hub.db.postgres.transaction).toHaveBeenCalledTimes(1)
-            jest.spyOn(hub.db.postgres, 'transaction').mockRestore()
+            expect(hub.postgres.transaction).toHaveBeenCalledTimes(1)
+            jest.spyOn(hub.postgres, 'transaction').mockRestore()
             expect(hub.db.kafkaProducer.queueMessages).not.toBeCalled()
             // verify Postgres persons
             const persons = await fetchPostgresPersonsH()

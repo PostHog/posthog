@@ -8,7 +8,7 @@ import {
     IngestionOverflowMode,
 } from '../../../src/main/ingestion-queues/batch-processing/each-batch-ingestion'
 import { Hub } from '../../../src/types'
-import { closeHub, createHub } from '../../../src/utils/db/hub'
+import { closeHub, createHub } from '../../../src/utils/hub'
 import { ConfiguredLimiter } from '../../../src/utils/token-bucket'
 import { captureIngestionWarning } from './../../../src/worker/ingestion/utils'
 

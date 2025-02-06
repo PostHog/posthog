@@ -1,8 +1,8 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { Hub, LogLevel, Plugin, PluginConfig } from '../../../src/types'
-import { closeHub, createHub } from '../../../src/utils/db/hub'
-import { PostgresUse } from '../../../src/utils/db/postgres'
+import { closeHub, createHub } from '../../../src/utils/hub'
+import { PostgresUse } from '../../../src/utils/postgres'
 import {
     constructInlinePluginInstance,
     INLINE_PLUGIN_MAP,

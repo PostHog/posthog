@@ -14,7 +14,7 @@ import {
     StringMatching,
     Team,
 } from '../../../src/types'
-import { closeHub, createHub } from '../../../src/utils/db/hub'
+import { closeHub, createHub } from '../../../src/utils/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { ActionManager } from '../../../src/worker/ingestion/action-manager'
 import { ActionMatcher, castingCompare } from '../../../src/worker/ingestion/action-matcher'
@@ -51,9 +51,9 @@ describe('ActionMatcher', () => {
     beforeEach(async () => {
         await resetTestDatabase(undefined, undefined, undefined, { withExtendedTestData: false })
         hub = await createHub()
-        actionManager = new ActionManager(hub.db.postgres, hub)
+        actionManager = new ActionManager(hub.postgres, hub)
         await actionManager.start()
-        actionMatcher = new ActionMatcher(hub.db.postgres, actionManager, hub.teamManager)
+        actionMatcher = new ActionMatcher(hub.postgres, actionManager, hub.teamManager)
         actionCounter = 0
     })
 
@@ -97,7 +97,7 @@ describe('ActionMatcher', () => {
                 : null,
             pinned_at: null,
         }
-        await insertRow(hub.db.postgres, 'posthog_action', action)
+        await insertRow(hub.postgres, 'posthog_action', action)
         await actionManager.reloadAction(action.team_id, action.id)
 
         return {

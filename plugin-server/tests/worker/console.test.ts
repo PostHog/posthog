@@ -4,7 +4,7 @@ import { getParsedQueuedMessages, mockProducer } from '../helpers/mocks/producer
 import { ConsoleExtension } from '@posthog/plugin-scaffold'
 import { KAFKA_PLUGIN_LOG_ENTRIES } from '../../src/config/kafka-topics'
 import { Hub, PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
-import { closeHub, createHub } from '../../src/utils/db/hub'
+import { closeHub, createHub } from '../../src/utils/hub'
 import { createConsole } from '../../src/worker/vm/extensions/console'
 import { pluginConfig39 } from '../../tests/helpers/plugins'
 

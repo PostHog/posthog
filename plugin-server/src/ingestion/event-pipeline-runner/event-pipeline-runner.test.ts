@@ -5,12 +5,12 @@ import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, PipelineEvent, Team } from '../../../src/types'
-import { closeHub, createHub } from '../../../src/utils/db/hub'
+import { closeHub, createHub } from '../../../src/utils/hub'
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KAFKA_EVENTS_JSON, KAFKA_INGESTION_WARNINGS } from '../../config/kafka-topics'
-import { PersonsDB } from '../../utils/db/persons-db'
 import { UUIDT } from '../../utils/utils'
 import { EventPipelineRunnerV2 } from './event-pipeline-runner'
+import { PersonsDB } from './utils/persons-db'
 
 describe('EventPipelineRunner', () => {
     let hub: Hub

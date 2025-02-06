@@ -18,8 +18,9 @@ import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, PipelineEvent, Team } from '../../src/types'
-import { closeHub, createHub } from '../../src/utils/db/hub'
+import { closeHub, createHub } from '../../src/utils/hub'
 import { HogFunctionType } from '../cdp/types'
+import { fetchTeam } from '../services/team-manager'
 import { status } from '../utils/status'
 import { UUIDT } from '../utils/utils'
 import { EventDroppedError } from './event-pipeline-runner/event-pipeline-runner'
@@ -112,8 +113,8 @@ describe('IngestionConsumer', () => {
 
         hub.kafkaProducer = mockProducer
         team = await getFirstTeam(hub)
-        const team2Id = await createTeam(hub.db.postgres, team.organization_id)
-        team2 = (await hub.db.fetchTeam(team2Id)) as Team
+        const team2Id = await createTeam(hub.postgres, team.organization_id)
+        team2 = (await fetchTeam(hub.postgres, team2Id)) as Team
 
         resetMockProducer()
     })

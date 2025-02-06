@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { LogLevel, PluginConfig } from '../../../../src/types'
-import { closeHub, createHub } from '../../../../src/utils/db/hub'
+import { closeHub, createHub } from '../../../../src/utils/hub'
 import { constructInlinePluginInstance } from '../../../../src/worker/vm/inline/inline'
 import { resetTestDatabase } from '../../../helpers/sql'
 

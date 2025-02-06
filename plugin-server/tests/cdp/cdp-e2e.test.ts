@@ -6,7 +6,7 @@ import { CdpProcessedEventsConsumer } from '../../src/cdp/consumers/cdp-processe
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
 import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../src/config/kafka-topics'
 import { Hub, Team } from '../../src/types'
-import { closeHub, createHub } from '../../src/utils/db/hub'
+import { closeHub, createHub } from '../../src/utils/hub'
 import { waitForExpect } from '../helpers/expectations'
 import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'

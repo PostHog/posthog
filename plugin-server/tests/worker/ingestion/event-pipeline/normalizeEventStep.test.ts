@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { createHub } from '../../../../src/utils/db/hub'
+import { createHub } from '../../../../src/utils/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { normalizeEventStep } from '../../../../src/worker/ingestion/event-pipeline/normalizeEventStep'
 import { createOrganization, createTeam, resetTestDatabase } from '../../../helpers/sql'
@@ -14,8 +14,8 @@ describe('normalizeEventStep()', () => {
     it('normalizes the event with properties set by plugins', async () => {
         await resetTestDatabase()
         const hub = await createHub()
-        const organizationId = await createOrganization(hub.db.postgres)
-        const teamId = await createTeam(hub.db.postgres, organizationId)
+        const organizationId = await createOrganization(hub.postgres)
+        const teamId = await createTeam(hub.postgres, organizationId)
         const uuid = new UUIDT().toString()
         const event = {
             distinct_id: 'my_id',
@@ -62,8 +62,8 @@ describe('normalizeEventStep()', () => {
     it('replaces null byte with unicode replacement character in distinct_id', async () => {
         await resetTestDatabase()
         const hub = await createHub()
-        const organizationId = await createOrganization(hub.db.postgres)
-        const teamId = await createTeam(hub.db.postgres, organizationId)
+        const organizationId = await createOrganization(hub.postgres)
+        const teamId = await createTeam(hub.postgres, organizationId)
         const uuid = new UUIDT().toString()
         const event = {
             distinct_id: '\u0000foo',
@@ -91,8 +91,8 @@ describe('normalizeEventStep()', () => {
     it('normalizes $process_person_profile=false events by dropping $set and related', async () => {
         await resetTestDatabase()
         const hub = await createHub()
-        const organizationId = await createOrganization(hub.db.postgres)
-        const teamId = await createTeam(hub.db.postgres, organizationId)
+        const organizationId = await createOrganization(hub.postgres)
+        const teamId = await createTeam(hub.postgres, organizationId)
         const uuid = new UUIDT().toString()
         const event = {
             distinct_id: 'my_id',

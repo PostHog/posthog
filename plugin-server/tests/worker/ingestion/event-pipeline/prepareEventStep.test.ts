@@ -2,7 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
 import { Hub, Person, ProjectId, Team } from '../../../../src/types'
-import { closeHub, createHub } from '../../../../src/utils/db/hub'
+import { closeHub, createHub } from '../../../../src/utils/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'

@@ -10,7 +10,7 @@ import {
     IntegrationType,
 } from '../../src/cdp/types'
 import { ClickHouseTimestamp, RawClickHouseEvent, Team } from '../../src/types'
-import { PostgresRouter } from '../../src/utils/db/postgres'
+import { PostgresRouter } from '../../src/utils/postgres'
 import { UUIDT } from '../../src/utils/utils'
 import { insertRow } from '../helpers/sql'
 

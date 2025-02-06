@@ -9,7 +9,7 @@ import {
     PropertyUpdateOperation,
     TimestampFormat,
 } from '../../../src/types'
-import { PostgresUse } from '../../../src/utils/db/postgres'
+import { PostgresUse } from '../../../src/utils/postgres'
 import { castTimestampOrNow, UUIDT } from '../../../src/utils/utils'
 import { makePiscina } from '../../../src/worker/piscina'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
@@ -50,7 +50,7 @@ describe('postgres parity', () => {
         teamId++
         console.log('[TEST] Setting up seed data')
         await createUserTeamAndOrganization(
-            hub.db.postgres,
+            hub.postgres,
             teamId,
             teamId,
             new UUIDT().toString(),
@@ -402,7 +402,7 @@ describe('postgres parity', () => {
         expect(newClickHouseDistinctIdRemoved).toEqual([])
 
         // delete person
-        await hub.db.postgres.transaction(PostgresUse.COMMON_WRITE, '', async (client) => {
+        await hub.postgres.transaction(PostgresUse.COMMON_WRITE, '', async (client) => {
             const deletePersonMessage = await hub.db.deletePerson(person, client)
             await hub.db!.kafkaProducer!.queueMessages(deletePersonMessage[0])
         })

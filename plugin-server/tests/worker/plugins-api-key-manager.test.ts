@@ -1,6 +1,6 @@
 import { Hub } from '../../src/types'
-import { closeHub, createHub } from '../../src/utils/db/hub'
-import { PostgresUse } from '../../src/utils/db/postgres'
+import { closeHub, createHub } from '../../src/utils/hub'
+import { PostgresUse } from '../../src/utils/postgres'
 import { PluginsApiKeyManager } from '../../src/worker/vm/extensions/helpers/api-key-manager'
 import { createUserTeamAndOrganization, POSTGRES_DELETE_TABLES_QUERY } from '../helpers/sql'
 
@@ -14,7 +14,7 @@ describe('PluginsApiKeyManager', () => {
         hub = await createHub({
             TASK_TIMEOUT: 1,
         })
-        await hub.db.postgres.query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_TABLES_QUERY, [], 'truncateTablesTest')
+        await hub.postgres.query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_TABLES_QUERY, [], 'truncateTablesTest')
         await hub.db.redisExpire(`plugins-api-key-manager/${ORG_ID_1}`, 0)
         await hub.db.redisExpire(`plugins-api-key-manager/${ORG_ID_2}`, 0)
     })

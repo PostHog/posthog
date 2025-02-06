@@ -5,8 +5,8 @@ import { defaultConfig } from '../../src/config/config'
 import { Hub, Person, PropertyOperator, PropertyUpdateOperation, RawAction, Team } from '../../src/types'
 import { DB } from '../../src/utils/db/db'
 import { DependencyUnavailableError, RedisOperationError } from '../../src/utils/db/error'
-import { closeHub, createHub } from '../../src/utils/db/hub'
-import { PostgresRouter, PostgresUse } from '../../src/utils/db/postgres'
+import { closeHub, createHub } from '../../src/utils/hub'
+import { PostgresRouter, PostgresUse } from '../../src/utils/postgres'
 import { generateKafkaPersonUpdateMessage } from '../../src/utils/db/utils'
 import { RaceConditionError, UUIDT } from '../../src/utils/utils'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
@@ -42,7 +42,7 @@ describe('DB', () => {
 
     describe('fetchAllActionsGroupedByTeam() and fetchAction()', () => {
         const insertAction = async (action: Partial<RawAction> = {}) => {
-            await insertRow(hub.db.postgres, 'posthog_action', {
+            await insertRow(hub.postgres, 'posthog_action', {
                 id: 69,
                 team_id: 2,
                 name: 'Test Action',
@@ -148,7 +148,7 @@ describe('DB', () => {
 
         it('returns actions with correct `ee_hook`', async () => {
             await runPGQuery('UPDATE posthog_action SET post_to_slack = false')
-            await insertRow(hub.db.postgres, 'ee_hook', {
+            await insertRow(hub.postgres, 'ee_hook', {
                 id: 'abc',
                 team_id: 2,
                 user_id: 1001,
@@ -213,7 +213,7 @@ describe('DB', () => {
 
         it('does not return actions with incorrect ee_hook', async () => {
             await runPGQuery('UPDATE posthog_action SET post_to_slack = false')
-            await insertRow(hub.db.postgres, 'ee_hook', {
+            await insertRow(hub.postgres, 'ee_hook', {
                 id: 'abc',
                 team_id: 2,
                 user_id: 1001,
@@ -223,7 +223,7 @@ describe('DB', () => {
                 created: new Date().toISOString(),
                 updated: new Date().toISOString(),
             })
-            await insertRow(hub.db.postgres, 'ee_hook', {
+            await insertRow(hub.postgres, 'ee_hook', {
                 id: 'efg',
                 team_id: 2,
                 user_id: 1001,

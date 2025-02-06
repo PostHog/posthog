@@ -9,8 +9,6 @@ import { MessageSizeTooLarge } from '../../kafka/producer'
 import { GroupTypeManager, MAX_GROUP_TYPES_PER_TEAM } from '../../services/group-type-manager'
 import { Hub, Person, PersonMode, PipelineEvent, RawKafkaEvent, Team, TimestampFormat } from '../../types'
 import { processAiEvent } from '../../utils/ai-costs/process-ai-event'
-import { processCookielessEvent } from '../../utils/cookieless/cookielessServerHashStep'
-import { PersonsDB } from '../../utils/db/persons-db'
 import { safeClickhouseString, sanitizeEventName, sanitizeString } from '../../utils/db/utils'
 import { captureIngestionWarning } from '../../utils/ingestion-warnings'
 import { eventDroppedCounter } from '../../utils/metrics'
@@ -20,6 +18,7 @@ import { getElementsChain, normalizeEvent, normalizeProcessPerson } from './util
 import { upsertGroup } from './utils/groups-updater'
 import { extractHeatmapData } from './utils/heatmaps'
 import { PersonState } from './utils/person-state'
+import { PersonsDB } from './utils/persons-db'
 import { parseEventTimestamp } from './utils/timestamps'
 
 export class EventDroppedError extends Error {

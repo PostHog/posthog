@@ -1,5 +1,5 @@
 import { PipelineEvent, Team } from '../../../../src/types'
-import { createEventsToDropByToken } from '../../../../src/utils/db/hub'
+import { createEventsToDropByToken } from '../../../../src/utils/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { populateTeamDataStep } from '../../../../src/worker/ingestion/event-pipeline/populateTeamDataStep'
 import { getMetricValues, resetMetrics } from '../../../helpers/metrics'

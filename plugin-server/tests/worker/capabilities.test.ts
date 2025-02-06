@@ -1,5 +1,5 @@
 import { Hub, LogLevel, PluginCapabilities } from '../../src/types'
-import { closeHub, createHub } from '../../src/utils/db/hub'
+import { closeHub, createHub } from '../../src/utils/hub'
 import { loadSchedule } from '../../src/worker/plugins/loadSchedule'
 import { setupPlugins } from '../../src/worker/plugins/setup'
 import { getVMPluginCapabilities, shouldSetupPluginInServer } from '../../src/worker/vm/capabilities'

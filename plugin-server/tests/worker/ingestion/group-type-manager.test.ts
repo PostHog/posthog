@@ -1,5 +1,5 @@
 import { Hub, ProjectId } from '../../../src/types'
-import { closeHub, createHub } from '../../../src/utils/db/hub'
+import { closeHub, createHub } from '../../../src/utils/hub'
 import { captureTeamEvent } from '../../../src/utils/posthog'
 import { GroupTypeManager } from '../../../src/worker/ingestion/group-type-manager'
 import { createTeam, resetTestDatabase } from '../../helpers/sql'
@@ -18,7 +18,7 @@ describe('GroupTypeManager()', () => {
         await resetTestDatabase()
         groupTypeManager = new GroupTypeManager(hub.postgres, hub.teamManager)
 
-        jest.spyOn(hub.db.postgres, 'query')
+        jest.spyOn(hub.postgres, 'query')
         jest.spyOn(groupTypeManager, 'insertGroupType')
     })
     afterEach(async () => {
@@ -36,12 +36,12 @@ describe('GroupTypeManager()', () => {
             await groupTypeManager.insertGroupType(2, 2 as ProjectId, 'foo', 0)
             await groupTypeManager.insertGroupType(2, 2 as ProjectId, 'bar', 1)
 
-            jest.mocked(hub.db.postgres.query).mockClear()
+            jest.mocked(hub.postgres.query).mockClear()
 
             groupTypes = await groupTypeManager.fetchGroupTypes(2 as ProjectId)
 
             expect(groupTypes).toEqual({})
-            expect(hub.db.postgres.query).toHaveBeenCalledTimes(0)
+            expect(hub.postgres.query).toHaveBeenCalledTimes(0)
 
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:36').getTime())
 
@@ -51,7 +51,7 @@ describe('GroupTypeManager()', () => {
                 foo: 0,
                 bar: 1,
             })
-            expect(hub.db.postgres.query).toHaveBeenCalledTimes(1)
+            expect(hub.postgres.query).toHaveBeenCalledTimes(1)
         })
 
         it('fetches group types that have been inserted', async () => {
@@ -96,13 +96,13 @@ describe('GroupTypeManager()', () => {
             await groupTypeManager.insertGroupType(2, 2 as ProjectId, 'foo', 0)
             await groupTypeManager.insertGroupType(2, 2 as ProjectId, 'bar', 1)
 
-            jest.mocked(hub.db.postgres.query).mockClear()
+            jest.mocked(hub.postgres.query).mockClear()
             jest.mocked(groupTypeManager.insertGroupType).mockClear()
 
             expect(await groupTypeManager.fetchGroupTypeIndex(2, 2 as ProjectId, 'foo')).toEqual(0)
             expect(await groupTypeManager.fetchGroupTypeIndex(2, 2 as ProjectId, 'bar')).toEqual(1)
 
-            expect(hub.db.postgres.query).toHaveBeenCalledTimes(1)
+            expect(hub.postgres.query).toHaveBeenCalledTimes(1)
             expect(groupTypeManager.insertGroupType).toHaveBeenCalledTimes(0)
             expect(captureTeamEvent).not.toHaveBeenCalled()
         })
@@ -111,12 +111,12 @@ describe('GroupTypeManager()', () => {
             await groupTypeManager.insertGroupType(2, 2 as ProjectId, 'foo', 0)
 
             jest.mocked(groupTypeManager.insertGroupType).mockClear()
-            jest.mocked(hub.db.postgres.query).mockClear()
+            jest.mocked(hub.postgres.query).mockClear()
 
             expect(await groupTypeManager.fetchGroupTypeIndex(2, 2 as ProjectId, 'second')).toEqual(1)
 
             expect(groupTypeManager.insertGroupType).toHaveBeenCalledTimes(1)
-            expect(hub.db.postgres.query).toHaveBeenCalledTimes(3) // FETCH + INSERT + Team lookup
+            expect(hub.postgres.query).toHaveBeenCalledTimes(3) // FETCH + INSERT + Team lookup
 
             const team = await hub.db.fetchTeam(2)
             expect(captureTeamEvent).toHaveBeenCalledWith(team, 'group type ingested', {
@@ -125,7 +125,7 @@ describe('GroupTypeManager()', () => {
             })
 
             expect(await groupTypeManager.fetchGroupTypeIndex(2, 2 as ProjectId, 'third')).toEqual(2)
-            jest.mocked(hub.db.postgres.query).mockClear()
+            jest.mocked(hub.postgres.query).mockClear()
 
             expect(await groupTypeManager.fetchGroupTypes(2 as ProjectId)).toEqual({
                 foo: 0,
@@ -135,7 +135,7 @@ describe('GroupTypeManager()', () => {
             expect(await groupTypeManager.fetchGroupTypeIndex(2, 2 as ProjectId, 'second')).toEqual(1)
             expect(await groupTypeManager.fetchGroupTypeIndex(2, 2 as ProjectId, 'third')).toEqual(2)
 
-            expect(hub.db.postgres.query).toHaveBeenCalledTimes(1)
+            expect(hub.postgres.query).toHaveBeenCalledTimes(1)
         })
 
         it('handles raciness for inserting a new group', async () => {

@@ -1,5 +1,5 @@
 import { Hub } from '../../src/types'
-import { closeHub, createHub } from '../../src/utils/db/hub'
+import { closeHub, createHub } from '../../src/utils/hub'
 import { code } from '../../src/utils/utils'
 import { transformCode } from '../../src/worker/vm/transforms'
 import { resetTestDatabase } from '../helpers/sql'

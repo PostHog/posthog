@@ -3,8 +3,8 @@ import { DateTime } from 'luxon'
 import { QueryResult } from 'pg'
 import { Counter } from 'prom-client'
 
-import { KAFKA_PERSON_DISTINCT_ID } from '../../config/kafka-topics'
-import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
+import { KAFKA_PERSON_DISTINCT_ID } from '../../../config/kafka-topics'
+import { KafkaProducerWrapper, TopicMessage } from '../../../kafka/producer'
 import {
     InternalPerson,
     PersonDistinctId,
@@ -12,11 +12,11 @@ import {
     PropertiesLastUpdatedAt,
     RawPerson,
     Team,
-} from '../../types'
-import { PostgresRouter, PostgresUse, TransactionClient } from '../postgres'
-import { status } from '../status'
-import { NoRowsUpdatedError, RaceConditionError, sanitizeSqlIdentifier } from '../utils'
-import { generateKafkaPersonUpdateMessage, sanitizeJsonbValue, unparsePersonPartial } from './utils'
+} from '../../../types'
+import { generateKafkaPersonUpdateMessage, sanitizeJsonbValue, unparsePersonPartial } from '../../../utils/db/utils'
+import { PostgresRouter, PostgresUse, TransactionClient } from '../../../utils/postgres'
+import { status } from '../../../utils/status'
+import { NoRowsUpdatedError, RaceConditionError, sanitizeSqlIdentifier } from '../../../utils/utils'
 
 export const personUpdateVersionMismatchCounter = new Counter({
     name: 'person_update_version_mismatch',

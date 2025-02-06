@@ -1,4 +1,4 @@
-import { PostgresRouter } from '../../../../utils/db/postgres'
+import { PostgresRouter } from '../../../../utils/postgres'
 import { fetchTeamTokensWithRecordings } from '../../../../worker/ingestion/team-manager'
 import { TeamService } from './team-service'
 

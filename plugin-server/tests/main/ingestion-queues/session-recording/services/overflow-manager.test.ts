@@ -2,7 +2,7 @@ import { Redis } from 'ioredis'
 
 import { OverflowManager } from '../../../../../src/main/ingestion-queues/session-recording/services/overflow-manager'
 import { Hub } from '../../../../../src/types'
-import { closeHub, createHub } from '../../../../../src/utils/db/hub'
+import { closeHub, createHub } from '../../../../../src/utils/hub'
 
 jest.mock('../../../../../src/utils/status')
 

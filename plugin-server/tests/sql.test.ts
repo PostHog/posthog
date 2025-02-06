@@ -1,6 +1,6 @@
 import { Hub } from '../src/types'
-import { closeHub, createHub } from '../src/utils/db/hub'
-import { PostgresUse } from '../src/utils/db/postgres'
+import { closeHub, createHub } from '../src/utils/hub'
+import { PostgresUse } from '../src/utils/postgres'
 import { disablePlugin, getActivePluginRows, getPluginAttachmentRows, getPluginConfigRows } from '../src/utils/db/sql'
 import { commonOrganizationId } from './helpers/plugins'
 import { resetTestDatabase } from './helpers/sql'
@@ -36,7 +36,7 @@ describe('sql', () => {
 
         const rows1 = await getPluginAttachmentRows(hub)
         expect(rows1).toEqual(rowsExpected)
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             "update posthog_team set plugins_opt_in='f'",
             undefined,
@@ -93,7 +93,7 @@ describe('sql', () => {
 
         const rows1 = await getActivePluginRows(hub)
         expect(rows1).toEqual(rowsExpected)
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             "update posthog_team set plugins_opt_in='f'",
             undefined,
@@ -105,10 +105,10 @@ describe('sql', () => {
 
     describe('disablePlugin', () => {
         test('disablePlugin query builds correctly', async () => {
-            hub.db.postgres.query = jest.fn() as any
+            hub.postgres.query = jest.fn() as any
 
             await disablePlugin(hub, 39)
-            expect(hub.db.postgres.query).toHaveBeenCalledWith(
+            expect(hub.postgres.query).toHaveBeenCalledWith(
                 PostgresUse.COMMON_WRITE,
                 `UPDATE posthog_pluginconfig SET enabled='f' WHERE id=$1 AND enabled='t'`,
                 [39],

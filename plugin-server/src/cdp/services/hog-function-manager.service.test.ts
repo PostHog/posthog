@@ -1,7 +1,7 @@
 import { HogFunctionType, IntegrationType } from '~/src/cdp/types'
 import { Hub } from '~/src/types'
-import { closeHub, createHub } from '~/src/utils/db/hub'
-import { PostgresUse } from '~/src/utils/db/postgres'
+import { closeHub, createHub } from '~/src/utils/hub'
+import { PostgresUse } from '~/src/utils/postgres'
 import { insertHogFunction, insertIntegration } from '~/tests/cdp/fixtures'
 import { createTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
@@ -24,8 +24,8 @@ describe('HogFunctionManager', () => {
 
         const team = await hub.db.fetchTeam(2)
 
-        teamId1 = await createTeam(hub.db.postgres, team!.organization_id)
-        teamId2 = await createTeam(hub.db.postgres, team!.organization_id)
+        teamId1 = await createTeam(hub.postgres, team!.organization_id)
+        teamId2 = await createTeam(hub.postgres, team!.organization_id)
 
         hogFunctions = []
         integrations = []
@@ -137,7 +137,7 @@ describe('HogFunctionManager', () => {
             }),
         ])
 
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_hogfunction SET name='Test Hog Function team 1 updated' WHERE id = $1`,
             [hogFunctions[0].id],
@@ -179,7 +179,7 @@ describe('HogFunctionManager', () => {
             },
         ])
 
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_hogfunction SET enabled=false WHERE id = $1`,
             [hogFunctions[0].id],
@@ -239,8 +239,8 @@ describe('Hogfunction Manager - Execution Order', () => {
         manager = new HogFunctionManagerService(hub)
 
         const team = await hub.db.fetchTeam(2)
-        teamId = await createTeam(hub.db.postgres, team!.organization_id)
-        teamId2 = await createTeam(hub.db.postgres, team!.organization_id)
+        teamId = await createTeam(hub.postgres, team!.organization_id)
+        teamId2 = await createTeam(hub.postgres, team!.organization_id)
 
         hogFunctions = []
 
@@ -290,7 +290,7 @@ describe('Hogfunction Manager - Execution Order', () => {
         // change order in database and reload single functions to simulate changes over the django API.
 
         // Update fn2's to be last
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_hogfunction SET execution_order = 3 WHERE id = $1`,
             [hogFunctions[1].id],
@@ -298,7 +298,7 @@ describe('Hogfunction Manager - Execution Order', () => {
         )
 
         // therefore fn3's execution order should be 2
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_hogfunction SET execution_order = 2 WHERE id = $1`,
             [hogFunctions[2].id],
@@ -315,21 +315,21 @@ describe('Hogfunction Manager - Execution Order', () => {
         ])
 
         // change fn1 to be last
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_hogfunction SET execution_order = 3 WHERE id = $1`,
             [hogFunctions[0].id],
             'testKey'
         )
         // change fn3 to be first
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_hogfunction SET execution_order = 1 WHERE id = $1`,
             [hogFunctions[2].id],
             'testKey'
         )
         // change fn2 to be second
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_hogfunction SET execution_order = 2 WHERE id = $1`,
             [hogFunctions[1].id],

@@ -6,8 +6,8 @@ import {
     ProjectId,
     RawKafkaEvent,
 } from '../../../src/types'
-import { closeHub, createHub } from '../../../src/utils/db/hub'
-import { PostgresUse } from '../../../src/utils/db/postgres'
+import { closeHub, createHub } from '../../../src/utils/hub'
+import { PostgresUse } from '../../../src/utils/postgres'
 import { ActionManager } from '../../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
 import { GroupTypeManager } from '../../../src/worker/ingestion/group-type-manager'
@@ -46,13 +46,13 @@ describe('eachMessageWebhooksHandlers', () => {
         console.warn = jest.fn() as any
         await resetTestDatabase()
 
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_team SET slack_incoming_webhook = 'https://webhook.example.com/'`,
             [],
             'testTag'
         )
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `
             INSERT INTO posthog_group (team_id, group_key, group_type_index, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
@@ -70,7 +70,7 @@ describe('eachMessageWebhooksHandlers', () => {
             ],
             'upsertGroup'
         )
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_team SET slack_incoming_webhook = 'https://webhook.example.com/'`,
             [],

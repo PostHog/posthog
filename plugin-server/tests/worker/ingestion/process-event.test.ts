@@ -4,7 +4,7 @@ import { DateTime } from 'luxon'
 
 import { KAFKA_EVENTS_JSON } from '../../../src/config/kafka-topics'
 import { Hub, ISOTimestamp, Person, PreIngestionEvent } from '../../../src/types'
-import { closeHub, createHub } from '../../../src/utils/db/hub'
+import { closeHub, createHub } from '../../../src/utils/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { EventsProcessor } from '../../../src/worker/ingestion/process-event'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
