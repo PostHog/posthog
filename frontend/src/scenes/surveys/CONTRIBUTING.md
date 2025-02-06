@@ -102,4 +102,12 @@ Access the database via Metabase, you can do so by opening:
 - [EU](https://metabase.prod-eu.posthog.dev/browse/databases/34-posthog-postgres-prod-eu) - Posthog Survey
 - [US](https://metabase.prod-us.posthog.dev/browse/databases/34-posthog-postgres-prod-us-aurora) - Posthog Survey
 
+
+You can execute SQL queries directly in Metabase.
+
+```sql
+select * from posthog_survey
+ where id = '{survey_id}'
+```
+
 Access postgres directly, check the [runbook](http://runbooks/postgres#accessing-postgres).
