@@ -7,7 +7,7 @@ import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS } from '../../../config/kafka-to
 import { findOffsetsToCommit } from '../../../kafka/consumer'
 import { retryOnDependencyUnavailableError } from '../../../kafka/error-handling'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
-import { eventDroppedCounter } from '../../../utils/shared-metrics'
+import { eventDroppedCounter } from '../../../utils/metrics'
 import { status } from '../../../utils/status'
 import { captureIngestionWarning } from '../../../utils/ingestion-warnings'
 import { createSessionReplayEvent, RRWebEventType } from '../process-event'

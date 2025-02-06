@@ -1,4 +1,3 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { randomBytes } from 'crypto'
 import crypto from 'crypto'
@@ -354,12 +353,6 @@ export function clickHouseTimestampToISO(timestamp: ClickHouseTimestamp): ISOTim
     return clickHouseTimestampToDateTime(timestamp).toISO() as ISOTimestamp
 }
 
-export function clickHouseTimestampSecondPrecisionToISO(timestamp: ClickHouseTimestamp): ISOTimestamp {
-    return DateTime.fromFormat(timestamp, DATETIME_FORMAT_CLICKHOUSE_SECOND_PRECISION, {
-        zone: 'UTC',
-    }).toISO() as ISOTimestamp
-}
-
 export function delay(ms: number): Promise<void> {
     return new Promise((resolve) => {
         setTimeout(resolve, ms)
@@ -546,87 +539,6 @@ export class RaceConditionError extends Error {
 
 export async function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-// Values of the $lib property that have been seen in the wild
-export const KNOWN_LIB_VALUES = new Set([
-    'web',
-    'posthog-python',
-    '',
-    'js',
-    'posthog-node',
-    'posthog-react-native',
-    'posthog-ruby',
-    'posthog-ios',
-    'posthog-android',
-    'Segment',
-    'posthog-go',
-    'analytics-node',
-    'RudderLabs JavaScript SDK',
-    'mobile',
-    'posthog-php',
-    'zapier',
-    'Webflow',
-    'posthog-flutter',
-    'com.rudderstack.android.sdk.core',
-    'rudder-analytics-python',
-    'rudder-ios-library',
-    'rudder-analytics-php',
-    'macos',
-    'service_data',
-    'flow',
-    'PROD',
-    'unknown',
-    'api',
-    'unbounce',
-    'backend',
-    'analytics-python',
-    'windows',
-    'cf-analytics-go',
-    'server',
-    'core',
-    'Marketing',
-    'Product',
-    'com.rudderstack.android.sdk',
-    'net-gibraltar',
-    'posthog-java',
-    'rudderanalytics-ruby',
-    'GSHEETS_AIRBYTE',
-    'posthog-plugin-server',
-    'DotPostHog',
-    'analytics-go',
-    'serverless',
-    'wordpress',
-    'hog_function',
-    'http',
-    'desktop',
-    'elixir',
-    'DEV',
-    'RudderAnalytics.NET',
-    'PR',
-    'railway',
-    'HTTP',
-    'extension',
-    'cyclotron-testing',
-    'RudderStack Shopify Cloud',
-    'GSHEETS_MONITOR',
-    'Rudder',
-    'API',
-    'rudder-sdk-ruby-sync',
-    'curl',
-])
-
-export const getKnownLibValueOrSentinel = (lib: string): string => {
-    if (lib === '') {
-        return '$empty'
-    }
-    if (!lib) {
-        return '$nil'
-    }
-    if (KNOWN_LIB_VALUES.has(lib)) {
-        return lib
-    }
-    return '$other'
 }
 
 // Check if 2 maps with primitive values are equal

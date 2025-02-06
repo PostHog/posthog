@@ -1,5 +1,6 @@
+import { now } from '~/src/utils/now'
+
 import { Hub } from '../../types'
-import { now } from '../../utils/now'
 import { UUIDT } from '../../utils/utils'
 import { CdpRedis } from '../redis'
 import { HogFunctionInvocationResult, HogFunctionType } from '../types'
@@ -34,7 +35,7 @@ export class HogWatcherService {
     }
 
     private rateLimitArgs(id: HogFunctionType['id'], cost: number) {
-        const nowSeconds = Math.round(now() / 1000)
+        const nowSeconds = Math.round(Date.now() / 1000)
         return [
             `${REDIS_KEY_TOKENS}/${id}`,
             nowSeconds,
@@ -107,7 +108,7 @@ export class HogWatcherService {
                     ? this.hub.CDP_WATCHER_BUCKET_SIZE * this.hub.CDP_WATCHER_THRESHOLD_DEGRADED
                     : 0
 
-            const nowSeconds = Math.round(now() / 1000)
+            const nowSeconds = Math.round(Date.now() / 1000)
 
             pipeline.hset(`${REDIS_KEY_TOKENS}/${id}`, 'pool', newScore)
             pipeline.hset(`${REDIS_KEY_TOKENS}/${id}`, 'ts', nowSeconds)

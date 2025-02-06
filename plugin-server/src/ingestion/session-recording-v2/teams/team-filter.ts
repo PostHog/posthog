@@ -1,6 +1,6 @@
 import { MessageHeader } from 'node-rdkafka'
 
-import { eventDroppedCounter } from '../../../utils/shared-metrics'
+import { eventDroppedCounter } from '../../../utils/metrics'
 import { status } from '../../../utils/status'
 import { ParsedMessageData } from '../kafka/types'
 import { TeamService } from './team-service'

@@ -17,10 +17,6 @@ export function unparsePersonPartial(person: Partial<InternalPerson>): Partial<R
     }
 }
 
-export function escapeQuotes(input: string): string {
-    return input.replace(/"/g, '\\"')
-}
-
 export function sanitizeEventName(eventName: any): string {
     if (typeof eventName !== 'string') {
         try {

@@ -5,6 +5,7 @@ import { CompressionCodecs, CompressionTypes } from 'kafkajs'
 // @ts-expect-error no type definitions
 import SnappyCodec from 'kafkajs-snappy'
 import LZ4 from 'lz4-kafkajs'
+import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
 import v8Profiler from 'v8-profiler-next'
 
@@ -29,7 +30,6 @@ import { Config, Hub, PluginServerCapabilities, PluginServerService } from './ty
 import { closeHub, createHub } from './utils/db/hub'
 import { PostgresRouter } from './utils/db/postgres'
 import { createRedisClient } from './utils/db/redis'
-import { cancelAllScheduledJobs } from './utils/node-schedule'
 import { getObjectStorage } from './utils/object_storage'
 import { posthog } from './utils/posthog'
 import { PubSub } from './utils/pubsub'
@@ -91,7 +91,10 @@ export async function startPluginsServer(
         // I say hacky because we've got a weak dependency on the liveness check
         // configuration.
         httpServer?.close()
-        cancelAllScheduledJobs()
+        Object.values(schedule.scheduledJobs).forEach((job) => {
+            job.cancel()
+        })
+
         stopEventLoopMetrics?.()
         await Promise.allSettled([
             pubSub?.stop(),

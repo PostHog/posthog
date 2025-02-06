@@ -1,6 +1,12 @@
-import { Summary } from 'prom-client'
+import { Counter, Summary } from 'prom-client'
 
 import { runInSpan } from './sentry'
+
+export const eventDroppedCounter = new Counter({
+    name: 'ingestion_event_dropped_total',
+    help: 'Count of events dropped by the ingestion pipeline, by type and cause.',
+    labelNames: ['event_type', 'drop_cause'],
+})
 
 export async function instrumentQuery<T>(
     metricName: string,

@@ -21,7 +21,6 @@ export function getDefaultConfig(): Config {
             ? 'postgres://posthog:posthog@localhost:5432/posthog'
             : '',
         DATABASE_READONLY_URL: '',
-        PLUGIN_STORAGE_DATABASE_URL: '',
         POSTGRES_CONNECTION_POOL_SIZE: 10,
         POSTHOG_DB_NAME: null,
         POSTHOG_DB_USER: 'postgres',
@@ -37,7 +36,6 @@ export function getDefaultConfig(): Config {
         CLICKHOUSE_SECURE: false,
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
-        SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
         KAFKA_HOSTS: 'kafka:9092', // KEEP IN SYNC WITH posthog/settings/data_stores.py
         KAFKA_CLIENT_CERT_B64: undefined,
         KAFKA_CLIENT_CERT_KEY_B64: undefined,
@@ -61,8 +59,6 @@ export function getDefaultConfig(): Config {
         KAFKA_TOPIC_CREATION_TIMEOUT_MS: isDevEnv() ? 30_000 : 5_000, // rdkafka default is 5s, increased in devenv to resist to slow kafka
         KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS: undefined,
         KAFKA_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 500,
-        APP_METRICS_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 20_000,
-        APP_METRICS_FLUSH_MAX_QUEUE_SIZE: isTestEnv() ? 5 : 1000,
         KAFKA_PRODUCER_LINGER_MS: 20, // rdkafka default is 5ms
         KAFKA_PRODUCER_BATCH_SIZE: 8 * 1024 * 1024, // rdkafka default is 1MiB
         KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: 100_000, // rdkafka default is 100_000
@@ -75,27 +71,18 @@ export function getDefaultConfig(): Config {
         BASE_DIR: '.',
         TASK_TIMEOUT: 30,
         KAFKA_CONSUMPTION_BATCH_SIZE: 500,
-        INGESTION_OVERFLOW_ENABLED: false,
-        INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: false,
         LOG_LEVEL: isTestEnv() ? LogLevel.Warn : LogLevel.Info,
         SENTRY_DSN: null,
         SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: 0,
         SENTRY_PLUGIN_SERVER_PROFILING_SAMPLE_RATE: 0,
         HTTP_SERVER_PORT: DEFAULT_HTTP_SERVER_PORT,
-        SCHEDULE_LOCK_TTL: 60,
         REDIS_POOL_MIN_SIZE: 1,
         REDIS_POOL_MAX_SIZE: 3,
         DISABLE_MMDB: isTestEnv(),
-        DISTINCT_ID_LRU_SIZE: 10000,
-        EVENT_PROPERTY_LRU_SIZE: 10000,
-        HEALTHCHECK_MAX_STALE_SECONDS: 2 * 60 * 60, // 2 hours
         SITE_URL: null,
-        KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
         EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC: KAFKA_EXCEPTION_SYMBOLIFICATION_EVENTS,
-        PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
-        KAFKA_HEALTHCHECK_SECONDS: 20,
         OBJECT_STORAGE_ENABLED: true,
         OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000',
         OBJECT_STORAGE_REGION: 'us-east-1',
@@ -104,17 +91,11 @@ export function getDefaultConfig(): Config {
         OBJECT_STORAGE_BUCKET: 'posthog',
         PLUGIN_SERVER_MODE: null,
         KAFKAJS_LOG_LEVEL: 'WARN',
-        MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: 0,
-        USE_KAFKA_FOR_SCHEDULED_TASKS: true,
         CLOUD_DEPLOYMENT: null,
         EXTERNAL_REQUEST_TIMEOUT_MS: 10 * 1000, // 10 seconds
         DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
         DROP_EVENTS_BY_TOKEN: '',
         SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: '',
-        RUSTY_HOOK_FOR_TEAMS: '',
-        RUSTY_HOOK_ROLLOUT_PERCENTAGE: 0,
-        RUSTY_HOOK_URL: '',
-        HOG_HOOK_URL: '',
         CAPTURE_CONFIG_REDIS_HOST: null,
 
         STARTUP_PROFILE_DURATION_SECONDS: 300, // 5 minutes
@@ -257,10 +238,6 @@ export function overrideWithEnv(config: Config, env: Record<string, string | und
         const encodedUser = encodeURIComponent(newConfig.POSTHOG_DB_USER)
         const encodedPassword = encodeURIComponent(newConfig.POSTHOG_DB_PASSWORD)
         newConfig.DATABASE_URL = `postgres://${encodedUser}:${encodedPassword}@${newConfig.POSTHOG_POSTGRES_HOST}:${newConfig.POSTHOG_POSTGRES_PORT}/${newConfig.POSTHOG_DB_NAME}`
-    }
-
-    if (!newConfig.JOB_QUEUE_GRAPHILE_URL) {
-        newConfig.JOB_QUEUE_GRAPHILE_URL = newConfig.DATABASE_URL
     }
 
     return newConfig

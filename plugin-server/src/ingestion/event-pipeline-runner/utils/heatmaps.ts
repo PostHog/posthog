@@ -2,7 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { URL } from 'url'
 
 import { RawClickhouseHeatmapEvent, TimestampFormat } from '../../../types'
-import { eventDroppedCounter } from '../../../utils/shared-metrics'
+import { eventDroppedCounter } from '../../../utils/metrics'
 import { status } from '../../../utils/status'
 import { castTimestampOrNow } from '../../../utils/utils'
 import { isDistinctIdIllegal } from './person-state'

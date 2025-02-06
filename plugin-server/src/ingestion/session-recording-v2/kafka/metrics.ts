@@ -1,4 +1,4 @@
-import { eventDroppedCounter } from '../../../utils/shared-metrics'
+import { eventDroppedCounter } from '../../../utils/metrics'
 
 export class KafkaMetrics {
     public static incrementMessageDropped(event_type: string, drop_cause: string): void {

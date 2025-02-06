@@ -2,7 +2,7 @@ import { BackgroundRefresher } from '../../src/utils/background-refresher'
 
 const realNow = Date.now
 
-describe('getNextRetryMs', () => {
+describe('background-refresher', () => {
     jest.useFakeTimers()
     jest.setTimeout(1000)
     let refreshFunction = jest.fn()

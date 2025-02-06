@@ -9,7 +9,6 @@ import { ConcurrencyController } from '../concurrencyController'
 import { DB } from '../db/db'
 import { RedisOperationError } from '../db/error'
 import { runInstrumentedFunction } from '../instrument'
-import { now } from '../now'
 import { eventDroppedCounter } from '../shared-metrics'
 import { base64StringToUint32ArrayLE, createRandomUint32x4, uint32ArrayLEToBase64String, UUID7 } from '../utils'
 
@@ -546,7 +545,7 @@ export function isCalendarDateValid(yyyymmdd: string): boolean {
     const utcDate = new Date(`${yyyymmdd}T00:00:00Z`)
 
     // Current time in UTC
-    const nowUTC = new Date(now())
+    const nowUTC = new Date(Date.now())
 
     // Define the range of the calendar day in UTC
     const startOfDayMinus12 = new Date(utcDate)

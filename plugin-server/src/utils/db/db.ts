@@ -34,8 +34,6 @@ import {
     TeamId,
     TimestampFormat,
 } from '../../types'
-import { fetchOrganization } from '../../worker/ingestion/organization-manager'
-import { fetchTeam, fetchTeamByToken } from '../../services/team-manager'
 import { instrumentQuery } from '../metrics'
 import { status } from '../status'
 import {
@@ -1017,22 +1015,6 @@ export class DB {
                 'fetchEventProperties'
             )
         ).rows as EventPropertyType[]
-    }
-
-    // Organization
-
-    public async fetchOrganization(organizationId: string): Promise<RawOrganization | undefined> {
-        return await fetchOrganization(this.postgres, organizationId)
-    }
-
-    // Team
-
-    public async fetchTeam(teamId: Team['id']): Promise<Team | null> {
-        return await fetchTeam(this.postgres, teamId)
-    }
-
-    public async fetchTeamByToken(token: string): Promise<Team | null> {
-        return await fetchTeamByToken(this.postgres, token)
     }
 
     // Hook (EE)
