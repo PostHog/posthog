@@ -142,7 +142,7 @@ export function LemonModal({
                     <>
                         {title ? (
                             <LemonModalHeader>
-                                <h3>{title}</h3>
+                                <h3 className="m-0 text-lg">{title}</h3>
                                 {description ? (
                                     typeof description === 'string' ? (
                                         <p>{description}</p>
