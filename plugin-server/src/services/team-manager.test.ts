@@ -1,7 +1,6 @@
 import { Settings } from 'luxon'
 
-import { resetTestDatabase } from '~/tests/helpers/sql'
-
+import { resetTestDatabase } from '../_tests/helpers/sql'
 import { defaultConfig } from '../config/config'
 import { PostgresRouter, PostgresUse } from '../utils/postgres'
 import { TeamManager } from './team-manager'

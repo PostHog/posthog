@@ -1,4 +1,4 @@
-import '../../tests/helpers/mocks/producer.mock'
+import '../_tests/helpers/producer.mock'
 
 import express from 'express'
 import supertest from 'supertest'

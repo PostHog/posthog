@@ -26,7 +26,7 @@ export async function resetTestDatabase(code?: string, extraServerConfig: Partia
     const db = new PostgresRouter(config)
     await db.query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_TABLES_QUERY, undefined, 'delete-tables')
 
-    await createUserTeamAndOrganization(db, 1)
+    await createUserTeamAndOrganization(db, 2)
     await db.end()
 }
 

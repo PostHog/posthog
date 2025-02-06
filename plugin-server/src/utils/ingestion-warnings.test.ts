@@ -1,5 +1,4 @@
-import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '~/tests/helpers/clickhouse'
-
+import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../_tests/helpers/clickhouse'
 import { Hub, LogLevel } from '../types'
 import { closeHub, createHub } from './hub'
 import { captureIngestionWarning } from './ingestion-warnings'

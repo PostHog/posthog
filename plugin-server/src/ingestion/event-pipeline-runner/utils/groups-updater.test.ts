@@ -1,9 +1,8 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { createPromise } from '~/tests/helpers/promises'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
-
+import { createPromise } from '../../../_tests/helpers/promises'
+import { getFirstTeam, resetTestDatabase } from '../../../_tests/helpers/sql'
 import { MessageSizeTooLarge } from '../../../kafka/producer'
 import { Group, Hub, Team } from '../../../types'
 // import { DB } from '../../../utils/db/db'

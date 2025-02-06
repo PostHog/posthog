@@ -1,11 +1,10 @@
 import { DateTime } from 'luxon'
 
-import { getProducedKafkaMessagesForTopic, mockProducer } from '~/tests/helpers/mocks/producer.mock'
-import { forSnapshot } from '~/tests/helpers/snapshots'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
-
 import { Hub, PipelineEvent, Team } from '../../../src/types'
 import { closeHub, createHub } from '../../../src/utils/hub'
+import { getProducedKafkaMessagesForTopic, mockProducer } from '../../_tests/helpers/producer.mock'
+import { forSnapshot } from '../../_tests/helpers/snapshots'
+import { getFirstTeam, resetTestDatabase } from '../../_tests/helpers/sql'
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KAFKA_EVENTS_JSON, KAFKA_INGESTION_WARNINGS } from '../../config/kafka-topics'
 import { UUIDT } from '../../utils/utils'
