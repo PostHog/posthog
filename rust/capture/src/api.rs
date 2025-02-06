@@ -18,7 +18,7 @@ pub struct CaptureResponse {
     pub quota_limited: Option<Vec<String>>,
 }
 
-#[derive(Clone, Error, Debug, PartialEq)]
+#[derive(Clone, Error, Debug)]
 pub enum CaptureError {
     #[error("failed to decode request: {0}")]
     RequestDecodingError(String),

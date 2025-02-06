@@ -230,16 +230,16 @@ mod tests {
 
         // Should fail over to print sink
 
-        assert_eq!(
+        assert!(matches!(
             fallback_sink.send(event.clone()).await,
             Err(CaptureError::RetryableSinkError)
-        );
+        ));
 
         // Test batch
         let batch = vec![event.clone(), event.clone()];
-        assert_eq!(
+        assert!(matches!(
             fallback_sink.send_batch(batch).await,
             Err(CaptureError::RetryableSinkError)
-        );
+        ));
     }
 }
