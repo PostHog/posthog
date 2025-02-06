@@ -109,7 +109,7 @@ def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool
 
             teams_cache[plugin_config["team_id"]] = team
 
-            serializer_context = {"team": team, "get_team": (lambda t=team: t)}
+            serializer_context = {"team": team, "get_team": (lambda t=team: t), "bypass_addon_check": True}
 
             icon_url = (
                 plugin_config["plugin__icon"] or f"https://raw.githubusercontent.com/PostHog/{plugin_id}/main/logo.png"
