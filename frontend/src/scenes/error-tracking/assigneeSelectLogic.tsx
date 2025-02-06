@@ -30,7 +30,7 @@ const userDisplay = (member: OrganizationMemberType): AssigneeDisplayType => ({
 
 const unassignedUser = {
     id: 'unassigned',
-    icon: <IconPerson className="rounded-full border border-dashed border-muted text-muted p-0.5" />,
+    icon: <IconPerson className="rounded-full border border-dashed border-muted text-secondary p-0.5" />,
 }
 
 export const assigneeSelectLogic = kea<assigneeSelectLogicType>([

@@ -28,6 +28,11 @@ export function LoadNext({ query }: LoadNextProps): JSX.Element {
                 // If the number of rows is greater than the default page size, it's handled by pagination component
                 return ''
             }
+            if (numberOfRows && numberOfRows < dataLimit) {
+                return `Showing ${numberOfRows === 1 ? '' : 'all'} ${numberOfRows === 1 ? 'one' : numberOfRows} ${
+                    numberOfRows === 1 ? 'entry' : 'entries'
+                }`
+            }
             return `Default limit of ${dataLimit} rows reached`
         } else if (isHogQLQuery(query) && !canLoadNextData && hasMoreData && dataLimit) {
             return `Default limit of ${dataLimit} rows reached. Try adding a LIMIT clause to adjust.`
@@ -64,10 +69,6 @@ export function LoadNext({ query }: LoadNextProps): JSX.Element {
 
 export function LoadPreviewText(): JSX.Element {
     const { numberOfRows, hasMoreData } = useValues(dataNodeLogic)
-
-    if (!hasMoreData) {
-        return <></>
-    }
 
     return (
         <>

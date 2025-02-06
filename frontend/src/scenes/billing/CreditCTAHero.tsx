@@ -28,7 +28,7 @@ export const CreditCTAHero = (): JSX.Element | null => {
         return (
             <div className="absolute top-0 right-0 z-10">
                 <div
-                    className="cursor-pointer bg-mark rounded-lg pr-3 pl-2 py-1 hover:bg-mark-light transition-colors group"
+                    className="cursor-pointer border border-accent-primary rounded-lg pr-3 pl-2 py-1 hover:bg-accent-primary-highlight transition-colors group"
                     onClick={() => toggleCreditCTAHeroDismissed(false)}
                 >
                     <span className="flex items-center gap-1.5">
@@ -47,7 +47,7 @@ export const CreditCTAHero = (): JSX.Element | null => {
         creditOverview?.estimated_monthly_credit_amount_usd || DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD
     return (
         <div
-            className="flex relative justify-between items-start rounded-lg bg-bg-light border mb-2 gap-2"
+            className="flex relative justify-between items-start rounded-lg bg-surface-primary border mb-2 gap-2"
             ref={heroRef}
         >
             <div className="absolute top-2 right-2 z-10">

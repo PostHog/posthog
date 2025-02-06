@@ -7,7 +7,7 @@ from prometheus_client import Counter, Histogram
 
 from posthog import settings
 from posthog.redis import get_client
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
 

@@ -82,7 +82,7 @@ export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
                             if (type === 'source') {
                                 return (
                                     <Tooltip title="This is a source table, so it doesn't have a status">
-                                        <span className="text-muted">N/A</span>
+                                        <span className="text-secondary">N/A</span>
                                     </Tooltip>
                                 )
                             }
@@ -96,7 +96,7 @@ export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
                             if (type === 'source') {
                                 return (
                                     <Tooltip title="This is a source table, so it is never run">
-                                        <span className="text-muted">N/A</span>
+                                        <span className="text-secondary">N/A</span>
                                     </Tooltip>
                                 )
                             }
