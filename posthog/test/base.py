@@ -90,6 +90,11 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
     DROP_SESSION_REPLAY_EVENTS_TABLE_SQL,
     SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
+from posthog.session_recordings.sql.session_replay_event_v2_test_sql import (
+    DISTRIBUTED_SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL,
+    DROP_SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL,
+    SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL,
+)
 from posthog.test.assert_faster_than import assert_faster_than
 
 # Make sure freezegun ignores our utils class that times functions
@@ -1051,6 +1056,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DISTRIBUTED_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+                DISTRIBUTED_SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL(),
                 DISTRIBUTED_SESSIONS_TABLE_SQL(),
                 DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(),
             ]
@@ -1085,6 +1091,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
                 DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+                DROP_SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL(),
                 DROP_CHANNEL_DEFINITION_TABLE_SQL,
                 DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
                 DROP_SESSION_TABLE_SQL(),
@@ -1097,6 +1104,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 PERSONS_TABLE_SQL(),
                 SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 SESSION_REPLAY_EVENTS_TABLE_SQL(),
+                SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL(),
                 CHANNEL_DEFINITION_TABLE_SQL(),
                 CHANNEL_DEFINITION_DICTIONARY_SQL(),
                 SESSIONS_TABLE_SQL(),
@@ -1108,6 +1116,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DISTRIBUTED_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+                DISTRIBUTED_SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL(),
                 DISTRIBUTED_SESSIONS_TABLE_SQL(),
                 DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(),
             ]
