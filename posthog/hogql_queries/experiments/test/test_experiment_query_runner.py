@@ -37,7 +37,6 @@ from django.utils import timezone
 from datetime import datetime, timedelta
 from posthog.test.test_journeys import journeys_for
 from posthog.models.experiment import Experiment
-from flaky import flaky
 from parameterized import parameterized
 import s3fs
 from pyarrow import parquet as pq
@@ -593,16 +592,20 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.team.save()
 
         feature_flag_property = f"$feature/{feature_flag.key}"
-        count_query = TrendsQuery(series=[EventsNode(event="$pageview")], filterTestAccounts=True)
+
+        metric = ExperimentMetric(
+            metric_type=ExperimentMetricType.COUNT,
+            metric_props=ExperimentEventMetricProps(event="$pageview"),
+            filterTestAccounts=True,
+        )
 
         experiment_query = ExperimentQuery(
             experiment_id=experiment.id,
             kind="ExperimentQuery",
-            count_query=count_query,
-            exposure_query=None,
+            metric=metric,
         )
 
-        experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
+        experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
         # Populate count events
@@ -667,7 +670,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         elif name == "cohort_dynamic" and cohort:
             cohort.calculate_people_ch(pending_version=0)
 
-        query_runner = ExperimentQueryRunner(query=ExperimentQuery(**experiment.metrics[0]["query"]), team=self.team)
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         # "feature_flags" and "element" filter out all events
         if name == "feature_flags" or name == "element":
             with self.assertRaises(ValueError) as context:
@@ -685,18 +688,21 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(test_result.absolute_exposure, expected_results["test_absolute_exposure"])
 
         ## Run again with filterTestAccounts=False
-        count_query = TrendsQuery(series=[EventsNode(event="$pageview")], filterTestAccounts=False)
+        metric = ExperimentMetric(
+            metric_type=ExperimentMetricType.COUNT,
+            metric_props=ExperimentEventMetricProps(event="$pageview"),
+            filterTestAccounts=False,
+        )
         experiment_query = ExperimentQuery(
             experiment_id=experiment.id,
             kind="ExperimentQuery",
-            count_query=count_query,
-            exposure_query=None,
+            metric=metric,
         )
 
-        experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
+        experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(query=ExperimentQuery(**experiment.metrics[0]["query"]), team=self.team)
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
 
         trend_result = cast(ExperimentTrendsQueryResponse, result)
