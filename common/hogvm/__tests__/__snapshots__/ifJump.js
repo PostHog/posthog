@@ -42,7 +42,7 @@ function __escapeIdentifier(identifier) {
     return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
 }
 
-let props = {};
+let props = ({});
 let email = __getProperty(props, "email", true);
 if ((email == "")) {
     print("ERROR - Email not found!");

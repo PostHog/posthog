@@ -140,10 +140,10 @@ function __DateTimeToString(dt) {
     }
 }
 
-let root = {"key": "value", "key2": "value2"};
-let leaf = {"key": "value", "key2": "value2"};
+let root = ({"key": "value", "key2": "value2"});
+let leaf = ({"key": "value", "key2": "value2"});
 for (let i = 0; (i < 30); i = (i + 1)) {
-    __setProperty(root, concat("key_", i), {"something": leaf});
+    __setProperty(root, concat("key_", i), ({"something": leaf}));
 }
 print(root);
 print(jsonParse(jsonStringify(root)));

@@ -94,14 +94,14 @@ print("-- for in loop with tuples and keys --");
 }
 print("-- for in loop with dicts --");
 {
-    let obj = {"first": "v1", "second": "v2", "third": "v3"};
+    let obj = ({"first": "v1", "second": "v2", "third": "v3"});
     for (let i of values(obj)) {
             print(i);
         }
 }
 print("-- for in loop with dicts and keys --");
 {
-    let obj = {"first": "v1", "second": "v2", "third": "v3"};
+    let obj = ({"first": "v1", "second": "v2", "third": "v3"});
     for (let k of keys(obj)) { let v = obj[k]; {
             print(k, v);
         } }

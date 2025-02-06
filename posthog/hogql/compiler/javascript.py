@@ -563,7 +563,7 @@ class JavaScriptCompiler(Visitor):
             value_code = self.visit(value)
             items.append(f"{key_code}: {value_code}")
         items_code = ", ".join(items)
-        return f"{{{items_code}}}"
+        return f"({{{items_code}}})"
 
     def visit_array(self, node: ast.Array):
         items_code = ", ".join([self.visit(expr) for expr in node.exprs])

@@ -49,64 +49,64 @@ function __escapeIdentifier(identifier) {
 }
 
 {
-    let r = [1, 2, {"d": tuple(1, 3, 42, 6)}];
+    let r = [1, 2, ({"d": tuple(1, 3, 42, 6)})];
     print(__getProperty(__getProperty(__getProperty(r, 3, false), "d", false), 2, false));
 }
 {
-    let r = [1, 2, {"d": tuple(1, 3, 42, 6)}];
+    let r = [1, 2, ({"d": tuple(1, 3, 42, 6)})];
     print(__getProperty(__getProperty(__getProperty(r, 3, false), "d", false), 3, false));
 }
 {
-    let r = [1, 2, {"d": tuple(1, 3, 42, 6)}];
+    let r = [1, 2, ({"d": tuple(1, 3, 42, 6)})];
     print(__getProperty(__getProperty(__getProperty(r, 3, false), "d", false), 4, false));
 }
 {
-    let r = {"d": tuple(1, 3, 42, 6)};
+    let r = ({"d": tuple(1, 3, 42, 6)});
     print(__getProperty(__getProperty(r, "d", true), 2, false));
 }
 {
-    let r = [1, 2, {"d": [1, 3, 42, 3]}];
+    let r = [1, 2, ({"d": [1, 3, 42, 3]})];
     __setProperty(__getProperty(__getProperty(r, 3, false), "d", false), 3, 3);
     print(__getProperty(__getProperty(__getProperty(r, 3, false), "d", false), 3, false));
 }
 {
-    let r = [1, 2, {"d": [1, 3, 42, 3]}];
+    let r = [1, 2, ({"d": [1, 3, 42, 3]})];
     __setProperty(__getProperty(__getProperty(r, 3, false), "d", false), 3, 3);
     print(__getProperty(__getProperty(__getProperty(r, 3, false), "d", false), 3, false));
 }
 {
-    let r = [1, 2, {"d": [1, 3, 42, 3]}];
+    let r = [1, 2, ({"d": [1, 3, 42, 3]})];
     __setProperty(__getProperty(r, 3, false), "c", [666]);
     print(__getProperty(r, 3, false));
 }
 {
-    let r = [1, 2, {"d": [1, 3, 42, 3]}];
+    let r = [1, 2, ({"d": [1, 3, 42, 3]})];
     __setProperty(__getProperty(__getProperty(r, 3, false), "d", false), 3, 3);
     print(__getProperty(__getProperty(r, 3, false), "d", false));
 }
 {
-    let r = [1, 2, {"d": [1, 3, 42, 3]}];
+    let r = [1, 2, ({"d": [1, 3, 42, 3]})];
     __setProperty(__getProperty(r, 3, false), "d", ["a", "b", "c", "d"]);
     print(__getProperty(__getProperty(__getProperty(r, 3, false), "d", false), 3, false));
 }
 {
-    let r = [1, 2, {"d": [1, 3, 42, 3]}];
+    let r = [1, 2, ({"d": [1, 3, 42, 3]})];
     let g = "d";
     __setProperty(__getProperty(r, 3, false), g, ["a", "b", "c", "d"]);
     print(__getProperty(__getProperty(__getProperty(r, 3, false), "d", false), 3, false));
 }
 {
-    let event = {"event": "$pageview", "properties": {"$browser": "Chrome", "$os": "Windows"}};
+    let event = ({"event": "$pageview", "properties": ({"$browser": "Chrome", "$os": "Windows"})});
     __setProperty(__getProperty(event, "properties", false), "$browser", "Firefox");
     print(event);
 }
 {
-    let event = {"event": "$pageview", "properties": {"$browser": "Chrome", "$os": "Windows"}};
+    let event = ({"event": "$pageview", "properties": ({"$browser": "Chrome", "$os": "Windows"})});
     __setProperty(__getProperty(event, "properties", true), "$browser", "Firefox")
     print(event);
 }
 {
-    let event = {"event": "$pageview", "properties": {"$browser": "Chrome", "$os": "Windows"}};
-    let config = {};
+    let event = ({"event": "$pageview", "properties": ({"$browser": "Chrome", "$os": "Windows"})});
+    let config = ({});
     print(event);
 }

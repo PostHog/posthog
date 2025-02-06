@@ -79,7 +79,7 @@ test(1.23);
 test(true);
 test(false);
 test(null);
-test({});
+test(({}));
 test([]);
 test(tuple(1, 2, 3));
 test(__lambda(() => (1 + 2)));
