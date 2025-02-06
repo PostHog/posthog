@@ -53,7 +53,16 @@ RUN apt-get update && \
     "libssl-dev" \
     "zlib1g-dev" \
     && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* && \
+    corepack enable && \
+    mkdir /tmp/pnpm-store && \
+    # Add undici as a dev dependency before the build
+    pnpm add -D undici@latest && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
+    cd ../common/plugin_transpiler && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
+    pnpm build && \
+    rm -rf /tmp/pnpm-store
 
 WORKDIR /code
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
