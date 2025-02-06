@@ -251,6 +251,11 @@ export const experimentLogic = kea<experimentLogicType>([
         setTabKey: (tabKey: string) => ({ tabKey }),
         openPrimaryMetricModal: (index: number) => ({ index }),
         closePrimaryMetricModal: true,
+        setMetricResultsLoading: (loading: boolean) => ({ loading }),
+        setMetricResults: (
+            results: (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null)[]
+        ) => ({ results }),
+        loadMetricResults: (refresh?: boolean) => ({ refresh }),
         setPrimaryMetricsResultErrors: (errors: any[]) => ({ errors }),
         setEditingPrimaryMetricIndex: (index: number | null) => ({ index }),
         updateDistributionModal: (featureFlag: FeatureFlagType) => ({ featureFlag }),
@@ -498,6 +503,18 @@ export const experimentLogic = kea<experimentLogicType>([
                 closePrimaryMetricModal: () => false,
             },
         ],
+        metricResultsLoading: [
+            false,
+            {
+                setMetricResultsLoading: (_, { loading }) => loading,
+            },
+        ],
+        metricResults: [
+            [] as (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null)[],
+            {
+                setMetricResults: (_, { results }) => results,
+            },
+        ],
         editingPrimaryMetricIndex: [
             null as number | null,
             {
@@ -738,7 +755,6 @@ export const experimentLogic = kea<experimentLogicType>([
             values.experiment && actions.reportExperimentArchived(values.experiment)
         },
         refreshExperimentResults: async ({ forceRefresh }) => {
-            actions.loadMetricResultsSuccess([])
             actions.loadSecondaryMetricResultsSuccess([])
             actions.loadMetricResults(forceRefresh)
             actions.loadSecondaryMetricResults(forceRefresh)
@@ -780,7 +796,7 @@ export const experimentLogic = kea<experimentLogicType>([
         resetRunningExperiment: async () => {
             actions.updateExperiment({ start_date: null, end_date: null, archived: false })
             values.experiment && actions.reportExperimentReset(values.experiment)
-            actions.loadMetricResultsSuccess([])
+            actions.setMetricResults([])
             actions.loadSecondaryMetricResultsSuccess([])
         },
         updateExperimentSuccess: async ({ experiment, payload }) => {
@@ -1090,6 +1106,61 @@ export const experimentLogic = kea<experimentLogicType>([
                 })
             }
         },
+        loadMetricResults: async ({ refresh }: { refresh?: boolean }) => {
+            actions.setMetricResultsLoading(true)
+            actions.setMetricResults([])
+
+            let metrics = values.experiment?.metrics
+            const sharedMetrics = values.experiment?.saved_metrics
+                .filter((sharedMetric) => sharedMetric.metadata.type === 'primary')
+                .map((sharedMetric) => sharedMetric.query)
+            if (sharedMetrics) {
+                metrics = [...metrics, ...sharedMetrics]
+            }
+
+            const results: (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null)[] = []
+
+            await Promise.all(
+                metrics.map(async (metric, index) => {
+                    try {
+                        const queryWithExperimentId = {
+                            ...metric,
+                            experiment_id: values.experimentId,
+                        }
+                        const response = await performQuery(queryWithExperimentId, undefined, refresh)
+
+                        results[index] = {
+                            ...response,
+                            // @ts-expect-error
+                            fakeInsightId: Math.random().toString(36).substring(2, 15),
+                        }
+                        actions.setMetricResults([...results])
+                    } catch (error: any) {
+                        const errorDetailMatch = error.detail?.match(/\{.*\}/)
+                        const errorDetail = errorDetailMatch
+                            ? JSON.parse(errorDetailMatch[0])
+                            : error.detail || error.message
+
+                        const currentErrors = [...(values.primaryMetricsResultErrors || [])]
+                        currentErrors[index] = {
+                            detail: errorDetail,
+                            statusCode: error.status,
+                            hasDiagnostics: !!errorDetailMatch,
+                        }
+                        actions.setPrimaryMetricsResultErrors(currentErrors)
+
+                        if (errorDetail === QUERY_TIMEOUT_ERROR_MESSAGE) {
+                            actions.reportExperimentMetricTimeout(values.experimentId, metric)
+                        }
+
+                        results[index] = null
+                        actions.setMetricResults([...results])
+                    }
+                })
+            )
+
+            actions.setMetricResultsLoading(false)
+        },
     })),
     loaders(({ actions, props, values }) => ({
         experiment: {
@@ -1120,58 +1191,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 return response
             },
         },
-        metricResults: [
-            null as (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null)[] | null,
-            {
-                loadMetricResults: async (
-                    refresh?: boolean
-                ): Promise<(CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null)[]> => {
-                    let metrics = values.experiment?.metrics
-                    const sharedMetrics = values.experiment?.saved_metrics
-                        .filter((sharedMetric) => sharedMetric.metadata.type === 'primary')
-                        .map((sharedMetric) => sharedMetric.query)
-                    if (sharedMetrics) {
-                        metrics = [...metrics, ...sharedMetrics]
-                    }
-
-                    return (await Promise.all(
-                        metrics.map(async (metric, index) => {
-                            try {
-                                const queryWithExperimentId = {
-                                    ...metric,
-                                    experiment_id: values.experimentId,
-                                }
-                                const response = await performQuery(queryWithExperimentId, undefined, refresh)
-
-                                return {
-                                    ...response,
-                                    fakeInsightId: Math.random().toString(36).substring(2, 15),
-                                }
-                            } catch (error: any) {
-                                const errorDetailMatch = error.detail?.match(/\{.*\}/)
-                                const errorDetail = errorDetailMatch
-                                    ? JSON.parse(errorDetailMatch[0])
-                                    : error.detail || error.message
-
-                                const currentErrors = [...(values.primaryMetricsResultErrors || [])]
-                                currentErrors[index] = {
-                                    detail: errorDetail,
-                                    statusCode: error.status,
-                                    hasDiagnostics: !!errorDetailMatch,
-                                }
-                                actions.setPrimaryMetricsResultErrors(currentErrors)
-
-                                if (errorDetail === QUERY_TIMEOUT_ERROR_MESSAGE) {
-                                    actions.reportExperimentMetricTimeout(values.experimentId, metric)
-                                }
-
-                                return null
-                            }
-                        })
-                    )) as (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null)[]
-                },
-            },
-        ],
         secondaryMetricResults: [
             null as (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null)[] | null,
             {
