@@ -3,7 +3,7 @@ import LRU from 'lru-cache'
 
 import { Config, PipelineEvent, ProjectId, Team, TeamId, TeamIDWithConfig } from '../types'
 import { PostgresRouter, PostgresUse } from '../utils/postgres'
-import { timeoutGuard } from '../utils/db/utils'
+import { timeoutGuard } from '../ingestion/event-pipeline-runner/utils/utils'
 import { posthog } from '../utils/posthog'
 
 export const ONE_MINUTE = 60 * 1000

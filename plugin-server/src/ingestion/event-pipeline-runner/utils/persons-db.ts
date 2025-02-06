@@ -13,7 +13,7 @@ import {
     RawPerson,
     Team,
 } from '../../../types'
-import { generateKafkaPersonUpdateMessage, sanitizeJsonbValue, unparsePersonPartial } from '../../../utils/db/utils'
+import { generateKafkaPersonUpdateMessage, sanitizeJsonbValue, unparsePersonPartial } from './utils'
 import { PostgresRouter, PostgresUse, TransactionClient } from '../../../utils/postgres'
 import { status } from '../../../utils/status'
 import { NoRowsUpdatedError, RaceConditionError, sanitizeSqlIdentifier } from '../../../utils/utils'

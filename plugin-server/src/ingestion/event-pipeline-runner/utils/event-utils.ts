@@ -3,11 +3,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { Counter } from 'prom-client'
 
 import { Element, PipelineEvent } from '../../../types'
-import {
-    hasDifferenceWithProposedNewNormalisationMode,
-    personInitialAndUTMProperties,
-    sanitizeString,
-} from '../../../utils/db/utils'
+import { hasDifferenceWithProposedNewNormalisationMode, personInitialAndUTMProperties, sanitizeString } from './utils'
 
 // Values of the $lib property that have been seen in the wild
 const KNOWN_LIB_VALUES = new Set([

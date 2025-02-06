@@ -5,7 +5,7 @@ import { EventEmitter } from 'node:events'
 
 import { Config, RedisPool } from '../../../types'
 import { createRedis } from '../../../utils/redis'
-import { timeoutGuard } from '../../../utils/db/utils'
+import { timeoutGuard } from '../../event-pipeline-runner/utils/utils'
 import { status } from '../../../utils/status'
 
 const Keys = {

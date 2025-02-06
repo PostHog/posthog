@@ -11,7 +11,7 @@ import {
 import { createInvocation, fixLogDeduplication, isLegacyPluginHogFunction } from '../../cdp/utils'
 import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../config/kafka-topics'
 import { AppMetric2Type, Hub, TimestampFormat } from '../../types'
-import { safeClickhouseString } from '../../utils/db/utils'
+import { safeClickhouseString } from '../../ingestion/event-pipeline-runner/utils/utils'
 import { runInstrumentedFunction } from '../../utils/instrument'
 import { status } from '../../utils/status'
 import { castTimestampOrNow } from '../../utils/utils'

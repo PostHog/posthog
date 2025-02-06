@@ -3,8 +3,8 @@ import { Redis } from 'ioredis'
 import { TopicPartition } from 'node-rdkafka'
 
 import { RedisPool } from '../../../types'
-import { timeoutGuard } from '../../../utils/db/utils'
 import { status } from '../../../utils/status'
+import { timeoutGuard } from '../../event-pipeline-runner/utils/utils'
 
 export const offsetHighWaterMarkKey = (prefix: string, tp: TopicPartition) => {
     return `${prefix}high-water-marks/${tp.topic}/${tp.partition}`

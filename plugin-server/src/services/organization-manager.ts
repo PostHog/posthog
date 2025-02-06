@@ -1,6 +1,6 @@
 import { ProductFeature, RawOrganization, Team, TeamId } from '../types'
 import { PostgresRouter, PostgresUse } from '../utils/postgres'
-import { timeoutGuard } from '../utils/db/utils'
+import { timeoutGuard } from '../ingestion/event-pipeline-runner/utils/utils'
 import { getByAge } from '../utils/utils'
 import { TeamManager } from './team-manager'
 

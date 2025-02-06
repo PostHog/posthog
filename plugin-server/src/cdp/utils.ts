@@ -8,7 +8,7 @@ import RE2 from 're2'
 import { gunzip, gzip } from 'zlib'
 
 import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
-import { safeClickhouseString } from '../utils/db/utils'
+import { safeClickhouseString } from '../ingestion/event-pipeline-runner/utils/utils'
 import { status } from '../utils/status'
 import { castTimestampOrNow, clickHouseTimestampToISO, UUIDT } from '../utils/utils'
 import { CdpInternalEvent } from './schema'

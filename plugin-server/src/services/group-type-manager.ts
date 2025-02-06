@@ -1,6 +1,6 @@
+import { timeoutGuard } from '../ingestion/event-pipeline-runner/utils/utils'
 import { GroupTypeIndex, GroupTypeToColumnIndex, ProjectId, Team, TeamId } from '../types'
 import { PostgresRouter, PostgresUse } from '../utils/postgres'
-import { timeoutGuard } from '../utils/db/utils'
 import { captureTeamEvent } from '../utils/posthog'
 import { getByAge } from '../utils/utils'
 import { TeamManager } from './team-manager'

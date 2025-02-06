@@ -1,7 +1,7 @@
 import * as Sentry from '@sentry/node'
 import { exponentialBuckets, Histogram } from 'prom-client'
 
-import { timeoutGuard } from './db/utils'
+import { timeoutGuard } from '../ingestion/event-pipeline-runner/utils/utils'
 import { status } from './status'
 
 interface FunctionInstrumentation<T> {

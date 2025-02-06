@@ -8,7 +8,7 @@ import { PersonsDB } from '~/src/ingestion/event-pipeline-runner/utils/persons-d
 
 import { TopicMessage } from '../../../kafka/producer'
 import { Hub, InternalPerson, Person, PropertyUpdateOperation } from '../../../types'
-import { eventToPersonProperties, initialEventToPersonProperties, timeoutGuard } from '../../../utils/db/utils'
+import { eventToPersonProperties, initialEventToPersonProperties, timeoutGuard } from './utils'
 import { captureIngestionWarning } from '../../../utils/ingestion-warnings'
 import { PostgresUse, TransactionClient } from '../../../utils/postgres'
 import { promiseRetry } from '../../../utils/retries'

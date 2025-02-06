@@ -12,7 +12,7 @@ import { Tail } from 'tail'
 import * as zlib from 'zlib'
 
 import { Config } from '../../../types'
-import { timeoutGuard } from '../../../utils/db/utils'
+import { timeoutGuard } from '../../event-pipeline-runner/utils/utils'
 import { ObjectStorage } from '../../../utils/object_storage'
 import { status } from '../../../utils/status'
 import { asyncTimeoutGuard } from '../../../utils/timing'

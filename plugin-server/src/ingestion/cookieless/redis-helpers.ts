@@ -2,7 +2,7 @@ import { CacheOptions } from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
 import Redis from 'ioredis'
 
-import { timeoutGuard } from '~/src/utils/db/utils'
+import { timeoutGuard } from '~/src/ingestion/event-pipeline-runner/utils/utils'
 
 import { RedisOperationError } from '../../utils/errors'
 import { instrumentQuery } from '../../utils/metrics'

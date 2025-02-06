@@ -2,13 +2,27 @@ import { Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { Counter } from 'prom-client'
 
-import { TopicMessage } from '~/src/kafka/producer'
+import { defaultConfig } from '../../../config/config'
+import { KAFKA_PERSON } from '../../../config/kafka-topics'
+import { TopicMessage } from '../../../kafka/producer'
+import { BasePerson, ClickHousePerson, InternalPerson, RawPerson, TimestampFormat } from '../../../types'
+import { status } from '../../../utils/status'
+import { areMapsEqual, castTimestampOrNow } from '../../../utils/utils'
 
-import { defaultConfig } from '../../config/config'
-import { KAFKA_PERSON } from '../../config/kafka-topics'
-import { BasePerson, ClickHousePerson, InternalPerson, RawPerson, TimestampFormat } from '../../types'
-import { status } from '../../utils/status'
-import { areMapsEqual, castTimestampOrNow } from '../../utils/utils'
+export function timeoutGuard(
+    message: string,
+    context?: Record<string, any> | (() => Record<string, any>),
+    timeout = defaultConfig.TASK_TIMEOUT * 1000,
+    sendToSentry = true
+): NodeJS.Timeout {
+    return setTimeout(() => {
+        const ctx = typeof context === 'function' ? context() : context
+        status.warn('⌛', message, ctx)
+        if (sendToSentry) {
+            Sentry.captureMessage(message, ctx ? { extra: ctx } : undefined)
+        }
+    }, timeout)
+}
 
 export function unparsePersonPartial(person: Partial<InternalPerson>): Partial<RawPerson> {
     return {
@@ -26,21 +40,6 @@ export function sanitizeEventName(eventName: any): string {
         }
     }
     return eventName.substr(0, 200)
-}
-
-export function timeoutGuard(
-    message: string,
-    context?: Record<string, any> | (() => Record<string, any>),
-    timeout = defaultConfig.TASK_TIMEOUT * 1000,
-    sendToSentry = true
-): NodeJS.Timeout {
-    return setTimeout(() => {
-        const ctx = typeof context === 'function' ? context() : context
-        status.warn('⌛', message, ctx)
-        if (sendToSentry) {
-            Sentry.captureMessage(message, ctx ? { extra: ctx } : undefined)
-        }
-    }, timeout)
 }
 // When changing this set, make sure you also make the same changes in:
 // - taxonomy.tsx (CAMPAIGN_PROPERTIES)
