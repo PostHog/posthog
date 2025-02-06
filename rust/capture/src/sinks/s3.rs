@@ -129,12 +129,12 @@ impl S3Sink {
                                 // Replace the current buffer with a brand-new one.
                                 std::mem::replace(&mut *buffer, EventBuffer::new())
                             };
-
+                            // drop the old buffer so the lock is freed and we can keep writing
+                            drop(buffer);
                             let result = inner.flush_buffer(&mut old_buffer).await;
                             if result.is_ok() {
                                 last_healthcheck = Instant::now();
                             }
-                            // drop the old buffer so the lock is freed and we can keep writing
                             drop(old_buffer.tx.send(result));
                         }
 
