@@ -87,7 +87,6 @@ RUN NODE_OPTIONS="--max-old-space-size=4096" pnpm run build:cyclotron
 # Then build the plugin server with increased memory
 RUN NODE_OPTIONS="--max-old-space-size=4096" pnpm build
 
-# As the plugin-server is now built, let's keep
 # only prod dependencies in the node_module folder
 # as we will copy it to the last image.
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
