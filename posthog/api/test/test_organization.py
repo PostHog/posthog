@@ -419,31 +419,57 @@ class TestOrganizationRbacMigrations(APIBaseTest):
             organization=self.organization, name="Team with Access Control", access_control=True
         )
 
-        self.admin_user = self._create_user("rbac_admin+2@posthog.com", level=OrganizationMembership.Level.ADMIN)
-        self.member_user_1 = self._create_user("rbac_member+2a@posthog.com")
-        self.member_user_2 = self._create_user("rbac_member+2b@posthog.com")
+        # Create inactive user
+        self.inactive_user = self._create_user("rbac_inactive@posthog.com")
+        self.inactive_user.is_active = False
+        self.inactive_user.save()
+
+        # Create users with different org membership levels
+        self.org_admin = self._create_user("rbac_org_admin@posthog.com", level=OrganizationMembership.Level.ADMIN)
+        self.org_member = self._create_user("rbac_org_member@posthog.com", level=OrganizationMembership.Level.MEMBER)
 
         self.client.force_login(self.admin_user)
 
+        # Create explicit team memberships
         ExplicitTeamMembership.objects.create(
             team=team_with_access_control,
-            parent_membership=cast(OrganizationMembership, self.admin_user.organization_memberships.first()),
+            parent_membership=cast(OrganizationMembership, self.inactive_user.organization_memberships.first()),
+            level=ExplicitTeamMembership.Level.MEMBER,
+        )
+        ExplicitTeamMembership.objects.create(
+            team=team_with_access_control,
+            parent_membership=cast(OrganizationMembership, self.org_admin.organization_memberships.first()),
             level=ExplicitTeamMembership.Level.ADMIN,
         )
         ExplicitTeamMembership.objects.create(
             team=team_with_access_control,
-            parent_membership=cast(OrganizationMembership, self.member_user_1.organization_memberships.first()),
-            level=ExplicitTeamMembership.Level.ADMIN,  # Org member as team admin
-        )
-        ExplicitTeamMembership.objects.create(
-            team=team_with_access_control,
-            parent_membership=cast(OrganizationMembership, self.member_user_2.organization_memberships.first()),
+            parent_membership=cast(OrganizationMembership, self.org_member.organization_memberships.first()),
             level=ExplicitTeamMembership.Level.MEMBER,
         )
 
         response = self.client.post(f"/api/organizations/{self.organization.id}/migrate_access_control/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["status"], True)
+
+        # Verify that inactive user's access was not migrated
+        with self.assertRaises(AccessControl.DoesNotExist):
+            AccessControl.objects.get(
+                organization_member=cast(OrganizationMembership, self.inactive_user.organization_memberships.first())
+            )
+
+        # Verify that org admin's explicit team membership was not migrated
+        with self.assertRaises(AccessControl.DoesNotExist):
+            AccessControl.objects.get(
+                organization_member=cast(OrganizationMembership, self.org_admin.organization_memberships.first())
+            )
+
+        # Verify that org member's access was migrated
+        member_access = AccessControl.objects.get(
+            organization_member=cast(OrganizationMembership, self.org_member.organization_memberships.first())
+        )
+        self.assertEqual(member_access.access_level, "member")
+        self.assertEqual(member_access.resource, "project")
+        self.assertEqual(member_access.resource_id, str(team_with_access_control.id))
 
         # Verify base team access control was created
         base_access = AccessControl.objects.get(team=team_with_access_control, organization_member__isnull=True)
@@ -454,7 +480,7 @@ class TestOrganizationRbacMigrations(APIBaseTest):
         # Verify admin access control was created
         admin_access = AccessControl.objects.filter(
             team=team_with_access_control,
-            organization_member=cast(OrganizationMembership, self.admin_user.organization_memberships.first()),
+            organization_member=cast(OrganizationMembership, self.org_admin.organization_memberships.first()),
             access_level="admin",
             resource="project",
             resource_id=str(team_with_access_control.id),
@@ -464,17 +490,7 @@ class TestOrganizationRbacMigrations(APIBaseTest):
         # Verify member access control was created
         member_access = AccessControl.objects.get(
             team=team_with_access_control,
-            organization_member=cast(OrganizationMembership, self.member_user_1.organization_memberships.first()),
-            access_level="admin",
-            resource="project",
-            resource_id=str(team_with_access_control.id),
-        )
-        self.assertIsNotNone(member_access)
-
-        # Verify member access control was created
-        member_access = AccessControl.objects.get(
-            team=team_with_access_control,
-            organization_member=cast(OrganizationMembership, self.member_user_2.organization_memberships.first()),
+            organization_member=cast(OrganizationMembership, self.org_member.organization_memberships.first()),
             access_level="member",
             resource="project",
             resource_id=str(team_with_access_control.id),
