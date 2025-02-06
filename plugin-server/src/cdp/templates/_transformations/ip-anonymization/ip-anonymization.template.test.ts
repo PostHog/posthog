@@ -47,24 +47,34 @@ describe('ip-anonymization.template', () => {
     })
 
     it('should handle invalid IP address format', async () => {
-        mockGlobals = tester.createGlobals({
-            event: {
-                properties: {
-                    $ip: '89.160.20', // Invalid IP - missing octet
+        const invalidIPs = [
+            '89.160.20',  // missing octet
+            '',           // empty string
+            'abc.def.ghi.jkl',  // non-numeric
+            '256.256.256.256',  // values > 255
+            '1.2.3.4.5',  // too many octets
+            'not an ip'
+        ]
+
+        for (const invalidIP of invalidIPs) {
+            mockGlobals = tester.createGlobals({
+                event: {
+                    properties: {
+                        $ip: invalidIP,
+                    },
                 },
-            },
-        })
+            })
 
-        const response = await tester.invoke({}, mockGlobals)
+            const response = await tester.invoke({}, mockGlobals)
 
-        expect(response.finished).toBe(true)
-        expect(response.error).toBeUndefined()
-        // Should return unchanged event when IP format is invalid
-        expect(response.execResult).toMatchObject({
-            properties: {
-                $ip: '89.160.20',
-            },
-        })
+            expect(response.finished).toBe(true)
+            expect(response.error).toBeUndefined()
+            expect(response.execResult).toMatchObject({
+                properties: {
+                    $ip: invalidIP,  // should return unchanged
+                },
+            })
+        }
     })
 
     it('should handle various IPv4 formats', async () => {
