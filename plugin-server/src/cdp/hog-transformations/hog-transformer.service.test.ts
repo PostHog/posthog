@@ -4,7 +4,7 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { brotliDecompressSync } from 'zlib'
 
-import { template as filterOutPluginTemplate } from '../../../src/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
+import { posthogFilterOutPlugin } from '../../../src/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { template as defaultTemplate } from '../../../src/cdp/templates/_transformations/default/default.template'
 import { template as geoipTemplate } from '../../../src/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '../../../src/cdp/templates/compiler'
@@ -556,7 +556,7 @@ describe('HogTransformer', () => {
         beforeEach(async () => {
             const filterOutPlugin = createHogFunction({
                 type: 'transformation',
-                name: filterOutPluginTemplate.name,
+                name: posthogFilterOutPlugin.template.name,
                 template_id: 'plugin-posthog-filter-out-plugin',
                 inputs: {
                     eventsToDrop: {
@@ -565,8 +565,8 @@ describe('HogTransformer', () => {
                 },
                 team_id: teamId,
                 enabled: true,
-                hog: filterOutPluginTemplate.hog,
-                inputs_schema: filterOutPluginTemplate.inputs_schema,
+                hog: posthogFilterOutPlugin.template.hog,
+                inputs_schema: posthogFilterOutPlugin.template.inputs_schema,
                 id: 'c342e9ae-9f76-4379-a465-d33b4826bc05',
             })
 
