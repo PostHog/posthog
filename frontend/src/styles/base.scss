@@ -9,7 +9,8 @@
 @import 'utilities-legacy'; // TODO: Remove all legacy utilities
 
 // Set variables
-:root {
+:root,
+:host {
     --color-white: hsl(0deg 0% 100%);
     --color-black: hsl(0deg 0% 0%);
 
