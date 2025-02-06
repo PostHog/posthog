@@ -2,7 +2,7 @@ import json
 from django.http import HttpRequest, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 from statshog.defaults.django import statsd
 
 from posthog.exceptions import generate_exception_response
