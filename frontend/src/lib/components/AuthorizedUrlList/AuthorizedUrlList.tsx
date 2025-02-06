@@ -284,6 +284,7 @@ export function AuthorizedUrlList({
                                             }
                                             center
                                             data-attr="toolbar-open"
+                                            type="secondary"
                                             disabledReason={
                                                 keyedURL.url.includes('*')
                                                     ? 'Wildcard domains cannot be launched'
@@ -305,6 +306,7 @@ export function AuthorizedUrlList({
                                                                 size="small"
                                                                 className="float-right"
                                                                 type="primary"
+                                                                data-attr="copy-manual-toolbar-launch-code"
                                                                 onClick={() => {
                                                                     copyLaunchCode(keyedURL.url)
                                                                 }}
