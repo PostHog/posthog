@@ -345,6 +345,7 @@ const config = {
             },
             backgroundColor: {
                 ...commonColors,
+                'bg-primary': 'var(--bg-primary)',
                 
                 'surface-primary': 'var(--bg-surface-primary)',
                 'surface-secondary': 'var(--bg-surface-secondary)',
