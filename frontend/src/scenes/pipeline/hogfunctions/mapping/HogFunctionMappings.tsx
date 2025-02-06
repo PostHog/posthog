@@ -25,13 +25,11 @@ import { HogFunctionInputs } from '../HogFunctionInputs'
 
 const humanize = (value: string): string => {
     // Simple replacement from something like MY_STRING-here to My string here
-    return (
-        value
-            .toLowerCase()
-            .replace(/_/g, ' ')
-            .replace(/-/g, ' ')
-            .replace(/\b\w/g, (char) => char.toUpperCase()) + 'humanized'
-    )
+    return value
+        .toLowerCase()
+        .replace(/_/g, ' ')
+        .replace(/-/g, ' ')
+        .replace(/\b\w/g, (char) => char.toUpperCase())
 }
 
 const MappingSummary = memo(function MappingSummary({
