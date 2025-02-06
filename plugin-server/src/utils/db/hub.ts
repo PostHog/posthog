@@ -62,7 +62,6 @@ export async function createHub(
         capabilities = getPluginServerCapabilities(serverConfig)
     }
     status.updatePrompt(serverConfig.PLUGIN_SERVER_MODE)
-    const instanceId = new UUIDT()
 
     status.info('🤔', `Connecting to ClickHouse...`)
     const clickhouse = new ClickHouse({
@@ -117,7 +116,6 @@ export async function createHub(
 
     const hub: Hub = {
         ...serverConfig,
-        instanceId,
         capabilities,
         db,
         postgres,

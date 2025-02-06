@@ -315,10 +315,6 @@ export async function startPluginsServer(
 
         await pubSub.start()
 
-        if (capabilities.preflightSchedules) {
-            startPreflightSchedules(hub)
-        }
-
         pluginServerStartupTimeMs.inc(Date.now() - timer.valueOf())
         status.info('🚀', 'All systems go')
 
@@ -345,19 +341,6 @@ export async function startPluginsServer(
         await shutdown()
         process.exit(1)
     }
-}
-
-const startPreflightSchedules = (hub: Hub) => {
-    // These are used by the preflight checks in the Django app to determine if
-    // the plugin-server is running.
-    schedule.scheduleJob('*/5 * * * * *', async () => {
-        await hub.db.redisSet('@posthog-plugin-server/ping', new Date().toISOString(), 'preflightSchedules', 60, {
-            jsonSerialize: false,
-        })
-        await hub.db.redisSet('@posthog-plugin-server/version', version, 'preflightSchedules', undefined, {
-            jsonSerialize: false,
-        })
-    })
 }
 
 function runStartupProfiles(config: Config) {

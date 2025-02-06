@@ -55,16 +55,7 @@ export enum KafkaSaslMechanism {
 
 export enum PluginServerMode {
     all_v2 = 'all-v2',
-    ingestion = 'ingestion',
     ingestion_v2 = 'ingestion-v2',
-    ingestion_overflow = 'ingestion-overflow',
-    ingestion_historical = 'ingestion-historical',
-    events_ingestion = 'events-ingestion',
-    async_onevent = 'async-onevent',
-    async_webhooks = 'async-webhooks',
-    jobs = 'jobs',
-    scheduler = 'scheduler',
-    analytics_ingestion = 'analytics-ingestion',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
     recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
     recordings_blob_ingestion_v2 = 'recordings-blob-ingestion-v2',
@@ -74,7 +65,6 @@ export enum PluginServerMode {
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     cdp_cyclotron_worker_plugins = 'cdp-cyclotron-worker-plugins',
     cdp_api = 'cdp-api',
-    functional_tests = 'functional-tests',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -291,7 +281,6 @@ export interface Config extends CdpConfig, IngestionConsumerConfig {
 }
 
 export interface Hub extends Config {
-    instanceId: UUID
     // what tasks this server will tackle - e.g. ingestion, scheduled plugins or others.
     capabilities: PluginServerCapabilities
     // active connections to Postgres, Redis, ClickHouse, Kafka
