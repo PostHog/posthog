@@ -41,14 +41,14 @@ impl FlagRequest {
     #[instrument(skip_all)]
     pub fn from_bytes(bytes: Bytes) -> Result<FlagRequest, FlagError> {
         let payload = String::from_utf8(bytes.to_vec()).map_err(|e| {
-            tracing::error!("failed to decode body: {}", e);
+            tracing::debug!("failed to decode body: {}", e);
             FlagError::RequestDecodingError(String::from("invalid body encoding"))
         })?;
 
         match serde_json::from_str::<FlagRequest>(&payload) {
             Ok(request) => Ok(request),
             Err(e) => {
-                tracing::error!("failed to parse JSON: {}", e);
+                tracing::debug!("failed to parse JSON: {}", e);
                 Err(FlagError::RequestDecodingError(String::from(
                     "invalid JSON",
                 )))
