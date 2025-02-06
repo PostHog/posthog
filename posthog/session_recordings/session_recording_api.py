@@ -842,7 +842,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         # Create system prompt by combining the initial and properties prompts
         system_message = {"role": "system", "content": AI_FILTER_INITIAL_PROMPT + AI_FILTER_PROPERTIES_PROMPT}
         # Combine system prompt with user messages
-        messages = [system_message] + request.data["messages"]
+        messages = [system_message, *request.data["messages"]]
 
         client = _get_openai_client()
 
