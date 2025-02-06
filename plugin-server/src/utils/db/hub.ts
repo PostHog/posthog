@@ -21,8 +21,6 @@ import {
     PluginServerCapabilities,
     PluginsServerConfig,
 } from '../../types'
-import { ActionManager } from '../../worker/ingestion/action-manager'
-import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { AppMetrics } from '../../worker/ingestion/app-metrics'
 import { CookielessSaltManager } from '../../worker/ingestion/event-pipeline/cookielessServerHashStep'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
@@ -138,8 +136,6 @@ export async function createHub(
     const rootAccessManager = new RootAccessManager(db)
     const rustyHook = new RustyHook(serverConfig)
 
-    const actionManager = new ActionManager(postgres, serverConfig)
-    const actionMatcher = new ActionMatcher(postgres, actionManager, teamManager)
     const groupTypeManager = new GroupTypeManager(postgres, teamManager)
 
     const cookielessConfig = createCookielessConfig(serverConfig)
@@ -189,8 +185,6 @@ export async function createHub(
         pluginsApiKeyManager,
         rootAccessManager,
         rustyHook,
-        actionMatcher,
-        actionManager,
         pluginConfigsToSkipElementsParsing: buildIntegerMatcher(process.env.SKIP_ELEMENTS_PARSING_PLUGINS, true),
         eventsToDropByToken: createEventsToDropByToken(process.env.DROP_EVENTS_BY_TOKEN_DISTINCT_ID),
         eventsToSkipPersonsProcessingByToken: createEventsToDropByToken(
