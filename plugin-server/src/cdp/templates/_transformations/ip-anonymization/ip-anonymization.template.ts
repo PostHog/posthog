@@ -34,13 +34,10 @@ if (length(parts) = 4) {
     
     let returnEvent := event
     returnEvent.properties.$ip := anonymizedIp
-    
-    print('Anonymized IP', ip, '->', anonymizedIp)
     return returnEvent
 }
 
 // If we don't have a valid IPv4, return original event
-print('Invalid IPv4 address format:', ip)
 return event
     `,
     inputs_schema: [],
