@@ -8,7 +8,7 @@ export const pluginStonlyCleanCampaignName: LegacyTransformationPlugin = {
         free: true,
         status: 'deprecated',
         type: 'transformation',
-        id: 'plugin-stonly-clean-campaign-name',
+        id: 'plugin-Plugin-Stonly-Clean-Campaign-Name',
         name: 'Clean Campaign Name',
         description: 'Clean campaign name',
         icon_url: '/static/hedgehog/builder-hog-01.png',
