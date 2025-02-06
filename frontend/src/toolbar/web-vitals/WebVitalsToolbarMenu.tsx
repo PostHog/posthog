@@ -1,7 +1,8 @@
-import { Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { inStorybookTestRunner } from 'lib/utils'
+import { toolbarConfigLogic } from 'scenes/toolbar/toolbarConfigLogic'
 import { urls } from 'scenes/urls'
 
 import {
@@ -20,11 +21,19 @@ const ALL_METRICS: WebVitalsMetric[] = ['INP', 'LCP', 'FCP', 'CLS']
 
 export const WebVitalsToolbarMenu = (): JSX.Element => {
     const { localWebVitals, remoteWebVitals } = useValues(webVitalsToolbarLogic)
+    const { posthog } = useValues(toolbarConfigLogic)
 
     return (
         <ToolbarMenu>
             <ToolbarMenu.Body>
                 <div className="flex flex-col gap-2">
+                    {!posthog?.config?.webVitalsAutocapture?.isEnabled && (
+                        <LemonBanner type="warning">
+                            Web vitals are not enabled for this project so you won't see any data here. Enable it on the{' '}
+                            <Link to={urls.settings()}>settings page</Link> to start capturing web vitals.
+                        </LemonBanner>
+                    )}
+
                     <MetricCards
                         metrics={localWebVitals}
                         label={<span className="text-sm font-bold">Metrics for the current page load</span>}
