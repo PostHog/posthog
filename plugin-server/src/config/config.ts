@@ -277,15 +277,3 @@ export function buildStringMatcher(config: string | undefined, allowStar: boolea
         }
     }
 }
-
-export const createCookielessConfig = (config: Config): CookielessConfig => {
-    return {
-        disabled: config.COOKIELESS_DISABLED,
-        forceStatelessMode: config.COOKIELESS_FORCE_STATELESS_MODE,
-        deleteExpiredLocalSaltsIntervalMs: config.COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS,
-        sessionTtlSeconds: config.COOKIELESS_SESSION_TTL_SECONDS,
-        saltTtlSeconds: config.COOKIELESS_SALT_TTL_SECONDS,
-        sessionInactivityMs: config.COOKIELESS_SESSION_INACTIVITY_MS,
-        identifiesTtlSeconds: config.COOKIELESS_IDENTIFIES_TTL_SECONDS,
-    }
-}

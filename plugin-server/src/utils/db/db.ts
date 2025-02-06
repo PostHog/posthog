@@ -1,97 +1,33 @@
 import ClickHouse from '@posthog/clickhouse'
-import { CacheOptions, Properties } from '@posthog/plugin-scaffold'
+import { Properties } from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
 import Redis from 'ioredis'
 import { DateTime } from 'luxon'
 import { QueryResult } from 'pg'
+import { Counter } from 'prom-client'
 
-import { KAFKA_GROUPS, KAFKA_PERSON_DISTINCT_ID } from '../../config/kafka-topics'
+import { KAFKA_PERSON_DISTINCT_ID } from '../../config/kafka-topics'
 import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
 import {
-    ClickhouseGroup,
     ClickHousePerson,
     ClickHousePersonDistinctId2,
-    ClickHouseTimestamp,
-    Cohort,
-    CohortPeople,
     Database,
-    EventDefinitionType,
-    EventPropertyType,
-    Group,
-    GroupKey,
-    GroupTypeIndex,
     InternalPerson,
-    OrganizationMembershipLevel,
     PersonDistinctId,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
-    PropertyDefinitionType,
-    RawGroup,
-    RawOrganization,
     RawPerson,
-    RawSessionRecordingEvent,
     Team,
-    TeamId,
-    TimestampFormat,
 } from '../../types'
-import { instrumentQuery } from '../metrics'
 import { status } from '../status'
-import {
-    castTimestampOrNow,
-    escapeClickHouseString,
-    NoRowsUpdatedError,
-    RaceConditionError,
-    sanitizeSqlIdentifier,
-    tryTwice,
-    UUIDT,
-} from '../utils'
-import { RedisOperationError } from './error'
-import { personUpdateVersionMismatchCounter } from './metrics'
+import { escapeClickHouseString, NoRowsUpdatedError, RaceConditionError, sanitizeSqlIdentifier } from '../utils'
 import { PostgresRouter, PostgresUse, TransactionClient } from './postgres'
-import { generateKafkaPersonUpdateMessage, sanitizeJsonbValue, timeoutGuard, unparsePersonPartial } from './utils'
+import { generateKafkaPersonUpdateMessage, sanitizeJsonbValue, unparsePersonPartial } from './utils'
 
-export interface CreateUserPayload {
-    uuid: UUIDT
-    password: string
-    first_name: string
-    last_name: string
-    email: string
-    distinct_id: string
-    is_staff: boolean
-    is_active: boolean
-    date_joined: Date
-    events_column_config: Record<string, string> | null
-    organization_id?: RawOrganization['id']
-    organizationMembershipLevel?: number
-}
-
-export interface CreatePersonalApiKeyPayload {
-    id: string
-    user_id: number
-    label: string
-    secure_value: string
-    created_at: Date
-}
-
-export type GroupId = [GroupTypeIndex, GroupKey]
-
-export interface CachedGroupData {
-    properties: Properties
-    created_at: ClickHouseTimestamp
-}
-
-export const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
-    'connection to server at',
-    'could not translate host',
-    'server conn crashed',
-    'no more connections allowed',
-    'server closed the connection unexpectedly',
-    'getaddrinfo EAI_AGAIN',
-    'Connection terminated unexpectedly',
-    'ECONNREFUSED',
-    'ETIMEDOUT',
-    'query_wait_timeout', // Waiting on PG bouncer to give us a slot
-]
+export const personUpdateVersionMismatchCounter = new Counter({
+    name: 'person_update_version_mismatch',
+    help: 'Person update version mismatch',
+})
 
 /** The recommended way of accessing the database. */
 export class DB {
@@ -99,306 +35,17 @@ export class DB {
     postgres: PostgresRouter
     /** Redis used for various caches. */
     redisPool: GenericPool<Redis.Redis>
-
     /** Kafka producer used for syncing Postgres and ClickHouse person data. */
-    kafkaProducer: KafkaProducerWrapper
+    private kafkaProducer: KafkaProducerWrapper
     /** ClickHouse used for syncing Postgres and ClickHouse person data. */
-    clickhouse: ClickHouse
 
-    constructor(
-        postgres: PostgresRouter,
-        redisPool: GenericPool<Redis.Redis>,
-        kafkaProducer: KafkaProducerWrapper,
-        clickhouse: ClickHouse
-    ) {
+    constructor(postgres: PostgresRouter, redisPool: GenericPool<Redis.Redis>, kafkaProducer: KafkaProducerWrapper) {
         this.postgres = postgres
         this.redisPool = redisPool
         this.kafkaProducer = kafkaProducer
-        this.clickhouse = clickhouse
     }
 
-    // ClickHouse
-
-    public clickhouseQuery<R extends Record<string, any> = Record<string, any>>(
-        query: string,
-        options?: ClickHouse.QueryOptions
-    ): Promise<ClickHouse.ObjectQueryResult<R>> {
-        return instrumentQuery('query.clickhouse', undefined, async () => {
-            const timeout = timeoutGuard('ClickHouse slow query warning after 30 sec', { query })
-            try {
-                const queryResult = await this.clickhouse.querying(query, options)
-                // This is annoying to type, because the result depends on contructor and query options provided
-                // at runtime. However, with our options we can safely assume ObjectQueryResult<R>
-                return queryResult as unknown as ClickHouse.ObjectQueryResult<R>
-            } finally {
-                clearTimeout(timeout)
-            }
-        })
-    }
-
-    // Redis
-
-    private instrumentRedisQuery<T>(
-        operationName: string,
-        tag: string | undefined,
-        logContext: Record<string, string | string[] | number>,
-        runQuery: (client: Redis.Redis) => Promise<T>
-    ): Promise<T> {
-        return instrumentQuery(operationName, tag, async () => {
-            let client: Redis.Redis
-            const timeout = timeoutGuard(`${operationName} delayed. Waiting over 30 sec.`, logContext)
-            try {
-                client = await this.redisPool.acquire()
-            } catch (error) {
-                throw new RedisOperationError('Failed to acquire redis client from pool', error, operationName)
-            }
-
-            // Don't use a single try/catch/finally for this, as there are 2 potential errors that could be thrown
-            // (error and cleanup) and we want to be explicit about which one we choose, rather than relying on
-            // "what happens when you throw in a finally block".
-            // We explicitly want to throw the error from the operation if there is one, prioritising it over any errors
-            // from the cleanup
-            let operationResult: { value: T } | { error: Error }
-            let cleanupError: Error | undefined
-
-            try {
-                operationResult = { value: await runQuery(client) }
-            } catch (error) {
-                operationResult = { error }
-            }
-
-            try {
-                clearTimeout(timeout)
-                await this.redisPool.release(client)
-            } catch (error) {
-                cleanupError = error
-            }
-
-            if ('error' in operationResult) {
-                throw new RedisOperationError(
-                    `${operationName} failed for ${JSON.stringify(logContext)}`,
-                    operationResult.error,
-                    operationName,
-                    logContext
-                )
-            }
-            if (cleanupError) {
-                throw new RedisOperationError('Failed to release redis client from pool', cleanupError, operationName)
-            }
-            return operationResult.value
-        })
-    }
-
-    public redisGet<T = unknown>(
-        key: string,
-        defaultValue: T,
-        tag: string,
-        options: CacheOptions = {}
-    ): Promise<T | null> {
-        const { jsonSerialize = true } = options
-        return this.instrumentRedisQuery('query.redisGet', tag, { key }, async (client) => {
-            try {
-                const value = await tryTwice(
-                    async () => await client.get(key),
-                    `Waited 5 sec to get redis key: ${key}, retrying once!`
-                )
-                if (typeof value === 'undefined' || value === null) {
-                    return defaultValue
-                }
-                return value ? (jsonSerialize ? JSON.parse(value) : value) : null
-            } catch (error) {
-                if (error instanceof SyntaxError) {
-                    // invalid JSON
-                    return null
-                } else {
-                    throw error
-                }
-            }
-        })
-    }
-
-    public redisGetBuffer(key: string, tag: string): Promise<Buffer | null> {
-        return this.instrumentRedisQuery('query.redisGetBuffer', tag, { key }, async (client) => {
-            return await tryTwice(
-                async () => await client.getBuffer(key),
-                `Waited 5 sec to get redis key: ${key}, retrying once!`
-            )
-        })
-    }
-
-    public redisSet(
-        key: string,
-        value: unknown,
-        tag: string,
-        ttlSeconds?: number,
-        options: CacheOptions = {}
-    ): Promise<void> {
-        const { jsonSerialize = true } = options
-
-        return this.instrumentRedisQuery('query.redisSet', tag, { key }, async (client) => {
-            const serializedValue = jsonSerialize ? JSON.stringify(value) : (value as string)
-            if (ttlSeconds) {
-                await client.set(key, serializedValue, 'EX', ttlSeconds)
-            } else {
-                await client.set(key, serializedValue)
-            }
-        })
-    }
-
-    public redisSetBuffer(key: string, value: Buffer, tag: string, ttlSeconds?: number): Promise<void> {
-        return this.instrumentRedisQuery('query.redisSetBuffer', tag, { key }, async (client) => {
-            if (ttlSeconds) {
-                await client.setBuffer(key, value, 'EX', ttlSeconds)
-            } else {
-                await client.setBuffer(key, value)
-            }
-        })
-    }
-
-    public redisSetNX(
-        key: string,
-        value: unknown,
-        tag: string,
-        ttlSeconds?: number,
-        options: CacheOptions = {}
-    ): Promise<'OK' | null> {
-        const { jsonSerialize = true } = options
-
-        return this.instrumentRedisQuery('query.redisSetNX', tag, { key }, async (client) => {
-            const serializedValue = jsonSerialize ? JSON.stringify(value) : (value as string)
-            if (ttlSeconds) {
-                return await client.set(key, serializedValue, 'EX', ttlSeconds, 'NX')
-            } else {
-                return await client.set(key, serializedValue, 'NX')
-            }
-        })
-    }
-
-    public redisSetMulti(kv: Array<[string, unknown]>, ttlSeconds?: number, options: CacheOptions = {}): Promise<void> {
-        const { jsonSerialize = true } = options
-
-        return this.instrumentRedisQuery('query.redisSet', undefined, { keys: kv.map((x) => x[0]) }, async (client) => {
-            let pipeline = client.multi()
-            for (const [key, value] of kv) {
-                const serializedValue = jsonSerialize ? JSON.stringify(value) : (value as string)
-                if (ttlSeconds) {
-                    pipeline = pipeline.set(key, serializedValue, 'EX', ttlSeconds)
-                } else {
-                    pipeline = pipeline.set(key, serializedValue)
-                }
-            }
-            await pipeline.exec()
-        })
-    }
-
-    public redisIncr(key: string): Promise<number> {
-        return this.instrumentRedisQuery('query.redisIncr', undefined, { key }, async (client) => {
-            return await client.incr(key)
-        })
-    }
-
-    public redisExpire(key: string, ttlSeconds: number): Promise<boolean> {
-        return this.instrumentRedisQuery('query.redisExpire', undefined, { key }, async (client) => {
-            return (await client.expire(key, ttlSeconds)) === 1
-        })
-    }
-
-    public redisLPush(key: string, value: unknown, options: CacheOptions = {}): Promise<number> {
-        const { jsonSerialize = true } = options
-
-        return this.instrumentRedisQuery('query.redisLPush', undefined, { key }, async (client) => {
-            const serializedValue = jsonSerialize ? JSON.stringify(value) : (value as string | string[])
-            return await client.lpush(key, serializedValue)
-        })
-    }
-
-    public redisLRange(key: string, startIndex: number, endIndex: number, tag?: string): Promise<string[]> {
-        return this.instrumentRedisQuery('query.redisLRange', tag, { key, startIndex, endIndex }, async (client) => {
-            return await client.lrange(key, startIndex, endIndex)
-        })
-    }
-
-    public redisLLen(key: string): Promise<number> {
-        return this.instrumentRedisQuery('query.redisLLen', undefined, { key }, async (client) => {
-            return await client.llen(key)
-        })
-    }
-
-    public redisBRPop(key1: string, key2: string): Promise<[string, string]> {
-        return this.instrumentRedisQuery('query.redisBRPop', undefined, { key1, key2 }, async (client) => {
-            return await client.brpop(key1, key2)
-        })
-    }
-
-    public redisLRem(key: string, count: number, elementKey: string): Promise<number> {
-        return this.instrumentRedisQuery(
-            'query.redisLRem',
-            undefined,
-            {
-                key,
-                count,
-                elementKey,
-            },
-            async (client) => {
-                return await client.lrem(key, count, elementKey)
-            }
-        )
-    }
-
-    public redisLPop(key: string, count: number): Promise<string[]> {
-        return this.instrumentRedisQuery(
-            'query.redisLPop',
-            undefined,
-            {
-                key,
-                count,
-            },
-            async (client) => {
-                return await client.lpop(key, count)
-            }
-        )
-    }
-
-    public redisSAddAndSCard(key: string, value: Redis.ValueType, ttlSeconds?: number): Promise<number> {
-        return this.instrumentRedisQuery('query.redisSAddAndSCard', undefined, { key }, async (client) => {
-            const multi = client.multi()
-            multi.sadd(key, value)
-            if (ttlSeconds) {
-                multi.expire(key, ttlSeconds)
-            }
-            multi.scard(key)
-            const results = await multi.exec()
-            const scardResult = ttlSeconds ? results[2] : results[1]
-            return scardResult[1]
-        })
-    }
-
-    public redisSCard(key: string): Promise<number> {
-        return this.instrumentRedisQuery(
-            'query.redisSCard',
-            undefined,
-            {
-                key,
-            },
-            async (client) => {
-                return await client.scard(key)
-            }
-        )
-    }
-
-    public redisPublish(channel: string, message: string): Promise<number> {
-        return this.instrumentRedisQuery(
-            'query.redisPublish',
-            undefined,
-            {
-                channel,
-                message,
-            },
-            async (client) => {
-                return await client.publish(channel, message)
-            }
-        )
-    }
+    // These are all methods to with persons
 
     private toPerson(row: RawPerson): InternalPerson {
         return {
@@ -695,6 +342,7 @@ export class DB {
         }
     }
 
+    // Only used in tests
     public async fetchDistinctIdValues(
         person: InternalPerson,
         database: Database = Database.Postgres
@@ -768,7 +416,7 @@ export class DB {
         }
     }
 
-    public async addDistinctIdPooled(
+    private async addDistinctIdPooled(
         person: InternalPerson,
         distinctId: string,
         version: number,
@@ -861,51 +509,6 @@ export class DB {
         return kafkaMessages
     }
 
-    // Cohort & CohortPeople
-    // testutil
-    public async createCohort(cohort: Partial<Cohort>): Promise<Cohort> {
-        const insertResult = await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `INSERT INTO posthog_cohort (name, description, deleted, groups, team_id,
-                                         created_at, created_by_id, is_calculating,
-                                         last_calculation, errors_calculating, is_static,
-                                         version, pending_version)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-             RETURNING *;`,
-            [
-                cohort.name,
-                cohort.description,
-                cohort.deleted ?? false,
-                cohort.groups ?? [],
-                cohort.team_id,
-                cohort.created_at ?? new Date().toISOString(),
-                cohort.created_by_id,
-                cohort.is_calculating ?? false,
-                cohort.last_calculation ?? new Date().toISOString(),
-                cohort.errors_calculating ?? 0,
-                cohort.is_static ?? false,
-                cohort.version,
-                cohort.pending_version ?? cohort.version ?? 0,
-            ],
-            'createCohort'
-        )
-        return insertResult.rows[0]
-    }
-
-    public async addPersonToCohort(
-        cohortId: number,
-        personId: InternalPerson['id'],
-        version: number | null
-    ): Promise<CohortPeople> {
-        const insertResult = await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `INSERT INTO posthog_cohortpeople (cohort_id, person_id, version) VALUES ($1, $2, $3) RETURNING *;`,
-            [cohortId, personId, version],
-            'addPersonToCohort'
-        )
-        return insertResult.rows[0]
-    }
-
     public async updateCohortsAndFeatureFlagsForMerge(
         teamID: Team['id'],
         sourcePersonID: InternalPerson['id'],
@@ -944,287 +547,5 @@ export class DB {
             [targetPersonID, sourcePersonID, teamID],
             'updateCohortAndFeatureFlagsPeople'
         )
-    }
-
-    // Event (NOTE: not a Django model, stored in ClickHouse table `events`)
-
-    public async fetchSessionRecordingEvents(): Promise<RawSessionRecordingEvent[]> {
-        const events = (
-            await this.clickhouseQuery<RawSessionRecordingEvent>(`SELECT * FROM session_recording_events`)
-        ).data.map((event) => {
-            return {
-                ...event,
-                snapshot_data: event.snapshot_data ? JSON.parse(event.snapshot_data) : null,
-            }
-        })
-        return events
-    }
-
-    // EventDefinition
-
-    public async fetchEventDefinitions(teamId?: number): Promise<EventDefinitionType[]> {
-        return (
-            await this.postgres.query(
-                PostgresUse.COMMON_READ,
-                `
-                SELECT * FROM posthog_eventdefinition
-                ${teamId ? 'WHERE team_id = $1' : ''}
-                -- Order by something that gives a deterministic order. Note
-                -- that this is a unique index.
-                ORDER BY (team_id, name)
-                `,
-                teamId ? [teamId] : undefined,
-                'fetchEventDefinitions'
-            )
-        ).rows as EventDefinitionType[]
-    }
-
-    // PropertyDefinition
-
-    public async fetchPropertyDefinitions(teamId?: number): Promise<PropertyDefinitionType[]> {
-        return (
-            await this.postgres.query(
-                PostgresUse.COMMON_READ,
-                `
-                SELECT * FROM posthog_propertydefinition
-                ${teamId ? 'WHERE team_id = $1' : ''}
-                -- Order by something that gives a deterministic order. Note
-                -- that this is a unique index.
-                ORDER BY (team_id, name, type, coalesce(group_type_index, -1))
-                `,
-                teamId ? [teamId] : undefined,
-                'fetchPropertyDefinitions'
-            )
-        ).rows as PropertyDefinitionType[]
-    }
-
-    // EventProperty
-
-    public async fetchEventProperties(teamId?: number): Promise<EventPropertyType[]> {
-        return (
-            await this.postgres.query(
-                PostgresUse.COMMON_READ,
-                `
-                    SELECT * FROM posthog_eventproperty
-                    ${teamId ? 'WHERE team_id = $1' : ''}
-                    -- Order by something that gives a deterministic order. Note
-                    -- that this is a unique index.
-                    ORDER BY (team_id, event, property)
-                `,
-                teamId ? [teamId] : undefined,
-                'fetchEventProperties'
-            )
-        ).rows as EventPropertyType[]
-    }
-
-    // Hook (EE)
-
-    public async createUser({
-        uuid,
-        password,
-        first_name,
-        last_name,
-        email,
-        distinct_id,
-        is_staff,
-        is_active,
-        date_joined,
-        events_column_config,
-        organization_id,
-        organizationMembershipLevel = OrganizationMembershipLevel.Member,
-    }: CreateUserPayload): Promise<QueryResult> {
-        const createUserResult = await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `INSERT INTO posthog_user (uuid, password, first_name, last_name, email, distinct_id, is_staff, is_active, date_joined, events_column_config, current_organization_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            RETURNING id`,
-            [
-                uuid.toString(),
-                password,
-                first_name,
-                last_name,
-                email,
-                distinct_id,
-                is_staff,
-                is_active,
-                date_joined.toISOString(),
-                events_column_config,
-                organization_id,
-            ],
-            'createUser'
-        )
-
-        if (organization_id) {
-            const now = new Date().toISOString()
-            await this.postgres.query(
-                PostgresUse.COMMON_WRITE,
-                `INSERT INTO posthog_organizationmembership (id, organization_id, user_id, level, joined_at, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6)`,
-                [
-                    new UUIDT().toString(),
-                    organization_id,
-                    createUserResult.rows[0].id,
-                    organizationMembershipLevel,
-                    now,
-                    now,
-                ],
-                'createOrganizationMembership'
-            )
-        }
-
-        return createUserResult
-    }
-
-    public async createPersonalApiKey({
-        id,
-        user_id,
-        label,
-        secure_value,
-        created_at,
-    }: CreatePersonalApiKeyPayload): Promise<QueryResult> {
-        return await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            `INSERT INTO posthog_personalapikey (id, user_id, label, secure_value, created_at)
-            VALUES ($1, $2, $3, $4, $5)
-            RETURNING secure_value`,
-            [id, user_id, label, secure_value, created_at.toISOString()],
-            'createPersonalApiKey'
-        )
-    }
-
-    public async fetchGroup(
-        teamId: TeamId,
-        groupTypeIndex: GroupTypeIndex,
-        groupKey: string,
-        tx?: TransactionClient,
-        options: { forUpdate?: boolean } = {}
-    ): Promise<Group | undefined> {
-        let queryString = `SELECT * FROM posthog_group WHERE team_id = $1 AND group_type_index = $2 AND group_key = $3`
-
-        if (options.forUpdate) {
-            queryString = queryString.concat(` FOR UPDATE`)
-        }
-
-        const selectResult: QueryResult = await this.postgres.query(
-            tx ?? PostgresUse.COMMON_WRITE,
-            queryString,
-            [teamId, groupTypeIndex, groupKey],
-            'fetchGroup'
-        )
-
-        if (selectResult.rows.length > 0) {
-            const rawGroup: RawGroup = selectResult.rows[0]
-            return {
-                ...rawGroup,
-                created_at: DateTime.fromISO(rawGroup.created_at).toUTC(),
-                version: Number(rawGroup.version || 0),
-            }
-        }
-    }
-
-    public async insertGroup(
-        teamId: TeamId,
-        groupTypeIndex: GroupTypeIndex,
-        groupKey: string,
-        groupProperties: Properties,
-        createdAt: DateTime,
-        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
-        propertiesLastOperation: PropertiesLastOperation,
-        version: number,
-        tx?: TransactionClient
-    ): Promise<void> {
-        const result = await this.postgres.query(
-            tx ?? PostgresUse.COMMON_WRITE,
-            `
-            INSERT INTO posthog_group (team_id, group_key, group_type_index, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            ON CONFLICT (team_id, group_key, group_type_index) DO NOTHING
-            RETURNING version
-            `,
-            [
-                teamId,
-                groupKey,
-                groupTypeIndex,
-                JSON.stringify(groupProperties),
-                createdAt.toISO(),
-                JSON.stringify(propertiesLastUpdatedAt),
-                JSON.stringify(propertiesLastOperation),
-                version,
-            ],
-            'upsertGroup'
-        )
-
-        if (result.rows.length === 0) {
-            throw new RaceConditionError('Parallel posthog_group inserts, retry')
-        }
-    }
-
-    public async updateGroup(
-        teamId: TeamId,
-        groupTypeIndex: GroupTypeIndex,
-        groupKey: string,
-        groupProperties: Properties,
-        createdAt: DateTime,
-        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
-        propertiesLastOperation: PropertiesLastOperation,
-        version: number,
-        tx?: TransactionClient
-    ): Promise<void> {
-        await this.postgres.query(
-            tx ?? PostgresUse.COMMON_WRITE,
-            `
-            UPDATE posthog_group SET
-            created_at = $4,
-            group_properties = $5,
-            properties_last_updated_at = $6,
-            properties_last_operation = $7,
-            version = $8
-            WHERE team_id = $1 AND group_key = $2 AND group_type_index = $3
-            `,
-            [
-                teamId,
-                groupKey,
-                groupTypeIndex,
-                createdAt.toISO(),
-                JSON.stringify(groupProperties),
-                JSON.stringify(propertiesLastUpdatedAt),
-                JSON.stringify(propertiesLastOperation),
-                version,
-            ],
-            'upsertGroup'
-        )
-    }
-
-    public async upsertGroupClickhouse(
-        teamId: TeamId,
-        groupTypeIndex: GroupTypeIndex,
-        groupKey: string,
-        properties: Properties,
-        createdAt: DateTime,
-        version: number
-    ): Promise<void> {
-        await this.kafkaProducer.queueMessages({
-            topic: KAFKA_GROUPS,
-            messages: [
-                {
-                    value: JSON.stringify({
-                        group_type_index: groupTypeIndex,
-                        group_key: groupKey,
-                        team_id: teamId,
-                        group_properties: JSON.stringify(properties),
-                        created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouseSecondPrecision),
-                        version,
-                    }),
-                },
-            ],
-        })
-    }
-
-    // Used in tests
-    public async fetchClickhouseGroups(): Promise<ClickhouseGroup[]> {
-        const query = `
-        SELECT group_type_index, group_key, created_at, team_id, group_properties FROM groups FINAL
-        `
-        return (await this.clickhouseQuery(query)).data as ClickhouseGroup[]
     }
 }

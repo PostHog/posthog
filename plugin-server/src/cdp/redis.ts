@@ -5,7 +5,7 @@ import { createPool } from 'generic-pool'
 import { Pipeline, Redis } from 'ioredis'
 
 import { Config } from '../types'
-import { createRedisClient } from '../utils/db/redis'
+import { createRedisClient } from '../utils/redis'
 import { timeoutGuard } from '../utils/db/utils'
 import { status } from '../utils/status'
 

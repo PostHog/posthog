@@ -2,7 +2,7 @@ import { captureException } from '@sentry/node'
 import { Redis } from 'ioredis'
 
 import { Config } from '../types'
-import { createRedis } from './db/redis'
+import { createRedis } from './redis'
 import { status } from './status'
 
 export type PubSubTask = ((message: string) => void) | ((message: string) => Promise<void>)

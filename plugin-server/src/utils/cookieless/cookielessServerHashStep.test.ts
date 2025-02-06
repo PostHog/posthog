@@ -2,16 +2,16 @@ import type { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { createOrganization, createTeam } from '../../../tests/helpers/sql'
 import { deepFreeze } from '../../../tests/testUtils'
-import { cookielessRedisErrorCounter } from '../../main/ingestion-queues/metrics'
 import { CookielessServerHashMode, Hub } from '../../types'
-import { RedisOperationError } from '../db/error'
 import { closeHub, createHub } from '../db/hub'
 import { PostgresUse } from '../db/postgres'
+import { RedisOperationError } from '../errors'
 import { UUID7 } from '../utils'
 import {
     bufferToSessionState,
     COOKIELESS_MODE_FLAG_PROPERTY,
     COOKIELESS_SENTINEL_VALUE,
+    cookielessRedisErrorCounter,
     cookielessServerHashStep,
     sessionStateToBuffer,
     toYYYYMMDDInTimezoneSafe,
@@ -443,7 +443,7 @@ describe('cookielessServerHashStep', () => {
             it('should increment the redis error counter if redis errors', async () => {
                 const operation = 'scard'
                 const error = new RedisOperationError('redis error', new Error(), operation, { key: 'key' })
-                jest.spyOn(hub.db, 'redisSCard').mockImplementationOnce(() => {
+                jest.spyOn(hub.cookielessSaltManager.redisHelper, 'redisSCard').mockImplementationOnce(() => {
                     throw error
                 })
                 const spy = jest.spyOn(cookielessRedisErrorCounter, 'labels')

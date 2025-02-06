@@ -1,16 +1,18 @@
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as siphashDouble from '@posthog/siphash/lib/siphash-double'
+import { Pool as GenericPool } from 'generic-pool'
+import Redis from 'ioredis'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 import { getDomain } from 'tldts'
 
-import { CookielessConfig, CookielessServerHashMode, Hub } from '../../types'
+import { Config, CookielessConfig, CookielessServerHashMode, Hub } from '../../types'
 import { ConcurrencyController } from '../concurrencyController'
-import { DB } from '../db/db'
-import { RedisOperationError } from '../db/error'
+import { RedisOperationError } from '../errors'
 import { runInstrumentedFunction } from '../instrument'
-import { eventDroppedCounter } from '../shared-metrics'
+import { eventDroppedCounter } from '../metrics'
 import { base64StringToUint32ArrayLE, createRandomUint32x4, uint32ArrayLEToBase64String, UUID7 } from '../utils'
+import { RedisHelper } from './redis'
 
 export const cookielessRedisErrorCounter = new Counter({
     name: 'cookieless_redis_error',
@@ -98,22 +100,40 @@ export function toStartOfDayInTimezone(timestamp: number, timeZone: string): Dat
     ).toJSDate()
 }
 
+const createCookielessConfig = (config: Config): CookielessConfig => {
+    return {
+        disabled: config.COOKIELESS_DISABLED,
+        forceStatelessMode: config.COOKIELESS_FORCE_STATELESS_MODE,
+        deleteExpiredLocalSaltsIntervalMs: config.COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS,
+        sessionTtlSeconds: config.COOKIELESS_SESSION_TTL_SECONDS,
+        saltTtlSeconds: config.COOKIELESS_SALT_TTL_SECONDS,
+        sessionInactivityMs: config.COOKIELESS_SESSION_INACTIVITY_MS,
+        identifiesTtlSeconds: config.COOKIELESS_IDENTIFIES_TTL_SECONDS,
+    }
+}
+
+// TODO: Refactor this whole thing into a single class
 export class CookielessSaltManager {
-    private readonly db: DB
-    private readonly config: CookielessConfig
+    public readonly config: CookielessConfig
     private readonly localSaltMap: Record<string, Uint32Array> = {}
     private readonly mutex = new ConcurrencyController(1)
     private cleanupInterval: NodeJS.Timeout | null = null
 
-    constructor(db: DB, config: CookielessConfig) {
-        this.db = db
-        this.config = config
+    public readonly redisHelper: RedisHelper
+
+    constructor(config: Config, redisPool: GenericPool<Redis.Redis>) {
+        this.config = createCookielessConfig(config)
+        this.redisHelper = new RedisHelper(redisPool)
         // Periodically delete expired salts from the local cache. Note that this doesn't delete them from redis, but
         // that's handled by using redis TTLs. Deleting these salts is what allows us to use the hash of PII data in a
         // non PII way. Of course, these are also deleted when the node process restarts.
-        this.cleanupInterval = setInterval(this.deleteExpiredLocalSalts, config.deleteExpiredLocalSaltsIntervalMs)
+        this.cleanupInterval = setInterval(this.deleteExpiredLocalSalts, this.config.deleteExpiredLocalSaltsIntervalMs)
         // Call unref on the timer object, so that it doesn't prevent node from exiting.
         this.cleanupInterval.unref()
+    }
+
+    public get disabled(): boolean {
+        return this.config.disabled
     }
 
     getSaltForDay(yyyymmdd: string, timestampMs: number): Promise<Uint32Array> {
@@ -135,7 +155,7 @@ export class CookielessSaltManager {
                 }
 
                 // try to get it from redis instead
-                const saltBase64 = await this.db.redisGet<string | null>(
+                const saltBase64 = await this.redisHelper.redisGet<string | null>(
                     `cookieless_salt:${yyyymmdd}`,
                     null,
                     'cookielessServerHashStep'
@@ -150,7 +170,7 @@ export class CookielessSaltManager {
 
                 // try to write a new one to redis, but don't overwrite
                 const newSaltParts = createRandomUint32x4()
-                const setResult = await this.db.redisSetNX(
+                const setResult = await this.redisHelper.redisSetNX(
                     `cookieless_salt:${yyyymmdd}`,
                     uint32ArrayLEToBase64String(newSaltParts),
                     'cookielessServerHashStep',
@@ -162,7 +182,7 @@ export class CookielessSaltManager {
                 }
 
                 // if we couldn't write, it means that it exists in redis already
-                const saltBase64Retry = await this.db.redisGet<string | null>(
+                const saltBase64Retry = await this.redisHelper.redisGet<string | null>(
                     `cookieless_salt:${yyyymmdd}`,
                     null,
                     'cookielessServerHashStep'
@@ -210,7 +230,7 @@ export async function processCookielessEvent(hub: Hub, event: PluginEvent): Prom
     }
 
     // if the killswitch is enabled, drop the event
-    if (hub.cookielessConfig.disabled) {
+    if (hub.cookielessSaltManager.disabled) {
         eventDroppedCounter
             .labels({
                 event_type: 'analytics',
@@ -255,7 +275,7 @@ async function cookielessServerHashStepInner(
     hub: Hub,
     event: PluginEvent & { properties: Properties }
 ): Promise<PluginEvent | undefined> {
-    const config = hub.cookielessConfig
+    const cookielessSaltManager = hub.cookielessSaltManager
 
     // if the team isn't allowed to use this mode, drop the event
     const team = await hub.teamManager.getTeamForEvent(event)
@@ -339,7 +359,7 @@ async function cookielessServerHashStepInner(
 
     if (
         team.cookieless_server_hash_mode === CookielessServerHashMode.Stateless ||
-        hub.cookielessConfig.forceStatelessMode
+        cookielessSaltManager.config.forceStatelessMode
     ) {
         if (event.event === '$identify' || event.distinct_id !== COOKIELESS_SENTINEL_VALUE) {
             // identifies and post-identify events are not valid in the stateless mode, drop the event
@@ -401,7 +421,10 @@ async function cookielessServerHashStepInner(
             // identify event, so the anon_distinct_id must be the sentinel and needs to be replaced
 
             // add this identify event id to redis
-            const numIdentifies = await hub.db.redisSAddAndSCard(identifiesRedisKey, event.uuid)
+            const numIdentifies = await hub.cookielessSaltManager.redisHelper.redisSAddAndSCard(
+                identifiesRedisKey,
+                event.uuid
+            )
 
             // we want the number of identifies that happened before this one
             hashValue = await doHash(hub, {
@@ -419,7 +442,7 @@ async function cookielessServerHashStepInner(
             // set the distinct id to the new hash value
             newProperties['$anon_distinct_id'] = hashToDistinctId(hashValue)
         } else if (event.distinct_id === COOKIELESS_SENTINEL_VALUE) {
-            const numIdentifies = await hub.db.redisSCard(identifiesRedisKey)
+            const numIdentifies = await hub.cookielessSaltManager.redisHelper.redisSCard(identifiesRedisKey)
             hashValue = await doHash(hub, {
                 timestampMs,
                 eventTimeZone,
@@ -434,7 +457,7 @@ async function cookielessServerHashStepInner(
             // event before identify has been called, distinct id is the sentinel and needs to be replaced
             newEvent.distinct_id = hashToDistinctId(hashValue)
         } else {
-            const numIdentifies = await hub.db.redisSCard(identifiesRedisKey)
+            const numIdentifies = await hub.cookielessSaltManager.redisHelper.redisSCard(identifiesRedisKey)
 
             // this event is after identify has been called, so subtract 1 from the numIdentifies
             hashValue = await doHash(hub, {
@@ -452,26 +475,32 @@ async function cookielessServerHashStepInner(
 
         const sessionRedisKey = getRedisSessionsKey(hashValue, teamId)
         // do we have a session id for this user already?
-        const sessionInfoBuffer = await hub.db.redisGetBuffer(sessionRedisKey, 'cookielessServerHashStep')
+        const sessionInfoBuffer = await hub.cookielessSaltManager.redisHelper.redisGetBuffer(
+            sessionRedisKey,
+            'cookielessServerHashStep'
+        )
         let sessionState = sessionInfoBuffer ? bufferToSessionState(sessionInfoBuffer) : undefined
 
         // if not, or the TTL has expired, create a new one. Don't rely on redis TTL, as ingestion lag could approach the 30-minute session inactivity timeout
-        if (!sessionState || timestampMs - sessionState.lastActivityTimestamp > config.sessionInactivityMs) {
+        if (
+            !sessionState ||
+            timestampMs - sessionState.lastActivityTimestamp > cookielessSaltManager.config.sessionInactivityMs
+        ) {
             const sessionId = new UUID7(timestampMs)
             sessionState = { sessionId: sessionId, lastActivityTimestamp: timestampMs }
-            await hub.db.redisSetBuffer(
+            await hub.cookielessSaltManager.redisHelper.redisSetBuffer(
                 sessionRedisKey,
                 sessionStateToBuffer(sessionState),
                 'cookielessServerHashStep',
-                config.sessionTtlSeconds
+                cookielessSaltManager.config.sessionTtlSeconds
             )
         } else {
             // otherwise, update the timestamp
-            await hub.db.redisSetBuffer(
+            await hub.cookielessSaltManager.redisHelper.redisSetBuffer(
                 sessionRedisKey,
                 sessionStateToBuffer({ sessionId: sessionState.sessionId, lastActivityTimestamp: timestampMs }),
                 'cookielessServerHashStep',
-                config.sessionTtlSeconds
+                cookielessSaltManager.config.sessionTtlSeconds
             )
         }
 

@@ -1,5 +1,3 @@
-import { now } from '~/src/utils/now'
-
 import { Hub } from '../../types'
 import { UUIDT } from '../../utils/utils'
 import { CdpRedis } from '../redis'
@@ -191,7 +189,7 @@ export class HogWatcherService {
             const historyResults = await this.redis.usePipeline({ name: 'addTempDisabled' }, (pipeline) => {
                 functionsTempDisabled.forEach((id) => {
                     const key = `${REDIS_KEY_DISABLED_HISTORY}/${id}`
-                    pipeline.zadd(key, now(), new UUIDT().toString())
+                    pipeline.zadd(key, Date.now(), new UUIDT().toString())
                     pipeline.zrange(key, 0, -1)
                     pipeline.expire(key, this.hub.CDP_WATCHER_TTL)
                 })

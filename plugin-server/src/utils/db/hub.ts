@@ -6,20 +6,20 @@ import { types as pgTypes } from 'pg'
 
 import { getPluginServerCapabilities } from '../../capabilities'
 import { EncryptedFields } from '../../cdp/encryption-utils'
-import { createCookielessConfig, defaultConfig } from '../../config/config'
+import { defaultConfig } from '../../config/config'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { GroupTypeManager } from '../../services/group-type-manager'
-import { Config, Hub, PluginServerCapabilities } from '../../types'
-import { OrganizationManager } from '../../worker/ingestion/organization-manager'
+import { OrganizationManager } from '../../services/organization-manager'
 import { TeamManager } from '../../services/team-manager'
+import { Config, Hub, PluginServerCapabilities } from '../../types'
 import { CookielessSaltManager } from '../cookieless/cookielessServerHashStep'
 import { isTestEnv } from '../env-utils'
 import { getObjectStorage } from '../object_storage'
+import { createRedisPool } from '../redis'
 import { status } from '../status'
 import { Celery } from './celery'
 import { DB } from './db'
 import { PostgresRouter } from './postgres'
-import { createRedisPool } from './redis'
 
 // `node-postgres` would return dates as plain JS Date objects, which would use the local timezone.
 // This converts all date fields to a proper luxon UTC DateTime and then casts them to a string
@@ -104,14 +104,13 @@ export async function createHub(
         status.warn('🪣', `Object storage could not be created`)
     }
 
-    const db = new DB(postgres, redisPool, kafkaProducer, clickhouse)
+    const db = new DB(postgres, redisPool, kafkaProducer)
     const teamManager = new TeamManager(postgres, serverConfig)
     const organizationManager = new OrganizationManager(postgres, teamManager)
 
     const groupTypeManager = new GroupTypeManager(postgres, teamManager)
 
-    const cookielessConfig = createCookielessConfig(serverConfig)
-    const cookielessSaltManager = new CookielessSaltManager(db, cookielessConfig)
+    const cookielessSaltManager = new CookielessSaltManager(serverConfig, redisPool)
 
     const hub: Hub = {
         ...serverConfig,
@@ -132,7 +131,6 @@ export async function createHub(
         ),
         encryptedFields: new EncryptedFields(serverConfig),
         celery: new Celery(serverConfig),
-        cookielessConfig,
         cookielessSaltManager,
     }
 

@@ -4,11 +4,23 @@ import { Client, Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow } fr
 
 import { Config } from '../../types'
 import { instrumentQuery } from '../../utils/metrics'
+import { DependencyUnavailableError } from '../errors'
 import { status } from '../status'
 import { createPostgresPool } from '../utils'
-import { POSTGRES_UNAVAILABLE_ERROR_MESSAGES } from './db'
-import { DependencyUnavailableError } from './error'
 import { timeoutGuard } from './utils'
+
+const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
+    'connection to server at',
+    'could not translate host',
+    'server conn crashed',
+    'no more connections allowed',
+    'server closed the connection unexpectedly',
+    'getaddrinfo EAI_AGAIN',
+    'Connection terminated unexpectedly',
+    'ECONNREFUSED',
+    'ETIMEDOUT',
+    'query_wait_timeout', // Waiting on PG bouncer to give us a slot
+]
 
 export enum PostgresUse {
     COMMON_READ, // Read replica on the common tables, uses need to account for possible replication delay

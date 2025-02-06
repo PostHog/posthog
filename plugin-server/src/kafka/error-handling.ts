@@ -1,4 +1,4 @@
-import { DependencyUnavailableError } from '../utils/db/error'
+import { DependencyUnavailableError } from '../utils/errors'
 import { status } from '../utils/status'
 
 export const retryOnDependencyUnavailableError = async <T>(

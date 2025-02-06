@@ -1,20 +1,18 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { Group, GroupTypeIndex, TeamId } from '../../../types'
-import { DB } from '../../../utils/db/db'
-import { MessageSizeTooLarge } from '../../../utils/db/error'
+import { KAFKA_GROUPS } from '../../../config/kafka-topics'
+import { MessageSizeTooLarge } from '../../../kafka/producer'
+import { GroupTypeIndex, Hub, RawGroup, TeamId, TimestampFormat } from '../../../types'
 import { PostgresUse } from '../../../utils/db/postgres'
-import { RaceConditionError } from '../../../utils/utils'
 import { captureIngestionWarning } from '../../../utils/ingestion-warnings'
-
+import { castTimestampOrNow, RaceConditionError } from '../../../utils/utils'
 interface PropertiesUpdate {
     updated: boolean
     properties: Properties
 }
-
 export async function upsertGroup(
-    db: DB,
+    hub: Hub,
     teamId: TeamId,
     projectId: TeamId,
     groupTypeIndex: GroupTypeIndex,
@@ -23,13 +21,27 @@ export async function upsertGroup(
     timestamp: DateTime
 ): Promise<void> {
     try {
-        const [propertiesUpdate, createdAt, version] = await db.postgres.transaction(
+        const [propertiesUpdate, createdAt, version] = await hub.postgres.transaction(
             PostgresUse.COMMON_WRITE,
             'upsertGroup',
             async (tx) => {
-                const group: Group | undefined = await db.fetchGroup(teamId, groupTypeIndex, groupKey, tx, {
-                    forUpdate: true,
-                })
+                const selectResult = await hub.postgres.query<RawGroup>(
+                    tx,
+                    `SELECT * FROM posthog_group WHERE team_id = $1 AND group_type_index = $2 AND group_key = $3  FOR UPDATE`,
+                    [teamId, groupTypeIndex, groupKey],
+                    'fetchGroup'
+                )
+
+                const rawGroup = selectResult.rows.length > 0 ? selectResult.rows[0] : undefined
+
+                const group = rawGroup
+                    ? {
+                          ...rawGroup,
+                          created_at: DateTime.fromISO(rawGroup.created_at).toUTC(),
+                          version: Number(rawGroup.version || 0),
+                      }
+                    : undefined
+
                 const createdAt = DateTime.min(group?.created_at || DateTime.now(), timestamp)
                 const version = (group?.version || 0) + 1
 
@@ -41,30 +53,55 @@ export async function upsertGroup(
 
                 if (propertiesUpdate.updated) {
                     if (group) {
-                        await db.updateGroup(
-                            teamId,
-                            groupTypeIndex,
-                            groupKey,
-                            propertiesUpdate.properties,
-                            createdAt,
-                            {},
-                            {},
-                            version,
-                            tx
+                        await hub.postgres.query(
+                            tx,
+                            `
+                            UPDATE posthog_group SET
+                            created_at = $4,
+                            group_properties = $5,
+                            properties_last_updated_at = $6,
+                            properties_last_operation = $7,
+                            version = $8
+                            WHERE team_id = $1 AND group_key = $2 AND group_type_index = $3
+                            `,
+                            [
+                                teamId,
+                                groupKey,
+                                groupTypeIndex,
+                                createdAt.toISO(),
+                                JSON.stringify(propertiesUpdate.properties),
+                                JSON.stringify({}),
+                                JSON.stringify({}),
+                                version,
+                            ],
+                            'upsertGroup'
                         )
                     } else {
-                        // :TRICKY: insertGroup will raise a RaceConditionError if group was inserted in-between fetch and this
-                        await db.insertGroup(
-                            teamId,
-                            groupTypeIndex,
-                            groupKey,
-                            propertiesUpdate.properties,
-                            createdAt,
-                            {},
-                            {},
-                            version,
-                            tx
+                        const result = await hub.postgres.query(
+                            tx ?? PostgresUse.COMMON_WRITE,
+                            `
+                            INSERT INTO posthog_group (team_id, group_key, group_type_index, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                            ON CONFLICT (team_id, group_key, group_type_index) DO NOTHING
+                            RETURNING version
+                            `,
+                            [
+                                teamId,
+                                groupKey,
+                                groupTypeIndex,
+                                JSON.stringify(propertiesUpdate.properties),
+                                createdAt.toISO(),
+                                JSON.stringify({}),
+                                JSON.stringify({}),
+                                version,
+                            ],
+                            'upsertGroup'
                         )
+
+                        // :TRICKY: Raise a RaceConditionError if group was inserted in-between fetch and this
+                        if (result.rows.length === 0) {
+                            throw new RaceConditionError('Parallel posthog_group inserts, retry')
+                        }
                     }
                 }
 
@@ -73,19 +110,26 @@ export async function upsertGroup(
         )
 
         if (propertiesUpdate.updated) {
-            await db.upsertGroupClickhouse(
-                teamId,
-                groupTypeIndex,
-                groupKey,
-                propertiesUpdate.properties,
-                createdAt,
-                version
-            )
+            await hub.kafkaProducer.queueMessages({
+                topic: KAFKA_GROUPS,
+                messages: [
+                    {
+                        value: JSON.stringify({
+                            group_type_index: groupTypeIndex,
+                            group_key: groupKey,
+                            team_id: teamId,
+                            group_properties: JSON.stringify(properties),
+                            created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouseSecondPrecision),
+                            version,
+                        }),
+                    },
+                ],
+            })
         }
     } catch (error) {
         if (error instanceof MessageSizeTooLarge) {
             // Message is too large, for kafka - this is unrecoverable so we capture an ingestion warning instead
-            await captureIngestionWarning(db.kafkaProducer, teamId, 'group_upsert_message_size_too_large', {
+            await captureIngestionWarning(hub.kafkaProducer, teamId, 'group_upsert_message_size_too_large', {
                 groupTypeIndex,
                 groupKey,
             })
@@ -93,13 +137,13 @@ export async function upsertGroup(
         }
         if (error instanceof RaceConditionError) {
             // Try again - lock the row and insert!
-            return upsertGroup(db, teamId, projectId, groupTypeIndex, groupKey, properties, timestamp)
+            return upsertGroup(hub, teamId, projectId, groupTypeIndex, groupKey, properties, timestamp)
         }
         throw error
     }
 }
 
-export function calculateUpdate(currentProperties: Properties, properties: Properties): PropertiesUpdate {
+function calculateUpdate(currentProperties: Properties, properties: Properties): PropertiesUpdate {
     const result: PropertiesUpdate = {
         updated: false,
         properties: { ...currentProperties },

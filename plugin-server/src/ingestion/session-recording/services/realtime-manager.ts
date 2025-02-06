@@ -4,7 +4,7 @@ import { Redis } from 'ioredis'
 import { EventEmitter } from 'node:events'
 
 import { Config, RedisPool } from '../../../types'
-import { createRedis } from '../../../utils/db/redis'
+import { createRedis } from '../../../utils/redis'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { status } from '../../../utils/status'
 

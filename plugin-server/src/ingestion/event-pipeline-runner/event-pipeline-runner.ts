@@ -5,11 +5,11 @@ import { Counter } from 'prom-client'
 
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KAFKA_INGESTION_WARNINGS } from '../../config/kafka-topics'
+import { MessageSizeTooLarge } from '../../kafka/producer'
 import { GroupTypeManager, MAX_GROUP_TYPES_PER_TEAM } from '../../services/group-type-manager'
 import { Hub, Person, PersonMode, PipelineEvent, RawKafkaEvent, Team, TimestampFormat } from '../../types'
 import { processAiEvent } from '../../utils/ai-costs/process-ai-event'
 import { processCookielessEvent } from '../../utils/cookieless/cookielessServerHashStep'
-import { MessageSizeTooLarge } from '../../utils/db/error'
 import { safeClickhouseString, sanitizeEventName, sanitizeString } from '../../utils/db/utils'
 import { captureIngestionWarning } from '../../utils/ingestion-warnings'
 import { eventDroppedCounter } from '../../utils/metrics'
@@ -283,12 +283,12 @@ export class EventPipelineRunnerV2 {
     private async processPerson() {
         // NOTE: PersonState could derive so much of this stuff instead of it all being passed in
         const [person, kafkaAck] = await new PersonState(
+            this.hub,
             this.event,
             this.event.team_id,
             String(this.event.distinct_id),
             this.timestamp!,
-            this.shouldProcessPerson,
-            this.hub.db
+            this.shouldProcessPerson
         ).update()
 
         this.person = person
@@ -331,7 +331,7 @@ export class EventPipelineRunnerV2 {
 
             if (groupTypeIndex !== null) {
                 await upsertGroup(
-                    this.hub.db,
+                    this.hub,
                     this.team!.id,
                     this.team!.project_id,
                     groupTypeIndex,

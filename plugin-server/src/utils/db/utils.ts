@@ -189,11 +189,6 @@ export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDelet
     }
 }
 
-// Very useful for debugging queries
-export function getFinalPostgresQuery(queryString: string, values: any[]): string {
-    return queryString.replace(/\$([0-9]+)/g, (m, v) => JSON.stringify(values[parseInt(v) - 1]))
-}
-
 // keep in sync with posthog/posthog/api/utils.py::safe_clickhouse_string
 export function safeClickhouseString(str: string): string {
     // character is a surrogate

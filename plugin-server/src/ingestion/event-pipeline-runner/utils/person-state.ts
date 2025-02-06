@@ -5,8 +5,7 @@ import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
 import { TopicMessage } from '../../../kafka/producer'
-import { InternalPerson, Person, PropertyUpdateOperation } from '../../../types'
-import { DB } from '../../../utils/db/db'
+import { Hub, InternalPerson, Person, PropertyUpdateOperation } from '../../../types'
 import { PostgresUse, TransactionClient } from '../../../utils/db/postgres'
 import { eventToPersonProperties, initialEventToPersonProperties, timeoutGuard } from '../../../utils/db/utils'
 import { captureIngestionWarning } from '../../../utils/ingestion-warnings'
@@ -105,12 +104,12 @@ export class PersonState {
     public updateIsIdentified: boolean // TODO: remove this from the class and being hidden
 
     constructor(
+        private hub: Hub,
         private event: PluginEvent,
         private teamId: number,
         private distinctId: string,
         private timestamp: DateTime,
-        private processPerson: boolean, // $process_person_profile flag from the event
-        private db: DB
+        private processPerson: boolean // $process_person_profile flag from the event
     ) {
         this.eventProperties = event.properties!
 
@@ -121,7 +120,7 @@ export class PersonState {
 
     async update(): Promise<[Person, Promise<void>]> {
         if (!this.processPerson) {
-            let existingPerson = await this.db.fetchPerson(this.teamId, this.distinctId, { useReadReplica: true })
+            let existingPerson = await this.hub.db.fetchPerson(this.teamId, this.distinctId, { useReadReplica: true })
 
             if (!existingPerson) {
                 // See the comment in `mergeDistinctIds`. We are inserting a row into `posthog_personlessdistinctid`
@@ -131,7 +130,7 @@ export class PersonState {
 
                 const personlessDistinctIdCacheKey = `${this.teamId}|${this.distinctId}`
                 if (!PERSONLESS_DISTINCT_ID_INSERTED_CACHE.get(personlessDistinctIdCacheKey)) {
-                    const personIsMerged = await this.db.addPersonlessDistinctId(this.teamId, this.distinctId)
+                    const personIsMerged = await this.hub.db.addPersonlessDistinctId(this.teamId, this.distinctId)
 
                     // We know the row is in PG now, and so future events for this Distinct ID can
                     // skip the PG I/O.
@@ -142,7 +141,7 @@ export class PersonState {
                         // has been updated by a merge (either since we called `fetchPerson` above, plus
                         // replication lag). We need to check `fetchPerson` again (this time using the leader)
                         // so that we properly associate this event with the Person we got merged into.
-                        existingPerson = await this.db.fetchPerson(this.teamId, this.distinctId, {
+                        existingPerson = await this.hub.db.fetchPerson(this.teamId, this.distinctId, {
                             useReadReplica: false,
                         })
                     }
@@ -221,7 +220,7 @@ export class PersonState {
      * @returns [Person, boolean that indicates if properties were already handled or not]
      */
     private async createOrGetPerson(): Promise<[InternalPerson, boolean]> {
-        let person = await this.db.fetchPerson(this.teamId, this.distinctId)
+        let person = await this.hub.db.fetchPerson(this.teamId, this.distinctId)
         if (person) {
             return [person, false]
         }
@@ -275,7 +274,7 @@ export class PersonState {
             propertiesLastUpdatedAt[key] = createdAt
         })
 
-        return await this.db.createPerson(
+        return await this.hub.db.createPerson(
             createdAt,
             props,
             propertiesLastUpdatedAt,
@@ -301,8 +300,8 @@ export class PersonState {
         }
 
         if (Object.keys(update).length > 0) {
-            const [updatedPerson, kafkaMessages] = await this.db.updatePersonDeprecated(person, update)
-            const kafkaAck = this.db.kafkaProducer.queueMessages(kafkaMessages)
+            const [updatedPerson, kafkaMessages] = await this.hub.db.updatePersonDeprecated(person, update)
+            const kafkaAck = this.hub.kafkaProducer.queueMessages(kafkaMessages)
             return [updatedPerson, kafkaAck]
         }
 
@@ -456,7 +455,7 @@ export class PersonState {
         }
         if (isDistinctIdIllegal(mergeIntoDistinctId)) {
             await captureIngestionWarning(
-                this.db.kafkaProducer,
+                this.hub.kafkaProducer,
                 teamId,
                 'cannot_merge_with_illegal_distinct_id',
                 {
@@ -470,7 +469,7 @@ export class PersonState {
         }
         if (isDistinctIdIllegal(otherPersonDistinctId)) {
             await captureIngestionWarning(
-                this.db.kafkaProducer,
+                this.hub.kafkaProducer,
                 teamId,
                 'cannot_merge_with_illegal_distinct_id',
                 {
@@ -496,8 +495,8 @@ export class PersonState {
     ): Promise<[InternalPerson, Promise<void>]> {
         this.updateIsIdentified = true
 
-        const otherPerson = await this.db.fetchPerson(teamId, otherPersonDistinctId)
-        const mergeIntoPerson = await this.db.fetchPerson(teamId, mergeIntoDistinctId)
+        const otherPerson = await this.hub.db.fetchPerson(teamId, otherPersonDistinctId)
+        const mergeIntoPerson = await this.hub.db.fetchPerson(teamId, mergeIntoDistinctId)
 
         // A note about the `distinctIdVersion` logic you'll find below:
         //
@@ -534,19 +533,19 @@ export class PersonState {
                 }
             })()
 
-            return await this.db.postgres.transaction(
+            return await this.hub.db.postgres.transaction(
                 PostgresUse.COMMON_WRITE,
                 'mergeDistinctIds-OneExists',
                 async (tx) => {
                     // See comment above about `distinctIdVersion`
-                    const insertedDistinctId = await this.db.addPersonlessDistinctIdForMerge(
+                    const insertedDistinctId = await this.hub.db.addPersonlessDistinctIdForMerge(
                         this.teamId,
                         distinctIdToAdd,
                         tx
                     )
                     const distinctIdVersion = insertedDistinctId ? 0 : 1
 
-                    await this.db.addDistinctId(existingPerson, distinctIdToAdd, distinctIdVersion, tx)
+                    await this.hub.db.addDistinctId(existingPerson, distinctIdToAdd, distinctIdVersion, tx)
                     return [existingPerson, Promise.resolve()]
                 }
             )
@@ -570,19 +569,19 @@ export class PersonState {
             let distinctId1 = mergeIntoDistinctId
             let distinctId2 = otherPersonDistinctId
 
-            return await this.db.postgres.transaction(
+            return await this.hub.db.postgres.transaction(
                 PostgresUse.COMMON_WRITE,
                 'mergeDistinctIds-NeitherExist',
                 async (tx) => {
                     // See comment above about `distinctIdVersion`
-                    const insertedDistinctId1 = await this.db.addPersonlessDistinctIdForMerge(
+                    const insertedDistinctId1 = await this.hub.db.addPersonlessDistinctIdForMerge(
                         this.teamId,
                         distinctId1,
                         tx
                     )
 
                     // See comment above about `distinctIdVersion`
-                    const insertedDistinctId2 = await this.db.addPersonlessDistinctIdForMerge(
+                    const insertedDistinctId2 = await this.hub.db.addPersonlessDistinctIdForMerge(
                         this.teamId,
                         distinctId2,
                         tx
@@ -656,7 +655,7 @@ export class PersonState {
         // If merge isn't allowed, we will ignore it, log an ingestion warning and exit
         if (!mergeAllowed) {
             await captureIngestionWarning(
-                this.db.kafkaProducer,
+                this.hub.kafkaProducer,
                 this.teamId,
                 'cannot_merge_already_identified',
                 {
@@ -717,11 +716,11 @@ export class PersonState {
             })
             .inc()
 
-        const [mergedPerson, kafkaMessages]: [InternalPerson, TopicMessage[]] = await this.db.postgres.transaction(
+        const [mergedPerson, kafkaMessages]: [InternalPerson, TopicMessage[]] = await this.hub.db.postgres.transaction(
             PostgresUse.COMMON_WRITE,
             'mergePeople',
             async (tx) => {
-                const [person, updatePersonMessages] = await this.db.updatePersonDeprecated(
+                const [person, updatePersonMessages] = await this.hub.db.updatePersonDeprecated(
                     mergeInto,
                     {
                         created_at: createdAt,
@@ -750,16 +749,16 @@ export class PersonState {
 
                 // Merge the distinct IDs
                 // TODO: Doesn't this table need to add updates to CH too?
-                await this.db.updateCohortsAndFeatureFlagsForMerge(
+                await this.hub.db.updateCohortsAndFeatureFlagsForMerge(
                     otherPerson.team_id,
                     otherPerson.id,
                     mergeInto.id,
                     tx
                 )
 
-                const distinctIdMessages = await this.db.moveDistinctIds(otherPerson, mergeInto, tx)
+                const distinctIdMessages = await this.hub.db.moveDistinctIds(otherPerson, mergeInto, tx)
 
-                const deletePersonMessages = await this.db.deletePerson(otherPerson, tx)
+                const deletePersonMessages = await this.hub.db.deletePerson(otherPerson, tx)
 
                 return [person, [...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages]]
             }
@@ -773,7 +772,7 @@ export class PersonState {
             })
             .inc()
 
-        const kafkaAck = this.db.kafkaProducer.queueMessages(kafkaMessages)
+        const kafkaAck = this.hub.kafkaProducer.queueMessages(kafkaMessages)
 
         return [mergedPerson, kafkaAck]
     }

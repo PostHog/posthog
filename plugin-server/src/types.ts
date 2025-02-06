@@ -301,7 +301,6 @@ export interface Hub extends Config {
     encryptedFields: EncryptedFields
 
     // cookieless
-    cookielessConfig: CookielessConfig
     cookielessSaltManager: CookielessSaltManager
 }
 
@@ -845,14 +844,6 @@ export interface PropertyDefinitionType {
     property_type?: PropertyType
     type: PropertyDefinitionTypeEnum
     group_type_index: number | null
-}
-
-export interface EventPropertyType {
-    id: string
-    event: string
-    property: string
-    team_id: number
-    project_id: number | null
 }
 
 export type GroupTypeToColumnIndex = Record<string, GroupTypeIndex>

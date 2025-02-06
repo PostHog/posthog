@@ -2,9 +2,9 @@ import * as Sentry from '@sentry/node'
 import { createPool } from 'generic-pool'
 import Redis, { RedisOptions } from 'ioredis'
 
-import { Config, RedisPool } from '../../types'
-import { status } from '../../utils/status'
-import { killGracefully } from '../../utils/utils'
+import { Config, RedisPool } from '../types'
+import { status } from './status'
+import { killGracefully } from './utils'
 
 /** Number of Redis error events until the server is killed gracefully. */
 const REDIS_ERROR_COUNTER_LIMIT = 10

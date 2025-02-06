@@ -29,10 +29,10 @@ import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './ingest
 import { Config, Hub, PluginServerCapabilities, PluginServerService } from './types'
 import { closeHub, createHub } from './utils/db/hub'
 import { PostgresRouter } from './utils/db/postgres'
-import { createRedisClient } from './utils/db/redis'
 import { getObjectStorage } from './utils/object_storage'
 import { posthog } from './utils/posthog'
 import { PubSub } from './utils/pubsub'
+import { createRedisClient } from './utils/redis'
 import { status } from './utils/status'
 import { delay } from './utils/utils'
 

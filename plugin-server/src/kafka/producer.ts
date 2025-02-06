@@ -10,7 +10,7 @@ import {
 import { Counter, Summary } from 'prom-client'
 
 import { Config } from '../types'
-import { DependencyUnavailableError, MessageSizeTooLarge } from '../utils/db/error'
+import { DependencyUnavailableError } from '../utils/errors'
 import { getSpan } from '../utils/sentry'
 import { status } from '../utils/status'
 import { createRdConnectionConfigFromEnvVars } from './config'
@@ -35,6 +35,16 @@ export type TopicMessage = {
         value: string | Buffer | null
         key?: MessageKey
     }[]
+}
+
+export class MessageSizeTooLarge extends Error {
+    constructor(message: string, error: Error) {
+        super(message)
+        this.name = 'MessageSizeTooLarge'
+        this.error = error
+    }
+    readonly error: Error
+    readonly isRetriable = false
 }
 
 export class KafkaProducerWrapper {
