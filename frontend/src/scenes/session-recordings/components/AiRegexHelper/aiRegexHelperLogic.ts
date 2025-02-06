@@ -1,6 +1,7 @@
 import { actions, kea, listeners, path, reducers } from 'kea'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import posthog from 'posthog-js'
 
 import type { aiRegexHelperLogicType } from './aiRegexHelperLogicType'
 
@@ -50,6 +51,7 @@ export const aiRegexHelperLogic = kea<aiRegexHelperLogicType>([
     }),
     listeners(({ actions, values }) => ({
         handleGenerateRegex: async () => {
+            posthog.capture('ai_regex_helper_generate_regex')
             actions.setIsLoading(true)
             actions.setError('')
             actions.setGeneratedRegex('')
@@ -57,9 +59,11 @@ export const aiRegexHelperLogic = kea<aiRegexHelperLogicType>([
             const content = await api.recordings.aiRegex(values.input)
 
             if (content.hasOwnProperty('result') && content.result === 'success') {
+                posthog.capture('ai_regex_helper_generate_regex_success')
                 actions.setGeneratedRegex(content.data.output)
             }
             if (content.hasOwnProperty('result') && content.result === 'error') {
+                posthog.capture('ai_regex_helper_generate_regex_error')
                 actions.setError(content.data.output)
             }
 

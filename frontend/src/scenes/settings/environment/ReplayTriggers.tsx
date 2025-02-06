@@ -10,6 +10,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
+import posthog from 'posthog-js'
 import { AiRegexHelper } from 'scenes/session-recordings/components/AiRegexHelper/AiRegexHelper'
 import { aiRegexHelperLogic } from 'scenes/session-recordings/components/AiRegexHelper/aiRegexHelperLogic'
 import { replayTriggersLogic } from 'scenes/settings/environment/replayTriggersLogic'
@@ -52,7 +53,14 @@ function UrlConfigForm({
             </div>
             <div className="flex justify-between gap-2 w-full">
                 <div>
-                    <LemonButton type="tertiary" icon={<IconAI />} onClick={() => setIsOpen(true)}>
+                    <LemonButton
+                        type="tertiary"
+                        icon={<IconAI />}
+                        onClick={() => {
+                            setIsOpen(true)
+                            posthog.capture('ai_regex_helper_open')
+                        }}
+                    >
                         Help me with Regex
                     </LemonButton>
                 </div>
