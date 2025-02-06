@@ -5,7 +5,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { compactNumber } from 'lib/utils'
 import { useMemo } from 'react'
 
-import { BillingProductV2Type } from '~/types'
+import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
 import { BillingGaugeItemType } from './types'
 
@@ -54,14 +54,14 @@ const BillingGaugeItem = ({ item, maxValue, isWithinUsageLimit }: BillingGaugeIt
  */
 export type BillingGaugeProps = {
     items: BillingGaugeItemType[]
-    product: BillingProductV2Type
+    product: BillingProductV2Type | BillingProductV2AddonType
 }
 
 export function BillingGauge({ items, product }: BillingGaugeProps): JSX.Element {
     const maxValue = useMemo(() => {
         return Math.max(100, ...items.map((item) => item.value)) * 1.3
     }, [items])
-    const isWithinUsageLimit = product.percentage_usage <= 1
+    const isWithinUsageLimit = (product.percentage_usage ?? 0) <= 1
 
     return (
         <div className="relative h-2 bg-border-light my-16">
