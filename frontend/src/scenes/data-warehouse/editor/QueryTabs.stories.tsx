@@ -1,4 +1,5 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { Uri, UriComponents } from 'monaco-editor'
 
 import { QueryTab } from './multitabEditorLogic'
 import { QueryTabs } from './QueryTabs'
@@ -21,15 +22,65 @@ const Template: StoryFn<typeof QueryTabs> = (args) => {
 
 const mockModels: QueryTab[] = [
     {
-        uri: { path: '/query1.sql', scheme: 'file' },
+        uri: {
+            path: '/query1.sql',
+            scheme: 'file',
+            authority: '',
+            query: '',
+            fragment: '',
+            fsPath: '',
+            with: function (change: {
+                scheme?: string
+                authority?: string | null
+                path?: string | null
+                query?: string | null
+                fragment?: string | null
+            }): Uri {
+                change.path = '/query1.sql'
+                return this
+            },
+            toJSON: function (): UriComponents {
+                return {
+                    path: '/query1.sql',
+                    scheme: 'file',
+                    authority: '',
+                    query: '',
+                    fragment: '',
+                }
+            },
+        },
         name: 'Query 1',
-        view: null,
-        active: true,
+        view: undefined,
     },
     {
-        uri: { path: '/query2.sql', scheme: 'file' },
+        uri: {
+            path: '/query2.sql',
+            scheme: 'file',
+            authority: '',
+            query: '',
+            fragment: '',
+            fsPath: '',
+            with: function (change: {
+                scheme?: string
+                authority?: string | null
+                path?: string | null
+                query?: string | null
+                fragment?: string | null
+            }): Uri {
+                change.path = '/query1.sql'
+                return this
+            },
+            toJSON: function (): UriComponents {
+                return {
+                    path: '/query1.sql',
+                    scheme: 'file',
+                    authority: '',
+                    query: '',
+                    fragment: '',
+                }
+            },
+        },
         name: 'Query 2',
-        view: null,
     },
 ]
 
@@ -42,7 +93,6 @@ Default.args = {
 export const SingleTab: Story = Template.bind({})
 SingleTab.args = {
     models: [mockModels[0]],
-    // @ts-expect-error
     activeModelUri: mockModels[0],
 }
 
