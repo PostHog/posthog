@@ -52,6 +52,9 @@ def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool
             for key, value in plugin_config["config"].items():
                 inputs[key] = {"value": value}
 
+            if plugin_id == "first-time-event-tracker":
+                inputs["legacy_plugin_config_id"] = {"value": str(plugin_config["id"])}
+
             if len(plugin_config["config"]) > 0:
                 # Load all attachments for this plugin config if there is some config
                 attachments = PluginAttachment.objects.filter(plugin_config_id=plugin_config["id"])
