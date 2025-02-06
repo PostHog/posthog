@@ -389,10 +389,10 @@ class BigQueryClient(bigquery.Client):
 
         update_condition = "AND ("
 
-        for n, field in enumerate(update_key):
-            if n > 0:
+        for index, field_name in enumerate(update_key):
+            if index > 0:
                 update_condition += " OR "
-            update_condition += f"final.`{field}` < stage.`{field}`"
+            update_condition += f"final.`{field_name}` < stage.`{field_name}`"
         update_condition += ")"
 
         update_clause = ""
@@ -723,14 +723,14 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                     bigquery.SchemaField("distinct_id", "STRING"),
                 )
 
-                update_key = ("person_version", "person_distinct_id_version")
+                update_key = ["person_version", "person_distinct_id_version"]
             elif inputs.batch_export_model.name == "sessions":
                 mutable = True
                 merge_key = (
                     bigquery.SchemaField("team_id", "INT64"),
                     bigquery.SchemaField("session_id", "STRING"),
                 )
-                update_key = ("end_timestamp",)
+                update_key = ["end_timestamp"]
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
         stage_table_name = f"stage_{inputs.table_id}_{data_interval_end_str}_{inputs.team_id}"
