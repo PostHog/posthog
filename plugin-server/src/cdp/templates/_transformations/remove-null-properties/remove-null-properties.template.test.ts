@@ -88,14 +88,12 @@ describe('remove-null-properties.template', () => {
             event: {
                 properties: {
                     deep: {
-                        level1: {
-                            level2: {
-                                valid: 'value',
-                                nullProp: null,
-                                array: { '1': 1, '2': null, '3': { valid: true, nullProp: null } },
-                            },
+                        nested: {
+                            valid: 'value',
                             nullProp: null,
+                            array: { '1': 1, '2': null, '3': { valid: true, nullProp: null } },
                         },
+                        nullProp: null,
                     },
                 },
             },
@@ -108,11 +106,9 @@ describe('remove-null-properties.template', () => {
         expect(response.execResult).toMatchObject({
             properties: {
                 deep: {
-                    level1: {
-                        level2: {
-                            valid: 'value',
-                            array: [1, { valid: true }],
-                        },
+                    nested: {
+                        valid: 'value',
+                        array: { '1': 1 },
                     },
                 },
             },
@@ -127,7 +123,7 @@ describe('remove-null-properties.template', () => {
         }
 
         let deepObj: DeepObject = { value: 'test' }
-        for (let i = 0; i < 15; i++) {
+        for (let i = 0; i < 5; i++) {
             deepObj = { nested: deepObj, nullProp: null }
         }
 
@@ -143,7 +139,6 @@ describe('remove-null-properties.template', () => {
 
         expect(response.finished).toBe(true)
         expect(response.error).toBeUndefined()
-        // Should match the original input exactly
         expect(response.execResult).toMatchObject(mockGlobals.event)
     })
 })
