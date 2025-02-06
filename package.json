@@ -102,6 +102,7 @@
         "@types/lodash.debounce": "^4.0.9",
         "@types/lodash.isequal": "^4.5.8",
         "@types/md5": "^2.3.0",
+        "@types/prettier": "^3.0.0",
         "@types/react-transition-group": "^4.4.5",
         "@types/react-virtualized": "^9.21.23",
         "ajv": "^8.12.0",
