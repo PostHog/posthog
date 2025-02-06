@@ -5022,41 +5022,49 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             distinct_ids=["p1"],
             properties={},
         )
+        _create_person(
+            team=self.team,
+            distinct_ids=["p2"],
+            properties={},
+        )
         _create_event(
             team=self.team,
             event="$pageview",
-            distinct_id="p1",
+            distinct_id=f"p1",
             timestamp="2020-01-06T12:00:00Z",
             properties={"$browser": "Firefox"},
         )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="p1",
-            timestamp="2020-01-08T12:00:00Z",
-            properties={"$browser": "Chrome"},
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="p1",
-            timestamp="2020-01-09T12:00:00Z",
-            properties={"$browser": "Chrome"},
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="p1",
-            timestamp="2020-01-10T12:00:00Z",
-            properties={"$browser": "Firefox"},
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="p1",
-            timestamp="2020-01-11T12:00:00Z",
-            properties={"$browser": "Firefox"},
-        )
+
+        for i in range(1, 3):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"p{i}",
+                timestamp="2020-01-08T12:00:00Z",
+                properties={"$browser": "Chrome"},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"p{i}",
+                timestamp="2020-01-09T12:00:00Z",
+                properties={"$browser": "Chrome"},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"p{i}",
+                timestamp="2020-01-10T12:00:00Z",
+                properties={"$browser": "Firefox"},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"p{i}",
+                timestamp="2020-01-11T12:00:00Z",
+                properties={"$browser": "Firefox"},
+            )
+
         flush_persons_and_events()
 
         response = self._run_trends_query(
@@ -5077,7 +5085,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0]["count"] == 1
         assert response.results[0]["data"] == [0, 0, 1, 0]
 
-    def test_trends_aggregation_first_matching_event_for_user_with_breakdown(self):
+    def test_trends_aggregation_first_matching_event_for_user_with_breakdown_and_filter_being_the_same(self):
         _create_person(
             team=self.team,
             distinct_ids=["p1"],
@@ -5088,45 +5096,20 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             distinct_ids=["p2"],
             properties={},
         )
-
-        # these events outside date range should be ignored
-        _create_event(
+        _create_person(
             team=self.team,
-            event="$pageview",
-            distinct_id="p1",
-            timestamp="2020-01-06T12:00:00Z",
-            properties={"$browser": "Chrome"},
+            distinct_ids=["p3"],
+            properties={},
         )
+
         _create_event(
             team=self.team,
             event="$pageview",
-            distinct_id="p2",
+            distinct_id=f"p1",
             timestamp="2020-01-06T12:00:00Z",
             properties={"$browser": "Firefox"},
         )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="p1",
-            timestamp="2020-01-06T13:00:00Z",
-            properties={"$browser": "Firefox"},
-        )
 
-        # only this event for p1 should be included
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="p1",
-            timestamp="2020-01-08T12:00:00Z",
-            properties={"$browser": "Chrome"},
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="p1",
-            timestamp="2020-01-09T12:00:00Z",
-            properties={"$browser": "Chrome"},
-        )
         _create_event(
             team=self.team,
             event="$pageview",
@@ -5135,20 +5118,11 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             properties={"$browser": "Firefox"},
         )
 
-        # only this event for p2 should be included
         _create_event(
             team=self.team,
             event="$pageview",
             distinct_id="p2",
             timestamp="2020-01-10T12:00:00Z",
-            properties={"$browser": "Firefox"},
-        )
-
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="p1",
-            timestamp="2020-01-11T12:00:00Z",
             properties={"$browser": "Firefox"},
         )
         _create_event(
@@ -5158,6 +5132,22 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-11T12:00:00Z",
             properties={"$browser": "Firefox"},
         )
+
+        for i in range(1, 4):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"p{i}",
+                timestamp="2020-01-08T12:00:00Z",
+                properties={"$browser": "Chrome"},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"p{i}",
+                timestamp="2020-01-09T12:00:00Z",
+                properties={"$browser": "Chrome"},
+            )
 
         flush_persons_and_events()
 
@@ -5169,23 +5159,92 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 EventsNode(
                     event="$pageview",
                     math=BaseMathType.FIRST_MATCHING_EVENT_FOR_USER,
+                    properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Firefox")],
                 )
             ],
             TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
             BreakdownFilter(breakdown_type=BreakdownType.EVENT, breakdown="$browser"),
         )
 
-        # one for each breakdown value
-        assert len(response.results) == 2
-
-        # chrome
-        assert response.results[0]["breakdown_value"] == "Chrome"
-        assert response.results[0]["count"] == 1
-        # match on 8th (p1) for first day in time range
-        assert response.results[0]["data"] == [1, 0, 0, 0]
+        assert len(response.results) == 1
 
         # firefox
-        assert response.results[1]["breakdown_value"] == "Firefox"
+        assert response.results[0]["breakdown_value"] == "Firefox"
+        assert response.results[0]["count"] == 1
+        # match on 10th (p2) for third day in time range
+        assert response.results[0]["data"] == [0, 0, 1, 0]
+
+    def test_trends_aggregation_first_matching_event_for_user_with_breakdown_and_filter_being_different(self):
+        _create_person(
+            team=self.team,
+            distinct_ids=["p1"],
+            properties={},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["p2"],
+            properties={},
+        )
+
+        for i in range(1, 3):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"p{i}",
+                timestamp="2020-01-08T12:00:00Z",
+                properties={"$browser": "Chrome", "breakdown_prop": i},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"p{i}",
+                timestamp="2020-01-10T12:00:00Z",
+                properties={"$browser": "Firefox", "breakdown_prop": i},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"p{i}",
+                timestamp="2020-01-11T12:00:00Z",
+                properties={"$browser": "Firefox", "breakdown_prop": i},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"p{i}",
+                timestamp="2020-01-09T12:00:00Z",
+                properties={"$browser": "Chrome", "breakdown_prop": i},
+            )
+
+        flush_persons_and_events()
+
+        response = self._run_trends_query(
+            "2020-01-08",
+            "2020-01-11",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.FIRST_MATCHING_EVENT_FOR_USER,
+                    properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Firefox")],
+                )
+            ],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+            BreakdownFilter(breakdown_type=BreakdownType.EVENT, breakdown="breakdown_prop"),
+        )
+
+        response.results.sort(key=lambda x: x["breakdown_value"])
+
+        assert len(response.results) == 2
+
+        # 1
+        assert response.results[0]["breakdown_value"] == "1"
+        assert response.results[0]["count"] == 1
+        # match on 10th (p2) for third day in time range
+        assert response.results[0]["data"] == [0, 0, 1, 0]
+
+        # 2
+        assert response.results[1]["breakdown_value"] == "2"
         assert response.results[1]["count"] == 1
         # match on 10th (p2) for third day in time range
         assert response.results[1]["data"] == [0, 0, 1, 0]
