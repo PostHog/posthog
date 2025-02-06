@@ -1,10 +1,10 @@
-import { Hub } from '../../../src/types'
-import { closeHub, createHub } from '../../../src/utils/hub'
-import { PostgresUse } from '../../../src/utils/postgres'
-import { UUIDT } from '../../../src/utils/utils'
-import { OrganizationManager } from '../../../src/worker/ingestion/organization-manager'
-import { commonOrganizationId } from '../../helpers/plugins'
-import { resetTestDatabase } from '../../helpers/sql'
+import { commonOrganizationId } from '../../tests/helpers/plugins'
+import { resetTestDatabase } from '../../tests/helpers/sql'
+import { Hub } from '../types'
+import { closeHub, createHub } from '../utils/hub'
+import { PostgresUse } from '../utils/postgres'
+import { UUIDT } from '../utils/utils'
+import { OrganizationManager } from './organization-manager'
 
 jest.mock('../../../src/utils/status')
 

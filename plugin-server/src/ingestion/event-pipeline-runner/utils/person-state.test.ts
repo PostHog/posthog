@@ -1,16 +1,16 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { Database, Hub, InternalPerson } from '../../../src/types'
-import { DependencyUnavailableError } from '../../../src/utils/db/error'
-import { closeHub, createHub } from '../../../src/utils/hub'
-import { PostgresUse } from '../../../src/utils/postgres'
-import { defaultRetryConfig } from '../../../src/utils/retries'
-import { UUIDT } from '../../../src/utils/utils'
-import { PersonState } from '../../../src/worker/ingestion/person-state'
-import { uuidFromDistinctId } from '../../../src/worker/ingestion/person-uuid'
-import { delayUntilEventIngested } from '../../helpers/clickhouse'
-import { createOrganization, createTeam, fetchPostgresPersons, insertRow } from '../../helpers/sql'
+import { delayUntilEventIngested } from '../../../../tests/helpers/clickhouse'
+import { createOrganization, createTeam, fetchPostgresPersons, insertRow } from '../../../../tests/helpers/sql'
+import { Database, Hub, InternalPerson } from '../../../types'
+import { DependencyUnavailableError } from '../../../utils/errors'
+import { closeHub, createHub } from '../../../utils/hub'
+import { PostgresUse } from '../../../utils/postgres'
+import { defaultRetryConfig } from '../../../utils/retries'
+import { UUIDT } from '../../../utils/utils'
+import { PersonState } from './person-state'
+import { uuidFromDistinctId } from './person-uuid'
 
 jest.setTimeout(30000)
 

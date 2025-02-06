@@ -1,16 +1,17 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { Group, Hub, Team } from '../../../src/types'
-import { DB } from '../../../src/utils/db/db'
-import { MessageSizeTooLarge } from '../../../src/utils/db/error'
-import { closeHub, createHub } from '../../../src/utils/hub'
-import { UUIDT } from '../../../src/utils/utils'
-import { upsertGroup } from '../../../src/worker/ingestion/properties-updater'
-import { createPromise } from '../../helpers/promises'
-import { getFirstTeam, resetTestDatabase } from '../../helpers/sql'
+import { createPromise } from '~/tests/helpers/promises'
+import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
-jest.mock('../../../src/utils/status')
+import { MessageSizeTooLarge } from '../../../kafka/producer'
+import { Group, Hub, Team } from '../../../types'
+// import { DB } from '../../../utils/db/db'
+import { closeHub, createHub } from '../../../utils/hub'
+import { UUIDT } from '../../../utils/utils'
+import { upsertGroup } from './groups-updater'
+
+jest.mock('../../../utils/status')
 
 describe('properties-updater', () => {
     let hub: Hub

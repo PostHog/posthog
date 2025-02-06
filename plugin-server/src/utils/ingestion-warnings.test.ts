@@ -1,7 +1,8 @@
-import { Hub, LogLevel } from '../../../src/types'
-import { closeHub, createHub } from '../../../src/utils/hub'
-import { captureIngestionWarning } from '../../../src/worker/ingestion/utils'
-import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
+import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '~/tests/helpers/clickhouse'
+
+import { Hub, LogLevel } from '../types'
+import { closeHub, createHub } from './hub'
+import { captureIngestionWarning } from './ingestion-warnings'
 
 jest.setTimeout(60000) // 60 sec timeout
 

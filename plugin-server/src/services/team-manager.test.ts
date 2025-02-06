@@ -1,9 +1,10 @@
 import { Settings } from 'luxon'
 
-import { defaultConfig } from '../../../src/config/config'
-import { PostgresRouter, PostgresUse } from '../../../src/utils/postgres'
-import { TeamManager } from '../../../src/worker/ingestion/team-manager'
-import { resetTestDatabase } from '../../helpers/sql'
+import { resetTestDatabase } from '~/tests/helpers/sql'
+
+import { defaultConfig } from '../config/config'
+import { PostgresRouter, PostgresUse } from '../utils/postgres'
+import { TeamManager } from './team-manager'
 
 jest.mock('../../../src/utils/status')
 jest.mock('../../../src/utils/posthog', () => ({
@@ -19,7 +20,7 @@ describe('TeamManager()', () => {
 
     beforeEach(async () => {
         await resetTestDatabase()
-        postgres = new PostgresRouter(defaultConfig, undefined)
+        postgres = new PostgresRouter(defaultConfig)
         teamManager = new TeamManager(postgres, defaultConfig)
         Settings.defaultZoneName = 'utc'
     })

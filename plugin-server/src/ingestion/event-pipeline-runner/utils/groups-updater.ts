@@ -4,8 +4,8 @@ import { DateTime } from 'luxon'
 import { KAFKA_GROUPS } from '../../../config/kafka-topics'
 import { MessageSizeTooLarge } from '../../../kafka/producer'
 import { GroupTypeIndex, Hub, RawGroup, TeamId, TimestampFormat } from '../../../types'
-import { PostgresUse } from '../../../utils/postgres'
 import { captureIngestionWarning } from '../../../utils/ingestion-warnings'
+import { PostgresUse } from '../../../utils/postgres'
 import { castTimestampOrNow, RaceConditionError } from '../../../utils/utils'
 interface PropertiesUpdate {
     updated: boolean
