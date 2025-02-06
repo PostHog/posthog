@@ -11,6 +11,7 @@
 !ee
 !frontend/@posthog
 !frontend/*.*
+!frontend/bin
 !frontend/public
 !frontend/src
 !frontend/types
