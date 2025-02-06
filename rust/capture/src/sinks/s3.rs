@@ -60,6 +60,14 @@ impl EventBuffer {
         self.event_count += 1;
         Ok(())
     }
+
+    fn should_flush(&self) -> bool {
+        !self.event_bytes.is_empty()
+            && (
+                self.event_bytes.len() >= MAX_BUFFER_SIZE
+             || self.time_elapsed.elapsed() >= FLUSH_INTERVAL
+            )
+    }
 }
 
 impl S3Sink {
@@ -105,11 +113,7 @@ impl S3Sink {
                 tokio::select! {
                     _ = sleep(Duration::from_millis(10)) => {
                         let mut buffer = s3sink.buffer.lock().await;
-                        let should_flush = !buffer.event_bytes.is_empty()
-                         && (buffer.event_bytes.len() >= MAX_BUFFER_SIZE ||
-                            buffer.time_elapsed.elapsed() >= FLUSH_INTERVAL);
-
-                        if should_flush {
+                        if buffer.should_flush() {
                             let mut old_buffer = {
                                 // Replace the current buffer with a brand-new one.
                                 std::mem::replace(&mut *buffer, EventBuffer::new())
@@ -127,6 +131,7 @@ impl S3Sink {
                         // force healthcheck at least every HEALTH_INTERVAL
                         if last_healthcheck.elapsed() >= HEALTH_INTERVAL {
                             s3sink.healthcheck().await;
+                            last_healthcheck = Instant::now();
                         }
                     }
                     _ = &mut shutdown_rx => {
