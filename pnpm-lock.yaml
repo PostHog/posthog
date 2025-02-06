@@ -583,6 +583,9 @@ importers:
       '@types/pngjs':
         specifier: ^6.0.1
         version: 6.0.1
+      '@types/prettier':
+        specifier: ^3.0.0
+        version: 3.0.0
       '@types/query-selector-shadow-dom':
         specifier: ^1.0.0
         version: 1.0.0
@@ -6262,6 +6265,10 @@ packages:
 
   '@types/prettier@2.7.3':
     resolution: {integrity: sha512-+68kP9yzs4LMp7VNh8gdzMSPZFL44MLGqiHWvttYJe+6qnuVr4Ek9wSBQoveqY/r+LwjCcU29kNVkidwim+kYA==}
+
+  '@types/prettier@3.0.0':
+    resolution: {integrity: sha512-mFMBfMOz8QxhYVbuINtswBp9VL2b4Y0QqYHwqLz3YbgtfAcat2Dl6Y1o4e22S/OVE6Ebl9m7wWiMT2lSbAs1wA==}
+    deprecated: This is a stub types definition. prettier provides its own type definitions, so you do not need this installed.
 
   '@types/pretty-hrtime@1.0.1':
     resolution: {integrity: sha512-VjID5MJb1eGKthz2qUerWT8+R4b9N+CHvGCzg9fn4kWZgaF9AhdYikQio3R7wV8YY1NsQKPaCwKz1Yff+aHNUQ==}
@@ -15151,8 +15158,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.217.0:
-    resolution: {integrity: sha512-kbKlUE/cOqz6EcepgbId1ymZM3UnlYDWIyNM1qG8gp4XkbXPYWRT/bYCMtXH/rdqmJ7cYblkBt5QLd9OZ08eYg==}
+  unlayer-types@1.218.0:
+    resolution: {integrity: sha512-86opZGOx5+weMRzUkIzdaAaV1+IUQf3MwUTWF5kfD99ZHxPD0JFMB+50DAPNi+8TnEZ2gzBQ0R5D+Ykc5ZjwyQ==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -23636,6 +23643,10 @@ snapshots:
       '@types/node': 18.18.4
 
   '@types/prettier@2.7.3': {}
+
+  '@types/prettier@3.0.0':
+    dependencies:
+      prettier: 3.4.2
 
   '@types/pretty-hrtime@1.0.1': {}
 
@@ -32627,7 +32638,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.217.0
+      unlayer-types: 1.218.0
 
   react-error-boundary@3.1.4(react@18.2.0):
     dependencies:
@@ -34694,7 +34705,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.217.0: {}
+  unlayer-types@1.218.0: {}
 
   unpipe@1.0.0: {}
 
