@@ -36,6 +36,12 @@ jest.mock('../../../src/kafka/producer', () => {
 
 export const mockProducer = require('../../../src/kafka/producer')._producer as KafkaProducerWrapper
 
+export const resetMockProducer = () => {
+    mockProducer.produce = jest.fn().mockReturnValue(Promise.resolve())
+    mockProducer.queueMessages = jest.fn().mockReturnValue(Promise.resolve())
+    mockProducer.flush = jest.fn().mockReturnValue(Promise.resolve())
+}
+
 export const getQueuedMessages = (): TopicMessage[] => {
     return jest.mocked(mockProducer).queueMessages.mock.calls.reduce((acc, call) => {
         return acc.concat(Array.isArray(call[0]) ? call[0] : [call[0]])
