@@ -4,20 +4,15 @@ import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 import { getDomain } from 'tldts'
 
-import { cookielessRedisErrorCounter, eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
-import { runInstrumentedFunction } from '../../../main/utils'
-import { CookielessConfig, CookielessServerHashMode, Hub } from '../../../types'
-import { ConcurrencyController } from '../../../utils/concurrencyController'
-import { DB } from '../../../utils/db/db'
-import { RedisOperationError } from '../../../utils/db/error'
-import { now } from '../../../utils/now'
-import {
-    base64StringToUint32ArrayLE,
-    createRandomUint32x4,
-    uint32ArrayLEToBase64String,
-    UUID7,
-} from '../../../utils/utils'
-import { toStartOfDayInTimezone, toYearMonthDayInTimezone } from '../timestamps'
+import { cookielessRedisErrorCounter, eventDroppedCounter } from '../../main/ingestion-queues/metrics'
+import { runInstrumentedFunction } from '../../main/utils'
+import { CookielessConfig, CookielessServerHashMode, Hub } from '../../types'
+import { ConcurrencyController } from '../concurrencyController'
+import { DB } from '../db/db'
+import { RedisOperationError } from '../db/error'
+import { now } from '../now'
+import { base64StringToUint32ArrayLE, createRandomUint32x4, uint32ArrayLEToBase64String, UUID7 } from '../utils'
+import { toStartOfDayInTimezone, toYearMonthDayInTimezone } from '../../worker/ingestion/timestamps'
 
 /* ---------------------------------------------------------------------
  * This pipeline step is used to get the distinct id and session id for events that are using the cookieless server hash mode.
@@ -177,10 +172,10 @@ export class CookielessSaltManager {
     }
 }
 
-export async function cookielessServerHashStep(hub: Hub, event: PluginEvent): Promise<[PluginEvent | undefined]> {
+export async function processCookielessEvent(hub: Hub, event: PluginEvent): Promise<PluginEvent | undefined> {
     // if events aren't using this mode, skip all processing
     if (!event.properties?.[COOKIELESS_MODE_FLAG_PROPERTY]) {
-        return [event]
+        return event
     }
 
     // if the killswitch is enabled, drop the event
@@ -191,7 +186,7 @@ export async function cookielessServerHashStep(hub: Hub, event: PluginEvent): Pr
                 drop_cause: 'cookieless_disabled_killswitch',
             })
             .inc()
-        return [undefined]
+        return undefined
     }
 
     try {
@@ -217,14 +212,18 @@ export async function cookielessServerHashStep(hub: Hub, event: PluginEvent): Pr
             })
         }
 
-        return [undefined]
+        return undefined
     }
+}
+
+export async function cookielessServerHashStep(hub: Hub, event: PluginEvent): Promise<[PluginEvent | undefined]> {
+    return [await processCookielessEvent(hub, event)]
 }
 
 async function cookielessServerHashStepInner(
     hub: Hub,
     event: PluginEvent & { properties: Properties }
-): Promise<[PluginEvent | undefined]> {
+): Promise<PluginEvent | undefined> {
     const config = hub.cookielessConfig
 
     // if the team isn't allowed to use this mode, drop the event
@@ -236,7 +235,7 @@ async function cookielessServerHashStepInner(
                 drop_cause: 'cookieless_disabled_team',
             })
             .inc()
-        return [undefined]
+        return undefined
     }
     const teamTimeZone = team.timezone
 
@@ -250,7 +249,7 @@ async function cookielessServerHashStepInner(
                 drop_cause: 'cookieless_no_timestamp',
             })
             .inc()
-        return [undefined]
+        return undefined
     }
     const { $session_id: sessionId, $device_id: deviceId } = event.properties
     if (sessionId != null || deviceId != null) {
@@ -260,7 +259,7 @@ async function cookielessServerHashStepInner(
                 drop_cause: sessionId != null ? 'cookieless_with_session_id' : 'cookieless_with_device_id',
             })
             .inc()
-        return [undefined]
+        return undefined
     }
 
     if (event.event === '$create_alias' || event.event === '$merge_dangerously') {
@@ -270,7 +269,7 @@ async function cookielessServerHashStepInner(
                 drop_cause: 'cookieless_unsupported_event_type',
             })
             .inc()
-        return [undefined]
+        return undefined
     }
 
     // if it's an identify event, it must have the sentinel distinct id
@@ -281,7 +280,7 @@ async function cookielessServerHashStepInner(
                 drop_cause: 'cookieless_missing_sentinel',
             })
             .inc()
-        return [undefined]
+        return undefined
     }
 
     const {
@@ -304,7 +303,7 @@ async function cookielessServerHashStepInner(
                     : 'cookieless_missing_host',
             })
             .inc()
-        return [undefined]
+        return undefined
     }
 
     if (
@@ -319,7 +318,7 @@ async function cookielessServerHashStepInner(
                     drop_cause: 'cookieless_stateless_unsupported_identify',
                 })
                 .inc()
-            return [undefined]
+            return undefined
         }
 
         const hashValue = await doHash(hub, {
@@ -343,7 +342,7 @@ async function cookielessServerHashStepInner(
             },
         }
         stripPIIProperties(newEvent)
-        return [newEvent]
+        return newEvent
     } else {
         // TRICKY: if a user were to log in and out, to avoid collisions, we would want a different hash value, so we store the set of identify event uuids for identifies
         // ASSUMPTION: all events are processed in order, for this to happen we need them to be in the same kafka topic at this point
@@ -449,7 +448,7 @@ async function cookielessServerHashStepInner(
 
         newEvent.properties = newProperties
         stripPIIProperties(newEvent)
-        return [newEvent]
+        return newEvent
     }
 }
 
