@@ -7,7 +7,6 @@ import { PostgresUse } from '~/src/utils/db/postgres'
 
 import { Response, trackedFetch } from '../../utils/fetch'
 import { status } from '../../utils/status'
-import { postgresGet } from '../../worker/vm/utils'
 import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { firstTimeEventTrackerPluginProcessEventAsync } from '../legacy-plugins/_transformations/first-time-event-tracker'
 import { firstTimeEventTrackerPlugin } from '../legacy-plugins/_transformations/first-time-event-tracker/template'
@@ -68,7 +67,7 @@ export class LegacyPluginExecutorService {
             if (typeof pluginConfigCheckCache[cacheKey] === 'undefined') {
                 // Check if the plugin config for that team exists
                 const result = await this.hub.db.postgres.query(
-                    PostgresUse.PLUGIN_STORAGE_RW,
+                    PostgresUse.COMMON_READ,
                     `SELECT * FROM posthog_pluginconfig as pc 
                    WHERE pc."team_id" = $1 AND pc."id" = $2
                    LIMIT 1`,
@@ -91,7 +90,7 @@ export class LegacyPluginExecutorService {
                     ON CONFLICT ("plugin_config_id", "key")
                     DO UPDATE SET value = $3
                 `,
-                [teamId, pluginConfigId, key, JSON.stringify(value)],
+                [pluginConfigId, key, JSON.stringify(value)],
                 `storageSet`
             )
         }

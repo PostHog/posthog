@@ -1,6 +1,8 @@
 import { LegacyTransformationPlugin } from '../../types'
+import { setupPlugin } from './index'
 
 export const firstTimeEventTrackerPlugin: LegacyTransformationPlugin = {
+    setupPlugin,
     // NOTE: This is a special case where the processEvent is not actually run.
     processEvent: (event) => event,
     template: {

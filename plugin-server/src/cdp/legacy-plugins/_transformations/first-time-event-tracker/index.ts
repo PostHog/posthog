@@ -2,13 +2,15 @@ import { PluginEvent, StorageExtension } from '@posthog/plugin-scaffold'
 
 import { LegacyTransformationPluginMeta } from '../../types'
 
+export function setupPlugin(meta: LegacyTransformationPluginMeta) {
+    meta.global.eventsToTrack = new Set(meta.config.events.split(','))
+}
+
 export async function firstTimeEventTrackerPluginProcessEventAsync(
     event: PluginEvent,
-    { config, global }: LegacyTransformationPluginMeta,
+    { global }: LegacyTransformationPluginMeta,
     storage: Pick<StorageExtension, 'get' | 'set'>
 ) {
-    global.eventsToTrack = global.eventsToTrack || new Set(config.events.split(','))
-
     if (global.eventsToTrack.has(event.event)) {
         if (!event.properties) {
             event.properties = {}

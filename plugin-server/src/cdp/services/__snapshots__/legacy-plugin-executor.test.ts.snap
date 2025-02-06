@@ -158,6 +158,13 @@ exports[`LegacyPluginExecutorService smoke tests should run the transformation p
 ]
 `;
 
+exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'plugin-first-time-event-tracker', plugin: [Object] } 1`] = `
+[
+  "Executing plugin plugin-first-time-event-tracker",
+  "Execution successful",
+]
+`;
+
 exports[`LegacyPluginExecutorService smoke tests should run the transformation plugin: { name: 'plugin-flatten-properties-plugin', plugin: [Object] } 1`] = `
 [
   "Executing plugin plugin-flatten-properties-plugin",
