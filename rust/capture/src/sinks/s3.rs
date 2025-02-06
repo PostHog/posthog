@@ -184,22 +184,19 @@ impl S3Sink {
 
     async fn do_flush(&self, buffer: &mut EventBuffer) -> Result<(), CaptureError> {
         let mut retries = 3;
-        let mut last_error = None;
 
-        while retries > 0 {
+        loop {
             match self.try_flush(buffer).await {
                 Ok(_) => return Ok(()),
                 Err(e) => {
-                    last_error = Some(e);
                     retries -= 1;
-                    if retries > 0 {
-                        sleep(Duration::from_millis(100 * (4 - retries))).await;
+                    if retries == 0 {
+                        return Err(e);
                     }
+                    sleep(Duration::from_millis(100 * (4 - retries))).await;
                 }
             }
         }
-
-        Err(last_error.unwrap_or(CaptureError::RetryableSinkError))
     }
 
     async fn try_flush(&self, buffer: &mut EventBuffer) -> Result<(), CaptureError> {
