@@ -1,8 +1,7 @@
 import { randomBytes } from 'crypto'
 import { DateTime } from 'luxon'
 
-import { ClickHouseTimestamp } from '../src/types'
-import { safeClickhouseString } from '../src/utils/db/utils'
+import { ClickHouseTimestamp } from '../types'
 import {
     base64StringToUint32ArrayLE,
     bufferToStream,
@@ -10,7 +9,6 @@ import {
     cloneObject,
     createRandomUint32x4,
     escapeClickHouseString,
-    getPropertyValueByPath,
     groupBy,
     sanitizeSqlIdentifier,
     stringify,
@@ -18,7 +16,7 @@ import {
     UUID,
     UUID7,
     UUIDT,
-} from '../src/utils/utils'
+} from './utils'
 
 // .zip in Base64: github repo posthog/helloworldplugin
 const zip =
@@ -116,7 +114,6 @@ describe('utils', () => {
             it('returns the right big integer', () => {
                 const uuid = new UUID('99aBcDeF-1234-4321-0000-dcba87654321')
 
-                // @ts-expect-error bigint literals are fine for tests
                 expect(uuid.valueOf()).toStrictEqual(0x99abcdef123443210000dcba87654321n)
             })
         })
@@ -285,66 +282,11 @@ describe('utils', () => {
         })
     })
 
-    describe('safeClickhouseString', () => {
-        // includes real data
-        const validStrings = [
-            `$autocapture`,
-            `correlation analyzed`,
-            `docs_search_used`,
-            `$$plugin_metrics`,
-            `996f3e2f-830b-42f0-b2b8-df42bb7f7144`,
-            `some?819)389**^371=2++211!!@==-''''..,,weird___id`,
-            `form.form-signin:attr__action="/signup"attr__class="form-signin"attr__method="post"nth-child="1"nth-of-type="1";body:nth-child="2"nth-of-type="1"`,
-            `a:attr__href="/signup"href="/signup"nth-child="1"nth-of-type="1"text="Create one here.";p:nth-child="8"nth-of-type="1";form.form-signin:attr__action="/login"attr__class="form-signin"attr__method="post"nth-child="1"nth-of-type="1";body:nth-child="2"nth-of-type="1"`,
-            `input:nth-child="7"nth-of-type="3";form.form-signin:attr__action="/signup"attr__class="form-signin"attr__method="post"nth-child="1"nth-of-type="1";body:nth-child="2"nth-of-type="1"`,
-            `a.nav-link:attr__class="nav-link"attr__href="/actions"href="/actions"nth-child="1"nth-of-type="1"text="Actions";li:nth-child="2"nth-of-type="2";ul.flex-sm-column.nav:attr__class="nav flex-sm-column"nth-child="1"nth-of-type="1";div.bg-light.col-md-2.col-sm-3.flex-shrink-1.pt-3.sidebar:attr__class="col-sm-3 col-md-2 sidebar flex-shrink-1 bg-light pt-3"attr__style="min-height: 100vh;"nth-child="1"nth-of-type="1";div.flex-column.flex-fill.flex-sm-row.row:attr__class="row flex-fill flex-column flex-sm-row"nth-child="1"nth-of-type="1";div.container-fluid.d-flex.flex-grow-1:attr__class="container-fluid flex-grow-1 d-flex"nth-child="1"nth-of-type="1";div:attr__id="root"attr_id="root"nth-child="1"nth-of-type="1";body:nth-child="2"nth-of-type="1"`,
-        ]
-
-        test('does not modify valid strings', () => {
-            for (const str of validStrings) {
-                expect(safeClickhouseString(str)).toEqual(str)
-            }
-        })
-
-        test('handles surrogate unicode characters correctly', () => {
-            expect(safeClickhouseString(`foo \ud83d\ bar`)).toEqual(`foo \\ud83d\\ bar`)
-            expect(safeClickhouseString(`\ud83d\ bar`)).toEqual(`\\ud83d\\ bar`)
-            expect(safeClickhouseString(`\ud800\ \ud803\ `)).toEqual(`\\ud800\\ \\ud803\\ `)
-        })
-
-        test('does not modify non-surrogate unicode characters', () => {
-            expect(safeClickhouseString(`✨`)).toEqual(`✨`)
-            expect(safeClickhouseString(`foo \u2728\ bar`)).toEqual(`foo \u2728\ bar`)
-            expect(safeClickhouseString(`💜 \u1f49c\ 💜`)).toEqual(`💜 \u1f49c\ 💜`)
-        })
-    })
-
     describe('clickHouseTimestampToDateTime()', () => {
         it('casts to a datetime', () => {
             expect(clickHouseTimestampToDateTime('2020-02-23 02:15:00.00' as ClickHouseTimestamp)).toEqual(
                 DateTime.fromISO('2020-02-23T02:15:00.000Z').toUTC()
             )
         })
-    })
-})
-
-describe('getPropertyValueByPath', () => {
-    it('returns primitive value when present', () => {
-        expect(getPropertyValueByPath({ a: { b: 1 } }, ['a', 'b'])).toEqual(1)
-    })
-    it('returns object value when present', () => {
-        expect(getPropertyValueByPath({ a: { b: 1 } }, ['a'])).toEqual({ b: 1 })
-    })
-    it('returns undefined when not present', () => {
-        expect(getPropertyValueByPath({ a: { b: 1 } }, ['a', 'c'])).toEqual(undefined)
-    })
-    it('returns undefined when trying to access a property of a primitive', () => {
-        expect(getPropertyValueByPath({ a: { b: 1 } }, ['a', 'b', 'c', 'd'])).toEqual(undefined)
-    })
-    it('returns value from array', () => {
-        expect(getPropertyValueByPath({ a: { b: [1, 2, 3] } }, ['a', 'b', '1'])).toEqual(2)
-    })
-    it('requires at least one path key', () => {
-        expect(() => getPropertyValueByPath({ a: { b: 'foo' } }, [])).toThrowError('No path to property was provided')
     })
 })

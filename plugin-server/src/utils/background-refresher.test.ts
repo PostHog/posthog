@@ -1,4 +1,4 @@
-import { BackgroundRefresher } from '../../src/utils/background-refresher'
+import { BackgroundRefresher } from './background-refresher'
 
 const realNow = Date.now
 

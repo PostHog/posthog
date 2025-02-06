@@ -1,6 +1,6 @@
 import { FetchError } from 'node-fetch'
 
-import { raiseIfUserProvidedUrlUnsafe } from '../../src/utils/fetch'
+import { raiseIfUserProvidedUrlUnsafe } from './fetch'
 
 test('raiseIfUserProvidedUrlUnsafe', async () => {
     // Sync test cases with posthog/api/test/test_utils.py
