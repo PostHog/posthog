@@ -56,8 +56,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/* && \
     corepack enable && \
     mkdir /tmp/pnpm-store && \
-    # Add undici as a dev dependency before the build
-    pnpm add -D undici@latest && \
+    pnpm add -D undici@5.28.2 && \
     pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
     cd ../common/plugin_transpiler && \
     pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
