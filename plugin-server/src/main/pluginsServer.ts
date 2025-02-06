@@ -22,7 +22,7 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 } from '../config/kafka-topics'
 import { IngestionConsumer } from '../ingestion/ingestion-consumer'
-import { Hub, PluginServerCapabilities, PluginServerService, PluginsServerConfig } from '../types'
+import { Hub, PluginServerCapabilities, PluginServerService, Config } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
 import { PostgresRouter } from '../utils/db/postgres'
 import { createRedisClient } from '../utils/db/redis'
@@ -53,12 +53,12 @@ const pluginServerStartupTimeMs = new Counter({
 })
 
 export async function startPluginsServer(
-    config: Partial<PluginsServerConfig>,
+    config: Partial<Config>,
     capabilities?: PluginServerCapabilities
 ): Promise<ServerInstance> {
     const timer = new Date()
 
-    const serverConfig: PluginsServerConfig = {
+    const serverConfig: Config = {
         ...defaultConfig,
         ...config,
     }
@@ -361,7 +361,7 @@ const startPreflightSchedules = (hub: Hub) => {
     })
 }
 
-function runStartupProfiles(config: PluginsServerConfig) {
+function runStartupProfiles(config: Config) {
     if (config.STARTUP_PROFILE_CPU) {
         status.info('🩺', `Collecting cpu profile...`)
         v8Profiler.setGenerateType(1)

@@ -6,15 +6,7 @@ import { TopicMessage } from '~/src/kafka/producer'
 
 import { defaultConfig } from '../../config/config'
 import { KAFKA_PERSON } from '../../config/kafka-topics'
-import {
-    BasePerson,
-    ClickHousePerson,
-    InternalPerson,
-    PluginLogEntryType,
-    PluginLogLevel,
-    RawPerson,
-    TimestampFormat,
-} from '../../types'
+import { BasePerson, ClickHousePerson, InternalPerson, RawPerson, TimestampFormat } from '../../types'
 import { status } from '../../utils/status'
 import { areMapsEqual, castTimestampOrNow } from '../../utils/utils'
 
@@ -204,21 +196,6 @@ export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDelet
 // Very useful for debugging queries
 export function getFinalPostgresQuery(queryString: string, values: any[]): string {
     return queryString.replace(/\$([0-9]+)/g, (m, v) => JSON.stringify(values[parseInt(v) - 1]))
-}
-
-export function shouldStoreLog(pluginLogLevel: PluginLogLevel, type: PluginLogEntryType): boolean {
-    switch (pluginLogLevel) {
-        case PluginLogLevel.Full:
-            return true
-        case PluginLogLevel.Log:
-            return type !== PluginLogEntryType.Debug
-        case PluginLogLevel.Info:
-            return type !== PluginLogEntryType.Log && type !== PluginLogEntryType.Debug
-        case PluginLogLevel.Warn:
-            return type === PluginLogEntryType.Warn || type === PluginLogEntryType.Error
-        case PluginLogLevel.Critical:
-            return type === PluginLogEntryType.Error
-    }
 }
 
 // keep in sync with posthog/posthog/api/utils.py::safe_clickhouse_string

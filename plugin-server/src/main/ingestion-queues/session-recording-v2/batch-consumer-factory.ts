@@ -1,6 +1,6 @@
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
-import { PluginsServerConfig } from '../../../types'
+import { Config } from '../../../types'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
 import { KAFKA_CONSUMER_SESSION_TIMEOUT_MS } from './constants'
 import { EachBatchHandler } from './types'
@@ -10,9 +10,9 @@ export interface BatchConsumerFactory {
 }
 
 export class DefaultBatchConsumerFactory implements BatchConsumerFactory {
-    private readonly kafkaConfig: PluginsServerConfig
+    private readonly kafkaConfig: Config
 
-    constructor(private readonly serverConfig: PluginsServerConfig) {
+    constructor(private readonly serverConfig: Config) {
         // TRICKY: We re-use the kafka helpers which assume KAFKA_HOSTS hence we overwrite it if set
         this.kafkaConfig = {
             ...serverConfig,

@@ -1,7 +1,7 @@
 import pino from 'pino'
 
 import { defaultConfig } from '../config/config'
-import { LogLevel, PluginsServerConfig } from '../types'
+import { LogLevel, Config } from '../types'
 import { isProdEnv } from './env-utils'
 
 export type StatusMethod = (icon: string, ...message: any[]) => void
@@ -84,7 +84,7 @@ export class Status implements StatusBlueprint {
         }
     }
 
-    updatePrompt(pluginServerMode: PluginsServerConfig['PLUGIN_SERVER_MODE']): void {
+    updatePrompt(pluginServerMode: Config['PLUGIN_SERVER_MODE']): void {
         this.prompt = promptForMode(pluginServerMode)
     }
 
@@ -94,7 +94,7 @@ export class Status implements StatusBlueprint {
     error = this.buildMethod('error')
 }
 
-function promptForMode(mode: PluginsServerConfig['PLUGIN_SERVER_MODE']): string {
+function promptForMode(mode: Config['PLUGIN_SERVER_MODE']): string {
     if (mode == null) {
         return 'MAIN'
     }

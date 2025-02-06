@@ -6,13 +6,7 @@ import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 import { Readable } from 'stream'
 
-import {
-    ClickHouseTimestamp,
-    ClickHouseTimestampSecondPrecision,
-    ISOTimestamp,
-    Plugin,
-    TimestampFormat,
-} from '../types'
+import { ClickHouseTimestamp, ClickHouseTimestampSecondPrecision, ISOTimestamp, TimestampFormat } from '../types'
 import { status } from './status'
 
 /** Time until autoexit (due to error) gives up on graceful exit and kills the process right away. */
@@ -402,21 +396,6 @@ export async function tryTwice<T>(callback: () => Promise<T>, errorMessage: stri
         // try one more time
         return await callback()
     }
-}
-
-export function pluginDigest(plugin: Plugin | Plugin['id'], teamId?: number): string {
-    if (typeof plugin === 'number') {
-        return `plugin ID ${plugin} (unknown)`
-    }
-    const extras = []
-    if (teamId) {
-        extras.push(`team ID ${teamId}`)
-    }
-    extras.push(`organization ID ${plugin.organization_id}`)
-    if (plugin.is_global) {
-        extras.push('global')
-    }
-    return `plugin ${plugin.name} ID ${plugin.id} (${extras.join(' - ')})`
 }
 
 export function createPostgresPool(

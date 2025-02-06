@@ -1,16 +1,13 @@
 import ClickHouse from '@posthog/clickhouse'
 import { CacheOptions, Properties } from '@posthog/plugin-scaffold'
-import { captureException } from '@sentry/node'
 import { Pool as GenericPool } from 'generic-pool'
 import Redis from 'ioredis'
 import { DateTime } from 'luxon'
 import { QueryResult } from 'pg'
 
-import { KAFKA_GROUPS, KAFKA_PERSON_DISTINCT_ID, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
+import { KAFKA_GROUPS, KAFKA_PERSON_DISTINCT_ID } from '../../config/kafka-topics'
 import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
 import {
-    Action,
-    ClickHouseEvent,
     ClickhouseGroup,
     ClickHousePerson,
     ClickHousePersonDistinctId2,
@@ -18,7 +15,6 @@ import {
     Cohort,
     CohortPeople,
     Database,
-    DeadLetterQueueEvent,
     EventDefinitionType,
     EventPropertyType,
     Group,
@@ -27,17 +23,9 @@ import {
     InternalPerson,
     OrganizationMembershipLevel,
     PersonDistinctId,
-    Plugin,
-    PluginConfig,
-    PluginLogEntry,
-    PluginLogEntrySource,
-    PluginLogEntryType,
-    PluginLogLevel,
-    ProjectId,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
     PropertyDefinitionType,
-    RawClickHouseEvent,
     RawGroup,
     RawOrganization,
     RawPerson,
@@ -48,7 +36,6 @@ import {
 } from '../../types'
 import { fetchOrganization } from '../../worker/ingestion/organization-manager'
 import { fetchTeam, fetchTeamByToken } from '../../worker/ingestion/team-manager'
-import { parseRawClickHouseEvent } from '../event'
 import { instrumentQuery } from '../metrics'
 import { status } from '../status'
 import {
@@ -58,42 +45,12 @@ import {
     RaceConditionError,
     sanitizeSqlIdentifier,
     tryTwice,
-    UUID,
     UUIDT,
 } from '../utils'
-import { OrganizationPluginsAccessLevel } from './../../types'
 import { RedisOperationError } from './error'
-import { personUpdateVersionMismatchCounter, pluginLogEntryCounter } from './metrics'
+import { personUpdateVersionMismatchCounter } from './metrics'
 import { PostgresRouter, PostgresUse, TransactionClient } from './postgres'
-import {
-    generateKafkaPersonUpdateMessage,
-    safeClickhouseString,
-    sanitizeJsonbValue,
-    shouldStoreLog,
-    timeoutGuard,
-    unparsePersonPartial,
-} from './utils'
-
-export interface LogEntryPayload {
-    pluginConfig: PluginConfig
-    source: PluginLogEntrySource
-    type: PluginLogEntryType
-    message: string
-    instanceId: UUID
-    timestamp?: string | null
-}
-
-export interface ParsedLogEntry {
-    id: string
-    team_id: number
-    plugin_id: number
-    plugin_config_id: number
-    timestamp: string
-    source: PluginLogEntrySource
-    type: PluginLogEntryType
-    message: string
-    instance_id: string
-}
+import { generateKafkaPersonUpdateMessage, sanitizeJsonbValue, timeoutGuard, unparsePersonPartial } from './utils'
 
 export interface CreateUserPayload {
     uuid: UUIDT
@@ -150,9 +107,6 @@ export class DB {
     /** ClickHouse used for syncing Postgres and ClickHouse person data. */
     clickhouse: ClickHouse
 
-    /** Default log level for plugins that don't specify it */
-    pluginsDefaultLogLevel: PluginLogLevel
-
     /** How many seconds to keep person info in Redis cache */
     PERSONS_AND_GROUPS_CACHE_TTL: number
 
@@ -161,14 +115,12 @@ export class DB {
         redisPool: GenericPool<Redis.Redis>,
         kafkaProducer: KafkaProducerWrapper,
         clickhouse: ClickHouse,
-        pluginsDefaultLogLevel: PluginLogLevel,
         personAndGroupsCacheTtl = 1
     ) {
         this.postgres = postgres
         this.redisPool = redisPool
         this.kafkaProducer = kafkaProducer
         this.clickhouse = clickhouse
-        this.pluginsDefaultLogLevel = pluginsDefaultLogLevel
         this.PERSONS_AND_GROUPS_CACHE_TTL = personAndGroupsCacheTtl
     }
 
@@ -1003,21 +955,6 @@ export class DB {
 
     // Event (NOTE: not a Django model, stored in ClickHouse table `events`)
 
-    public async fetchEvents(): Promise<ClickHouseEvent[]> {
-        const queryResult = await this.clickhouseQuery<RawClickHouseEvent>(
-            `SELECT * FROM events ORDER BY timestamp ASC`
-        )
-        return queryResult.data.map(parseRawClickHouseEvent)
-    }
-
-    public async fetchDeadLetterQueueEvents(): Promise<DeadLetterQueueEvent[]> {
-        const result = await this.clickhouseQuery(`SELECT * FROM events_dead_letter_queue ORDER BY _timestamp ASC`)
-        const events = result.data as DeadLetterQueueEvent[]
-        return events
-    }
-
-    // SessionRecordingEvent
-
     public async fetchSessionRecordingEvents(): Promise<RawSessionRecordingEvent[]> {
         const events = (
             await this.clickhouseQuery<RawSessionRecordingEvent>(`SELECT * FROM session_recording_events`)
@@ -1028,13 +965,6 @@ export class DB {
             }
         })
         return events
-    }
-
-    // PluginLogEntry (NOTE: not a Django model, stored in ClickHouse table `plugin_log_entries`)
-
-    public async fetchPluginLogEntries(): Promise<PluginLogEntry[]> {
-        const queryResult = await this.clickhouseQuery(`SELECT * FROM plugin_log_entries`)
-        return queryResult.data as PluginLogEntry[]
     }
 
     // EventDefinition
@@ -1319,62 +1249,5 @@ export class DB {
         SELECT group_type_index, group_key, created_at, team_id, group_properties FROM groups FINAL
         `
         return (await this.clickhouseQuery(query)).data as ClickhouseGroup[]
-    }
-
-    public async getTeamsInOrganizationsWithRootPluginAccess(): Promise<Team[]> {
-        const selectResult = await this.postgres.query<Team>(
-            PostgresUse.COMMON_READ,
-            'SELECT * from posthog_team WHERE organization_id = (SELECT id from posthog_organization WHERE plugins_access_level = $1)',
-            [OrganizationPluginsAccessLevel.ROOT],
-            'getTeamsInOrganizationsWithRootPluginAccess'
-        )
-        for (const row of selectResult.rows) {
-            // pg returns int8 as a string, since it can be larger than JS's max safe integer,
-            // but this is not a problem for project_id, which is a long long way from that limit.
-            row.project_id = Number(row.project_id) as ProjectId
-        }
-        return selectResult.rows
-    }
-
-    public async addOrUpdatePublicJob(
-        pluginId: number,
-        jobName: string,
-        jobPayloadJson: Record<string, any>
-    ): Promise<void> {
-        await this.postgres.transaction(PostgresUse.COMMON_WRITE, 'addOrUpdatePublicJob', async (tx) => {
-            let publicJobs: Record<string, any> = (
-                await this.postgres.query(
-                    tx,
-                    'SELECT public_jobs FROM posthog_plugin WHERE id = $1 FOR UPDATE',
-                    [pluginId],
-                    'selectPluginPublicJobsForUpdate'
-                )
-            ).rows[0]?.public_jobs
-
-            if (
-                !publicJobs ||
-                !(jobName in publicJobs) ||
-                JSON.stringify(publicJobs[jobName]) !== JSON.stringify(jobPayloadJson)
-            ) {
-                publicJobs = { ...publicJobs, [jobName]: jobPayloadJson }
-
-                await this.postgres.query(
-                    tx,
-                    'UPDATE posthog_plugin SET public_jobs = $1 WHERE id = $2',
-                    [JSON.stringify(publicJobs), pluginId],
-                    'updatePublicJob'
-                )
-            }
-        })
-    }
-
-    public async getPluginSource(pluginId: Plugin['id'], filename: string): Promise<string | null> {
-        const { rows }: { rows: { source: string }[] } = await this.postgres.query(
-            PostgresUse.COMMON_READ,
-            `SELECT source FROM posthog_pluginsourcefile WHERE plugin_id = $1 AND filename = $2`,
-            [pluginId, filename],
-            'getPluginSource'
-        )
-        return rows[0]?.source ?? null
     }
 }

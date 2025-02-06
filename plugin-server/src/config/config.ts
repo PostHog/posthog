@@ -1,11 +1,4 @@
-import {
-    CookielessConfig,
-    LogLevel,
-    PluginLogLevel,
-    PluginsServerConfig,
-    stringToPluginServerMode,
-    ValueMatcher,
-} from '../types'
+import { Config, CookielessConfig, LogLevel, stringToPluginServerMode, ValueMatcher } from '../types'
 import { isDevEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
 import {
     KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
@@ -20,7 +13,7 @@ export const DEFAULT_HTTP_SERVER_PORT = 6738
 
 export const defaultConfig = overrideWithEnv(getDefaultConfig())
 
-export function getDefaultConfig(): PluginsServerConfig {
+export function getDefaultConfig(): Config {
     return {
         DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
@@ -87,7 +80,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         INGESTION_BATCH_SIZE: 500,
         INGESTION_OVERFLOW_ENABLED: false,
         INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: false,
-        PLUGINS_DEFAULT_LOG_LEVEL: isTestEnv() ? PluginLogLevel.Full : PluginLogLevel.Log,
         LOG_LEVEL: isTestEnv() ? LogLevel.Warn : LogLevel.Info,
         SENTRY_DSN: null,
         SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: 0,
@@ -114,8 +106,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password',
         OBJECT_STORAGE_BUCKET: 'posthog',
         PLUGIN_SERVER_MODE: null,
-        PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: null,
-        PLUGIN_LOAD_SEQUENTIALLY: false,
         KAFKAJS_LOG_LEVEL: 'WARN',
         MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: 0,
         USE_KAFKA_FOR_SCHEDULED_TASKS: true,
@@ -124,8 +114,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
         DROP_EVENTS_BY_TOKEN: '',
         SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: '',
-        PIPELINE_STEP_STALLED_LOG_TIMEOUT: 30,
-        RELOAD_PLUGIN_JITTER_MAX_MS: 60000,
         RUSTY_HOOK_FOR_TEAMS: '',
         RUSTY_HOOK_ROLLOUT_PERCENTAGE: 0,
         RUSTY_HOOK_URL: '',
@@ -238,10 +226,7 @@ export function getDefaultConfig(): PluginsServerConfig {
     }
 }
 
-export function overrideWithEnv(
-    config: PluginsServerConfig,
-    env: Record<string, string | undefined> = process.env
-): PluginsServerConfig {
+export function overrideWithEnv(config: Config, env: Record<string, string | undefined> = process.env): Config {
     const defaultConfig = getDefaultConfig() as any // to make typechecker happy to use defaultConfig[key]
 
     const tmpConfig: any = { ...config }
@@ -263,7 +248,7 @@ export function overrideWithEnv(
             }
         }
     }
-    const newConfig: PluginsServerConfig = { ...tmpConfig }
+    const newConfig: Config = { ...tmpConfig }
 
     if (!newConfig.DATABASE_URL && !newConfig.POSTHOG_DB_NAME) {
         throw Error(
@@ -319,7 +304,7 @@ export function buildStringMatcher(config: string | undefined, allowStar: boolea
     }
 }
 
-export const createCookielessConfig = (config: PluginsServerConfig): CookielessConfig => {
+export const createCookielessConfig = (config: Config): CookielessConfig => {
     return {
         disabled: config.COOKIELESS_DISABLED,
         forceStatelessMode: config.COOKIELESS_FORCE_STATELESS_MODE,

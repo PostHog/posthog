@@ -1,20 +1,9 @@
 import { ReaderModel } from '@maxmind/geoip2-node'
 import ClickHouse from '@posthog/clickhouse'
-import {
-    Element,
-    PluginAttachment,
-    PluginConfigSchema,
-    PluginEvent,
-    PluginSettings,
-    PostHogEvent,
-    ProcessedPluginEvent,
-    Properties,
-    Webhook,
-} from '@posthog/plugin-scaffold'
+import { Element, PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
 import { Redis } from 'ioredis'
 import { DateTime } from 'luxon'
-import { VM } from 'vm2'
 
 import { EncryptedFields } from './cdp/encryption-utils'
 import { BatchConsumer } from './kafka/batch-consumer'
@@ -132,7 +121,7 @@ export type IngestionConsumerConfig = {
     INGESTION_CONSUMER_OVERFLOW_TOPIC?: string
 }
 
-export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig {
+export interface Config extends CdpConfig, IngestionConsumerConfig {
     TASKS_PER_WORKER: number // number of parallel tasks per worker thread
     INGESTION_CONCURRENCY: number // number of parallel event ingestion queues per batch
     INGESTION_BATCH_SIZE: number // kafka consumer batch size
@@ -208,7 +197,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     APP_METRICS_FLUSH_MAX_QUEUE_SIZE: number
     BASE_DIR: string // base path for resolving local plugins
     PLUGINS_RELOAD_PUBSUB_CHANNEL: string // Redis channel for reload events'
-    PLUGINS_DEFAULT_LOG_LEVEL: PluginLogLevel
     LOG_LEVEL: LogLevel
     SENTRY_DSN: string | null
     SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: number // Rate of tracing in plugin server (between 0 and 1)
@@ -218,7 +206,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     DISABLE_MMDB: boolean // whether to disable fetching MaxMind database for IP location
     DISTINCT_ID_LRU_SIZE: number
     EVENT_PROPERTY_LRU_SIZE: number // size of the event property tracker's LRU cache (keyed by [team.id, event])
-    CRASH_IF_NO_PERSISTENT_JOB_QUEUE: boolean // refuse to start unless there is a properly configured persistent job queue (e.g. graphile)
     HEALTHCHECK_MAX_STALE_SECONDS: number // maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails
     SITE_URL: string | null
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number // (advanced) how many kafka partitions the plugin server should consume from concurrently
@@ -231,8 +218,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     OBJECT_STORAGE_SECRET_ACCESS_KEY: string
     OBJECT_STORAGE_BUCKET: string // the object storage bucket name
     PLUGIN_SERVER_MODE: PluginServerMode | null
-    PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: string | null // TODO: shouldn't be a string probably
-    PLUGIN_LOAD_SEQUENTIALLY: boolean // could help with reducing memory usage spikes on startup
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
     MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: number
     USE_KAFKA_FOR_SCHEDULED_TASKS: boolean // distribute scheduled tasks across the scheduler workers
@@ -244,13 +229,11 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
     DROP_EVENTS_BY_TOKEN: string
     SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: string
-    RELOAD_PLUGIN_JITTER_MAX_MS: number
     RUSTY_HOOK_FOR_TEAMS: string
     RUSTY_HOOK_ROLLOUT_PERCENTAGE: number
     RUSTY_HOOK_URL: string
     HOG_HOOK_URL: string
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
-    PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
     CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
 
     // dump profiles to disk, covering the first N seconds of runtime
@@ -326,7 +309,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: string
 }
 
-export interface Hub extends PluginsServerConfig {
+export interface Hub extends Config {
     instanceId: UUID
     // what tasks this server will tackle - e.g. ingestion, scheduled plugins or others.
     capabilities: PluginServerCapabilities
@@ -356,16 +339,8 @@ export interface Hub extends PluginsServerConfig {
 export interface PluginServerCapabilities {
     // Warning: when adding more entries, make sure to update worker/vm/capabilities.ts
     // and the shouldSetupPluginInServer() test accordingly.
-    ingestion?: boolean
-    ingestionOverflow?: boolean
-    ingestionHistorical?: boolean
-    eventsIngestionPipelines?: boolean
     ingestionV2Combined?: boolean
     ingestionV2?: boolean
-    pluginScheduledTasks?: boolean
-    processPluginJobs?: boolean
-    processAsyncOnEventHandlers?: boolean
-    processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestion?: boolean
     sessionRecordingBlobOverflowIngestion?: boolean
     sessionRecordingBlobIngestionV2?: boolean
@@ -379,31 +354,8 @@ export interface PluginServerCapabilities {
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
     http?: boolean
     mmdb?: boolean
-    syncInlinePlugins?: boolean
 }
 
-export type EnqueuedJob = EnqueuedPluginJob | GraphileWorkerCronScheduleJob
-export interface EnqueuedPluginJob {
-    type: string
-    payload: Record<string, any>
-    timestamp: number
-    pluginConfigId: number
-    pluginConfigTeam: number
-    jobKey?: string
-}
-
-export interface GraphileWorkerCronScheduleJob {
-    timestamp?: number
-    jobKey?: string
-}
-
-export enum JobName {
-    PLUGIN_JOB = 'pluginJob',
-    BUFFER_JOB = 'bufferJob',
-}
-
-export type PluginId = Plugin['id']
-export type PluginConfigId = PluginConfig['id']
 export type TeamId = Team['id']
 /**
  * An integer, just like team ID. In fact project ID = ID of its first team, the one was created along with the project.
@@ -411,186 +363,10 @@ export type TeamId = Team['id']
  */
 export type ProjectId = Team['id'] & { __brand: 'ProjectId' }
 
-export enum MetricMathOperations {
-    Increment = 'increment',
-    Max = 'max',
-    Min = 'min',
-}
-
-export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
-export type StoredPluginMetrics = Record<string, StoredMetricMathOperations> | null
-export type PluginMetricsVmResponse = Record<string, string> | null
-
-export interface JobPayloadFieldOptions {
-    type: 'string' | 'boolean' | 'json' | 'number' | 'date' | 'daterange'
-    title?: string
-    required?: boolean
-    default?: any
-    staff_only?: boolean
-}
-
-export interface JobSpec {
-    payload?: Record<string, JobPayloadFieldOptions>
-}
-
-export interface Plugin {
-    id: number
-    organization_id?: string
-    name: string
-    plugin_type: 'local' | 'respository' | 'custom' | 'source' | 'inline'
-    description?: string
-    is_global: boolean
-    is_preinstalled?: boolean
-    url?: string
-    config_schema?: Record<string, PluginConfigSchema> | PluginConfigSchema[]
-    tag?: string
-    /** Cached source for plugin.json from a joined PluginSourceFile query */
-    source__plugin_json?: string
-    /** Cached source for index.ts from a joined PluginSourceFile query */
-    source__index_ts?: string
-    /** Cached source for frontend.tsx from a joined PluginSourceFile query */
-    source__frontend_tsx?: string
-    /** Cached source for site.ts from a joined PluginSourceFile query */
-    source__site_ts?: string
-    error?: PluginError
-    from_json?: boolean
-    from_web?: boolean
-    created_at?: string
-    updated_at?: string
-    capabilities?: PluginCapabilities
-    metrics?: StoredPluginMetrics
-    is_stateless?: boolean
-    public_jobs?: Record<string, JobSpec>
-    log_level?: PluginLogLevel
-}
-
-export interface PluginCapabilities {
-    jobs?: string[]
-    scheduled_tasks?: string[]
-    methods?: string[]
-}
-
-export enum PluginMethod {
-    onEvent = 'onEvent',
-    composeWebhook = 'composeWebhook',
-}
-
-export interface PluginConfig {
-    id: number
-    team_id: TeamId
-    plugin?: Plugin
-    plugin_id: PluginId
-    enabled: boolean
-    order: number
-    config: Record<string, unknown>
-    attachments?: Record<string, PluginAttachment>
-    created_at: string
-    updated_at?: string
-    // We're migrating to a new functions that take PostHogEvent instead of PluginEvent
-    // we'll need to know which method this plugin is using to call it the right way
-    // undefined for old plugins with multiple or deprecated methods
-    method?: PluginMethod
-}
-
-export interface PluginJsonConfig {
-    name?: string
-    description?: string
-    url?: string
-    main?: string
-    lib?: string
-    config?: Record<string, PluginConfigSchema> | PluginConfigSchema[]
-}
-
-export interface PluginError {
-    message: string
-    time: string
-    name?: string
-    stack?: string
-    event?: PluginEvent | ProcessedPluginEvent | PostHogEvent | null
-}
-
-export interface PluginAttachmentDB {
-    id: number
-    team_id: TeamId | null
-    plugin_config_id: PluginConfigId | null
-    key: string
-    content_type: string
-    file_size: number | null
-    file_name: string
-    contents: Buffer | null
-}
-
-export enum PluginLogEntrySource {
-    System = 'SYSTEM',
-    Plugin = 'PLUGIN',
-    Console = 'CONSOLE',
-}
-
-export enum PluginLogEntryType {
-    Debug = 'DEBUG',
-    Log = 'LOG',
-    Info = 'INFO',
-    Warn = 'WARN',
-    Error = 'ERROR',
-}
-
-export enum PluginLogLevel {
-    Full = 0, // all logs
-    Log = 1, // all except debug
-    Info = 2, // all expect log and debug
-    Warn = 3, // all except log, debug and info
-    Critical = 4, // only error type and system source
-}
-
 export enum CookielessServerHashMode {
     Disabled = 0,
     Stateless = 1,
     Stateful = 2,
-}
-
-export interface PluginLogEntry {
-    id: string
-    team_id: number
-    plugin_id: number
-    plugin_config_id: number
-    timestamp: string
-    source: PluginLogEntrySource
-    type: PluginLogEntryType
-    message: string
-    instance_id: string
-}
-
-export enum PluginTaskType {
-    Job = 'job',
-    Schedule = 'schedule',
-}
-
-export interface PluginTask {
-    name: string
-    type: PluginTaskType
-    exec: (payload?: Record<string, any>) => Promise<any>
-
-    __ignoreForAppMetrics?: boolean
-}
-
-export type PluginMethods = {
-    setupPlugin?: () => Promise<void>
-    teardownPlugin?: () => Promise<void>
-    getSettings?: () => PluginSettings
-    onEvent?: (event: ProcessedPluginEvent) => Promise<void>
-    composeWebhook?: (event: PostHogEvent) => Webhook | null
-    processEvent?: (event: PluginEvent) => Promise<PluginEvent>
-}
-
-// Helper when ensuring that a required method is implemented
-export type PluginMethodsConcrete = Required<PluginMethods>
-
-export enum AlertLevel {
-    P0 = 0,
-    P1 = 1,
-    P2 = 2,
-    P3 = 3,
-    P4 = 4,
 }
 
 export enum Service {
@@ -600,26 +376,6 @@ export enum Service {
     Postgres = 'postgres',
     ClickHouse = 'clickhouse',
     Kafka = 'kafka',
-}
-export interface Alert {
-    id: string
-    level: AlertLevel
-    key: string
-    description?: string
-    trigger_location: Service
-}
-export interface PluginConfigVMResponse {
-    vm: VM
-    methods: PluginMethods
-    tasks: Record<PluginTaskType, Record<string, PluginTask>>
-    vmResponseVariable: string
-    usedImports: Set<string>
-}
-
-export interface EventUsage {
-    event: string
-    usage_count: number | null
-    volume: number | null
 }
 
 export interface PropertyUsage {
@@ -665,7 +421,7 @@ export interface Team {
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */
-export interface BaseEventMessage {
+interface BaseEventMessage {
     distinct_id: string
     ip: string
     site_url: string
@@ -1032,48 +788,6 @@ export enum StringMatching {
     Exact = 'exact',
 }
 
-export interface ActionStep {
-    tag_name: string | null
-    text: string | null
-    /** @default StringMatching.Exact */
-    text_matching: StringMatching | null
-    href: string | null
-    /** @default StringMatching.Exact */
-    href_matching: StringMatching | null
-    selector: string | null
-    url: string | null
-    /** @default StringMatching.Contains */
-    url_matching: StringMatching | null
-    event: string | null
-    properties: PropertyFilter[] | null
-}
-
-/** Raw Action row from database. */
-export interface RawAction {
-    id: number
-    team_id: TeamId
-    name: string | null
-    description: string
-    created_at: string
-    created_by_id: number | null
-    deleted: boolean
-    post_to_slack: boolean
-    slack_message_format: string
-    is_calculating: boolean
-    updated_at: string
-    last_calculated_at: string
-    steps_json: ActionStep[] | null
-    bytecode: any[] | null
-    bytecode_error: string | null
-    pinned_at: string | null
-}
-
-/** Usable Action model. */
-export interface Action extends Omit<RawAction, 'steps_json'> {
-    steps: ActionStep[]
-    hooks: Hook[]
-}
-
 /** Raw session recording event row from ClickHouse. */
 export interface RawSessionRecordingEvent {
     uuid: string
@@ -1105,20 +819,6 @@ export enum Database {
     ClickHouse = 'clickhouse',
     Postgres = 'postgres',
 }
-
-export interface PluginScheduleControl {
-    stopSchedule: () => Promise<void>
-    reloadSchedule: () => Promise<void>
-}
-
-export interface JobsConsumerControl {
-    stop: () => Promise<void>
-    resume: () => Promise<void>
-}
-
-export type IngestEventResponse =
-    | { success: true; actionMatches: Action[]; preIngestionEvent: PreIngestionEvent | null }
-    | { success: false; error: string }
 
 export interface EventDefinitionType {
     id: string
@@ -1185,15 +885,6 @@ export type GroupTypeToColumnIndex = Record<string, GroupTypeIndex>
 export enum PropertyUpdateOperation {
     Set = 'set',
     SetOnce = 'set_once',
-}
-
-export type StatelessInstanceMap = Record<PluginId, PluginInstance>
-
-export enum OrganizationPluginsAccessLevel {
-    NONE = 0,
-    CONFIG = 3,
-    INSTALL = 6,
-    ROOT = 9,
 }
 
 export enum OrganizationMembershipLevel {

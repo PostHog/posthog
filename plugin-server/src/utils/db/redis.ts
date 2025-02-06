@@ -2,7 +2,7 @@ import * as Sentry from '@sentry/node'
 import { createPool } from 'generic-pool'
 import Redis, { RedisOptions } from 'ioredis'
 
-import { PluginsServerConfig, RedisPool } from '../../types'
+import { Config, RedisPool } from '../../types'
 import { status } from '../../utils/status'
 import { killGracefully } from '../../utils/utils'
 
@@ -12,7 +12,7 @@ const REDIS_ERROR_COUNTER_LIMIT = 10
 export type REDIS_SERVER_KIND = 'posthog' | 'ingestion' | 'session-recording'
 
 export function getRedisConnectionOptions(
-    serverConfig: PluginsServerConfig,
+    serverConfig: Config,
     kind: REDIS_SERVER_KIND
 ): {
     url: string
@@ -59,7 +59,7 @@ export function getRedisConnectionOptions(
     }
 }
 
-export async function createRedis(serverConfig: PluginsServerConfig, kind: REDIS_SERVER_KIND): Promise<Redis.Redis> {
+export async function createRedis(serverConfig: Config, kind: REDIS_SERVER_KIND): Promise<Redis.Redis> {
     const { url, options } = getRedisConnectionOptions(serverConfig, kind)
     return createRedisClient(url, options)
 }
@@ -90,7 +90,7 @@ export async function createRedisClient(url: string, options?: RedisOptions): Pr
     return redis
 }
 
-export function createRedisPool(options: PluginsServerConfig, kind: REDIS_SERVER_KIND): RedisPool {
+export function createRedisPool(options: Config, kind: REDIS_SERVER_KIND): RedisPool {
     return createPool<Redis.Redis>(
         {
             create: () => createRedis(options, kind),

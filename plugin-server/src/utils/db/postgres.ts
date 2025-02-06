@@ -2,7 +2,7 @@
 
 import { Client, Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow } from 'pg'
 
-import { PluginsServerConfig } from '../../types'
+import { Config } from '../../types'
 import { instrumentQuery } from '../../utils/metrics'
 import { status } from '../status'
 import { createPostgresPool } from '../utils'
@@ -29,7 +29,7 @@ export class TransactionClient {
 export class PostgresRouter {
     private pools: Map<PostgresUse, Pool>
 
-    constructor(serverConfig: PluginsServerConfig) {
+    constructor(serverConfig: Config) {
         const app_name = serverConfig.PLUGIN_SERVER_MODE ?? 'unknown'
         status.info('🤔', `Connecting to common Postgresql...`)
         const commonClient = createPostgresPool(

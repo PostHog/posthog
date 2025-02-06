@@ -1,7 +1,7 @@
 import { captureException } from '@sentry/node'
 import { Redis } from 'ioredis'
 
-import { PluginsServerConfig } from '../types'
+import { Config } from '../types'
 import { createRedis } from './db/redis'
 import { status } from './status'
 
@@ -12,12 +12,12 @@ export interface PubSubTaskMap {
 }
 
 export class PubSub {
-    private serverConfig: PluginsServerConfig
+    private serverConfig: Config
     private redisSubscriber?: Redis
     private redisPublisher?: Promise<Redis>
     public taskMap: PubSubTaskMap
 
-    constructor(serverConfig: PluginsServerConfig, taskMap: PubSubTaskMap = {}) {
+    constructor(serverConfig: Config, taskMap: PubSubTaskMap = {}) {
         this.serverConfig = serverConfig
         this.taskMap = taskMap
     }

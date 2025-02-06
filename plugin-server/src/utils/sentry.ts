@@ -6,7 +6,7 @@ import { Span, SpanContext, TransactionContext } from '@sentry/types'
 import { timestampWithMs } from '@sentry/utils'
 import { AsyncLocalStorage } from 'node:async_hooks'
 
-import { PluginsServerConfig } from '../types'
+import { Config } from '../types'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -14,7 +14,7 @@ require('@sentry/tracing')
 const asyncLocalStorage = new AsyncLocalStorage<Span>()
 
 // Code that runs on app start, in both the main and worker threads
-export function initSentry(config: PluginsServerConfig): void {
+export function initSentry(config: Config): void {
     if (config.SENTRY_DSN) {
         const integrations = []
         if (config.SENTRY_PLUGIN_SERVER_PROFILING_SAMPLE_RATE > 0) {
@@ -38,7 +38,6 @@ export function initSentry(config: PluginsServerConfig): void {
                 tags: {
                     PLUGIN_SERVER_MODE: config.PLUGIN_SERVER_MODE,
                     DEPLOYMENT: config.CLOUD_DEPLOYMENT,
-                    PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: config.PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE,
                 },
             },
             release,

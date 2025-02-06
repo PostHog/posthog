@@ -1,6 +1,6 @@
 import { HeadBucketCommand, S3Client } from '@aws-sdk/client-s3'
 
-import { PluginsServerConfig } from '../../types'
+import { Config } from '../../types'
 import { status } from '../../utils/status'
 
 export interface ObjectStorage {
@@ -10,7 +10,7 @@ export interface ObjectStorage {
 
 let objectStorage: ObjectStorage | undefined
 
-export const getObjectStorage = (serverConfig: Partial<PluginsServerConfig>): ObjectStorage | undefined => {
+export const getObjectStorage = (serverConfig: Partial<Config>): ObjectStorage | undefined => {
     if (!objectStorage) {
         try {
             const {

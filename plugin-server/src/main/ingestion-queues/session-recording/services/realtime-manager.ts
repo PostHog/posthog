@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto'
 import { Redis } from 'ioredis'
 import { EventEmitter } from 'node:events'
 
-import { PluginsServerConfig, RedisPool } from '../../../../types'
+import { Config, RedisPool } from '../../../../types'
 import { createRedis } from '../../../../utils/db/redis'
 import { timeoutGuard } from '../../../../utils/db/utils'
 import { status } from '../../../../utils/status'
@@ -24,7 +24,7 @@ export class RealtimeManager extends EventEmitter {
     private pubsubRedis: Redis | undefined
     private ttlSeconds: number
 
-    constructor(private redisPool: RedisPool, private serverConfig: PluginsServerConfig) {
+    constructor(private redisPool: RedisPool, private serverConfig: Config) {
         super()
 
         // We TTL for double than the buffer age seconds to allow for

@@ -9,7 +9,7 @@ import { EncryptedFields } from '../../cdp/encryption-utils'
 import { createCookielessConfig, defaultConfig } from '../../config/config'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { getObjectStorage } from '../../main/services/object_storage'
-import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../../types'
+import { Hub, PluginServerCapabilities, Config } from '../../types'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
 import { TeamManager } from '../../worker/ingestion/team-manager'
@@ -49,12 +49,12 @@ export function createEventsToDropByToken(eventsToDropByTokenStr?: string): Map<
 }
 
 export async function createHub(
-    config: Partial<PluginsServerConfig> = {},
+    config: Partial<Config> = {},
     capabilities: PluginServerCapabilities | null = null
 ): Promise<Hub> {
     status.info('ℹ️', `Connecting to all services:`)
 
-    const serverConfig: PluginsServerConfig = {
+    const serverConfig: Config = {
         ...defaultConfig,
         ...config,
     }
@@ -106,14 +106,7 @@ export async function createHub(
         status.warn('🪣', `Object storage could not be created`)
     }
 
-    const db = new DB(
-        postgres,
-        redisPool,
-        kafkaProducer,
-        clickhouse,
-        serverConfig.PLUGINS_DEFAULT_LOG_LEVEL,
-        serverConfig.PERSON_INFO_CACHE_TTL
-    )
+    const db = new DB(postgres, redisPool, kafkaProducer, clickhouse, serverConfig.PERSON_INFO_CACHE_TTL)
     const teamManager = new TeamManager(postgres, serverConfig)
     const organizationManager = new OrganizationManager(postgres, teamManager)
 
@@ -163,7 +156,7 @@ export const closeHub = async (hub: Hub): Promise<void> => {
 }
 
 export type KafkaConfig = Pick<
-    PluginsServerConfig,
+    Config,
     | 'KAFKA_HOSTS'
     | 'KAFKA_PRODUCER_HOSTS'
     | 'KAFKA_SECURITY_PROTOCOL'

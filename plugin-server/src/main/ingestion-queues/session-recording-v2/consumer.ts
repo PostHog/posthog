@@ -15,7 +15,7 @@ import { PostgresRouter } from '~/src/utils/db/postgres'
 
 import { buildIntegerMatcher } from '../../../config/config'
 import { BatchConsumer } from '../../../kafka/batch-consumer'
-import { PluginServerService, PluginsServerConfig, ValueMatcher } from '../../../types'
+import { PluginServerService, Config, ValueMatcher } from '../../../types'
 import { status as logger } from '../../../utils/status'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { runInstrumentedFunction } from '../../utils'
@@ -61,7 +61,7 @@ export class SessionRecordingIngester {
     private readonly libVersionMonitor?: LibVersionMonitor
 
     constructor(
-        private config: PluginsServerConfig,
+        private config: Config,
         private consumeOverflow: boolean,
         postgres: PostgresRouter,
         batchConsumerFactory: BatchConsumerFactory,

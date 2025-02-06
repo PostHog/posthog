@@ -11,7 +11,7 @@ import { pipeline } from 'stream/promises'
 import { Tail } from 'tail'
 import * as zlib from 'zlib'
 
-import { PluginsServerConfig } from '../../../../types'
+import { Config } from '../../../../types'
 import { timeoutGuard } from '../../../../utils/db/utils'
 import { status } from '../../../../utils/status'
 import { asyncTimeoutGuard } from '../../../../utils/timing'
@@ -110,7 +110,7 @@ export class SessionManager {
     realtimeTail: Tail | null = null
 
     constructor(
-        public readonly serverConfig: PluginsServerConfig,
+        public readonly serverConfig: Config,
         public readonly s3Client: ObjectStorage['s3'],
         public readonly realtimeManager: RealtimeManager,
         public readonly offsetHighWaterMarker: OffsetHighWaterMarker,

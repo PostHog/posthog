@@ -13,7 +13,7 @@ import {
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
-import { PluginServerService, PluginsServerConfig, RedisPool, TeamId, ValueMatcher } from '../../../types'
+import { PluginServerService, Config, RedisPool, TeamId, ValueMatcher } from '../../../types'
 import { BackgroundRefresher } from '../../../utils/background-refresher'
 import { PostgresRouter } from '../../../utils/db/postgres'
 import { createRedisPool } from '../../../utils/db/redis'
@@ -155,7 +155,7 @@ export class SessionRecordingIngester {
     private sharedClusterProducerWrapper: KafkaProducerWrapper | undefined = undefined
     private isDebugLoggingEnabled: ValueMatcher<number>
 
-    private sessionRecordingKafkaConfig = (): PluginsServerConfig => {
+    private sessionRecordingKafkaConfig = (): Config => {
         // TRICKY: We re-use the kafka helpers which assume KAFKA_HOSTS hence we overwrite it if set
         return {
             ...this.config,
@@ -166,7 +166,7 @@ export class SessionRecordingIngester {
     }
 
     constructor(
-        private config: PluginsServerConfig,
+        private config: Config,
         private postgres: PostgresRouter,
         private objectStorage: ObjectStorage,
         private consumeOverflow: boolean,

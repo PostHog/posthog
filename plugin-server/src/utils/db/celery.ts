@@ -1,6 +1,6 @@
 import { CacheOptions } from '@posthog/plugin-scaffold'
 
-import { PluginsServerConfig, RedisPool } from '../../types'
+import { Config, RedisPool } from '../../types'
 import { instrumentQuery } from '../metrics'
 import { UUIDT } from '../utils'
 import { createRedisPool } from './redis'
@@ -16,7 +16,7 @@ const CELERY_DEFAULT_QUEUE = 'celery'
 export class Celery {
     private redisPool: RedisPool
 
-    constructor(config: PluginsServerConfig) {
+    constructor(config: Config) {
         this.redisPool = createRedisPool(config, 'posthog')
     }
 

@@ -2,7 +2,7 @@ import { Properties } from '@posthog/plugin-scaffold'
 import LRU from 'lru-cache'
 
 import { TeamIDWithConfig } from '../../main/ingestion-queues/session-recording/session-recordings-consumer'
-import { PipelineEvent, PluginsServerConfig, ProjectId, Team, TeamId } from '../../types'
+import { PipelineEvent, Config, ProjectId, Team, TeamId } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
 import { posthog } from '../../utils/posthog'
@@ -15,7 +15,7 @@ export class TeamManager {
     tokenToTeamIdCache: LRU<string, TeamId | null>
     instanceSiteUrl: string
 
-    constructor(postgres: PostgresRouter, serverConfig: PluginsServerConfig) {
+    constructor(postgres: PostgresRouter, serverConfig: Config) {
         this.postgres = postgres
 
         this.teamCache = new LRU({

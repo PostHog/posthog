@@ -4,7 +4,7 @@ import { captureException } from '@sentry/node'
 import { createPool } from 'generic-pool'
 import { Pipeline, Redis } from 'ioredis'
 
-import { PluginsServerConfig } from '../types'
+import { Config } from '../types'
 import { createRedisClient } from '../utils/db/redis'
 import { timeoutGuard } from '../utils/db/utils'
 import { status } from '../utils/status'
@@ -86,7 +86,7 @@ redis.call('expire', key, expiry)
 return currentTokens
 `
 
-export const createCdpRedisPool = (config: PluginsServerConfig): CdpRedis => {
+export const createCdpRedisPool = (config: Config): CdpRedis => {
     const pool = createPool<CdpRedisClient>(
         {
             create: async () => {
