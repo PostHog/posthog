@@ -58,5 +58,6 @@ runs:
               platforms: linux/amd64,linux/arm64
               build-args: COMMIT_HASH=${{ github.sha }}
               save: ${{ inputs.save }}
+              push: true
           env:
               ACTIONS_ID_TOKEN_REQUEST_URL: ${{ inputs.actions-id-token-request-url }}
