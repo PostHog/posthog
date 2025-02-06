@@ -256,6 +256,8 @@ export enum FunnelLayout {
 
 export const BIN_COUNT_AUTO = 'auto' as const
 
+export const RETENTION_MEAN_NONE = 'none' as const
+
 // Cohort types
 export enum CohortTypeEnum {
     Static = 'static',
