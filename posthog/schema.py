@@ -7208,7 +7208,7 @@ class ExperimentEventMetricProps(BaseModel):
     )
     kind: Literal["ExperimentEventMetricProps"] = "ExperimentEventMetricProps"
     event: str
-    math: Optional[Literal["count", "sum", "avg", "median", "min", "max"]] = None
+    math: Optional[Literal["total", "sum", "avg", "median", "min", "max"]] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
 
@@ -7222,7 +7222,7 @@ class ExperimentDataWarehouseMetricProps(BaseModel):
     id_field: str
     distinct_id_field: str
     timestamp_field: str
-    math: Literal["sum", "avg", "median", "min", "max"]
+    math: Optional[Literal["total", "sum", "avg", "median", "min", "max"]] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
 

@@ -14,7 +14,6 @@ from posthog.settings import (
     XDIST_SUFFIX,
 )
 from posthog.schema import (
-    DataWarehouseNode,
     ExperimentDataWarehouseMetricProps,
     ExperimentEventMetricProps,
     ExperimentMetric,
@@ -22,7 +21,6 @@ from posthog.schema import (
     ExperimentQuery,
     ExperimentSignificanceCode,
     ExperimentTrendsQueryResponse,
-    TrendsQuery,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -1051,27 +1049,23 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         feature_flag_property = f"$feature/{feature_flag.key}"
 
-        count_query = TrendsQuery(
-            series=[
-                DataWarehouseNode(
-                    id=table_name,
-                    distinct_id_field="subscription_customer_id",
-                    id_field="id",
-                    table_name=table_name,
-                    timestamp_field="subscription_created_at",
-                    math="total",
-                )
-            ]
+        metric = ExperimentMetric(
+            metric_type=ExperimentMetricType.COUNT,
+            metric_props=ExperimentDataWarehouseMetricProps(
+                table_name=table_name,
+                distinct_id_field="subscription_customer_id",
+                id_field="id",
+                timestamp_field="subscription_created_at",
+            ),
         )
 
         experiment_query = ExperimentQuery(
             experiment_id=experiment.id,
             kind="ExperimentQuery",
-            count_query=count_query,
-            exposure_query=None,
+            metric=metric,
         )
 
-        experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
+        experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
         # Populate exposure events
@@ -1115,7 +1109,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(query=ExperimentQuery(**experiment.metrics[0]["query"]), team=self.team)
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
 
         with freeze_time("2023-01-10"):
             result = query_runner.calculate()
