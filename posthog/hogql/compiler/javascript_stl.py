@@ -306,7 +306,7 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
         [],
     ],
     "sha256Hex": [
-        "function sha256Hex (str, options) { return 'SHA256 is not implemented' }",
+        "async function sha256Hex (str, options) { return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str)))).map(b => b.toString(16).padStart(2, '0')).join('') }",
         [],
     ],
     "md5Hex": [
