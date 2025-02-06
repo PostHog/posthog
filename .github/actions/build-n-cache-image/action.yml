@@ -8,12 +8,22 @@ inputs:
         required: false
         default: 'false'
         description: Whether to save the image in the Depot ephemeral registry after building it
+    push-image:
+        required: false
+        default: false
+        description: Whether to push the built image - requires aws-access-key and aws-access-secret
     aws-access-key:
-        required: true
+        required: false
         description: AWS key to log into ECR
     aws-access-secret:
-        required: true
+        required: false
         description: AWS secret to log into ECR
+    dockerhub-username:
+        required: false
+        description: Dockerhub username for pushing image
+    dockerhub-password:
+        required: false
+        description: Dockerhub password for pushing image
 
 outputs:
     tag:
@@ -33,20 +43,34 @@ runs:
           uses: depot/setup-action@v1
 
         - name: Configure AWS credentials
+          if: ${{ inputs.push-image }}
           uses: aws-actions/configure-aws-credentials@v4
           with:
               aws-access-key-id: ${{ inputs.aws-access-key }}
               aws-secret-access-key: ${{ inputs.aws-access-secret }}
               aws-region: us-east-1
 
+        - name: Login to DockerHub
+          if: ${{ inputs.push-image }}
+          uses: docker/login-action@v3
+          with:
+              username: ${{ inputs.dockerhub-username }}
+              password: ${{ inputs.dockerhub-password }}
+
         - name: Login to Amazon ECR
+          if: ${{ inputs.push-image }}
           id: aws-ecr
           uses: aws-actions/amazon-ecr-login@v2
 
         - name: Emit image tag
           id: emit
           shell: bash
-          run: echo "tag=posthog/posthog:${{ github.sha }}" >> $GITHUB_OUTPUT
+          run: |
+              TAGS="posthog/posthog:${{ github.sha }}"
+              if [ -n "${{ inputs.push-image }}" ]; then
+                TAGS="$TAGS,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:${{ github.sha }}"
+              fi
+              echo "tags=$TAGS" >> $GITHUB_OUTPUT
 
         - name: Build image
           id: build
@@ -54,10 +78,10 @@ runs:
           with:
               context: .
               buildx-fallback: false # buildx is so slow it's better to just fail
-              tags: ${{ steps.emit.outputs.tag }},${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:${{ github.sha }}
+              tags: ${{ steps.emit.outputs.tag }}
               platforms: linux/amd64,linux/arm64
               build-args: COMMIT_HASH=${{ github.sha }}
               save: ${{ inputs.save }}
-              push: true
+              push: ${{ inputs.push-image }}
           env:
               ACTIONS_ID_TOKEN_REQUEST_URL: ${{ inputs.actions-id-token-request-url }}
