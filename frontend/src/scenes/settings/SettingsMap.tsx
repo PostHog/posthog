@@ -7,6 +7,7 @@ import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/Bounc
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
 import { CustomChannelTypes } from 'scenes/settings/environment/CustomChannelTypes'
 import { DeadClicksAutocaptureSettings } from 'scenes/settings/environment/DeadClicksAutocaptureSettings'
+import { MaxMemorySettings } from 'scenes/settings/environment/MaxMemorySettings'
 import { PersonsJoinMode } from 'scenes/settings/environment/PersonsJoinMode'
 import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
 import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
@@ -65,7 +66,7 @@ import { RoleBasedAccess } from './organization/Permissions/RoleBasedAccess'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
 import { ProjectMove } from './project/ProjectMove'
-import { ProjectDisplayName, ProjectProductDescription } from './project/ProjectSettings'
+import { ProjectDisplayName } from './project/ProjectSettings'
 import { SettingSection } from './types'
 import { ChangePassword } from './user/ChangePassword'
 import { HedgehogModeSettings } from './user/HedgehogModeSettings'
@@ -87,14 +88,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'display-name',
                 title: 'Display name',
                 component: <TeamDisplayName />,
-            },
-            {
-                id: 'product-description',
-                title: 'Product description',
-                description:
-                    'Describe your product in a few sentences. This context helps our AI assistant provide relevant answers and suggestions.',
-                component: <ProjectProductDescription />,
-                flag: ['ARTIFICIAL_HOG', '!ENVIRONMENTS'],
             },
             {
                 id: 'snippet',
@@ -352,6 +345,22 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
+        id: 'environment-max',
+        title: 'Max AI',
+        flag: 'ARTIFICIAL_HOG',
+        settings: [
+            {
+                id: 'core-memory',
+                title: 'Memory',
+                description:
+                    'Max automatically remembers details about your company and product. This context helps our AI assistant provide relevant answers and suggestions. If there are any details you don’t want Max to remember, you can edit or remove them below.',
+                component: <MaxMemorySettings />,
+                hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
+            },
+        ],
+    },
+    {
+        level: 'environment',
         id: 'environment-toolbar',
         title: 'Toolbar',
         settings: [
@@ -432,14 +441,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'display-name',
                 title: 'Display name',
                 component: <ProjectDisplayName />,
-            },
-            {
-                id: 'product-description',
-                title: 'Product description',
-                description:
-                    'Describe your product in a few sentences. This context helps our AI assistant provide relevant answers and suggestions.',
-                component: <ProjectProductDescription />,
-                flag: 'ARTIFICIAL_HOG',
             },
         ],
     },
