@@ -1,0 +1,1587 @@
+# serializer version: 1
+# name: TestExperimentQueryRunner.test_query_runner_standard_flow_v2_stats
+  '''
+  SELECT maq.variant AS variant,
+         count(maq.distinct_id) AS num_users,
+         sum(maq.value) AS total_sum,
+         sum(power(maq.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT base.variant AS variant,
+            base.distinct_id AS distinct_id,
+            sum(coalesce(eae.value, 0)) AS value
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+        FROM events
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)))
+        GROUP BY variant,
+                 events.distinct_id) AS base
+     LEFT JOIN
+       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.distinct_id AS distinct_id,
+               exposure.variant AS variant,
+               events.event AS event,
+               1 AS value
+        FROM events
+        INNER JOIN
+          (SELECT events.distinct_id AS distinct_id,
+                  replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+           FROM events
+           WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)))
+           GROUP BY variant,
+                    events.distinct_id) AS exposure ON equals(events.distinct_id, exposure.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure.first_exposure_time), equals(events.event, '$pageview'))) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
+     GROUP BY base.variant,
+              base.distinct_id) AS maq
+  GROUP BY maq.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_0_person_properties
+  '''
+  SELECT maq.variant AS variant,
+         count(maq.distinct_id) AS num_users,
+         sum(maq.value) AS total_sum,
+         sum(power(maq.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT base.variant AS variant,
+            base.distinct_id AS distinct_id,
+            sum(coalesce(eae.value, 0)) AS value
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        LEFT JOIN
+          (SELECT person.id AS id,
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+           FROM person
+           WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
+                                                                (SELECT person.id AS id, max(person.version) AS version
+                                                                 FROM person
+                                                                 WHERE equals(person.team_id, 99999)
+                                                                 GROUP BY person.id
+                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), ifNull(notILike(events__person.properties___email, '%@posthog.com%'), 1))
+        GROUP BY variant,
+                 events.distinct_id) AS base
+     LEFT JOIN
+       (SELECT usage.ds AS timestamp,
+               usage.userid AS distinct_id,
+               exposure.variant AS variant,
+               accurateCastOrNull('usage', 'Float64') AS value
+        FROM
+          (SELECT *
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
+        INNER JOIN
+          (SELECT events.distinct_id AS distinct_id,
+                  replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+           FROM events
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           LEFT JOIN
+             (SELECT person.id AS id,
+                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+              FROM person
+              WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
+                                                                   (SELECT person.id AS id, max(person.version) AS version
+                                                                    FROM person
+                                                                    WHERE equals(person.team_id, 99999)
+                                                                    GROUP BY person.id
+                                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+           WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), ifNull(notILike(events__person.properties___email, '%@posthog.com%'), 1))
+           GROUP BY variant,
+                    events.distinct_id) AS exposure ON equals(usage.userid, exposure.distinct_id)
+        WHERE ifNull(greaterOrEquals(usage.ds, exposure.first_exposure_time), 0)) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
+     GROUP BY base.variant,
+              base.distinct_id) AS maq
+  GROUP BY maq.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_0_person_properties.1
+  '''
+  SELECT maq.variant AS variant,
+         count(maq.distinct_id) AS num_users,
+         sum(maq.value) AS total_sum,
+         sum(power(maq.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT base.variant AS variant,
+            base.distinct_id AS distinct_id,
+            sum(coalesce(eae.value, 0)) AS value
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+        FROM events
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)))
+        GROUP BY variant,
+                 events.distinct_id) AS base
+     LEFT JOIN
+       (SELECT usage.ds AS timestamp,
+               usage.userid AS distinct_id,
+               exposure.variant AS variant,
+               accurateCastOrNull('usage', 'Float64') AS value
+        FROM
+          (SELECT *
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
+        INNER JOIN
+          (SELECT events.distinct_id AS distinct_id,
+                  replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+           FROM events
+           WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)))
+           GROUP BY variant,
+                    events.distinct_id) AS exposure ON equals(usage.userid, exposure.distinct_id)
+        WHERE ifNull(greaterOrEquals(usage.ds, exposure.first_exposure_time), 0)) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
+     GROUP BY base.variant,
+              base.distinct_id) AS maq
+  GROUP BY maq.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_1_event_properties
+  '''
+  SELECT maq.variant AS variant,
+         count(maq.distinct_id) AS num_users,
+         sum(maq.value) AS total_sum,
+         sum(power(maq.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT base.variant AS variant,
+            base.distinct_id AS distinct_id,
+            sum(coalesce(eae.value, 0)) AS value
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+        FROM events
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), ifNull(not(match(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), '^(localhost|127\\.0\\.0\\.1)($|:)')), 1))
+        GROUP BY variant,
+                 events.distinct_id) AS base
+     LEFT JOIN
+       (SELECT usage.ds AS timestamp,
+               usage.userid AS distinct_id,
+               exposure.variant AS variant,
+               accurateCastOrNull('usage', 'Float64') AS value
+        FROM
+          (SELECT *
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
+        INNER JOIN
+          (SELECT events.distinct_id AS distinct_id,
+                  replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+           FROM events
+           WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), ifNull(not(match(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), '^(localhost|127\\.0\\.0\\.1)($|:)')), 1))
+           GROUP BY variant,
+                    events.distinct_id) AS exposure ON equals(usage.userid, exposure.distinct_id)
+        WHERE ifNull(greaterOrEquals(usage.ds, exposure.first_exposure_time), 0)) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
+     GROUP BY base.variant,
+              base.distinct_id) AS maq
+  GROUP BY maq.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_1_event_properties.1
+  '''
+  SELECT maq.variant AS variant,
+         count(maq.distinct_id) AS num_users,
+         sum(maq.value) AS total_sum,
+         sum(power(maq.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT base.variant AS variant,
+            base.distinct_id AS distinct_id,
+            sum(coalesce(eae.value, 0)) AS value
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+        FROM events
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)))
+        GROUP BY variant,
+                 events.distinct_id) AS base
+     LEFT JOIN
+       (SELECT usage.ds AS timestamp,
+               usage.userid AS distinct_id,
+               exposure.variant AS variant,
+               accurateCastOrNull('usage', 'Float64') AS value
+        FROM
+          (SELECT *
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
+        INNER JOIN
+          (SELECT events.distinct_id AS distinct_id,
+                  replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+           FROM events
+           WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)))
+           GROUP BY variant,
+                    events.distinct_id) AS exposure ON equals(usage.userid, exposure.distinct_id)
+        WHERE ifNull(greaterOrEquals(usage.ds, exposure.first_exposure_time), 0)) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
+     GROUP BY base.variant,
+              base.distinct_id) AS maq
+  GROUP BY maq.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_2_feature_flags
+  '''
+  SELECT maq.variant AS variant,
+         count(maq.distinct_id) AS num_users,
+         sum(maq.value) AS total_sum,
+         sum(power(maq.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT base.variant AS variant,
+            base.distinct_id AS distinct_id,
+            sum(coalesce(eae.value, 0)) AS value
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+        FROM events
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/flag_doesnt_exist'), ''), 'null'), '^"|"$', ''), 'test'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/flag_doesnt_exist'), ''), 'null'), '^"|"$', ''), 'control'), 0)))
+        GROUP BY variant,
+                 events.distinct_id) AS base
+     LEFT JOIN
+       (SELECT usage.ds AS timestamp,
+               usage.userid AS distinct_id,
+               exposure.variant AS variant,
+               accurateCastOrNull('usage', 'Float64') AS value
+        FROM
+          (SELECT *
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
+        INNER JOIN
+          (SELECT events.distinct_id AS distinct_id,
+                  replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+           FROM events
+           WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/flag_doesnt_exist'), ''), 'null'), '^"|"$', ''), 'test'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/flag_doesnt_exist'), ''), 'null'), '^"|"$', ''), 'control'), 0)))
+           GROUP BY variant,
+                    events.distinct_id) AS exposure ON equals(usage.userid, exposure.distinct_id)
+        WHERE ifNull(greaterOrEquals(usage.ds, exposure.first_exposure_time), 0)) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
+     GROUP BY base.variant,
+              base.distinct_id) AS maq
+  GROUP BY maq.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_2_feature_flags.1
+  '''
+  SELECT maq.variant AS variant,
+         count(maq.distinct_id) AS num_users,
+         sum(maq.value) AS total_sum,
+         sum(power(maq.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT base.variant AS variant,
+            base.distinct_id AS distinct_id,
+            sum(coalesce(eae.value, 0)) AS value
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+        FROM events
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)))
+        GROUP BY variant,
+                 events.distinct_id) AS base
+     LEFT JOIN
+       (SELECT usage.ds AS timestamp,
+               usage.userid AS distinct_id,
+               exposure.variant AS variant,
+               accurateCastOrNull('usage', 'Float64') AS value
+        FROM
+          (SELECT *
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
+        INNER JOIN
+          (SELECT events.distinct_id AS distinct_id,
+                  replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+           FROM events
+           WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)))
+           GROUP BY variant,
+                    events.distinct_id) AS exposure ON equals(usage.userid, exposure.distinct_id)
+        WHERE ifNull(greaterOrEquals(usage.ds, exposure.first_exposure_time), 0)) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
+     GROUP BY base.variant,
+              base.distinct_id) AS maq
+  GROUP BY maq.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_3_cohort_static
+  '''
+  
+  SELECT count(DISTINCT person_id)
+  FROM person_static_cohort
+  WHERE team_id = 99999
+    AND cohort_id = 99999
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_3_cohort_static.1
+  '''
+  SELECT maq.variant AS variant,
+         count(maq.distinct_id) AS num_users,
+         sum(maq.value) AS total_sum,
+         sum(power(maq.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT base.variant AS variant,
+            base.distinct_id AS distinct_id,
+            sum(coalesce(eae.value, 0)) AS value
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), ifNull(in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id),
+                                                                                                                                                                                                                               (SELECT person_static_cohort.person_id AS person_id
+                                                                                                                                                                                                                                FROM person_static_cohort
+                                                                                                                                                                                                                                WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), 0))
+        GROUP BY variant,
+                 events.distinct_id) AS base
+     LEFT JOIN
+       (SELECT usage.ds AS timestamp,
+               usage.userid AS distinct_id,
+               exposure.variant AS variant,
+               accurateCastOrNull('usage', 'Float64') AS value
+        FROM
+          (SELECT *
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
+        INNER JOIN
+          (SELECT events.distinct_id AS distinct_id,
+                  replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+           FROM events
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), ifNull(in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id),
+                                                                                                                                                                                                                                  (SELECT person_static_cohort.person_id AS person_id
+                                                                                                                                                                                                                                   FROM person_static_cohort
+                                                                                                                                                                                                                                   WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), 0))
+           GROUP BY variant,
+                    events.distinct_id) AS exposure ON equals(usage.userid, exposure.distinct_id)
+        WHERE ifNull(greaterOrEquals(usage.ds, exposure.first_exposure_time), 0)) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
+     GROUP BY base.variant,
+              base.distinct_id) AS maq
+  GROUP BY maq.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_3_cohort_static.2
+  '''
+  SELECT maq.variant AS variant,
+         count(maq.distinct_id) AS num_users,
+         sum(maq.value) AS total_sum,
+         sum(power(maq.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT base.variant AS variant,
+            base.distinct_id AS distinct_id,
+            sum(coalesce(eae.value, 0)) AS value
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+        FROM events
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)))
+        GROUP BY variant,
+                 events.distinct_id) AS base
+     LEFT JOIN
+       (SELECT usage.ds AS timestamp,
+               usage.userid AS distinct_id,
+               exposure.variant AS variant,
+               accurateCastOrNull('usage', 'Float64') AS value
+        FROM
+          (SELECT *
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
+        INNER JOIN
+          (SELECT events.distinct_id AS distinct_id,
+                  replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+           FROM events
+           WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)))
+           GROUP BY variant,
+                    events.distinct_id) AS exposure ON equals(usage.userid, exposure.distinct_id)
+        WHERE ifNull(greaterOrEquals(usage.ds, exposure.first_exposure_time), 0)) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
+     GROUP BY base.variant,
+              base.distinct_id) AS maq
+  GROUP BY maq.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_4_cohort_dynamic
+  '''
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 99999
+    AND cohort_id = 99999
+    AND version = NULL
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_4_cohort_dynamic.1
+  '''
+  /* cohort_calculation: */
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 99999
+    AND cohort_id = 99999
+    AND version = 0
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_4_cohort_dynamic.2
+  '''
+  SELECT maq.variant AS variant,
+         count(maq.distinct_id) AS num_users,
+         sum(maq.value) AS total_sum,
+         sum(power(maq.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT base.variant AS variant,
+            base.distinct_id AS distinct_id,
+            sum(coalesce(eae.value, 0)) AS value
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), ifNull(in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id),
+                                                                                                                                                                                                                               (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                FROM cohortpeople
+                                                                                                                                                                                                                                WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))), 0))
+        GROUP BY variant,
+                 events.distinct_id) AS base
+     LEFT JOIN
+       (SELECT usage.ds AS timestamp,
+               usage.userid AS distinct_id,
+               exposure.variant AS variant,
+               accurateCastOrNull('usage', 'Float64') AS value
+        FROM
+          (SELECT *
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
+        INNER JOIN
+          (SELECT events.distinct_id AS distinct_id,
+                  replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+           FROM events
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), ifNull(in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id),
+                                                                                                                                                                                                                                  (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                   FROM cohortpeople
+                                                                                                                                                                                                                                   WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))), 0))
+           GROUP BY variant,
+                    events.distinct_id) AS exposure ON equals(usage.userid, exposure.distinct_id)
+        WHERE ifNull(greaterOrEquals(usage.ds, exposure.first_exposure_time), 0)) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
+     GROUP BY base.variant,
+              base.distinct_id) AS maq
+  GROUP BY maq.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_4_cohort_dynamic.3
+  '''
+  SELECT maq.variant AS variant,
+         count(maq.distinct_id) AS num_users,
+         sum(maq.value) AS total_sum,
+         sum(power(maq.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT base.variant AS variant,
+            base.distinct_id AS distinct_id,
+            sum(coalesce(eae.value, 0)) AS value
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+        FROM events
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)))
+        GROUP BY variant,
+                 events.distinct_id) AS base
+     LEFT JOIN
+       (SELECT usage.ds AS timestamp,
+               usage.userid AS distinct_id,
+               exposure.variant AS variant,
+               accurateCastOrNull('usage', 'Float64') AS value
+        FROM
+          (SELECT *
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
+        INNER JOIN
+          (SELECT events.distinct_id AS distinct_id,
+                  replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+           FROM events
+           WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)))
+           GROUP BY variant,
+                    events.distinct_id) AS exposure ON equals(usage.userid, exposure.distinct_id)
+        WHERE ifNull(greaterOrEquals(usage.ds, exposure.first_exposure_time), 0)) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
+     GROUP BY base.variant,
+              base.distinct_id) AS maq
+  GROUP BY maq.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_5_group
+  '''
+  SELECT maq.variant AS variant,
+         count(maq.distinct_id) AS num_users,
+         sum(maq.value) AS total_sum,
+         sum(power(maq.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT base.variant AS variant,
+            base.distinct_id AS distinct_id,
+            sum(coalesce(eae.value, 0)) AS value
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+        FROM events
+        LEFT JOIN
+          (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
+                  groups.group_type_index AS index,
+                  groups.group_key AS key
+           FROM groups
+           WHERE and(equals(groups.team_id, 99999), equals(index, 0))
+           GROUP BY groups.group_type_index,
+                    groups.group_key) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key)
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), ifNull(equals(events__group_0.properties___name, 'Test Group'), 0))
+        GROUP BY variant,
+                 events.distinct_id) AS base
+     LEFT JOIN
+       (SELECT usage.ds AS timestamp,
+               usage.userid AS distinct_id,
+               exposure.variant AS variant,
+               accurateCastOrNull('usage', 'Float64') AS value
+        FROM
+          (SELECT *
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
+        INNER JOIN
+          (SELECT events.distinct_id AS distinct_id,
+                  replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+           FROM events
+           LEFT JOIN
+             (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
+                     groups.group_type_index AS index,
+                     groups.group_key AS key
+              FROM groups
+              WHERE and(equals(groups.team_id, 99999), equals(index, 0))
+              GROUP BY groups.group_type_index,
+                       groups.group_key) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key)
+           WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), ifNull(equals(events__group_0.properties___name, 'Test Group'), 0))
+           GROUP BY variant,
+                    events.distinct_id) AS exposure ON equals(usage.userid, exposure.distinct_id)
+        WHERE ifNull(greaterOrEquals(usage.ds, exposure.first_exposure_time), 0)) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
+     GROUP BY base.variant,
+              base.distinct_id) AS maq
+  GROUP BY maq.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_5_group.1
+  '''
+  SELECT maq.variant AS variant,
+         count(maq.distinct_id) AS num_users,
+         sum(maq.value) AS total_sum,
+         sum(power(maq.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT base.variant AS variant,
+            base.distinct_id AS distinct_id,
+            sum(coalesce(eae.value, 0)) AS value
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+        FROM events
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)))
+        GROUP BY variant,
+                 events.distinct_id) AS base
+     LEFT JOIN
+       (SELECT usage.ds AS timestamp,
+               usage.userid AS distinct_id,
+               exposure.variant AS variant,
+               accurateCastOrNull('usage', 'Float64') AS value
+        FROM
+          (SELECT *
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
+        INNER JOIN
+          (SELECT events.distinct_id AS distinct_id,
+                  replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+           FROM events
+           WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)))
+           GROUP BY variant,
+                    events.distinct_id) AS exposure ON equals(usage.userid, exposure.distinct_id)
+        WHERE ifNull(greaterOrEquals(usage.ds, exposure.first_exposure_time), 0)) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
+     GROUP BY base.variant,
+              base.distinct_id) AS maq
+  GROUP BY maq.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_6_element
+  '''
+  SELECT maq.variant AS variant,
+         count(maq.distinct_id) AS num_users,
+         sum(maq.value) AS total_sum,
+         sum(power(maq.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT base.variant AS variant,
+            base.distinct_id AS distinct_id,
+            sum(coalesce(eae.value, 0)) AS value
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+        FROM events
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'))
+        GROUP BY variant,
+                 events.distinct_id) AS base
+     LEFT JOIN
+       (SELECT usage.ds AS timestamp,
+               usage.userid AS distinct_id,
+               exposure.variant AS variant,
+               accurateCastOrNull('usage', 'Float64') AS value
+        FROM
+          (SELECT *
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
+        INNER JOIN
+          (SELECT events.distinct_id AS distinct_id,
+                  replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+           FROM events
+           WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'))
+           GROUP BY variant,
+                    events.distinct_id) AS exposure ON equals(usage.userid, exposure.distinct_id)
+        WHERE ifNull(greaterOrEquals(usage.ds, exposure.first_exposure_time), 0)) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
+     GROUP BY base.variant,
+              base.distinct_id) AS maq
+  GROUP BY maq.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_6_element.1
+  '''
+  SELECT maq.variant AS variant,
+         count(maq.distinct_id) AS num_users,
+         sum(maq.value) AS total_sum,
+         sum(power(maq.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT base.variant AS variant,
+            base.distinct_id AS distinct_id,
+            sum(coalesce(eae.value, 0)) AS value
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+        FROM events
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)))
+        GROUP BY variant,
+                 events.distinct_id) AS base
+     LEFT JOIN
+       (SELECT usage.ds AS timestamp,
+               usage.userid AS distinct_id,
+               exposure.variant AS variant,
+               accurateCastOrNull('usage', 'Float64') AS value
+        FROM
+          (SELECT *
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
+        INNER JOIN
+          (SELECT events.distinct_id AS distinct_id,
+                  replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+           FROM events
+           WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)))
+           GROUP BY variant,
+                    events.distinct_id) AS exposure ON equals(usage.userid, exposure.distinct_id)
+        WHERE ifNull(greaterOrEquals(usage.ds, exposure.first_exposure_time), 0)) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
+     GROUP BY base.variant,
+              base.distinct_id) AS maq
+  GROUP BY maq.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_0_person_properties
+  '''
+  SELECT maq.variant AS variant,
+         count(maq.distinct_id) AS num_users,
+         sum(maq.value) AS total_sum,
+         sum(power(maq.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT base.variant AS variant,
+            base.distinct_id AS distinct_id,
+            sum(coalesce(eae.value, 0)) AS value
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        LEFT JOIN
+          (SELECT person.id AS id,
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+           FROM person
+           WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
+                                                                (SELECT person.id AS id, max(person.version) AS version
+                                                                 FROM person
+                                                                 WHERE equals(person.team_id, 99999)
+                                                                 GROUP BY person.id
+                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), ifNull(notILike(events__person.properties___email, '%@posthog.com%'), 1))
+        GROUP BY variant,
+                 events.distinct_id) AS base
+     LEFT JOIN
+       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.distinct_id AS distinct_id,
+               exposure.variant AS variant,
+               events.event AS event,
+               1 AS value
+        FROM events
+        INNER JOIN
+          (SELECT events.distinct_id AS distinct_id,
+                  replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+           FROM events
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           LEFT JOIN
+             (SELECT person.id AS id,
+                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+              FROM person
+              WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
+                                                                   (SELECT person.id AS id, max(person.version) AS version
+                                                                    FROM person
+                                                                    WHERE equals(person.team_id, 99999)
+                                                                    GROUP BY person.id
+                                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+           WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), ifNull(notILike(events__person.properties___email, '%@posthog.com%'), 1))
+           GROUP BY variant,
+                    events.distinct_id) AS exposure ON equals(events.distinct_id, exposure.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure.first_exposure_time), equals(events.event, '$pageview'))) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
+     GROUP BY base.variant,
+              base.distinct_id) AS maq
+  GROUP BY maq.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_0_person_properties.1
+  '''
+  SELECT maq.variant AS variant,
+         count(maq.distinct_id) AS num_users,
+         sum(maq.value) AS total_sum,
+         sum(power(maq.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT base.variant AS variant,
+            base.distinct_id AS distinct_id,
+            sum(coalesce(eae.value, 0)) AS value
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+        FROM events
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)))
+        GROUP BY variant,
+                 events.distinct_id) AS base
+     LEFT JOIN
+       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.distinct_id AS distinct_id,
+               exposure.variant AS variant,
+               events.event AS event,
+               1 AS value
+        FROM events
+        INNER JOIN
+          (SELECT events.distinct_id AS distinct_id,
+                  replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+           FROM events
+           WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)))
+           GROUP BY variant,
+                    events.distinct_id) AS exposure ON equals(events.distinct_id, exposure.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure.first_exposure_time), equals(events.event, '$pageview'))) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
+     GROUP BY base.variant,
+              base.distinct_id) AS maq
+  GROUP BY maq.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_1_event_properties
+  '''
+  SELECT maq.variant AS variant,
+         count(maq.distinct_id) AS num_users,
+         sum(maq.value) AS total_sum,
+         sum(power(maq.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT base.variant AS variant,
+            base.distinct_id AS distinct_id,
+            sum(coalesce(eae.value, 0)) AS value
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+        FROM events
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), ifNull(not(match(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), '^(localhost|127\\.0\\.0\\.1)($|:)')), 1))
+        GROUP BY variant,
+                 events.distinct_id) AS base
+     LEFT JOIN
+       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.distinct_id AS distinct_id,
+               exposure.variant AS variant,
+               events.event AS event,
+               1 AS value
+        FROM events
+        INNER JOIN
+          (SELECT events.distinct_id AS distinct_id,
+                  replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+           FROM events
+           WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), ifNull(not(match(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), '^(localhost|127\\.0\\.0\\.1)($|:)')), 1))
+           GROUP BY variant,
+                    events.distinct_id) AS exposure ON equals(events.distinct_id, exposure.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure.first_exposure_time), equals(events.event, '$pageview'))) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
+     GROUP BY base.variant,
+              base.distinct_id) AS maq
+  GROUP BY maq.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_1_event_properties.1
+  '''
+  SELECT maq.variant AS variant,
+         count(maq.distinct_id) AS num_users,
+         sum(maq.value) AS total_sum,
+         sum(power(maq.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT base.variant AS variant,
+            base.distinct_id AS distinct_id,
+            sum(coalesce(eae.value, 0)) AS value
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+        FROM events
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)))
+        GROUP BY variant,
+                 events.distinct_id) AS base
+     LEFT JOIN
+       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.distinct_id AS distinct_id,
+               exposure.variant AS variant,
+               events.event AS event,
+               1 AS value
+        FROM events
+        INNER JOIN
+          (SELECT events.distinct_id AS distinct_id,
+                  replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+           FROM events
+           WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)))
+           GROUP BY variant,
+                    events.distinct_id) AS exposure ON equals(events.distinct_id, exposure.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure.first_exposure_time), equals(events.event, '$pageview'))) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
+     GROUP BY base.variant,
+              base.distinct_id) AS maq
+  GROUP BY maq.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_2_feature_flags
+  '''
+  SELECT maq.variant AS variant,
+         count(maq.distinct_id) AS num_users,
+         sum(maq.value) AS total_sum,
+         sum(power(maq.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT base.variant AS variant,
+            base.distinct_id AS distinct_id,
+            sum(coalesce(eae.value, 0)) AS value
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+        FROM events
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/flag_doesnt_exist'), ''), 'null'), '^"|"$', ''), 'test'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/flag_doesnt_exist'), ''), 'null'), '^"|"$', ''), 'control'), 0)))
+        GROUP BY variant,
+                 events.distinct_id) AS base
+     LEFT JOIN
+       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.distinct_id AS distinct_id,
+               exposure.variant AS variant,
+               events.event AS event,
+               1 AS value
+        FROM events
+        INNER JOIN
+          (SELECT events.distinct_id AS distinct_id,
+                  replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+           FROM events
+           WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/flag_doesnt_exist'), ''), 'null'), '^"|"$', ''), 'test'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/flag_doesnt_exist'), ''), 'null'), '^"|"$', ''), 'control'), 0)))
+           GROUP BY variant,
+                    events.distinct_id) AS exposure ON equals(events.distinct_id, exposure.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure.first_exposure_time), equals(events.event, '$pageview'))) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
+     GROUP BY base.variant,
+              base.distinct_id) AS maq
+  GROUP BY maq.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_2_feature_flags.1
+  '''
+  SELECT maq.variant AS variant,
+         count(maq.distinct_id) AS num_users,
+         sum(maq.value) AS total_sum,
+         sum(power(maq.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT base.variant AS variant,
+            base.distinct_id AS distinct_id,
+            sum(coalesce(eae.value, 0)) AS value
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+        FROM events
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)))
+        GROUP BY variant,
+                 events.distinct_id) AS base
+     LEFT JOIN
+       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.distinct_id AS distinct_id,
+               exposure.variant AS variant,
+               events.event AS event,
+               1 AS value
+        FROM events
+        INNER JOIN
+          (SELECT events.distinct_id AS distinct_id,
+                  replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+           FROM events
+           WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)))
+           GROUP BY variant,
+                    events.distinct_id) AS exposure ON equals(events.distinct_id, exposure.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure.first_exposure_time), equals(events.event, '$pageview'))) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
+     GROUP BY base.variant,
+              base.distinct_id) AS maq
+  GROUP BY maq.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_3_cohort_static
+  '''
+  
+  SELECT count(DISTINCT person_id)
+  FROM person_static_cohort
+  WHERE team_id = 99999
+    AND cohort_id = 99999
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_3_cohort_static.1
+  '''
+  SELECT maq.variant AS variant,
+         count(maq.distinct_id) AS num_users,
+         sum(maq.value) AS total_sum,
+         sum(power(maq.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT base.variant AS variant,
+            base.distinct_id AS distinct_id,
+            sum(coalesce(eae.value, 0)) AS value
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), ifNull(in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id),
+                                                                                                                                                                                                                               (SELECT person_static_cohort.person_id AS person_id
+                                                                                                                                                                                                                                FROM person_static_cohort
+                                                                                                                                                                                                                                WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), 0))
+        GROUP BY variant,
+                 events.distinct_id) AS base
+     LEFT JOIN
+       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.distinct_id AS distinct_id,
+               exposure.variant AS variant,
+               events.event AS event,
+               1 AS value
+        FROM events
+        INNER JOIN
+          (SELECT events.distinct_id AS distinct_id,
+                  replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+           FROM events
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), ifNull(in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id),
+                                                                                                                                                                                                                                  (SELECT person_static_cohort.person_id AS person_id
+                                                                                                                                                                                                                                   FROM person_static_cohort
+                                                                                                                                                                                                                                   WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), 0))
+           GROUP BY variant,
+                    events.distinct_id) AS exposure ON equals(events.distinct_id, exposure.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure.first_exposure_time), equals(events.event, '$pageview'))) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
+     GROUP BY base.variant,
+              base.distinct_id) AS maq
+  GROUP BY maq.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_3_cohort_static.2
+  '''
+  SELECT maq.variant AS variant,
+         count(maq.distinct_id) AS num_users,
+         sum(maq.value) AS total_sum,
+         sum(power(maq.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT base.variant AS variant,
+            base.distinct_id AS distinct_id,
+            sum(coalesce(eae.value, 0)) AS value
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+        FROM events
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)))
+        GROUP BY variant,
+                 events.distinct_id) AS base
+     LEFT JOIN
+       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.distinct_id AS distinct_id,
+               exposure.variant AS variant,
+               events.event AS event,
+               1 AS value
+        FROM events
+        INNER JOIN
+          (SELECT events.distinct_id AS distinct_id,
+                  replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+           FROM events
+           WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)))
+           GROUP BY variant,
+                    events.distinct_id) AS exposure ON equals(events.distinct_id, exposure.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure.first_exposure_time), equals(events.event, '$pageview'))) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
+     GROUP BY base.variant,
+              base.distinct_id) AS maq
+  GROUP BY maq.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_4_cohort_dynamic
+  '''
+  
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 99999
+    AND cohort_id = 99999
+    AND version = NULL
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_4_cohort_dynamic.1
+  '''
+  /* cohort_calculation: */
+  SELECT count(DISTINCT person_id)
+  FROM cohortpeople
+  WHERE team_id = 99999
+    AND cohort_id = 99999
+    AND version = 0
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_4_cohort_dynamic.2
+  '''
+  SELECT maq.variant AS variant,
+         count(maq.distinct_id) AS num_users,
+         sum(maq.value) AS total_sum,
+         sum(power(maq.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT base.variant AS variant,
+            base.distinct_id AS distinct_id,
+            sum(coalesce(eae.value, 0)) AS value
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), ifNull(in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id),
+                                                                                                                                                                                                                               (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                FROM cohortpeople
+                                                                                                                                                                                                                                WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))), 0))
+        GROUP BY variant,
+                 events.distinct_id) AS base
+     LEFT JOIN
+       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.distinct_id AS distinct_id,
+               exposure.variant AS variant,
+               events.event AS event,
+               1 AS value
+        FROM events
+        INNER JOIN
+          (SELECT events.distinct_id AS distinct_id,
+                  replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+           FROM events
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+           WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), ifNull(in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id),
+                                                                                                                                                                                                                                  (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                   FROM cohortpeople
+                                                                                                                                                                                                                                   WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))), 0))
+           GROUP BY variant,
+                    events.distinct_id) AS exposure ON equals(events.distinct_id, exposure.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure.first_exposure_time), equals(events.event, '$pageview'))) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
+     GROUP BY base.variant,
+              base.distinct_id) AS maq
+  GROUP BY maq.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_4_cohort_dynamic.3
+  '''
+  SELECT maq.variant AS variant,
+         count(maq.distinct_id) AS num_users,
+         sum(maq.value) AS total_sum,
+         sum(power(maq.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT base.variant AS variant,
+            base.distinct_id AS distinct_id,
+            sum(coalesce(eae.value, 0)) AS value
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+        FROM events
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)))
+        GROUP BY variant,
+                 events.distinct_id) AS base
+     LEFT JOIN
+       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.distinct_id AS distinct_id,
+               exposure.variant AS variant,
+               events.event AS event,
+               1 AS value
+        FROM events
+        INNER JOIN
+          (SELECT events.distinct_id AS distinct_id,
+                  replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+           FROM events
+           WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)))
+           GROUP BY variant,
+                    events.distinct_id) AS exposure ON equals(events.distinct_id, exposure.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure.first_exposure_time), equals(events.event, '$pageview'))) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
+     GROUP BY base.variant,
+              base.distinct_id) AS maq
+  GROUP BY maq.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_5_group
+  '''
+  SELECT maq.variant AS variant,
+         count(maq.distinct_id) AS num_users,
+         sum(maq.value) AS total_sum,
+         sum(power(maq.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT base.variant AS variant,
+            base.distinct_id AS distinct_id,
+            sum(coalesce(eae.value, 0)) AS value
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+        FROM events
+        LEFT JOIN
+          (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
+                  groups.group_type_index AS index,
+                  groups.group_key AS key
+           FROM groups
+           WHERE and(equals(groups.team_id, 99999), equals(index, 0))
+           GROUP BY groups.group_type_index,
+                    groups.group_key) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key)
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), ifNull(equals(events__group_0.properties___name, 'Test Group'), 0))
+        GROUP BY variant,
+                 events.distinct_id) AS base
+     LEFT JOIN
+       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.distinct_id AS distinct_id,
+               exposure.variant AS variant,
+               events.event AS event,
+               1 AS value
+        FROM events
+        INNER JOIN
+          (SELECT events.distinct_id AS distinct_id,
+                  replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+           FROM events
+           LEFT JOIN
+             (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___name,
+                     groups.group_type_index AS index,
+                     groups.group_key AS key
+              FROM groups
+              WHERE and(equals(groups.team_id, 99999), equals(index, 0))
+              GROUP BY groups.group_type_index,
+                       groups.group_key) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key)
+           WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), ifNull(equals(events__group_0.properties___name, 'Test Group'), 0))
+           GROUP BY variant,
+                    events.distinct_id) AS exposure ON equals(events.distinct_id, exposure.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure.first_exposure_time), equals(events.event, '$pageview'))) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
+     GROUP BY base.variant,
+              base.distinct_id) AS maq
+  GROUP BY maq.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_5_group.1
+  '''
+  SELECT maq.variant AS variant,
+         count(maq.distinct_id) AS num_users,
+         sum(maq.value) AS total_sum,
+         sum(power(maq.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT base.variant AS variant,
+            base.distinct_id AS distinct_id,
+            sum(coalesce(eae.value, 0)) AS value
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+        FROM events
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)))
+        GROUP BY variant,
+                 events.distinct_id) AS base
+     LEFT JOIN
+       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.distinct_id AS distinct_id,
+               exposure.variant AS variant,
+               events.event AS event,
+               1 AS value
+        FROM events
+        INNER JOIN
+          (SELECT events.distinct_id AS distinct_id,
+                  replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+           FROM events
+           WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)))
+           GROUP BY variant,
+                    events.distinct_id) AS exposure ON equals(events.distinct_id, exposure.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure.first_exposure_time), equals(events.event, '$pageview'))) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
+     GROUP BY base.variant,
+              base.distinct_id) AS maq
+  GROUP BY maq.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_6_element
+  '''
+  SELECT maq.variant AS variant,
+         count(maq.distinct_id) AS num_users,
+         sum(maq.value) AS total_sum,
+         sum(power(maq.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT base.variant AS variant,
+            base.distinct_id AS distinct_id,
+            sum(coalesce(eae.value, 0)) AS value
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+        FROM events
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'))
+        GROUP BY variant,
+                 events.distinct_id) AS base
+     LEFT JOIN
+       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.distinct_id AS distinct_id,
+               exposure.variant AS variant,
+               events.event AS event,
+               1 AS value
+        FROM events
+        INNER JOIN
+          (SELECT events.distinct_id AS distinct_id,
+                  replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+           FROM events
+           WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'))
+           GROUP BY variant,
+                    events.distinct_id) AS exposure ON equals(events.distinct_id, exposure.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure.first_exposure_time), equals(events.event, '$pageview'))) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
+     GROUP BY base.variant,
+              base.distinct_id) AS maq
+  GROUP BY maq.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_with_internal_filters_6_element.1
+  '''
+  SELECT maq.variant AS variant,
+         count(maq.distinct_id) AS num_users,
+         sum(maq.value) AS total_sum,
+         sum(power(maq.value, 2)) AS total_sum_of_squares
+  FROM
+    (SELECT base.variant AS variant,
+            base.distinct_id AS distinct_id,
+            sum(coalesce(eae.value, 0)) AS value
+     FROM
+       (SELECT events.distinct_id AS distinct_id,
+               replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+        FROM events
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)))
+        GROUP BY variant,
+                 events.distinct_id) AS base
+     LEFT JOIN
+       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.distinct_id AS distinct_id,
+               exposure.variant AS variant,
+               events.event AS event,
+               1 AS value
+        FROM events
+        INNER JOIN
+          (SELECT events.distinct_id AS distinct_id,
+                  replaceAll(JSONExtractRaw(events.properties, '$feature_flag_response'), '"', '') AS variant,
+                  min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
+           FROM events
+           WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceAll(JSONExtractRaw(events.properties, '$feature_flag'), '"', ''), 'test-experiment'), 0)))
+           GROUP BY variant,
+                    events.distinct_id) AS exposure ON equals(events.distinct_id, exposure.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), exposure.first_exposure_time), equals(events.event, '$pageview'))) AS eae ON and(equals(base.distinct_id, eae.distinct_id), equals(base.variant, eae.variant))
+     GROUP BY base.variant,
+              base.distinct_id) AS maq
+  GROUP BY maq.variant
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---

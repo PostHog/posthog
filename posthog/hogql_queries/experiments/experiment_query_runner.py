@@ -27,8 +27,9 @@ from posthog.queries.trends.util import ALL_SUPPORTED_MATH_FUNCTIONS
 from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     CachedExperimentTrendsQueryResponse,
+    DataWarehouseNode,
     ExperimentSignificanceCode,
-    ExperimentTrendsQuery,
+    ExperimentQuery,
     ExperimentTrendsQueryResponse,
     ExperimentVariantTrendsBaseStats,
     DateRange,
@@ -40,7 +41,7 @@ from datetime import datetime, timedelta, UTC
 
 
 class ExperimentQueryRunner(QueryRunner):
-    query: ExperimentTrendsQuery
+    query: ExperimentQuery
     response: ExperimentTrendsQueryResponse
     cached_response: CachedExperimentTrendsQueryResponse
 
@@ -106,15 +107,17 @@ class ExperimentQueryRunner(QueryRunner):
 
         feature_flag_key = self.feature_flag.key
 
-        # Get the metric event we should filter on
-        metric_event = self.query.count_query.series[0].event
+        is_data_warehouse_query = isinstance(self.query.count_query.series[0], DataWarehouseNode)
 
         # Pick the correct value for the aggregation chosen
         match self._get_metric_type():
             case ExperimentMetricType.CONTINUOUS:
                 # If the metric type is continuous, we need to extract the value from the event property
                 metric_property = self.query.count_query.series[0].math_property
-                metric_value = f"toFloat(JSONExtractRaw(properties, '{metric_property}'))"
+                if is_data_warehouse_query:
+                    metric_value = f"toFloat('{metric_property}')"
+                else:
+                    metric_value = f"toFloat(JSONExtractRaw(properties, '{metric_property}'))"
             case _:
                 # Else, we default to count
                 # We then just emit 1 so we can easily sum it up
@@ -152,43 +155,86 @@ class ExperimentQueryRunner(QueryRunner):
             group_by=[ast.Field(chain=["variant"]), ast.Field(chain=["distinct_id"])],
         )
 
-        # Metric events seen after exposure
-        # One row per event
-        events_after_exposure_query = ast.SelectQuery(
-            select=[
-                ast.Field(chain=["events", "timestamp"]),
-                ast.Field(chain=["events", "distinct_id"]),
-                ast.Field(chain=["exposure", "variant"]),
-                ast.Field(chain=["events", "event"]),
-                parse_expr(f"{metric_value} as value"),
-            ],
-            select_from=ast.JoinExpr(
-                table=ast.Field(chain=["events"]),
-                next_join=ast.JoinExpr(
-                    table=exposure_query,
-                    join_type="INNER JOIN",
-                    alias="exposure",
-                    constraint=ast.JoinConstraint(
-                        expr=ast.CompareOperation(
-                            left=ast.Field(chain=["events", "distinct_id"]),
-                            right=ast.Field(chain=["exposure", "distinct_id"]),
-                            op=ast.CompareOperationOp.Eq,
+        if is_data_warehouse_query:
+            series_node = self.query.count_query.series[0]
+            events_after_exposure_query = ast.SelectQuery(
+                select=[
+                    ast.Alias(
+                        alias="timestamp", expr=ast.Field(chain=[series_node.table_name, series_node.timestamp_field])
+                    ),
+                    ast.Alias(
+                        alias="distinct_id",
+                        expr=ast.Field(chain=[series_node.table_name, series_node.distinct_id_field]),
+                    ),
+                    ast.Field(chain=["exposure", "variant"]),
+                    parse_expr(f"{metric_value} as value"),
+                ],
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=[series_node.table_name]),
+                    next_join=ast.JoinExpr(
+                        table=exposure_query,
+                        join_type="INNER JOIN",
+                        alias="exposure",
+                        constraint=ast.JoinConstraint(
+                            expr=ast.CompareOperation(
+                                left=ast.Field(chain=[series_node.table_name, series_node.distinct_id_field]),
+                                right=ast.Field(chain=["exposure", "distinct_id"]),
+                                op=ast.CompareOperationOp.Eq,
+                            ),
+                            constraint_type="ON",
                         ),
-                        constraint_type="ON",
                     ),
                 ),
-            ),
-            where=ast.And(
-                exprs=[
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["events", "timestamp"]),
-                        right=ast.Field(chain=["exposure", "first_exposure_time"]),
-                        op=ast.CompareOperationOp.GtEq,
-                    ),
-                    parse_expr(f"event = '{metric_event}'"),
+                where=ast.And(
+                    exprs=[
+                        ast.CompareOperation(
+                            left=ast.Field(chain=[series_node.table_name, series_node.timestamp_field]),
+                            right=ast.Field(chain=["exposure", "first_exposure_time"]),
+                            op=ast.CompareOperationOp.GtEq,
+                        ),
+                        # :TODO: Figure out if we actually need this
+                        # parse_expr(f"event = '{self.query.count_query.series[0].event}'"),
+                    ],
+                ),
+            )
+        else:
+            # Metric events seen after exposure
+            # One row per event
+            events_after_exposure_query = ast.SelectQuery(
+                select=[
+                    ast.Field(chain=["events", "timestamp"]),
+                    ast.Field(chain=["events", "distinct_id"]),
+                    ast.Field(chain=["exposure", "variant"]),
+                    ast.Field(chain=["events", "event"]),
+                    parse_expr(f"{metric_value} as value"),
                 ],
-            ),
-        )
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=["events"]),
+                    next_join=ast.JoinExpr(
+                        table=exposure_query,
+                        join_type="INNER JOIN",
+                        alias="exposure",
+                        constraint=ast.JoinConstraint(
+                            expr=ast.CompareOperation(
+                                left=ast.Field(chain=["events", "distinct_id"]),
+                                right=ast.Field(chain=["exposure", "distinct_id"]),
+                                op=ast.CompareOperationOp.Eq,
+                            ),
+                            constraint_type="ON",
+                        ),
+                    ),
+                ),
+                where=ast.And(
+                    exprs=[
+                        ast.CompareOperation(
+                            left=ast.Field(chain=["events", "timestamp"]),
+                            right=ast.Field(chain=["exposure", "first_exposure_time"]),
+                            op=ast.CompareOperationOp.GtEq,
+                        ),
+                        parse_expr(f"event = '{self.query.count_query.series[0].event}'"),
+                    ],
+                ),
+            )
 
         metrics_aggregated_per_entity_query = ast.SelectQuery(
             select=[

@@ -7387,6 +7387,21 @@ class ExperimentTrendsQuery(BaseModel):
     response: Optional[ExperimentTrendsQueryResponse] = None
 
 
+class ExperimentQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count_query: TrendsQuery
+    experiment_id: Optional[int] = None
+    exposure_query: Optional[TrendsQuery] = None
+    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    name: Optional[str] = None
+    response: Optional[ExperimentTrendsQueryResponse] = None
+
+
 class FunnelPathsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
