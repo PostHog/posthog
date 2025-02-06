@@ -27,6 +27,7 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY frontend/package.json frontend/tailwind.config.js frontend/
+COPY frontend/bin/ frontend/bin/
 COPY patches/ patches/
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
     corepack enable && pnpm --version && \
