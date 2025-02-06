@@ -124,9 +124,12 @@ pub async fn main() -> Result<(), Error> {
 fn start_init_liveness_loop(liveness: Arc<HealthHandle>) -> Arc<AtomicBool> {
     let run = Arc::new(AtomicBool::new(true));
     let liveness = liveness.clone();
-    let run_clone = run.clone();
+    let run_weak = Arc::downgrade(&run); // Use a weak so if the returned arc is dropped the task will exit
     tokio::task::spawn(async move {
-        while run_clone.load(Ordering::Relaxed) {
+        let Some(flag) = run_weak.upgrade() else {
+            return;
+        };
+        while flag.load(Ordering::Relaxed) {
             liveness.report_healthy().await;
             tokio::time::sleep(Duration::from_secs(5)).await;
         }
