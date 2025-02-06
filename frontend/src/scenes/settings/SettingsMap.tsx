@@ -517,14 +517,6 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'organization',
-        id: 'organization-billing',
-        hideSelfHost: true,
-        title: 'Billing',
-        to: urls.organizationBilling(),
-        settings: [],
-    },
-    {
-        level: 'organization',
         id: 'organization-authentication',
         title: 'Authentication domains & SSO',
         settings: [
@@ -558,6 +550,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <OrganizationDangerZone />,
             },
         ],
+    },
+    {
+        level: 'organization',
+        id: 'organization-billing',
+        hideSelfHost: true,
+        title: 'Billing',
+        to: urls.organizationBilling(),
+        settings: [],
     },
 
     // USER

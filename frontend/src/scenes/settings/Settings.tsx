@@ -1,5 +1,6 @@
 import './Settings.scss'
 
+import { IconExternal } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonButtonProps, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -98,6 +99,7 @@ export function Settings({
                               to={section.to ?? urls.settings(section.id)}
                               handleLocally={handleLocally}
                               active={selectedSectionId === section.id}
+                              isLink={!!section.to}
                               onClick={() => {
                                   if (section.to) {
                                       router.actions.push(section.to)
@@ -225,9 +227,11 @@ const OptionButton = ({
     onClick,
     children,
     handleLocally,
+    isLink = false,
 }: Pick<LemonButtonProps, 'to' | 'children' | 'active'> & {
     handleLocally: boolean
     onClick: () => void
+    isLink?: boolean
 }): JSX.Element => {
     return (
         <LemonButton
@@ -241,6 +245,7 @@ const OptionButton = ({
                     : undefined
             }
             size="small"
+            sideIcon={isLink ? <IconExternal /> : undefined}
             fullWidth
             active={active}
         >
