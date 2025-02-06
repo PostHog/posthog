@@ -40,7 +40,7 @@ export function EventDefinitionsTable(): JSX.Element {
             key: 'icon',
             width: 0,
             render: function Render(_, definition: EventDefinition) {
-                return <span className="text-xl text-muted">{getEventDefinitionIcon(definition)}</span>
+                return <span className="text-xl text-secondary">{getEventDefinitionIcon(definition)}</span>
             },
         },
         {
@@ -126,8 +126,8 @@ export function EventDefinitionsTable(): JSX.Element {
                 {filters.event_type === 'event_custom'
                     ? 'custom '
                     : filters.event_type === 'event_posthog'
-                    ? 'PostHog '
-                    : ''}
+                      ? 'PostHog '
+                      : ''}
                 event usage statistics?{' '}
                 <Link
                     to={urls.insightNewHogQL(
@@ -137,8 +137,8 @@ export function EventDefinitionsTable(): JSX.Element {
                             (filters.event_type === 'event_custom'
                                 ? "AND event NOT LIKE '$%'\n"
                                 : filters.event_type === 'event_posthog'
-                                ? "AND event LIKE '$%'\n"
-                                : '') +
+                                  ? "AND event LIKE '$%'\n"
+                                  : '') +
                             'GROUP BY event\n' +
                             'ORDER BY count() DESC',
                         { dateRange: { date_from: '-24h' } }
@@ -163,7 +163,7 @@ export function EventDefinitionsTable(): JSX.Element {
                         data-attr="event-type-filter"
                         dropdownMatchSelectWidth={false}
                         onChange={(value) => {
-                            setFilters({ event_type: value as EventDefinitionType })
+                            setFilters({ event_type: value })
                         }}
                         size="small"
                     />

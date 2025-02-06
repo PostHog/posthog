@@ -51,8 +51,8 @@ export function CreateRoleModal(): JSX.Element {
                 isNewRole
                     ? 'Create role'
                     : isAdminOrOwner
-                    ? `Edit ${roleInFocus.name} role`
-                    : `${roleInFocus.name} role`
+                      ? `Edit ${roleInFocus.name} role`
+                      : `${roleInFocus.name} role`
             }
             footer={
                 rolesLoading ? (
@@ -132,7 +132,7 @@ export function CreateRoleModal(): JSX.Element {
                             })}
                         </div>
                     ) : (
-                        <div className="text-muted mb-2">No members added yet</div>
+                        <div className="text-secondary mb-2">No members added yet</div>
                     )}
                 </>
             )}

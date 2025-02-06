@@ -1,3 +1,5 @@
+import fs from 'node:fs/promises'
+
 import autoprefixer from 'autoprefixer'
 import * as ps from 'child_process'
 import chokidar from 'chokidar'
@@ -9,7 +11,6 @@ import { polyfillNode } from 'esbuild-plugin-polyfill-node'
 import { sassPlugin } from 'esbuild-sass-plugin'
 import express from 'express'
 import fse from 'fs-extra'
-import fs from 'node:fs/promises'
 import * as path from 'path'
 import postcss from 'postcss'
 import postcssPresetEnv from 'postcss-preset-env'
@@ -27,12 +28,6 @@ export function copyPublicFolder(srcDir, destDir) {
             console.error(err)
         }
     })
-}
-
-/** Update the file's modified and accessed times to now. */
-async function touchFile(file) {
-    const now = new Date()
-    await fs.utimes(file, now, now)
 }
 
 export function copyIndexHtml(
@@ -389,11 +384,6 @@ export async function buildOrWatch(config) {
                 }
 
                 if (inputFiles.has(filePath) || filePath === tailwindConfigJsPath) {
-                    if (filePath.match(/\.tsx?$/) || filePath === tailwindConfigJsPath) {
-                        // For changed TS/TSX files, we need to initiate a Tailwind JIT rescan
-                        // in case any new utility classes are used. `touch`ing `utilities.scss` achieves this.
-                        await touchFile(path.resolve(absWorkingDir, 'src/styles/utilities.scss'))
-                    }
                     void debouncedBuild()
                 }
             })

@@ -33,18 +33,18 @@ export function WebAnalyticsRecordingsTile({ tile }: { tile: ReplayTile }): JSX.
               buttonTo: urls.settings('project-replay', 'replay'),
           }
         : webAnalyticsFilters.length > 0
-        ? {
-              title: 'There are no recordings matching the current filters',
-              description: 'Try changing the filters, or view all recordings.',
-              buttonText: 'View all',
-              buttonTo: urls.replay(),
-          }
-        : {
-              title: 'There are no recordings matching this date range',
-              description: 'Make sure you have the javascript snippet setup in your website.',
-              buttonText: 'Learn more',
-              buttonTo: 'https://posthog.com/docs/user-guides/recordings',
-          }
+          ? {
+                title: 'There are no recordings matching the current filters',
+                description: 'Try changing the filters, or view all recordings.',
+                buttonText: 'View all',
+                buttonTo: urls.replay(),
+            }
+          : {
+                title: 'There are no recordings matching this date range',
+                description: 'Make sure you have the javascript snippet setup in your website.',
+                buttonText: 'Learn more',
+                buttonTo: 'https://posthog.com/docs/user-guides/recordings',
+            }
     const to = items.length > 0 ? urls.replay(ReplayTabs.Home, replayFilters) : urls.replay()
     return (
         <>
@@ -58,7 +58,7 @@ export function WebAnalyticsRecordingsTile({ tile }: { tile: ReplayTile }): JSX.
                 )}
             >
                 <h2 className="m-0 mb-3">Session replay</h2>
-                <div className="border rounded bg-bg-light flex-1 flex flex-col py-2 px-1">
+                <div className="border rounded bg-surface-primary flex-1 flex flex-col py-2 px-1">
                     {sessionRecordingsResponseLoading ? (
                         <div className="p-2 space-y-6">
                             {Array.from({ length: 6 }, (_, index) => (

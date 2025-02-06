@@ -404,7 +404,7 @@ export function LemonTable<T extends Record<string, any>>({
                                     const rowKeyDetermined = rowKey
                                         ? typeof rowKey === 'function'
                                             ? rowKey(record, rowIndex)
-                                            : record[rowKey] ?? rowIndex
+                                            : (record[rowKey] ?? rowIndex)
                                         : paginationState.currentStartIndex + rowIndex
                                     const rowClassNameDetermined =
                                         typeof rowClassName === 'function'
@@ -412,7 +412,7 @@ export function LemonTable<T extends Record<string, any>>({
                                             : rowClassName
                                     const rowRibbonColorDetermined =
                                         typeof rowRibbonColor === 'function'
-                                            ? rowRibbonColor(record, rowIndex) || 'var(--border-light)'
+                                            ? rowRibbonColor(record, rowIndex) || 'var(--border-primary)'
                                             : rowRibbonColor
                                     const rowStatusDetermined =
                                         typeof rowStatus === 'function' ? rowStatus(record, rowIndex) : rowStatus

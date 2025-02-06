@@ -10,6 +10,7 @@ import { useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
+import { AccessControlResourceType } from '~/types'
 
 import { notebookLogic } from './notebookLogic'
 
@@ -46,6 +47,7 @@ export function NotebookShareModal({ shortId }: NotebookShareModalProps): JSX.El
                 <FlaggedFeature flag="role-based-access-control">
                     <>
                         <AccessControlPopoutCTA
+                            resourceType={AccessControlResourceType.Notebook}
                             callback={() => {
                                 closeShareModal()
                             }}

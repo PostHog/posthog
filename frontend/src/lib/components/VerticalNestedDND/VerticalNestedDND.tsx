@@ -51,9 +51,9 @@ export interface VerticalNestedDNDProps<ChildItem extends VDNDChildItem, Item ex
     renderAddChildItem?: (item: Item, callbacks: { onAddChild: (id: UniqueIdentifier) => void }) => JSX.Element | null
     renderAddContainerItem?: (callbacks: { onAddContainer: () => void }) => JSX.Element | null
     renderAdditionalControls?: () => JSX.Element | null
-    createNewContainerItem(): Item
-    createNewChildItem(): ChildItem
-    onChange?(items: Item[]): void
+    createNewContainerItem: () => Item
+    createNewChildItem: () => ChildItem
+    onChange?: (items: Item[]) => void
 }
 
 export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends VNDNDContainerItem<ChildItem>>({
@@ -558,10 +558,10 @@ interface SortableItemProps<Item extends VDNDChildItem> {
     index: number
     handle: boolean
     disabled?: boolean
-    getIndex(id: UniqueIdentifier): number
-    renderChildItem(item: Item, callbacks: { updateChildItem: (item: Item) => void }): JSX.Element | null
-    updateChildItem(item: Item): void
-    onRemove(id: UniqueIdentifier): void
+    getIndex: (id: UniqueIdentifier) => number
+    renderChildItem: (item: Item, callbacks: { updateChildItem: (item: Item) => void }) => JSX.Element | null
+    updateChildItem: (item: Item) => void
+    onRemove: (id: UniqueIdentifier) => void
     item: Item
 }
 
@@ -658,18 +658,18 @@ export interface ContainerProps<Item extends VNDNDContainerItem<any>> {
     style?: React.CSSProperties
     handleProps?: React.HTMLAttributes<any>
     placeholder?: boolean
-    onClick?(): void
-    onRemove?(): void
-    onAddChild(containerId: UniqueIdentifier): void
+    onClick?: () => void
+    onRemove?: () => void
+    onAddChild: (containerId: UniqueIdentifier) => void
     isDragging?: boolean
     transition?: string
     transform?: string
-    renderContainerItem(item: Item, callbacks: { updateContainerItem: (item: Item) => void }): JSX.Element | null
-    updateContainerItem(item: Item): void
-    renderAddChildItem?(
+    renderContainerItem: (item: Item, callbacks: { updateContainerItem: (item: Item) => void }) => JSX.Element | null
+    updateContainerItem: (item: Item) => void
+    renderAddChildItem?: (
         item: Item,
         callbacks: { onAddChild: (containerId: UniqueIdentifier) => void }
-    ): JSX.Element | null
+    ) => JSX.Element | null
     item: Item
 }
 
@@ -699,7 +699,7 @@ export const Container = forwardRef(function Container_<Item extends VNDNDContai
     return (
         <Component
             {...props}
-            className={`flex flex-col p-4 bg-bg-light border rounded overflow-hidden space-y-2 ${
+            className={`flex flex-col p-4 bg-surface-primary border rounded overflow-hidden space-y-2 ${
                 isDragging ? 'opacity-40' : ''
             }`}
             style={{
@@ -759,9 +759,9 @@ export interface ChildItemProps<Item extends VDNDChildItem> {
     wrapperStyle?: React.CSSProperties
     childItemId: UniqueIdentifier
     item: Item
-    onRemove(id: UniqueIdentifier): void
-    renderChildItem(item: Item, callbacks: { updateChildItem: (item: Item) => void }): JSX.Element | null
-    updateChildItem(item: Item): void
+    onRemove: (id: UniqueIdentifier) => void
+    renderChildItem: (item: Item, callbacks: { updateChildItem: (item: Item) => void }) => JSX.Element | null
+    updateChildItem: (item: Item) => void
 }
 
 export const ChildItem = React.memo(
@@ -806,7 +806,7 @@ export const ChildItem = React.memo(
         return (
             <li
                 ref={ref}
-                className={`flex p-[calc(0.5rem-1px)] bg-bg-light border rounded overflow-hidden ${
+                className={`flex p-[calc(0.5rem-1px)] bg-surface-primary border rounded overflow-hidden ${
                     isDragging ? 'opacity-40' : ''
                 }`}
             >

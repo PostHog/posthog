@@ -24,7 +24,8 @@ import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 
 const OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS = 10
 
-const OVERVIEW_ITEM_CELL_CLASSES = `flex-1 border p-2 bg-bg-light rounded min-w-[${OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS}rem] h-30 flex flex-col items-center text-center justify-between`
+// Keep min-w-[10rem] in sync with OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS
+const OVERVIEW_ITEM_CELL_CLASSES = `flex-1 border p-2 bg-surface-primary rounded min-w-[10rem] h-30 flex flex-col items-center text-center justify-between`
 
 let uniqueNode = 0
 export function WebOverview(props: {
@@ -68,7 +69,7 @@ export function WebOverview(props: {
             {samplingRate && !(samplingRate.numerator === 1 && (samplingRate.denominator ?? 1) === 1) ? (
                 <LemonBanner type="info" className="my-4">
                     These results are using a sampling factor of {samplingRate.numerator}
-                    {samplingRate.denominator ?? 1 !== 1 ? `/${samplingRate.denominator}` : ''}. Sampling is currently
+                    {(samplingRate.denominator ?? 1 !== 1) ? `/${samplingRate.denominator}` : ''}. Sampling is currently
                     in beta.
                 </LemonBanner>
             ) : null}
@@ -92,14 +93,14 @@ const WebOverviewItemCell = ({ item }: { item: WebOverviewItem }): JSX.Element =
         ? item.changeFromPreviousPct === 0
             ? { Icon: IconTrendingFlat, color: getColorVar('muted') }
             : item.changeFromPreviousPct > 0
-            ? {
-                  Icon: IconTrending,
-                  color: !item.isIncreaseBad ? getColorVar('success') : getColorVar('danger'),
-              }
-            : {
-                  Icon: IconTrendingDown,
-                  color: !item.isIncreaseBad ? getColorVar('danger') : getColorVar('success'),
-              }
+              ? {
+                    Icon: IconTrending,
+                    color: !item.isIncreaseBad ? getColorVar('success') : getColorVar('danger'),
+                }
+              : {
+                    Icon: IconTrendingDown,
+                    color: !item.isIncreaseBad ? getColorVar('danger') : getColorVar('success'),
+                }
         : undefined
 
     const docsUrl = settingsLinkFromKey(item.key)
@@ -116,8 +117,8 @@ const WebOverviewItemCell = ({ item }: { item: WebOverviewItem }): JSX.Element =
                   { precise: true }
               )}`
             : isNotNil(item.value)
-            ? `${label}: ${formatItem(item.value, item.kind, { precise: true })}`
-            : 'No data'
+              ? `${label}: ${formatItem(item.value, item.kind, { precise: true })}`
+              : 'No data'
 
     return (
         <Tooltip title={tooltip}>

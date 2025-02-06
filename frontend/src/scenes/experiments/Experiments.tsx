@@ -43,8 +43,8 @@ export function Experiments(): JSX.Element {
         return experiment.end_date
             ? dayjs(experiment.end_date).diff(dayjs(experiment.start_date), 'day')
             : experiment.start_date
-            ? dayjs().diff(dayjs(experiment.start_date), 'day')
-            : undefined
+              ? dayjs().diff(dayjs(experiment.start_date), 'day')
+              : undefined
     }
 
     const columns: LemonTableColumns<Experiment> = [
@@ -119,7 +119,7 @@ export function Experiments(): JSX.Element {
                                                 LemonDialog.open({
                                                     title: 'Archive this experiment?',
                                                     content: (
-                                                        <div className="text-sm text-muted">
+                                                        <div className="text-sm text-secondary">
                                                             This action will move the experiment to the archived tab. It
                                                             can be restored at any time.
                                                         </div>
@@ -150,7 +150,7 @@ export function Experiments(): JSX.Element {
                                         LemonDialog.open({
                                             title: 'Delete this experiment?',
                                             content: (
-                                                <div className="text-sm text-muted">
+                                                <div className="text-sm text-secondary">
                                                     This action cannot be undone. All experiment data will be
                                                     permanently removed.
                                                 </div>

@@ -152,8 +152,8 @@ export function DashboardHeader(): JSX.Element | null {
                                     dashboardLoading
                                         ? 'Wait for dashboard to finish loading'
                                         : canEditDashboard
-                                        ? undefined
-                                        : 'Not privileged to edit this dashboard'
+                                          ? undefined
+                                          : 'Not privileged to edit this dashboard'
                                 }
                             >
                                 Save
@@ -177,7 +177,7 @@ export function DashboardHeader(): JSX.Element | null {
                                         <>
                                             {dashboard.created_by && (
                                                 <>
-                                                    <div className="flex p-2 text-muted-alt">
+                                                    <div className="flex p-2 text-secondary">
                                                         Created by{' '}
                                                         {dashboard.created_by.first_name ||
                                                             dashboard.created_by.email ||
@@ -289,10 +289,12 @@ export function DashboardHeader(): JSX.Element | null {
                             <LemonDivider vertical />
                             {dashboard && (
                                 <>
-                                    <CollaboratorBubbles
-                                        dashboard={dashboard}
-                                        onClick={() => push(urls.dashboardSharing(dashboard.id))}
-                                    />
+                                    {dashboard.access_control_version === 'v1' && (
+                                        <CollaboratorBubbles
+                                            dashboard={dashboard}
+                                            onClick={() => push(urls.dashboardSharing(dashboard.id))}
+                                        />
+                                    )}
                                     <LemonButton
                                         type="secondary"
                                         data-attr="dashboard-share-button"

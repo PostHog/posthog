@@ -75,7 +75,7 @@ export function CorrelationMatrix(): JSX.Element {
                     </div>
                 ) : correlationDetails ? (
                     <>
-                        <p className="text-muted-alt mb-4">
+                        <p className="text-secondary mb-4">
                             The table below displays the correlation details for users who {action} <b>{displayName}</b>
                             .
                         </p>
@@ -207,8 +207,8 @@ export function CorrelationMatrix(): JSX.Element {
                                         correlationScoreStrength === 'strong'
                                             ? 'text-success'
                                             : correlationScoreStrength === 'moderate'
-                                            ? 'text-warning'
-                                            : 'text-danger'
+                                              ? 'text-warning'
+                                              : 'text-danger'
                                     )}
                                 >
                                     {scoreIcon} {correlationScore.toFixed(3)}

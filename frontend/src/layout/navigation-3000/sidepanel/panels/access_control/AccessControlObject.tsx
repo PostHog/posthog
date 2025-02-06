@@ -126,7 +126,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
                                 ? `${member(ac)?.user.first_name} (you)`
                                 : member(ac)?.user.first_name}
                         </p>
-                        <p className="text-muted-alt mb-0">{member(ac)?.user.email}</p>
+                        <p className="text-secondary mb-0">{member(ac)?.user.email}</p>
                     </div>
                 </div>
             ),
@@ -415,8 +415,8 @@ function AddItemsControlsModal(props: {
                             !canEditAccessControls
                                 ? 'You cannot edit this'
                                 : !onSubmit
-                                ? 'Please choose what you want to add and at what level'
-                                : undefined
+                                  ? 'Please choose what you want to add and at what level'
+                                  : undefined
                         }
                     >
                         Add

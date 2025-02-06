@@ -12,6 +12,7 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import posthog from 'posthog-js'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { hogFunctionNewUrl, hogFunctionUrl } from 'scenes/pipeline/hogfunctions/urls'
+import { pipelineNodeLogic } from 'scenes/pipeline/pipelineNodeLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -45,6 +46,7 @@ import {
     HogFunctionType,
     HogFunctionTypeType,
     PersonType,
+    PipelineStage,
     PropertyFilterType,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -198,11 +200,12 @@ export function convertToHogFunctionInvocationGlobals(
 }
 
 export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicType>([
+    path((id) => ['scenes', 'pipeline', 'hogFunctionConfigurationLogic', id]),
     props({} as HogFunctionConfigurationLogicProps),
     key(({ id, templateId }: HogFunctionConfigurationLogicProps) => {
         return id ?? templateId ?? 'new'
     }),
-    connect({
+    connect(({ id }: HogFunctionConfigurationLogicProps) => ({
         values: [
             projectLogic,
             ['currentProjectId', 'currentProject'],
@@ -211,8 +214,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             userLogic,
             ['hasAvailableFeature'],
         ],
-    }),
-    path((id) => ['scenes', 'pipeline', 'hogFunctionConfigurationLogic', id]),
+        actions: [pipelineNodeLogic({ id: `hog-${id}`, stage: PipelineStage.Destination }), ['setBreadcrumbTitle']],
+    })),
     actions({
         setShowSource: (showSource: boolean) => ({ showSource }),
         resetForm: true,
@@ -221,9 +224,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         duplicateFromTemplate: true,
         resetToTemplate: true,
         deleteHogFunction: true,
-        sparklineQueryChanged: (sparklineQuery: TrendsQuery) => ({ sparklineQuery } as { sparklineQuery: TrendsQuery }),
+        sparklineQueryChanged: (sparklineQuery: TrendsQuery) => ({ sparklineQuery }) as { sparklineQuery: TrendsQuery },
         personsCountQueryChanged: (personsCountQuery: ActorsQuery) =>
-            ({ personsCountQuery } as { personsCountQuery: ActorsQuery }),
+            ({ personsCountQuery }) as { personsCountQuery: ActorsQuery },
         loadSampleGlobals: true,
         setUnsavedConfiguration: (configuration: HogFunctionConfigurationType | null) => ({ configuration }),
         persistForUnload: true,
@@ -896,8 +899,14 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
     listeners(({ actions, values, cache }) => ({
         loadTemplateSuccess: () => actions.resetForm(),
-        loadHogFunctionSuccess: () => actions.resetForm(),
-        upsertHogFunctionSuccess: () => actions.resetForm(),
+        loadHogFunctionSuccess: () => {
+            actions.resetForm()
+            actions.setBreadcrumbTitle(values.hogFunction?.name ?? 'Unnamed')
+        },
+        upsertHogFunctionSuccess: () => {
+            actions.resetForm()
+            actions.setBreadcrumbTitle(values.hogFunction?.name ?? 'Unnamed')
+        },
 
         upsertHogFunctionFailure: ({ errorObject }) => {
             const maybeValidationError = errorObject.data
@@ -941,10 +950,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         .filter((t) => t.include_by_default)
                         .map((template) => ({
                             ...template,
-                            inputs: template.inputs_schema?.reduce((acc, input) => {
-                                acc[input.key] = { value: input.default }
-                                return acc
-                            }, {} as Record<string, HogFunctionInputType>),
+                            inputs: template.inputs_schema?.reduce(
+                                (acc, input) => {
+                                    acc[input.key] = { value: input.default }
+                                    return acc
+                                },
+                                {} as Record<string, HogFunctionInputType>
+                            ),
                         })),
                 ]
             }

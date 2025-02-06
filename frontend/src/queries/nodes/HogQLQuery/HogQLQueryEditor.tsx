@@ -142,8 +142,8 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                 !aiAvailable
                                     ? 'Environment variable OPENAI_API_KEY is unset for this instance of PostHog'
                                     : !prompt
-                                    ? 'Provide a prompt first'
-                                    : null
+                                      ? 'Provide a prompt first'
+                                      : null
                             }
                             tooltipPlacement="left"
                             loading={promptLoading}
@@ -272,8 +272,8 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                         !props.setQuery
                                             ? 'No permission to update'
                                             : hasErrors
-                                            ? error ?? 'Query has errors'
-                                            : undefined
+                                              ? (error ?? 'Query has errors')
+                                              : undefined
                                     }
                                     center
                                     fullWidth
@@ -290,10 +290,10 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                     center
                                     disabledReason={
                                         hasErrors
-                                            ? error ?? 'Query has errors'
+                                            ? (error ?? 'Query has errors')
                                             : !isValidView
-                                            ? 'Some fields may need an alias'
-                                            : ''
+                                              ? 'Some fields may need an alias'
+                                              : ''
                                     }
                                     data-attr="hogql-query-editor-update-view"
                                 >
@@ -307,10 +307,10 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                     center
                                     disabledReason={
                                         hasErrors
-                                            ? error ?? 'Query has errors'
+                                            ? (error ?? 'Query has errors')
                                             : !isValidView
-                                            ? 'Some fields may need an alias'
-                                            : ''
+                                              ? 'Some fields may need an alias'
+                                              : ''
                                     }
                                     data-attr="hogql-query-editor-save-as-view"
                                     tooltip={
@@ -345,8 +345,8 @@ function QueryTab({ model, active, onClear, onClick }: QueryTabProps): JSX.Eleme
         <button
             onClick={() => onClick?.(model)}
             className={clsx(
-                'space-y-px rounded-t p-1 flex flex-row items-center gap-1 hover:bg-[var(--bg-light)] cursor-pointer',
-                active ? 'bg-[var(--bg-light)] border' : 'bg-bg-3000',
+                'space-y-px rounded-t p-1 flex flex-row items-center gap-1 hover:bg-[var(--bg-surface-primary)] cursor-pointer',
+                active ? 'bg-[var(--bg-surface-primary)] border' : 'bg-primary',
                 onClear ? 'pl-3 pr-2' : 'px-4'
             )}
         >

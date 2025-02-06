@@ -167,11 +167,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                         <div className="flex flex-1 flex-row gap-1">
                                             <TZLabel time={cohort.last_calculation} />
                                             {cohort.errors_calculating ? (
-                                                <Tooltip
-                                                    title={
-                                                        "The last attempted calculation failed. This means your current cohort data can be stale. This doesn't affect feature flag evaluation."
-                                                    }
-                                                >
+                                                <Tooltip title="The last attempted calculation failed. This means your current cohort data can be stale. This doesn't affect feature flag evaluation.">
                                                     <div className="text-danger">
                                                         <IconErrorOutline className="text-danger text-xl shrink-0" />
                                                     </div>
@@ -181,7 +177,9 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     ) : (
                                         <div className="text-s">Not yet calculated</div>
                                     )}
-                                    <div className="text-muted text-xs">Cohorts are recalculated every 24 hours</div>
+                                    <div className="text-secondary text-xs">
+                                        Cohorts are recalculated every 24 hours
+                                    </div>
                                 </div>
                             </div>
                         )}
@@ -217,14 +215,14 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                                 {cohort.csv ? (
                                                     <>
                                                         <IconUploadFile
-                                                            style={{ fontSize: '3rem', color: 'var(--muted-alt)' }}
+                                                            style={{ fontSize: '3rem', color: 'var(--text-secondary)' }}
                                                         />
                                                         <div>{cohort.csv?.name ?? 'File chosen'}</div>
                                                     </>
                                                 ) : (
                                                     <>
                                                         <IconUploadFile
-                                                            style={{ fontSize: '3rem', color: 'var(--muted-alt)' }}
+                                                            style={{ fontSize: '3rem', color: 'var(--text-secondary)' }}
                                                         />
                                                         <div>Drag a file here or click to browse for a file</div>
                                                     </>
@@ -276,7 +274,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         <div>
                             <h3 className="l3 mb-4">
                                 Persons in this cohort
-                                <span className="text-muted ml-2">
+                                <span className="text-secondary ml-2">
                                     {!cohort.is_calculating &&
                                         `(${cohort.count} matching ${pluralize(
                                             cohort.count ?? 0,

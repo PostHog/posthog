@@ -417,10 +417,10 @@ export function LemonInputSelect({
                                 >
                                     <span className="whitespace-nowrap ph-no-capture truncate">
                                         {!option.__isInput
-                                            ? option.labelComponent ?? option.label // Regular option
+                                            ? (option.labelComponent ?? option.label) // Regular option
                                             : mode === 'multiple'
-                                            ? `Add "${option.key}"` // Input-based option
-                                            : option.key}
+                                              ? `Add "${option.key}"` // Input-based option
+                                              : option.key}
                                     </span>
                                 </LemonButton>
                             )
@@ -436,7 +436,7 @@ export function LemonInputSelect({
                             ))}
                         </>
                     ) : (
-                        <p className="text-muted italic p-1">
+                        <p className="text-secondary italic p-1">
                             {allowCustomValues
                                 ? 'Start typing and press Enter to add options'
                                 : `No options matching "${inputValue}"`}
@@ -451,10 +451,10 @@ export function LemonInputSelect({
                     values.length === 0
                         ? placeholder
                         : mode === 'single'
-                        ? allOptionsMap.get(values[0])?.label ?? values[0]
-                        : allowCustomValues
-                        ? 'Add value'
-                        : 'Pick value'
+                          ? (allOptionsMap.get(values[0])?.label ?? values[0])
+                          : allowCustomValues
+                            ? 'Add value'
+                            : 'Pick value'
                 }
                 autoWidth
                 prefix={valuesPrefix}
@@ -468,7 +468,7 @@ export function LemonInputSelect({
                 autoFocus={autoFocus}
                 transparentBackground={transparentBackground}
                 className={clsx(
-                    'h-auto leading-7', // leading-7 means line height aligned with LemonSnack height
+                    '!h-auto leading-7', // leading-7 means line height aligned with LemonSnack height
                     // Putting button-like text styling on the single-select unfocused placeholder
                     // NOTE: We need font-medium on both the input (for autosizing) and its placeholder (for display)
                     mode === 'multiple' && 'flex-wrap',

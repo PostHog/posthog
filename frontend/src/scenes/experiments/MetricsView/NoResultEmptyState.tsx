@@ -63,8 +63,8 @@ export function NoResultEmptyState({ error, metric }: { error: any; metric: any 
                         value: hasMissingExposure
                             ? variants.map((variant) => variant.key)
                             : errorCode === ResultErrorCode.NO_CONTROL_VARIANT
-                            ? ['control']
-                            : variants.slice(1).map((variant) => variant.key),
+                              ? ['control']
+                              : variants.slice(1).map((variant) => variant.key),
                         operator: 'exact',
                         type: 'event',
                     },
@@ -90,7 +90,7 @@ export function NoResultEmptyState({ error, metric }: { error: any; metric: any 
                 {value === false ? (
                     <span className="flex items-center space-x-2">
                         <IconCheck className="text-success" fontSize={16} />
-                        <span className="text-muted">{successText[errorCode]}</span>
+                        <span className="text-secondary">{successText[errorCode]}</span>
                     </span>
                 ) : (
                     <span className="flex items-center space-x-2">

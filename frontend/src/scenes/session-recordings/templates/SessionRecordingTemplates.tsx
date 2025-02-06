@@ -100,10 +100,10 @@ const SingleTemplateVariable = ({
                     variable.type === 'event'
                         ? [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]
                         : variable.type === 'flag'
-                        ? [TaxonomicFilterGroupType.FeatureFlags]
-                        : variable.type === 'person-property'
-                        ? [TaxonomicFilterGroupType.PersonProperties]
-                        : []
+                          ? [TaxonomicFilterGroupType.FeatureFlags]
+                          : variable.type === 'person-property'
+                            ? [TaxonomicFilterGroupType.PersonProperties]
+                            : []
                 }
                 onChange={(thisFilterGroup) => {
                     if (thisFilterGroup.values.length === 0) {
@@ -171,7 +171,7 @@ const RecordingTemplateCard = (props: RecordingTemplateCardProps): JSX.Element =
             <div className="flex flex-col gap-2">
                 <div className="flex items-center gap-2">
                     {props.template.icon && (
-                        <div className="bg-accent-3000 rounded p-2 w-8 h-8 flex items-center justify-center">
+                        <div className="bg-surface-primary rounded p-2 w-8 h-8 flex items-center justify-center">
                             {props.template.icon}
                         </div>
                     )}

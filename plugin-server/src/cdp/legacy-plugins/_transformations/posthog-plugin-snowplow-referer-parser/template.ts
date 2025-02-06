@@ -8,7 +8,7 @@ export const posthogPluginSnowplowRefererParser: LegacyTransformationPlugin = {
         free: true,
         status: 'deprecated',
         type: 'transformation',
-        id: 'plugin-posthog-snowplow-referer-parser',
+        id: 'plugin-posthog-plugin-snowplow-referer-parser',
         name: 'UTM Referrer',
         description: 'UTM referrer snowplow parser',
         icon_url: '/static/hedgehog/builder-hog-01.png',

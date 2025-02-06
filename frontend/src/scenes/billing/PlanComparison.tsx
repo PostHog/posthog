@@ -30,7 +30,7 @@ export function PlanIcon({
     timeDenominator?: string
 }): JSX.Element {
     return (
-        <div className="flex items-center text-xs text-muted">
+        <div className="flex items-center text-xs text-secondary">
             {!feature ? (
                 <>
                     <IconX className={clsx('text-danger mx-4', className)} />
@@ -141,12 +141,12 @@ export const PlanComparison = ({
                         plan.contact_support
                             ? 'mailto:sales@posthog.com?subject=Enterprise%20plan%20request'
                             : i < currentPlanIndex
-                            ? undefined // Downgrade action handled in onClick
-                            : getUpgradeProductLink({
-                                  product,
-                                  redirectPath,
-                                  includeAddons,
-                              })
+                              ? undefined // Downgrade action handled in onClick
+                              : getUpgradeProductLink({
+                                    product,
+                                    redirectPath,
+                                    includeAddons,
+                                })
                     }
                     type={plan.current_plan || i < currentPlanIndex ? 'secondary' : 'primary'}
                     status={
@@ -163,8 +163,8 @@ export const PlanComparison = ({
                                 ? 'Unsubscribe from all products to remove'
                                 : null
                             : plan.current_plan
-                            ? 'Current plan'
-                            : undefined
+                              ? 'Current plan'
+                              : undefined
                     }
                     onClick={() => {
                         if (!plan.current_plan) {
@@ -184,22 +184,22 @@ export const PlanComparison = ({
                     {plan.current_plan
                         ? 'Current plan'
                         : i < currentPlanIndex
-                        ? 'Downgrade'
-                        : plan.contact_support
-                        ? 'Get in touch'
-                        : plan.included_if == 'has_subscription' &&
-                          i >= currentPlanIndex &&
-                          !billing?.has_active_subscription
-                        ? ctaAction
-                        : plan.free_allocation && !plan.tiers
-                        ? 'Select' // Free plan
-                        : ctaAction}
+                          ? 'Downgrade'
+                          : plan.contact_support
+                            ? 'Get in touch'
+                            : plan.included_if == 'has_subscription' &&
+                                i >= currentPlanIndex &&
+                                !billing?.has_active_subscription
+                              ? ctaAction
+                              : plan.free_allocation && !plan.tiers
+                                ? 'Select' // Free plan
+                                : ctaAction}
                 </BillingUpgradeCTA>
                 {!plan.current_plan && !plan.free_allocation && includeAddons && product.addons?.length > 0 && (
                     <p className="text-center ml-0 mt-2 mb-0">
                         <Link
                             to={`/api/billing/activate?products=all_products:&redirect_path=${redirectPath}`}
-                            className="text-muted text-xs"
+                            className="text-secondary text-xs"
                             disableClientSideRouting
                         >
                             or subscribe without addons
@@ -237,16 +237,16 @@ export const PlanComparison = ({
                                 {plan.free_allocation && !plan.tiers
                                     ? 'Free forever'
                                     : plan.unit_amount_usd
-                                    ? `$${parseFloat(plan.unit_amount_usd).toFixed(0)} per month`
-                                    : plan.contact_support
-                                    ? 'Custom'
-                                    : plan.included_if == 'has_subscription'
-                                    ? billing?.subscription_level === 'custom'
-                                        ? 'Free, included with any product subscription'
-                                        : 'Usage-based - starting at $0'
-                                    : '$0 per month'}
+                                      ? `$${parseFloat(plan.unit_amount_usd).toFixed(0)} per month`
+                                      : plan.contact_support
+                                        ? 'Custom'
+                                        : plan.included_if == 'has_subscription'
+                                          ? billing?.subscription_level === 'custom'
+                                              ? 'Free, included with any product subscription'
+                                              : 'Usage-based - starting at $0'
+                                          : '$0 per month'}
                                 {isProrated && (
-                                    <p className="text-xxs text-muted font-normal italic mt-2">
+                                    <p className="text-xxs text-secondary font-normal italic mt-2">
                                         Pay ~${prorationAmount} today{isProrated && ' (prorated)'} and{' '}
                                         {isProrated && `$${parseInt(plan.unit_amount_usd || '0')} `}every month
                                         thereafter.
@@ -317,14 +317,16 @@ export const PlanComparison = ({
                                                 </LemonTag>
                                             </Tooltip>
                                         </p>
-                                        <p className="ml-0 text-xs text-muted mt-1">Priced per {addon.unit}</p>
+                                        <p className="ml-0 text-xs text-secondary mt-1">Priced per {addon.unit}</p>
                                     </th>
                                     {plans?.map((plan, i) => {
                                         // If the parent plan is free, the addon isn't available
                                         return !addon.inclusion_only ? (
                                             plan.free_allocation && !plan.tiers ? (
                                                 <td key={`${addon.name}-free-tiers-td`}>
-                                                    <p className="text-muted text-xs">Not available on this plan.</p>
+                                                    <p className="text-secondary text-xs">
+                                                        Not available on this plan.
+                                                    </p>
                                                 </td>
                                             ) : (
                                                 <td key={`${addon.type}-tiers-td`}>
@@ -413,7 +415,7 @@ export const PlanComparison = ({
                                         <tr>
                                             <th
                                                 colSpan={3}
-                                                className="PlanTable__th__section bg-bg-3000 justify-left rounded text-left mb-2"
+                                                className="PlanTable__th__section bg-primary justify-left rounded text-left mb-2"
                                             >
                                                 <div className="flex items-center gap-x-2 my-2">
                                                     {getProductIcon(
@@ -433,7 +435,7 @@ export const PlanComparison = ({
                                                 <tr key={`tr-${feature.key}`}>
                                                     <th
                                                         className={clsx(
-                                                            'text-muted PlanTable__th__feature',
+                                                            'text-secondary PlanTable__th__feature',
                                                             width &&
                                                                 width < 600 &&
                                                                 'PlanTable__th__feature--reduced_padding',
@@ -506,7 +508,7 @@ export const PlanComparisonModal = ({
     return (
         <LemonModal isOpen={modalOpen} onClose={onClose}>
             <div className="PlanComparisonModal flex w-full h-full justify-center p-6">
-                <div className="text-left bg-bg-light rounded relative w-full">
+                <div className="text-left bg-surface-primary rounded relative w-full">
                     {title ? <h2>{title}</h2> : <h2>{product.name} plans</h2>}
                     <PlanComparison product={product} includeAddons={includeAddons} />
                 </div>

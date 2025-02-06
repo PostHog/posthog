@@ -156,8 +156,8 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({ index, date }
                 !isDateLocked
                     ? lockDate
                     : active
-                    ? unlockDate
-                    : () => activateDate(date, buttonRef.current as HTMLButtonElement)
+                      ? unlockDate
+                      : () => activateDate(date, buttonRef.current as HTMLButtonElement)
             }
         >
             {annotations.length ? (
@@ -247,7 +247,7 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
     return (
         <li className="AnnotationCard flex flex-col w-full p-3 rounded border list-none">
             <div className="flex items-center gap-2">
-                <h5 className="grow m-0 text-muted">
+                <h5 className="grow m-0 text-secondary">
                     {annotation.date_marker?.format('MMM DD, YYYY h:mm A')} ({shortTimeZone(timezone)}) –{' '}
                     {annotationScopeToName[annotation.scope]}
                     -level

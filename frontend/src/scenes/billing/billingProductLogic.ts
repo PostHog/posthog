@@ -218,7 +218,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 if (customLimit === 0 || customLimit) {
                     return customLimit
                 }
-                return product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] ?? null : null
+                return product.usage_key ? (billing?.custom_limits_usd?.[product.usage_key] ?? null) : null
             },
         ],
         hasCustomLimitSet: [
@@ -257,9 +257,10 @@ export const billingProductLogic = kea<billingProductLogicType>([
             (billing, product, isEditingBillingLimit, billingLimitInput, customLimitUsd) => {
                 // cast the product as a product, not an addon, to avoid TS errors. This is fine since we're just getting the tiers.
                 product = product as BillingProductV2Type
-                const addonTiers = product.addons
-                    ?.filter((addon: BillingProductV2AddonType) => addon.subscribed)
-                    ?.map((addon: BillingProductV2AddonType) => addon.tiers)
+                const addonTiers =
+                    product.addons
+                        ?.filter((addon: BillingProductV2AddonType) => addon.subscribed)
+                        ?.map((addon: BillingProductV2AddonType) => addon.tiers) ?? []
                 const productAndAddonTiers: BillingTierType[][] = [product.tiers, ...addonTiers].filter(
                     Boolean
                 ) as BillingTierType[][]
@@ -331,6 +332,11 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     .join(' ')
                     .concat(' (required)')
             },
+        ],
+        isSessionReplayWithAddons: [
+            (_s, p) => [p.product],
+            (product): boolean =>
+                product.type === 'session_replay' && 'addons' in product && product.addons?.length > 0,
         ],
     })),
     listeners(({ actions, values, props }) => ({

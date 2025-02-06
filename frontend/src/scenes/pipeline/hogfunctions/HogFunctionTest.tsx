@@ -86,7 +86,10 @@ export function HogFunctionTest(): JSX.Element {
     return (
         <Form logic={hogFunctionTestLogic} props={logicProps} formKey="testInvocation" enableFormOnSubmit>
             <div
-                className={clsx('border rounded p-3 space-y-2', expanded ? 'bg-bg-light min-h-120' : 'bg-accent-3000')}
+                className={clsx(
+                    'border rounded p-3 space-y-2',
+                    expanded ? 'bg-surface-secondary min-h-120' : 'bg-surface-primary'
+                )}
             >
                 <div className="flex items-center justify-end gap-2">
                     <div className="flex-1 space-y-2">
@@ -240,7 +243,7 @@ export function HogFunctionTest(): JSX.Element {
                                                         { value: 'raw', label: 'Output' },
                                                         { value: 'diff', label: 'Diff' },
                                                     ]}
-                                                    onChange={(value) => setTestResultMode(value as 'raw' | 'diff')}
+                                                    onChange={(value) => setTestResultMode(value)}
                                                     value={testResultMode}
                                                 />
                                             )}
@@ -334,8 +337,8 @@ export function HogFunctionTest(): JSX.Element {
                                                     {type === 'broadcast'
                                                         ? 'The test broadcast will be sent with this sample data:'
                                                         : type === 'email'
-                                                        ? 'The provider will be tested with this sample data:'
-                                                        : 'Here are all the global variables you can use in your code:'}
+                                                          ? 'The provider will be tested with this sample data:'
+                                                          : 'Here are all the global variables you can use in your code:'}
                                                 </div>
                                                 {sampleGlobalsError ? (
                                                     <div className="text-warning">{sampleGlobalsError}</div>

@@ -22,8 +22,8 @@ export const convertForTimelineView = (
     const rangeEnd = performanceEvent.load_event_end
         ? performanceEvent.load_event_end
         : performanceEvent.response_end
-        ? performanceEvent.response_end
-        : performanceEvent.end_time
+          ? performanceEvent.response_end
+          : performanceEvent.end_time
     const performanceMeasures =
         typeof rangeStart === 'number' && typeof rangeEnd === 'number'
             ? calculatePerformanceParts(performanceEvent)
@@ -70,7 +70,7 @@ export const TimeLineView = ({ performanceEvent }: { performanceEvent: Performan
                 <>
                     <LemonDivider dashed={true} />
                     <Tooltip title={perfDescriptions['server_timing']}>
-                        <h3 className="text-sm text-muted">Server timings</h3>
+                        <h3 className="text-sm text-secondary">Server timings</h3>
                     </Tooltip>
                     {performanceMeasures.serverTimings.map((timing) => {
                         return timing ? (

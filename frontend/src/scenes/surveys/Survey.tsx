@@ -117,7 +117,7 @@ export function SurveyDisplaySummary({
     return (
         <div className="flex flex-col mt-2 gap-2">
             <div className="font-semibold">Display conditions summary</div>
-            <span className="text-muted">
+            <span className="text-secondary">
                 {hasConditions || hasFeatureFlags
                     ? 'Surveys will be displayed to users that match the following conditions:'
                     : 'Surveys will be displayed to everyone.'}
