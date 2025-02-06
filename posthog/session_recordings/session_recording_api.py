@@ -852,8 +852,15 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             response_format=AiFilterSchema,
         )
 
-        response_content = json.loads(completion.choices[0].message.content)
-        return Response(response_content)
+        if not completion.choices or not completion.choices[0].message.content:
+            raise exceptions.ValidationError("Invalid response from OpenAI")
+
+        try:
+            response_data = json.loads(completion.choices[0].message.content)
+        except JSONDecodeError:
+            raise exceptions.ValidationError("Invalid JSON response from OpenAI")
+
+        return Response(response_data)
 
     @extend_schema(
         description="Generate regex patterns using AI",
@@ -866,10 +873,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         if "regex" not in request.data:
             raise exceptions.ValidationError("Missing required field: regex")
 
-        # Convert messages to list of dictionaries with proper typing
         messages = [
-            {"role": "system", "content": str(AI_REGEX_PROMPTS)},  # Ensure content is a string
-            {"role": "user", "content": str(request.data["regex"])},  # Ensure content is a string
+            {"role": "system", "content": str(AI_REGEX_PROMPTS)},
+            {"role": "user", "content": str(request.data["regex"])},
         ]
 
         client = _get_openai_client()
@@ -877,12 +883,18 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         completion = client.beta.chat.completions.parse(
             model="gpt-4o-mini",
             messages=messages,
-            # response_format={"type": "json_schema", "json_schema": AiRegexSchema.model_json_schema()},
             response_format=AiRegexSchema,
         )
 
-        response_content = json.loads(completion.choices[0].message.content)
-        return Response(response_content)
+        if not completion.choices or not completion.choices[0].message.content:
+            raise exceptions.ValidationError("Invalid response from OpenAI")
+
+        try:
+            response_data = json.loads(completion.choices[0].message.content)
+        except JSONDecodeError:
+            raise exceptions.ValidationError("Invalid JSON response from OpenAI")
+
+        return Response(response_data)
 
 
 # TODO i guess this becomes the query runner for our _internal_ use of RecordingsQuery
