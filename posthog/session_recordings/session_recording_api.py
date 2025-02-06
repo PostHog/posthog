@@ -58,6 +58,11 @@ from posthog.session_recordings.ai_data.ai_filter_schema import AiFilterSchema
 from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
 from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
 from posthog.session_recordings.ai_data.ai_filter_prompts import AI_FILTER_INITIAL_PROMPT, AI_FILTER_PROPERTIES_PROMPT
+from openai.types.chat import (
+    ChatCompletionSystemMessageParam,
+    ChatCompletionUserMessageParam,
+    ChatCompletionAssistantMessageParam,
+)
 
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",
@@ -90,6 +95,11 @@ STREAM_RESPONSE_TO_CLIENT_HISTOGRAM = Histogram(
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant"]
     content: str
+
+    def to_openai_message(self) -> ChatCompletionUserMessageParam | ChatCompletionAssistantMessageParam:
+        if self.role == "user":
+            return ChatCompletionUserMessageParam(role="user", content=self.content)
+        return ChatCompletionAssistantMessageParam(role="assistant", content=self.content)
 
 
 class AiFilterRequest(BaseModel):
@@ -848,13 +858,17 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         try:
             # Validate request data against schema
             request_data = AiFilterRequest(messages=[ChatMessage(**msg) for msg in request.data.get("messages", [])])
-        except ValidationError as e:
-            raise exceptions.ValidationError(f"Invalid message format: {str(e)}")
+        except ValidationError:
+            raise exceptions.ValidationError(
+                "Invalid message format. Messages must be a list of objects with 'role' (either 'user' or 'assistant') and 'content' fields."
+            )
 
         # Create system prompt by combining the initial and properties prompts
-        system_message = {"role": "system", "content": AI_FILTER_INITIAL_PROMPT + AI_FILTER_PROPERTIES_PROMPT}
-        # Combine system prompt with user messages
-        messages = [system_message, *request_data.messages]
+        system_message = ChatCompletionSystemMessageParam(
+            role="system", content=AI_FILTER_INITIAL_PROMPT + AI_FILTER_PROPERTIES_PROMPT
+        )
+        # Convert messages to OpenAI format and combine with system message
+        messages = [system_message] + [msg.to_openai_message() for msg in request_data.messages]
 
         client = _get_openai_client()
 
