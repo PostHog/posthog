@@ -1,0 +1,6 @@
+{
+    "name": "@posthog-products/messaging",
+    "peerDependencies": {
+        "kea-router": "*"
+    }
+}

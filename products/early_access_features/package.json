@@ -1,0 +1,6 @@
+{
+    "name": "@posthog-products/early-access-features",
+    "peerDependencies": {
+        "kea-router": "*"
+    }
+}
