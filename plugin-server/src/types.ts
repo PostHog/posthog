@@ -6,6 +6,7 @@ import { Redis } from 'ioredis'
 import { DateTime } from 'luxon'
 
 import { EncryptedFields } from './cdp/encryption-utils'
+import { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { BatchConsumer } from './kafka/batch-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { GroupTypeManager } from './services/group-type-manager'
