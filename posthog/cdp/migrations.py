@@ -9,7 +9,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.core.paginator import Paginator
 
-# python manage.py migrate_plugins_to_hog_functions --dry-run --test-mode --kind transformation
+# python manage.py migrate_plugins_to_hog_functions --dry-run --test-mode --kind=transformation
 
 
 def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool):
