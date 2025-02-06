@@ -8,6 +8,12 @@ inputs:
         required: false
         default: 'false'
         description: Whether to save the image in the Depot ephemeral registry after building it
+    aws-access-key:
+        required: true
+        description: AWS key to log into ECR
+    aws-access-secret:
+        required: true
+        description: AWS secret to log into ECR
 
 outputs:
     tag:
@@ -29,8 +35,8 @@ runs:
         - name: Configure AWS credentials
           uses: aws-actions/configure-aws-credentials@v4
           with:
-              aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-              aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+              aws-access-key-id: ${{ inputs.aws-access-key }}
+              aws-secret-access-key: ${{ inputs.aws-access-secret }}
               aws-region: us-east-1
 
         - name: Login to Amazon ECR
@@ -42,7 +48,7 @@ runs:
           shell: bash
           run: echo "tag=posthog/posthog:${{ github.sha }}" >> $GITHUB_OUTPUT
 
-        - name: Build image # We don't push this because we use Depot cache as the communication channel
+        - name: Build image
           id: build
           uses: depot/build-push-action@v1
           with:

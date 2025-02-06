@@ -41,6 +41,8 @@ jobs:
               uses: ./.github/actions/build-n-cache-image
               with:
                   actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
+                  aws-access-key: ${{ secrets.AWS_ACCESS_KEY_ID }}
+                  aws-access-secret: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
     deploy_preview:
         name: Deploy preview environment
