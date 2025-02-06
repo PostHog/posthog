@@ -1,11 +1,13 @@
 import type { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { cookielessRedisErrorCounter } from '../../../src/main/ingestion-queues/metrics'
-import { CookielessServerHashMode, Hub } from '../../../src/types'
-import { RedisOperationError } from '../../../src/utils/db/error'
-import { closeHub, createHub } from '../../../src/utils/db/hub'
-import { PostgresUse } from '../../../src/utils/db/postgres'
-import { UUID7 } from '../../../src/utils/utils'
+import { createOrganization, createTeam } from '../../../tests/helpers/sql'
+import { deepFreeze } from '../../../tests/testUtils'
+import { cookielessRedisErrorCounter } from '../../main/ingestion-queues/metrics'
+import { CookielessServerHashMode, Hub } from '../../types'
+import { RedisOperationError } from '../db/error'
+import { closeHub, createHub } from '../db/hub'
+import { PostgresUse } from '../db/postgres'
+import { UUID7 } from '../utils'
 import {
     bufferToSessionState,
     COOKIELESS_MODE_FLAG_PROPERTY,
@@ -13,9 +15,7 @@ import {
     cookielessServerHashStep,
     sessionStateToBuffer,
     toYYYYMMDDInTimezoneSafe,
-} from '../../../src/worker/ingestion/event-pipeline/cookielessServerHashStep'
-import { createOrganization, createTeam } from '../../helpers/sql'
-import { deepFreeze } from '../../testUtils'
+} from './cookielessServerHashStep'
 
 describe('cookielessServerHashStep', () => {
     describe('sessionStateToBuffer', () => {
@@ -117,8 +117,8 @@ describe('cookielessServerHashStep', () => {
                 advanceTimers: true,
             })
         })
-        afterAll(() => {
-            closeHub(hub)
+        afterAll(async () => {
+            await closeHub(hub)
 
             jest.clearAllTimers()
         })
