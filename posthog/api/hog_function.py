@@ -151,6 +151,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         attrs["team"] = team
 
         has_addon = team.organization.is_feature_available(AvailableFeature.DATA_PIPELINES)
+        bypass_addon_check = self.context.get("bypass_addon_check", False)
         instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
 
         hog_type = attrs.get("type", instance.type if instance else "destination")
@@ -171,16 +172,17 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 attrs["inputs_schema"] = template.inputs_schema
 
         if not has_addon:
-            # If they don't have the addon, they can only use free templates and can't modify them
-            if not template:
-                raise serializers.ValidationError(
-                    {"template_id": "The Data Pipelines addon is required to create custom functions."}
-                )
+            if not bypass_addon_check:
+                # If they don't have the addon, they can only use free templates and can't modify them
+                if not template:
+                    raise serializers.ValidationError(
+                        {"template_id": "The Data Pipelines addon is required to create custom functions."}
+                    )
 
-            if not template.free and not instance:
-                raise serializers.ValidationError(
-                    {"template_id": "The Data Pipelines addon is required for this template."}
-                )
+                if not template.free and not instance:
+                    raise serializers.ValidationError(
+                        {"template_id": "The Data Pipelines addon is required for this template."}
+                    )
 
             # Without the addon you can't deviate from the template
             attrs["hog"] = template.hog
