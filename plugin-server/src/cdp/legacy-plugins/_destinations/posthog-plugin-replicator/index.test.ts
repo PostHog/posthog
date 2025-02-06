@@ -1,6 +1,6 @@
 import { RetryError } from '@posthog/plugin-scaffold'
 
-import { replicatorPlugin } from '../index'
+import { onEvent } from './index'
 
 const captureHost = 'localhost:8000'
 
@@ -41,7 +41,7 @@ describe('Replicator: onEvent', () => {
     describe('event pre-processing', () => {
         it('should handle a single event', async () => {
             mockResponse({})
-            await replicatorPlugin.onEvent(mockEvent, { config, logger, fetch: fetchMock } as any)
+            await onEvent(mockEvent, { config, logger, fetch: fetchMock } as any)
 
             expect(fetchMock.mock.calls[0][1]).toEqual({
                 body: JSON.stringify([
@@ -65,10 +65,10 @@ describe('Replicator: onEvent', () => {
         it('should skip ignored events', async () => {
             mockResponse({})
             for (const event of mockEventsToIgnore) {
-                await replicatorPlugin.onEvent(event, { config, logger, fetch: fetchMock } as any)
+                await onEvent(event, { config, logger, fetch: fetchMock } as any)
             }
             expect(fetchMock.mock.calls.length).toBe(0)
-            await replicatorPlugin.onEvent(mockEvent, { config, logger, fetch: fetchMock } as any)
+            await onEvent(mockEvent, { config, logger, fetch: fetchMock } as any)
             expect(fetchMock.mock.calls.length).toBe(1)
         })
 
@@ -79,7 +79,7 @@ describe('Replicator: onEvent', () => {
             // values we'd receive as per the functional test here:
             // https://github.com/PostHog/posthog/blob/771691e8bdd6bf4465887b88d0a6019c9b4b91d6/plugin-server/functional_tests/exports-v2.test.ts#L151
 
-            await replicatorPlugin.onEvent(
+            await onEvent(
                 { distinct_id: '1234', event: 'my-event', uuid: 'asdf-zxcv' } as any,
                 { config, logger, fetch: fetchMock } as any
             )
@@ -101,7 +101,7 @@ describe('Replicator: onEvent', () => {
         })
 
         it('should correctly reverse the autocapture format', async () => {
-            await replicatorPlugin.onEvent(mockAutocaptureEvent, { config, logger, fetch: fetchMock } as any)
+            await onEvent(mockAutocaptureEvent, { config, logger, fetch: fetchMock } as any)
             expect(fetchMock.mock.calls[0][1]).toEqual({
                 body: JSON.stringify([
                     {
@@ -283,7 +283,7 @@ describe('Replicator: onEvent', () => {
     describe('error management', () => {
         it('succeeds and logs on 200', async () => {
             mockResponse({}, 200)
-            await replicatorPlugin.onEvent(mockEvent, {
+            await onEvent(mockEvent, {
                 config,
                 fetch: fetchMock,
                 logger,
@@ -293,7 +293,7 @@ describe('Replicator: onEvent', () => {
 
         it('skips and warns without throwing on 400s', async () => {
             mockResponse({}, 400)
-            await replicatorPlugin.onEvent(mockEvent, {
+            await onEvent(mockEvent, {
                 config,
                 fetch: fetchMock,
                 logger,
@@ -304,7 +304,7 @@ describe('Replicator: onEvent', () => {
         it('throws RetryError on 500s', async () => {
             mockResponse({}, 500)
             await expect(
-                replicatorPlugin.onEvent(mockEvent, {
+                onEvent(mockEvent, {
                     config,
                     fetch: fetchMock,
                     logger,
