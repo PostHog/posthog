@@ -10,6 +10,7 @@
 @custom-variant dark (&:where([theme="dark"], [theme="dark"] * ));
 
 // Set variables
+:root,
 :host {
     // Primitive neutral cool colors
     --primitive-neutral-cool-50: hsl(240deg 8% 95%);
