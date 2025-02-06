@@ -68,10 +68,8 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 # NOTE: we don't actually use the plugin-transpiler with the plugin-server, it's just here for the build.
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
     corepack enable && \
-    pnpm config set store-dir /tmp/pnpm-store --global && \
     pnpm --filter=@posthog/plugin-server install --frozen-lockfile --store-dir /tmp/pnpm-store && \
     pnpm --filter=@posthog/plugin-transpiler install --frozen-lockfile --store-dir /tmp/pnpm-store && \
-    pnpm --filter=@posthog/plugin-transpiler add -D undici@5.28.2 && \
     pnpm --filter=@posthog/plugin-transpiler build
 
 WORKDIR /code/plugin-server
