@@ -228,12 +228,12 @@ class AssistantTrendsFilter(BaseModel):
             "Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as"
             " it shows change over time. `ActionsBar` - time-series bar chart. `ActionsAreaGraph` - time-series area"
             " chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics."
-            " `BoldNumber` - total value single large number. You can't use this with breakdown; use when user"
-            " explicitly asks for a single output number. `ActionsBarValue` - total value (NOT time-series) bar chart;"
-            " good for categorical data. `ActionsPie` - total value pie chart; good for visualizing proportions."
-            " `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap`"
-            " - total value world map; use when breaking down by country name using property `$geoip_country_name`, and"
-            " only then."
+            " `BoldNumber` - total value single large number. You can't use this with breakdown or with multiple"
+            " series; use when user explicitly asks for a single output number. `ActionsBarValue` - total value (NOT"
+            " time-series) bar chart; good for categorical data. `ActionsPie` - total value pie chart; good for"
+            " visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users or"
+            " other entities. `WorldMap` - total value world map; use when breaking down by country name using property"
+            " `$geoip_country_name`, and only then."
         ),
     )
     formula: Optional[str] = Field(default=None, description="If the formula is provided, apply it here.")
@@ -1405,6 +1405,7 @@ class TrendsFilterLegacy(BaseModel):
     show_alert_threshold_lines: Optional[bool] = None
     show_labels_on_series: Optional[bool] = None
     show_legend: Optional[bool] = None
+    show_multiple_y_axes: Optional[bool] = None
     show_percent_stack_view: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
     smoothing_intervals: Optional[float] = None
@@ -2758,6 +2759,7 @@ class TrendsFilter(BaseModel):
     showAlertThresholdLines: Optional[bool] = False
     showLabelsOnSeries: Optional[bool] = None
     showLegend: Optional[bool] = False
+    showMultipleYAxes: Optional[bool] = False
     showPercentStackView: Optional[bool] = False
     showValuesOnSeries: Optional[bool] = False
     smoothingIntervals: Optional[int] = 1

@@ -36,7 +36,7 @@ function SupportedPlatform(props: SupportedPlatformProps): JSX.Element {
     const node = (
         <div
             className={clsx(
-                props.supported ? 'bg-success-highlight' : 'bg-danger-highlight',
+                props.supported ? 'bg-fill-success-highlight' : 'bg-fill-error-highlight',
                 'px-1 py-0.5',
                 props.note && 'cursor-pointer'
             )}
@@ -58,7 +58,7 @@ export function SupportedPlatforms(props: {
     flutter?: boolean | { note?: ReactNode }
 }): JSX.Element {
     return (
-        <div className="text-xs inline-flex flex-row bg-bg-3000 rounded items-center border overflow-hidden mb-2 w-fit">
+        <div className="text-xs inline-flex flex-row bg-primary rounded items-center border overflow-hidden mb-2 w-fit">
             <span className="px-1 py-0.5 font-semibold">Supported platforms:</span>
             <LemonDivider vertical className="h-full" />
             <SupportedPlatform
