@@ -8,7 +8,7 @@ export const pluginAdvancedGeoip: LegacyTransformationPlugin = {
         free: true,
         status: 'deprecated',
         type: 'transformation',
-        id: 'plugin-advanced-geoip',
+        id: 'plugin-plugin-advanced-geoip',
         name: 'Advanced GeoIP',
         description:
             'This plugin will add advanced geoip properties to your events. You will not be billed for any events that this plugin drops.',
