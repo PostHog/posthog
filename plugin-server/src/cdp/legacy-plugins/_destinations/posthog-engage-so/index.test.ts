@@ -1,5 +1,6 @@
-const { getMeta, resetMeta } = require('@posthog/plugin-scaffold/test/utils')
-const { engagePlugin } = require('../index')
+import { getMeta, resetMeta } from '@posthog/plugin-scaffold/test/utils'
+
+import { onEvent } from './index'
 
 describe('sendgrid', () => {
     const mockFetch = jest.fn()
@@ -38,7 +39,7 @@ describe('sendgrid', () => {
             },
         }
 
-        await engagePlugin.onEvent(event, meta)
+        await onEvent(event, meta)
         expect(mockFetch.mock.calls.length).toEqual(1)
         expect(mockFetch.mock.calls[0][1]).toEqual(
             expect.objectContaining({
@@ -68,7 +69,7 @@ describe('sendgrid', () => {
             },
         }
 
-        await engagePlugin.onEvent(event, meta)
+        await onEvent(event, meta)
         expect(mockFetch.mock.calls.length).toEqual(1)
         expect(mockFetch.mock.calls[0][1]).toEqual(
             expect.objectContaining({
@@ -99,7 +100,7 @@ describe('sendgrid', () => {
             },
         }
 
-        await engagePlugin.onEvent(event, meta)
+        await onEvent(event, meta)
         expect(mockFetch.mock.calls.length).toEqual(1)
         expect(mockFetch.mock.calls[0][1]).toEqual(
             expect.objectContaining({
@@ -129,7 +130,7 @@ describe('sendgrid', () => {
             },
         }
 
-        await engagePlugin.onEvent(event, meta)
+        await onEvent(event, meta)
         expect(mockFetch.mock.calls.length).toEqual(1)
         expect(mockFetch.mock.calls[0][1]).toEqual(
             expect.objectContaining({
@@ -171,7 +172,7 @@ describe('sendgrid', () => {
             },
         }
 
-        await engagePlugin.onEvent(event, getMeta())
+        await onEvent(event, getMeta())
         expect(mockFetch.mock.calls.length).toEqual(0)
     })
 })
