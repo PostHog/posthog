@@ -20,7 +20,7 @@
     <script>
         window.JS_POSTHOG_API_KEY = "{{ js_posthog_api_key|escapejs }}";
         window.JS_POSTHOG_HOST = "{{ js_posthog_host|escapejs }}";
-        if (!window.JS_POSTHOG_HOST.trim().length) {
+        if (window.JS_POSTHOG_HOST.trim().length === 0) {
             window.JS_POSTHOG_HOST = window.location.origin;
         }
         window.JS_POSTHOG_UI_HOST = "{{ js_posthog_ui_host|escapejs }}";
