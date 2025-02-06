@@ -20,6 +20,7 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { isDomain, isURL } from 'lib/utils'
 import { apiHostOrigin } from 'lib/utils/apiHost'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -231,6 +232,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
         setSearchTerm: (term: string) => ({ term }),
         setEditUrlIndex: (originalIndex: number | null) => ({ originalIndex }),
         cancelProposingUrl: true,
+        copyLaunchCode: (url: string) => ({ url }),
     })),
     loaders(({ values, props }) => ({
         suggestions: {
@@ -405,6 +407,21 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
         submitProposedUrlSuccess: () => {
             actions.setEditUrlIndex(null)
             actions.resetProposedUrl()
+        },
+        copyLaunchCode: ({ url }) => {
+            actions.loadManualLaunchParams(url)
+        },
+        loadManualLaunchParamsSuccess: async ({ manualLaunchParams }) => {
+            if (manualLaunchParams) {
+                const templateScript = `
+                if (!window?.posthog) {
+                    console.warn('PostHog must be added to the window object on this page, for this to work. This is normally done in the loaded callback of your posthog init code.')
+                } else {
+                    window.posthog.loadToolbar(${manualLaunchParams})
+                }
+                `
+                await copyToClipboard(templateScript, 'code to paste into the console')
+            }
         },
     })),
     selectors({
