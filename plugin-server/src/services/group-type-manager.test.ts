@@ -1,10 +1,10 @@
-import { createTeam, resetTestDatabase } from '../../../tests/helpers/sql'
+import { createTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { Hub, ProjectId } from '../types'
 import { closeHub, createHub } from '../utils/hub'
 import { captureTeamEvent } from '../utils/posthog'
 import { GroupTypeManager } from './group-type-manager'
-jest.mock('../../../src/utils/status')
-jest.mock('../../../src/utils/posthog', () => ({
+jest.mock('../../utils/status')
+jest.mock('../../utils/posthog', () => ({
     captureTeamEvent: jest.fn(),
 }))
 
