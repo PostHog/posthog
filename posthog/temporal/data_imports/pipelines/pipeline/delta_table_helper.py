@@ -83,7 +83,9 @@ class DeltaTableHelper:
 
     def _get_delta_table_uri(self) -> str:
         normalized_resource_name = NamingConvention().normalize_identifier(self._resource_name)
-        return f"{settings.BUCKET_URL}/{self._job.folder_path()}/{normalized_resource_name}"
+        uri = f"{settings.BUCKET_URL}/{self._job.folder_path()}/{normalized_resource_name}"
+
+        return uri.replace("s3://", "s3a://")
 
     def _evolve_delta_schema(self, data_frame: DataFrame) -> None:
         delta_table = self.get_delta_table()
