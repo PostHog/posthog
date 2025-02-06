@@ -7,7 +7,7 @@ export const template: HogFunctionTemplate = {
     id: 'template-remove-null-properties',
     name: 'Remove Null Properties',
     description:
-        'This transformation removes null properties at all levels of the event properties object (up to 10 levels deep), including nested objects and arrays.',
+        'This transformation removes null properties from the event properties object. If the object nesting exceeds 10 levels, the original event is returned unchanged.',
     icon_url: '/static/hedgehog/builder-hog-01.png',
     category: ['Custom'],
     hog: `
@@ -69,7 +69,7 @@ fun cleanNullValues(value, depth) {
 
 let result := cleanNullValues(event.properties, 1)
 if (maxDepthReached) {
-    print('Maximum nesting depth reached, returning original event')
+    print('Object nesting exceeds maximum depth of 10 levels. Returning original event unchanged for safety.')
     return event
 }
 
