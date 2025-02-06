@@ -5,6 +5,7 @@ import functools
 import io
 import json
 import os
+import re
 import uuid
 from dataclasses import asdict
 from unittest import mock
@@ -2237,110 +2238,56 @@ async def test_insert_into_s3_activity_when_using_distributed_events_recent_tabl
         )
 
 
-class MockClickHouseClient:
-    """Helper class to mock ClickHouse client with Arrow record batches."""
-
-    def __init__(self):
-        self.mock_client = mock.AsyncMock(spec=ClickHouseClient)
-        self.mock_client_cm = mock.AsyncMock()
-        self.mock_client_cm.__aenter__.return_value = self.mock_client
-        self.mock_client_cm.__aexit__.return_value = None
-
-    def expect_query_string(self, expected_query_string: str) -> None:
-        """Assert that the executed query contains the expected string."""
-        assert self.mock_client.astream_query_as_arrow.call_count == 1
-        call_args = self.mock_client.astream_query_as_arrow.call_args
-        query = call_args[0][0]  # First positional argument of the first call
-        assert expected_query_string in query
-
-
-class MockArrowRecordBatchIterator:
-    """Helper class to create a mock Arrow record batch iterator."""
-
-    def __init__(self):
-        # Create schema based on the columns in SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
-        self.schema = pa.schema(
-            [
-                ("team_id", pa.int64()),
-                ("timestamp", pa.timestamp("us")),
-                ("event", pa.string()),
-                ("distinct_id", pa.string()),
-                ("uuid", pa.string()),
-                ("_inserted_at", pa.timestamp("us")),
-                ("created_at", pa.timestamp("us")),
-                ("elements_chain", pa.string()),
-                ("person_id", pa.string()),
-                ("properties", pa.string()),  # JSON string
-                ("person_properties", pa.string()),  # JSON string
-                ("set", pa.string()),  # JSON string
-                ("set_once", pa.string()),  # JSON string
-            ]
-        )
-
-        # Create arrays with one row of dummy data
-        now = dt.datetime.now(dt.UTC)
-        arrays = [
-            pa.array([1]),  # team_id
-            pa.array([now]),  # timestamp
-            pa.array(["test_event"]),  # event
-            pa.array(["test_distinct_id"]),  # distinct_id
-            pa.array([str(uuid.uuid4())]),  # uuid
-            pa.array([now]),  # _inserted_at
-            pa.array([now]),  # created_at
-            pa.array(["div > button"]),  # elements_chain
-            pa.array([str(uuid.uuid4())]),  # person_id
-            pa.array([json.dumps({"prop1": "value1"})]),  # properties
-            pa.array([json.dumps({"person_prop1": "value1"})]),  # person_properties
-            pa.array([json.dumps({"set1": "value1"})]),  # set
-            pa.array([json.dumps({"set_once1": "value1"})]),  # set_once
-        ]
-        self.batch = pa.RecordBatch.from_arrays(arrays, schema=self.schema)
-        self.called = False
-
-    def __aiter__(self):
-        return self
-
-    async def __anext__(self):
-        if not self.called:
-            self.called = True
-            return self.batch
-        raise StopAsyncIteration
-
-
-@contextlib.contextmanager
-def mock_clickhouse_client_with_arrow():
-    """Context manager to mock ClickHouse client with Arrow record batches."""
-    mock_client = MockClickHouseClient()
-    mock_client.mock_client.astream_query_as_arrow.return_value = MockArrowRecordBatchIterator()
-
-    with patch("posthog.temporal.batch_exports.spmc.get_client", return_value=mock_client.mock_client_cm):
-        yield mock_client
-
-
-async def test_insert_into_s3_activity_executes_the_expected_query(
+@pytest.mark.parametrize("interval", ["day", "every 5 minutes"], indirect=True)
+@pytest.mark.parametrize(
+    "model",
+    [
+        BatchExportModel(name="events", schema=None),
+    ],
+)
+@pytest.mark.parametrize("is_backfill", [False, True])
+@pytest.mark.parametrize("backfill_within_last_6_days", [False, True])
+@pytest.mark.parametrize(
+    "data_interval_end", [dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=dt.UTC)]
+)
+async def test_insert_into_s3_activity_executes_the_expected_query_for_events_model(
     clickhouse_client,
     bucket_name,
     minio_client,
+    interval,
     activity_environment,
     data_interval_start,
     data_interval_end,
     generate_test_data,
     ateam,
+    model: BatchExportModel,
+    is_backfill: bool,
+    backfill_within_last_6_days: bool,
 ):
-    """Test that the insert_into_s3_activity executes the expected ClickHouse query."""
-    model = BatchExportModel(name="events", schema=None)
+    """Test that the insert_into_s3_activity executes the expected ClickHouse query when the model is an events model.
+
+    The query used for the events model is quite complex, and depends on a number of factors:
+    - If it's a backfill
+    - How far in the past we're backfilling
+    - If it's a 5 min batch export
+    """
+
+    if not is_backfill and backfill_within_last_6_days:
+        pytest.skip("No need to test backfill within last 6 days for non-backfill")
+
+    expected_table = "events"
+    if not is_backfill and interval == "every 5 minutes":
+        expected_table = "events_recent"
+
+    if backfill_within_last_6_days:
+        backfill_start_at = data_interval_end - dt.timedelta(days=3)
+    else:
+        backfill_start_at = data_interval_end - dt.timedelta(days=10)
+
     compression = None
     exclude_events = None
     file_format = "JSONLines"
-
     prefix = str(uuid.uuid4())
-
-    batch_export_schema: BatchExportSchema | None = None
-    batch_export_model: BatchExportModel | None = None
-    if isinstance(model, BatchExportModel):
-        batch_export_model = model
-    elif model is not None:
-        batch_export_schema = model
 
     insert_inputs = S3InsertInputs(
         bucket_name=bucket_name,
@@ -2355,10 +2302,105 @@ async def test_insert_into_s3_activity_executes_the_expected_query(
         compression=compression,
         exclude_events=exclude_events,
         file_format=file_format,
-        batch_export_schema=batch_export_schema,
-        batch_export_model=batch_export_model,
+        batch_export_schema=None,
+        batch_export_model=model,
+        is_backfill=is_backfill,
+        backfill_details=BackfillDetails(
+            backfill_id=str(uuid.uuid4()),
+            start_at=backfill_start_at,
+            end_at=data_interval_end,
+            is_earliest_backfill=False,
+        )
+        if is_backfill
+        else None,
     )
 
-    with mock_clickhouse_client_with_arrow() as mock_client:
+    class MockClickHouseClient:
+        """Helper class to mock ClickHouse client."""
+
+        def __init__(self):
+            self.mock_client = mock.AsyncMock(spec=ClickHouseClient)
+            self.mock_client_cm = mock.AsyncMock()
+            self.mock_client_cm.__aenter__.return_value = self.mock_client
+            self.mock_client_cm.__aexit__.return_value = None
+
+            # Set up the mock to return our async iterator
+            self.mock_client.astream_query_as_arrow.return_value = self._create_record_batch_iterator()
+
+        def expect_query_string(self, expected_query_string: str) -> None:
+            """Assert that the executed query contains the expected string."""
+            assert self.mock_client.astream_query_as_arrow.call_count == 1
+            call_args = self.mock_client.astream_query_as_arrow.call_args
+            query = call_args[0][0]  # First positional argument of the first call
+            assert expected_query_string in query
+
+        def expect_select_from_table(self, table_name: str) -> None:
+            """Assert that the executed query selects from the expected table.
+
+            Args:
+                table_name: The name of the table to check for in the FROM clause.
+
+            The method handles different formatting of the FROM clause, including newlines
+            and varying amounts of whitespace.
+            """
+            assert self.mock_client.astream_query_as_arrow.call_count == 1
+            call_args = self.mock_client.astream_query_as_arrow.call_args
+            query = call_args[0][0]  # First positional argument of the first call
+
+            # Create a pattern that matches "FROM" followed by optional whitespace/newlines and then the table name
+            pattern = rf"FROM\s+{re.escape(table_name)}"
+            assert re.search(pattern, query, re.IGNORECASE), f"Query does not select FROM {table_name}"
+
+        @staticmethod
+        def _create_test_record_batch() -> pa.RecordBatch:
+            """Create a record batch with test data."""
+            schema = pa.schema(
+                [
+                    ("team_id", pa.int64()),
+                    ("timestamp", pa.timestamp("us")),
+                    ("event", pa.string()),
+                    ("distinct_id", pa.string()),
+                    ("uuid", pa.string()),
+                    ("_inserted_at", pa.timestamp("us")),
+                    ("created_at", pa.timestamp("us")),
+                    ("elements_chain", pa.string()),
+                    ("person_id", pa.string()),
+                    ("properties", pa.string()),  # JSON string
+                    ("person_properties", pa.string()),  # JSON string
+                    ("set", pa.string()),  # JSON string
+                    ("set_once", pa.string()),  # JSON string
+                ]
+            )
+
+            now = dt.datetime.now(dt.UTC)
+            arrays = [
+                pa.array([1]),  # team_id
+                pa.array([now]),  # timestamp
+                pa.array(["test_event"]),  # event
+                pa.array(["test_distinct_id"]),  # distinct_id
+                pa.array([str(uuid.uuid4())]),  # uuid
+                pa.array([now]),  # _inserted_at
+                pa.array([now]),  # created_at
+                pa.array(["div > button"]),  # elements_chain
+                pa.array([str(uuid.uuid4())]),  # person_id
+                pa.array([json.dumps({"prop1": "value1"})]),  # properties
+                pa.array([json.dumps({"person_prop1": "value1"})]),  # person_properties
+                pa.array([json.dumps({"set1": "value1"})]),  # set
+                pa.array([json.dumps({"set_once1": "value1"})]),  # set_once
+            ]
+            return pa.RecordBatch.from_arrays(arrays, schema=schema)
+
+        async def _create_record_batch_iterator(self):
+            """Create an async iterator that yields a single record batch with test data."""
+            yield self._create_test_record_batch()
+
+    @contextlib.contextmanager
+    def mock_clickhouse_client():
+        """Context manager to mock ClickHouse client."""
+        mock_client = MockClickHouseClient()
+        with patch("posthog.temporal.batch_exports.spmc.get_client", return_value=mock_client.mock_client_cm):
+            yield mock_client
+
+    with mock_clickhouse_client() as mock_client:
         await activity_environment.run(insert_into_s3_activity, insert_inputs)
-        mock_client.expect_query_string("FROM\n        events")
+        mock_client.expect_select_from_table(expected_table)
