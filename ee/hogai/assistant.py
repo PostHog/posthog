@@ -3,11 +3,11 @@ from collections.abc import Generator, Iterator
 from typing import Any, Optional, cast
 from uuid import UUID, uuid4
 
-import posthoganalytics
 from langchain_core.callbacks.base import BaseCallbackHandler
 from langchain_core.messages import AIMessageChunk
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
+import posthoganalytics
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel
 
@@ -52,9 +52,9 @@ VISUALIZATION_NODES: dict[AssistantNodeName, type[SchemaGeneratorNode]] = {
 }
 
 STREAMING_NODES: set[AssistantNodeName] = {
+    AssistantNodeName.ROOT,
     AssistantNodeName.MEMORY_ONBOARDING,
     AssistantNodeName.MEMORY_INITIALIZER,
-    AssistantNodeName.SUMMARIZER,
 }
 """Nodes that can stream messages to the client."""
 
@@ -180,8 +180,6 @@ class Assistant:
         self, node_name: AssistantNodeName, input: AssistantState
     ) -> Optional[ReasoningMessage]:
         match node_name:
-            case AssistantNodeName.ROUTER:
-                return ReasoningMessage(content="Identifying type of analysis")
             case (
                 AssistantNodeName.TRENDS_PLANNER
                 | AssistantNodeName.TRENDS_PLANNER_TOOLS
@@ -235,10 +233,7 @@ class Assistant:
         _, maybe_state_update = update
         state_update = validate_value_update(maybe_state_update)
 
-        if node_val := state_update.get(AssistantNodeName.ROUTER):
-            if isinstance(node_val, PartialAssistantState) and node_val.messages:
-                return node_val.messages[0]
-        elif intersected_nodes := state_update.keys() & VISUALIZATION_NODES.keys():
+        if intersected_nodes := state_update.keys() & VISUALIZATION_NODES.keys():
             # Reset chunks when schema validation fails.
             self._chunks = AIMessageChunk(content="")
 
@@ -272,7 +267,9 @@ class Assistant:
                         return AssistantMessage(
                             content=MemoryInitializerNode.format_message(cast(str, self._chunks.content))
                         )
-                return AssistantMessage(content=self._chunks.content)
+                if self._chunks.content:
+                    # Only return an in-progress message if there is already some content (and not e.g. just tool calls)
+                    return AssistantMessage(content=self._chunks.content)
         return None
 
     def _process_task_started_update(self, update: GraphTaskStartedUpdateTuple) -> BaseModel | None:
