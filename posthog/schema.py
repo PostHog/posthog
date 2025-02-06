@@ -7219,7 +7219,6 @@ class ExperimentDataWarehouseMetricProps(BaseModel):
     )
     kind: Literal["ExperimentDataWarehouseMetricProps"] = "ExperimentDataWarehouseMetricProps"
     table_name: str
-    id: str
     id_field: str
     distinct_id_field: str
     timestamp_field: str
