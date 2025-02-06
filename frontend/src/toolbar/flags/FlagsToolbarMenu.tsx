@@ -61,7 +61,7 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                         filteredFlags.map(
                             ({ feature_flag, value, hasOverride, hasVariants, currentValue, payloadOverride }) => (
                                 <div
-                                    className={clsx('-mx-1 py-1 px-2', hasOverride && 'bg-mark')}
+                                    className={clsx('-mx-1 py-1 px-2', hasOverride && 'bg-fill-primary')}
                                     key={feature_flag.key}
                                 >
                                     <div className="flex flex-row items-center">

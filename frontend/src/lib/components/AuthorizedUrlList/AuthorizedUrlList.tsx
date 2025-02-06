@@ -95,7 +95,7 @@ function EmptyState({
                     >
                         {suggestionsLoading ? 'Fetching...' : 'Fetch suggestions'}
                     </LemonButton>
-                    <span className="text-small text-muted-alt">Sent an event? Refetch suggestions.</span>
+                    <span className="text-small text-secondary">Sent an event? Refetch suggestions.</span>
                 </div>
             </div>
         )
@@ -110,7 +110,7 @@ function EmptyState({
         loadSuggestions,
     ])
 
-    return children ? <div className="border rounded p-4 text-muted-alt">{children}</div> : null
+    return children ? <div className="border rounded p-4 text-secondary">{children}</div> : null
 }
 
 export interface AuthorizedUrlFormProps {
@@ -207,7 +207,7 @@ export function AuthorizedUrlList({
                 <EmptyState experimentId={experimentId} actionId={actionId} type={type} />
 
                 {isAddUrlFormVisible && (
-                    <div className="border rounded p-2 bg-bg-light">
+                    <div className="border rounded p-2 bg-surface-primary">
                         <AuthorizedUrlForm
                             type={type}
                             actionId={actionId}
@@ -221,7 +221,7 @@ export function AuthorizedUrlList({
                     const isFirstSuggestion = keyedURL.originalIndex === 0 && keyedURL.type === 'suggestion'
 
                     return editUrlIndex === index ? (
-                        <div className="border rounded p-2 bg-bg-light">
+                        <div className="border rounded p-2 bg-surface-primary">
                             <AuthorizedUrlForm
                                 type={type}
                                 actionId={actionId}
@@ -230,7 +230,10 @@ export function AuthorizedUrlList({
                             />
                         </div>
                     ) : (
-                        <div key={index} className={clsx('border rounded flex items-center p-2 pl-4 bg-bg-light')}>
+                        <div
+                            key={index}
+                            className={clsx('border rounded flex items-center p-2 pl-4 bg-surface-primary')}
+                        >
                             {keyedURL.type === 'suggestion' && (
                                 <Tooltip title={'Seen in ' + keyedURL.count + ' events in the last 3 days'}>
                                     <LemonTag type="highlight" className="mr-4 uppercase cursor-pointer">

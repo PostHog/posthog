@@ -53,7 +53,7 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                 <LemonLabel>Query Steps</LemonLabel>
 
                 <div className="flex items-center gap-2">
-                    <span className="text-muted">Graph type</span>
+                    <span className="text-secondary">Graph type</span>
                     <FunnelVizType insightProps={insightProps} />
                 </div>
             </div>
