@@ -19,31 +19,6 @@ export function FeaturePreviews(): JSX.Element {
                 earlyAccessFeatures.length === 0 && 'items-center justify-center'
             )}
         >
-            {earlyAccessFeatures.length > 4 && (
-                <div className="mb-4">
-                    <h4 className="font-semibold mb-0">Jump to:</h4>
-                    <ul className="list-disc pl-4">
-                        {earlyAccessFeatures.map(
-                            (feature) =>
-                                feature.flagKey && (
-                                    <li key={`nav-${feature.flagKey}`}>
-                                        <Link
-                                            onClick={(e) => {
-                                                e.preventDefault()
-                                                document
-                                                    .getElementById(`feature-preview-${feature.flagKey}`)
-                                                    ?.scrollIntoView({ behavior: 'smooth' })
-                                            }}
-                                        >
-                                            {feature.name}
-                                        </Link>
-                                    </li>
-                                )
-                        )}
-                    </ul>
-                    <LemonDivider className="my-4" />
-                </div>
-            )}
             {earlyAccessFeatures.map((feature, i) => {
                 if (!feature.flagKey) {
                     return false
