@@ -9,7 +9,7 @@ def build_inputs(multiProductEvent=False):
             "description": "Map of TikTok event attributes and their values. Check out this page for more details: https://business-api.tiktok.com/portal/docs?id=1739585702922241",
             "label": "Event parameters",
             "default": {
-                "value": "{toFloat(event.properties.value ?? event.properties.revenue)}",
+                "value": "{toFloat(event.properties.value ?? event.properties.revenue ?? event.properties.price)}",
                 "currency": "{event.properties.currency ?? 'USD'}",
                 "content_ids": "{arrayMap(product -> product.product_id, event.properties.products)}"
                 if multiProductEvent
