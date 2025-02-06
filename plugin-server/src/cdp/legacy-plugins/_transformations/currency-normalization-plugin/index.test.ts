@@ -2,7 +2,6 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { LegacyTransformationPluginMeta } from '../../types'
 import { processEvent } from './index'
-import rates from './rates.json'
 
 const createEvent = (event: Partial<PluginEvent>): PluginEvent =>
     ({
