@@ -2160,84 +2160,6 @@ async def test_s3_export_workflow_with_request_timeouts(
     )
 
 
-# TODO - this can be removed once we've fully migrated to using distributed events_recent
-# for all teams
-@pytest.mark.parametrize("use_distributed_events_recent_table", [True, False])
-# need to use a recent data_interval_end as events older than 7 days are deleted
-@pytest.mark.parametrize(
-    "data_interval_end", [dt.datetime.now(tz=dt.UTC).replace(minute=0, second=0, microsecond=0, tzinfo=dt.UTC)]
-)
-@pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
-async def test_insert_into_s3_activity_when_using_distributed_events_recent_table(
-    clickhouse_client,
-    bucket_name,
-    minio_client,
-    activity_environment,
-    compression,
-    exclude_events,
-    file_format,
-    data_interval_start,
-    data_interval_end,
-    generate_test_data,
-    ateam,
-    use_distributed_events_recent_table,
-):
-    """We're migrating to using distributed events_recent for all realtime batch exports (except for 5 minute exports).
-
-    This test ensures that the insert_into_s3_activity function works as expected when using the
-    distributed events_recent table.
-
-    It can be removed once we've fully migrated to using distributed events_recent for all teams and the tests always
-    use this new table.
-    """
-
-    model = BatchExportModel(name="events", schema=None)
-
-    prefix = str(uuid.uuid4())
-
-    insert_inputs = S3InsertInputs(
-        bucket_name=bucket_name,
-        region="us-east-1",
-        prefix=prefix,
-        team_id=ateam.pk,
-        data_interval_start=data_interval_start.isoformat(),
-        data_interval_end=data_interval_end.isoformat(),
-        aws_access_key_id="object_storage_root_user",
-        aws_secret_access_key="object_storage_root_password",
-        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
-        compression=compression,
-        exclude_events=exclude_events,
-        file_format=file_format,
-        batch_export_schema=None,
-        batch_export_model=model,
-    )
-
-    with override_settings(
-        BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2,
-        BATCH_EXPORT_DISTRIBUTED_EVENTS_RECENT_ROLLOUT=1 if use_distributed_events_recent_table else 0,
-    ):  # 5MB, the minimum for Multipart uploads
-        records_exported = await activity_environment.run(insert_into_s3_activity, insert_inputs)
-
-        events_to_export_created, persons_to_export_created = generate_test_data
-        assert records_exported == len(events_to_export_created) or records_exported == len(persons_to_export_created)
-
-        await assert_clickhouse_records_in_s3(
-            s3_compatible_client=minio_client,
-            clickhouse_client=clickhouse_client,
-            bucket_name=bucket_name,
-            key_prefix=prefix,
-            team_id=ateam.pk,
-            data_interval_start=data_interval_start,
-            data_interval_end=data_interval_end,
-            batch_export_model=model,
-            exclude_events=exclude_events,
-            include_events=None,
-            compression=compression,
-            file_format=file_format,
-            backfill_details=None,
-        )
-
-
 @pytest.mark.parametrize("interval", ["day", "every 5 minutes"], indirect=True)
 @pytest.mark.parametrize(
     "model",
@@ -2275,14 +2197,16 @@ async def test_insert_into_s3_activity_executes_the_expected_query_for_events_mo
     if not is_backfill and backfill_within_last_6_days:
         pytest.skip("No need to test backfill within last 6 days for non-backfill")
 
-    expected_table = "events"
+    expected_table = "distributed_events_recent"
     if not is_backfill and interval == "every 5 minutes":
         expected_table = "events_recent"
+    elif is_backfill and not backfill_within_last_6_days:
+        expected_table = "events"
 
     if backfill_within_last_6_days:
-        backfill_start_at = data_interval_end - dt.timedelta(days=3)
+        backfill_start_at = (data_interval_end - dt.timedelta(days=3)).isoformat()
     else:
-        backfill_start_at = data_interval_end - dt.timedelta(days=10)
+        backfill_start_at = (data_interval_end - dt.timedelta(days=10)).isoformat()
 
     compression = None
     exclude_events = None
