@@ -3,8 +3,9 @@ import { Hub, ProjectId } from '../types'
 import { closeHub, createHub } from '../utils/hub'
 import { captureTeamEvent } from '../utils/posthog'
 import { GroupTypeManager } from './group-type-manager'
-jest.mock('../../utils/status')
-jest.mock('../../utils/posthog', () => ({
+import { fetchTeam } from './team-manager'
+jest.mock('../utils/status')
+jest.mock('../utils/posthog', () => ({
     captureTeamEvent: jest.fn(),
 }))
 
