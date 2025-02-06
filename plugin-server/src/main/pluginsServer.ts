@@ -22,7 +22,7 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 } from '../config/kafka-topics'
 import { IngestionConsumer } from '../ingestion/ingestion-consumer'
-import { Hub, PluginServerCapabilities, PluginServerService, Config } from '../types'
+import { Config, Hub, PluginServerCapabilities, PluginServerService } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
 import { PostgresRouter } from '../utils/db/postgres'
 import { createRedisClient } from '../utils/db/redis'
@@ -64,7 +64,6 @@ export async function startPluginsServer(
     }
 
     status.updatePrompt(serverConfig.PLUGIN_SERVER_MODE)
-    status.info('ℹ️', `${serverConfig.TASKS_PER_WORKER} tasks per worker`)
     runStartupProfiles(serverConfig)
 
     // Used to trigger reloads of plugin code/config

@@ -122,15 +122,11 @@ export type IngestionConsumerConfig = {
 }
 
 export interface Config extends CdpConfig, IngestionConsumerConfig {
-    TASKS_PER_WORKER: number // number of parallel tasks per worker thread
-    INGESTION_CONCURRENCY: number // number of parallel event ingestion queues per batch
-    INGESTION_BATCH_SIZE: number // kafka consumer batch size
-    INGESTION_OVERFLOW_ENABLED: boolean // whether or not overflow rerouting is enabled (only used by analytics-ingestion)
-    INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: boolean // whether or not Kafka message keys should be preserved or discarded when messages are rerouted to overflow
+    PLUGIN_SERVER_MODE: PluginServerMode | null
+
     TASK_TIMEOUT: number // how many seconds until tasks are timed out
     DATABASE_URL: string // Postgres database URL
     DATABASE_READONLY_URL: string // Optional read-only replica to the main Postgres database
-    PLUGIN_STORAGE_DATABASE_URL: string // Optional read-write Postgres database for plugin storage
     POSTGRES_CONNECTION_POOL_SIZE: number
     POSTHOG_DB_NAME: string | null
     POSTHOG_DB_USER: string
@@ -176,6 +172,7 @@ export interface Config extends CdpConfig, IngestionConsumerConfig {
     KAFKA_SASL_PASSWORD: string | undefined
 
     // Consumer specific settings
+    KAFKA_CONSUMPTION_BATCH_SIZE: number // kafka consumer batch size
     KAFKA_CLIENT_RACK: string | undefined
     KAFKA_CONSUMPTION_MAX_BYTES: number
     KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: number
@@ -193,34 +190,23 @@ export interface Config extends CdpConfig, IngestionConsumerConfig {
     KAFKA_PRODUCER_BATCH_SIZE: number // batch.size rdkafka parameter
     KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: number // queue.buffering.max.messages rdkafka parameter
     KAFKA_FLUSH_FREQUENCY_MS: number
-    APP_METRICS_FLUSH_FREQUENCY_MS: number
-    APP_METRICS_FLUSH_MAX_QUEUE_SIZE: number
+
+    // TODO: Move the CH certs to env vars
     BASE_DIR: string // base path for resolving local plugins
-    PLUGINS_RELOAD_PUBSUB_CHANNEL: string // Redis channel for reload events'
     LOG_LEVEL: LogLevel
     SENTRY_DSN: string | null
     SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: number // Rate of tracing in plugin server (between 0 and 1)
     SENTRY_PLUGIN_SERVER_PROFILING_SAMPLE_RATE: number // Rate of profiling in plugin server (between 0 and 1)
     HTTP_SERVER_PORT: number
-    SCHEDULE_LOCK_TTL: number // how many seconds to hold the lock for the schedule
     DISABLE_MMDB: boolean // whether to disable fetching MaxMind database for IP location
-    DISTINCT_ID_LRU_SIZE: number
-    EVENT_PROPERTY_LRU_SIZE: number // size of the event property tracker's LRU cache (keyed by [team.id, event])
-    HEALTHCHECK_MAX_STALE_SECONDS: number // maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails
     SITE_URL: string | null
-    KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number // (advanced) how many kafka partitions the plugin server should consume from concurrently
-    PERSON_INFO_CACHE_TTL: number
-    KAFKA_HEALTHCHECK_SECONDS: number
     OBJECT_STORAGE_ENABLED: boolean // Disables or enables the use of object storage. It will become mandatory to use object storage
     OBJECT_STORAGE_REGION: string // s3 region
     OBJECT_STORAGE_ENDPOINT: string // s3 endpoint
     OBJECT_STORAGE_ACCESS_KEY_ID: string
     OBJECT_STORAGE_SECRET_ACCESS_KEY: string
     OBJECT_STORAGE_BUCKET: string // the object storage bucket name
-    PLUGIN_SERVER_MODE: PluginServerMode | null
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
-    MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: number
-    USE_KAFKA_FOR_SCHEDULED_TASKS: boolean // distribute scheduled tasks across the scheduler workers
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
     /** Label of the PostHog Cloud environment. Null if not running PostHog Cloud. @example 'US' */
@@ -229,10 +215,6 @@ export interface Config extends CdpConfig, IngestionConsumerConfig {
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
     DROP_EVENTS_BY_TOKEN: string
     SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: string
-    RUSTY_HOOK_FOR_TEAMS: string
-    RUSTY_HOOK_ROLLOUT_PERCENTAGE: number
-    RUSTY_HOOK_URL: string
-    HOG_HOOK_URL: string
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
     CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
 

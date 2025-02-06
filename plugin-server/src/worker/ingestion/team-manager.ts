@@ -2,7 +2,7 @@ import { Properties } from '@posthog/plugin-scaffold'
 import LRU from 'lru-cache'
 
 import { TeamIDWithConfig } from '../../main/ingestion-queues/session-recording/session-recordings-consumer'
-import { PipelineEvent, Config, ProjectId, Team, TeamId } from '../../types'
+import { Config, PipelineEvent, ProjectId, Team, TeamId } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
 import { posthog } from '../../utils/posthog'

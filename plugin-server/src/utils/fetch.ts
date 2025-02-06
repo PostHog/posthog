@@ -11,8 +11,8 @@ import { URL } from 'url'
 
 export type { Response }
 
-import { runInSpan } from './sentry'
 import { isProdEnv } from './env-utils'
+import { runInSpan } from './sentry'
 
 const staticLookup: net.LookupFunction = async (hostname, options, cb) => {
     let addrinfo: LookupAddress[]

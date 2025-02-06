@@ -107,21 +107,16 @@ export class DB {
     /** ClickHouse used for syncing Postgres and ClickHouse person data. */
     clickhouse: ClickHouse
 
-    /** How many seconds to keep person info in Redis cache */
-    PERSONS_AND_GROUPS_CACHE_TTL: number
-
     constructor(
         postgres: PostgresRouter,
         redisPool: GenericPool<Redis.Redis>,
         kafkaProducer: KafkaProducerWrapper,
-        clickhouse: ClickHouse,
-        personAndGroupsCacheTtl = 1
+        clickhouse: ClickHouse
     ) {
         this.postgres = postgres
         this.redisPool = redisPool
         this.kafkaProducer = kafkaProducer
         this.clickhouse = clickhouse
-        this.PERSONS_AND_GROUPS_CACHE_TTL = personAndGroupsCacheTtl
     }
 
     // ClickHouse

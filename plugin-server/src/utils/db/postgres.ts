@@ -58,18 +58,6 @@ export class PostgresRouter {
             )
             status.info('👍', `Read-only common Postgresql ready`)
         }
-        if (serverConfig.PLUGIN_STORAGE_DATABASE_URL) {
-            status.info('🤔', `Connecting to plugin-storage Postgresql...`)
-            this.pools.set(
-                PostgresUse.PLUGIN_STORAGE_RW,
-                createPostgresPool(
-                    serverConfig.PLUGIN_STORAGE_DATABASE_URL,
-                    serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
-                    app_name
-                )
-            )
-            status.info('👍', `Plugin-storage Postgresql ready`)
-        }
     }
 
     public async query<R extends QueryResultRow = any, I extends any[] = any[]>(

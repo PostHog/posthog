@@ -9,7 +9,7 @@ import { EncryptedFields } from '../../cdp/encryption-utils'
 import { createCookielessConfig, defaultConfig } from '../../config/config'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { getObjectStorage } from '../../main/services/object_storage'
-import { Hub, PluginServerCapabilities, Config } from '../../types'
+import { Config, Hub, PluginServerCapabilities } from '../../types'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
 import { TeamManager } from '../../worker/ingestion/team-manager'
@@ -106,7 +106,7 @@ export async function createHub(
         status.warn('🪣', `Object storage could not be created`)
     }
 
-    const db = new DB(postgres, redisPool, kafkaProducer, clickhouse, serverConfig.PERSON_INFO_CACHE_TTL)
+    const db = new DB(postgres, redisPool, kafkaProducer, clickhouse)
     const teamManager = new TeamManager(postgres, serverConfig)
     const organizationManager = new OrganizationManager(postgres, teamManager)
 
@@ -129,9 +129,9 @@ export async function createHub(
 
         teamManager,
         organizationManager,
-        eventsToDropByToken: createEventsToDropByToken(process.env.DROP_EVENTS_BY_TOKEN_DISTINCT_ID),
+        eventsToDropByToken: createEventsToDropByToken(serverConfig.DROP_EVENTS_BY_TOKEN_DISTINCT_ID),
         eventsToSkipPersonsProcessingByToken: createEventsToDropByToken(
-            process.env.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID
+            serverConfig.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID
         ),
         encryptedFields: new EncryptedFields(serverConfig),
         celery: new Celery(serverConfig),
