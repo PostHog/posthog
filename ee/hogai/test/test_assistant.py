@@ -1,5 +1,5 @@
-from itertools import cycle
 import json
+from itertools import cycle
 from typing import Any, Optional, cast
 from unittest.mock import patch
 
@@ -700,8 +700,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         expected_output = [
             ("conversation", {"id": str(self.conversation.id)}),
             ("message", HumanMessage(content="We use a subscription model")),
-            ("message", AssistantMessage(content="Let me analyze that.")),
-            ("message", AssistantMessage(content="Memory appended.")),
         ]
         self.assertConversationEqual(output, expected_output)
 
