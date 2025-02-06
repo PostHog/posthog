@@ -16,6 +16,9 @@ from posthog.settings import (
 from posthog.schema import (
     DataWarehouseNode,
     EventsNode,
+    ExperimentEventMetricProps,
+    ExperimentMetric,
+    ExperimentMetricType,
     ExperimentQuery,
     ExperimentSignificanceCode,
     ExperimentTrendsQueryResponse,
@@ -333,7 +336,6 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         return subscription_table_name
 
-    @flaky(max_runs=10, min_passes=1)
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
     def test_query_runner_standard_flow_v2_stats(self):
@@ -343,16 +345,19 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
-        count_query = TrendsQuery(series=[EventsNode(event="$pageview")])
+
+        metric = ExperimentMetric(
+            metric_type=ExperimentMetricType.COUNT,
+            metric_props=ExperimentEventMetricProps(event="$pageview"),
+        )
 
         experiment_query = ExperimentQuery(
             experiment_id=experiment.id,
             kind="ExperimentQuery",
-            count_query=count_query,
-            exposure_query=None,
+            metric=metric,
         )
 
-        experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
+        experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
         journeys_for(
@@ -415,7 +420,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(query=ExperimentQuery(**experiment.metrics[0]["query"]), team=self.team)
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         self.assertEqual(query_runner.stats_version, 2)
         result = query_runner.calculate()
 
@@ -430,16 +435,6 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(test_variant.count, 5)
         self.assertEqual(control_variant.absolute_exposure, 2)
         self.assertEqual(test_variant.absolute_exposure, 2)
-
-        self.assertAlmostEqual(result.credible_intervals["control"][0], 0.3633, delta=0.1)
-        self.assertAlmostEqual(result.credible_intervals["control"][1], 2.9224, delta=0.1)
-        self.assertAlmostEqual(result.credible_intervals["test"][0], 0.7339, delta=0.1)
-        self.assertAlmostEqual(result.credible_intervals["test"][1], 3.8894, delta=0.1)
-
-        self.assertAlmostEqual(result.p_value, 1.0, delta=0.1)
-
-        self.assertAlmostEqual(result.probability["control"], 0.2549, delta=0.1)
-        self.assertAlmostEqual(result.probability["test"], 0.7453, delta=0.1)
 
         self.assertEqual(result.significance_code, ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE)
 

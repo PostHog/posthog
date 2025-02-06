@@ -7196,14 +7196,74 @@ class ExperimentTrendsQuery(BaseModel):
     response: Optional[ExperimentTrendsQueryResponse] = None
 
 
+class ExperimentMetricType(Enum):
+    COUNT = "count"
+    CONTINUOUS = "continuous"
+    FUNNEL = "funnel"
+
+
+class ExperimentEventMetricProps(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["ExperimentEventMetricProps"] = "ExperimentEventMetricProps"
+    event: str
+    math: Optional[Literal["count", "sum", "avg", "median", "min", "max"]] = None
+    math_hogql: Optional[str] = None
+    math_property: Optional[str] = None
+
+
+class ExperimentDataWarehouseMetricProps(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["ExperimentDataWarehouseMetricProps"] = "ExperimentDataWarehouseMetricProps"
+    table_name: str
+    id: str
+    id_field: str
+    distinct_id_field: str
+    timestamp_field: str
+    math: Literal["sum", "avg", "median", "min", "max"]
+    math_hogql: Optional[str] = None
+    math_property: Optional[str] = None
+
+
+class ExperimentMetric(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        json_encoders={ExperimentMetricType: lambda x: x.value},
+    )
+    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
+
+    # The name of the metric, ex. "Revenue"
+    name: Optional[str] = None
+
+    # The type of the metric, which we use to determine the statistical method to use
+    metric_type: ExperimentMetricType
+
+    # NOTE: adding this for compatibility with the existing codebase,
+    # but this will be moved up to experiment level. I am aware of the inconsitent
+    # naming here ... kept it like this to minmize changes.
+    filterTestAccounts: Optional[bool] = False
+
+    # Example of additional attributes that can be added to the metric
+    # Winsorize the metric at a certain percentile threshold, etc.
+    # Override priors
+    # Is the goal is to increase or decrease the metric, ex.
+    inverse: Optional[bool] = False
+
+    # This contains the properties required to evalutate the different kind of metrics
+    # NOTE: is there a better name for this?
+    metric_props: ExperimentEventMetricProps | ExperimentDataWarehouseMetricProps
+
+
 class ExperimentQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    count_query: TrendsQuery
-    experiment_id: Optional[int] = None
-    exposure_query: Optional[TrendsQuery] = None
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    metric: ExperimentMetric
+    experiment_id: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
