@@ -107,6 +107,7 @@ describe('IngestionConsumer', () => {
         await resetTestDatabase()
         hub = await createHub()
 
+        // TODO: Move thos to beforeAll
         // Set up GeoIP database
         const mmdbBrotliContents = readFileSync(join(__dirname, '../../tests/assets/GeoLite2-City-Test.mmdb.br'))
         hub.mmdb = Reader.openBuffer(Buffer.from(brotliDecompressSync(mmdbBrotliContents)))

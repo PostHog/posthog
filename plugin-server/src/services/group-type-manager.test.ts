@@ -1,9 +1,8 @@
-import { Hub, ProjectId } from '../../../src/types'
-import { closeHub, createHub } from '../../../src/utils/hub'
-import { captureTeamEvent } from '../../../src/utils/posthog'
-import { GroupTypeManager } from '../../../src/worker/ingestion/group-type-manager'
-import { createTeam, resetTestDatabase } from '../../helpers/sql'
-
+import { createTeam, resetTestDatabase } from '../../../tests/helpers/sql'
+import { Hub, ProjectId } from '../types'
+import { closeHub, createHub } from '../utils/hub'
+import { captureTeamEvent } from '../utils/posthog'
+import { GroupTypeManager } from './group-type-manager'
 jest.mock('../../../src/utils/status')
 jest.mock('../../../src/utils/posthog', () => ({
     captureTeamEvent: jest.fn(),
@@ -118,7 +117,7 @@ describe('GroupTypeManager()', () => {
             expect(groupTypeManager.insertGroupType).toHaveBeenCalledTimes(1)
             expect(hub.postgres.query).toHaveBeenCalledTimes(3) // FETCH + INSERT + Team lookup
 
-            const team = await hub.db.fetchTeam(2)
+            const team = await fetchTeam(hub.postgres, 2)
             expect(captureTeamEvent).toHaveBeenCalledWith(team, 'group type ingested', {
                 groupType: 'second',
                 groupTypeIndex: 1,

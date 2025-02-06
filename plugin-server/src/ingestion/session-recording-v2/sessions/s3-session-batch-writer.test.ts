@@ -1,11 +1,11 @@
 import { S3Client } from '@aws-sdk/client-s3'
 import { Upload } from '@aws-sdk/lib-storage'
 
-import { status } from '../../../../utils/status'
+import { status } from '../../../utils/status'
 import { S3SessionBatchWriter } from './s3-session-batch-writer'
 
 jest.mock('@aws-sdk/lib-storage')
-jest.mock('../../../../utils/status')
+jest.mock('../../../utils/status')
 
 describe('S3SessionBatchWriter', () => {
     let writer: S3SessionBatchWriter

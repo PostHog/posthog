@@ -2,12 +2,13 @@ import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 
 import { defaultConfig } from '../../src/config/config'
+import { fetchTeam, fetchTeamByToken } from '../../src/services/team-manager'
 import { Hub, Person, PropertyOperator, PropertyUpdateOperation, RawAction, Team } from '../../src/types'
 import { DB } from '../../src/utils/db/db'
 import { DependencyUnavailableError, RedisOperationError } from '../../src/utils/db/error'
+import { generateKafkaPersonUpdateMessage } from '../../src/utils/db/utils'
 import { closeHub, createHub } from '../../src/utils/hub'
 import { PostgresRouter, PostgresUse } from '../../src/utils/postgres'
-import { generateKafkaPersonUpdateMessage } from '../../src/utils/db/utils'
 import { RaceConditionError, UUIDT } from '../../src/utils/utils'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { createOrganization, createTeam, getFirstTeam, insertRow, resetTestDatabase } from '../helpers/sql'
@@ -843,7 +844,7 @@ describe('DB', () => {
             const organizationId = await createOrganization(db.postgres)
             const teamId = await createTeam(db.postgres, organizationId, 'token1')
 
-            const fetchedTeam = await hub.db.fetchTeam(teamId)
+            const fetchedTeam = await fetchTeam(hub.postgres, teamId)
             expect(fetchedTeam).toEqual({
                 anonymize_ips: false,
                 api_token: 'token1',
@@ -865,7 +866,7 @@ describe('DB', () => {
         })
 
         it('returns null if the team does not exist', async () => {
-            const fetchedTeam = await hub.db.fetchTeam(99999)
+            const fetchedTeam = await fetchTeam(hub.postgres, 99999)
             expect(fetchedTeam).toEqual(null)
         })
     })
@@ -875,7 +876,7 @@ describe('DB', () => {
             const organizationId = await createOrganization(db.postgres)
             const teamId = await createTeam(db.postgres, organizationId, 'token2')
 
-            const fetchedTeam = await hub.db.fetchTeamByToken('token2')
+            const fetchedTeam = await fetchTeamByToken(hub.postgres, 'token2')
             expect(fetchedTeam).toEqual({
                 anonymize_ips: false,
                 api_token: 'token2',
@@ -897,7 +898,7 @@ describe('DB', () => {
         })
 
         it('returns null if the team does not exist', async () => {
-            const fetchedTeam = await hub.db.fetchTeamByToken('token2')
+            const fetchedTeam = await fetchTeamByToken(hub.postgres, 'token2')
             expect(fetchedTeam).toEqual(null)
         })
     })

@@ -7,12 +7,12 @@ import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../kafka/config'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { Hub, PipelineEvent, PluginServerService } from '../types'
-import { PersonsDB } from './event-pipeline-runner/utils/persons-db'
 import { runInstrumentedFunction } from '../utils/instrument'
 import { eventDroppedCounter } from '../utils/metrics'
 import { status } from '../utils/status'
 import { EventDroppedError, EventPipelineRunnerV2 } from './event-pipeline-runner/event-pipeline-runner'
 import { normalizeEvent } from './event-pipeline-runner/utils/event-utils'
+import { PersonsDB } from './event-pipeline-runner/utils/persons-db'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
@@ -98,7 +98,7 @@ export class IngestionConsumer {
 
         this.ingestionWarningLimiter = new MemoryRateLimiter(1, 1.0 / 3600)
         this.hogTransformer = new HogTransformerService(hub)
-        this.personsDB = new PersonsDB(hub.postgres, hub.redisPool, hub.kafkaProducer)
+        this.personsDB = new PersonsDB(hub.postgres, hub.kafkaProducer)
     }
 
     public get service(): PluginServerService {

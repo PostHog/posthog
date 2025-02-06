@@ -5,6 +5,7 @@ import { PostgresUse } from '~/src/utils/postgres'
 import { insertHogFunction, insertIntegration } from '~/tests/cdp/fixtures'
 import { createTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
+import { fetchTeam } from '../../services/team-manager'
 import { HogFunctionManagerService } from './hog-function-manager.service'
 
 describe('HogFunctionManager', () => {
@@ -22,7 +23,7 @@ describe('HogFunctionManager', () => {
         await resetTestDatabase()
         manager = new HogFunctionManagerService(hub)
 
-        const team = await hub.db.fetchTeam(2)
+        const team = await fetchTeam(hub.postgres, 2)
 
         teamId1 = await createTeam(hub.postgres, team!.organization_id)
         teamId2 = await createTeam(hub.postgres, team!.organization_id)
@@ -238,7 +239,7 @@ describe('Hogfunction Manager - Execution Order', () => {
         await resetTestDatabase()
         manager = new HogFunctionManagerService(hub)
 
-        const team = await hub.db.fetchTeam(2)
+        const team = await fetchTeam(hub.postgres, 2)
         teamId = await createTeam(hub.postgres, team!.organization_id)
         teamId2 = await createTeam(hub.postgres, team!.organization_id)
 

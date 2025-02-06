@@ -536,7 +536,7 @@ export class PersonState {
                 }
             })()
 
-            return await this.db.postgres.transaction(
+            return await this.hub.postgres.transaction(
                 PostgresUse.COMMON_WRITE,
                 'mergeDistinctIds-OneExists',
                 async (tx) => {
@@ -572,7 +572,7 @@ export class PersonState {
             let distinctId1 = mergeIntoDistinctId
             let distinctId2 = otherPersonDistinctId
 
-            return await this.db.postgres.transaction(
+            return await this.hub.postgres.transaction(
                 PostgresUse.COMMON_WRITE,
                 'mergeDistinctIds-NeitherExist',
                 async (tx) => {
@@ -719,7 +719,7 @@ export class PersonState {
             })
             .inc()
 
-        const [mergedPerson, kafkaMessages]: [InternalPerson, TopicMessage[]] = await this.db.postgres.transaction(
+        const [mergedPerson, kafkaMessages]: [InternalPerson, TopicMessage[]] = await this.hub.postgres.transaction(
             PostgresUse.COMMON_WRITE,
             'mergePeople',
             async (tx) => {
