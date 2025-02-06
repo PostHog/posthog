@@ -628,7 +628,10 @@ def redirect_to_site(request):
     # see https://github.com/PostHog/posthog/issues/9671
     state = urllib.parse.quote(json.dumps(params), safe="")
 
-    return redirect("{}#__posthog={}".format(app_url, state))
+    if request.GET.get("generateOnly"):
+        return JsonResponse({"toolbarParams": state})
+    else:
+        return redirect("{}#__posthog={}".format(app_url, state))
 
 
 @authenticate_secondarily
