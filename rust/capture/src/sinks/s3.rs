@@ -2,7 +2,7 @@ use crate::v0_request::ProcessedEvent;
 use async_trait::async_trait;
 use aws_sdk_s3::config::Builder;
 use aws_sdk_s3::Client as S3Client;
-use chrono::{DateTime, Datelike, Timelike, Utc};
+use chrono::{DateTime, Datelike, Utc};
 use health::HealthHandle;
 use metrics::{counter, histogram};
 use std::env;
@@ -214,12 +214,11 @@ impl Inner {
 
         let now: DateTime<Utc> = SystemTime::now().into();
         let path = format!(
-            "{}year={}/month={:02}/day={:02}/hour={:02}/events_{}_{}.json.gz",
+            "{}{}/{:02}/{:02}/events_{}_{}.jsonl.gz",
             self.prefix,
             now.year(),
             now.month(),
             now.day(),
-            now.hour(),
             now.timestamp_millis(),
             hostname
         );
