@@ -8,7 +8,6 @@ import { processCookielessEvent } from '~/src/utils/cookieless/cookielessServerH
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KAFKA_INGESTION_WARNINGS } from '../../config/kafka-topics'
 import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
-import { runInstrumentedFunction } from '../../main/utils'
 import { Hub, Person, PersonMode, PipelineEvent, RawKafkaEvent, Team, TimestampFormat } from '../../types'
 import { processAiEvent } from '../../utils/ai-costs/process-ai-event'
 import { MessageSizeTooLarge } from '../../utils/db/error'
@@ -21,7 +20,6 @@ import { PersonState } from '../../worker/ingestion/person-state'
 import { upsertGroup } from '../../worker/ingestion/properties-updater'
 import { parseEventTimestamp } from '../../worker/ingestion/timestamps'
 import { captureIngestionWarning } from '../../worker/ingestion/utils'
-import { runProcessEvent } from '../../worker/plugins/run'
 import { getElementsChain } from './utils/event-utils'
 import { extractHeatmapData } from './utils/heatmaps'
 
@@ -168,13 +166,6 @@ export class EventPipelineRunnerV2 {
             return
         }
 
-        const pluginProcessed = await this.processPlugins()
-        if (!pluginProcessed) {
-            droppedEventFromTransformationsCounter.inc()
-            // NOTE: In this case we just return as it is expected, not an ingestion error
-            return
-        }
-
         const result = await this.hogTransformer.transformEventAndProduceMessages(this.event)
 
         if (!result.event) {
@@ -264,22 +255,6 @@ export class EventPipelineRunnerV2 {
                 $process_person_profile: processPersonProfile,
             })
         }
-    }
-
-    private async processPlugins(): Promise<boolean> {
-        const processedEvent = await runInstrumentedFunction({
-            timeoutContext: () => ({ event: JSON.stringify(this.event) }),
-            func: () => runProcessEvent(this.hub, this.event),
-            statsKey: 'kafka_queue.single_event',
-            timeoutMessage: 'Still running plugins on event. Timeout warning after 30 sec!',
-            teamId: this.event.team_id,
-        })
-
-        if (processedEvent) {
-            this.event = processedEvent
-            return true
-        }
-        return false
     }
 
     private normalizeEvent() {

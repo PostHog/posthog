@@ -4,7 +4,6 @@ import LRU from 'lru-cache'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
-import { ONE_HOUR } from '../../config/constants'
 import { TopicMessage } from '../../kafka/producer'
 import { InternalPerson, Person, PropertyUpdateOperation } from '../../types'
 import { DB } from '../../utils/db/db'
@@ -54,6 +53,8 @@ const BARE_CASE_INSENSITIVE_ILLEGAL_IDS = [
     'true',
     'false',
 ]
+
+export const ONE_HOUR = 60 * 60 * 1000
 
 // Tracks whether we know we've already inserted a `posthog_personlessdistinctid` for the given
 // (team_id, distinct_id) pair. If we have, then we can skip the INSERT attempt.

@@ -7,7 +7,6 @@ import {
     ValueMatcher,
 } from '../types'
 import { isDevEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
-import { KAFKAJS_LOG_LEVEL_MAPPING } from './constants'
 import {
     KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
     KAFKA_EVENTS_JSON,
@@ -100,17 +99,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         DISABLE_MMDB: isTestEnv(),
         DISTINCT_ID_LRU_SIZE: 10000,
         EVENT_PROPERTY_LRU_SIZE: 10000,
-        JOB_QUEUES: 'graphile',
-        JOB_QUEUE_GRAPHILE_URL: '',
-        JOB_QUEUE_GRAPHILE_SCHEMA: 'graphile_worker',
-        JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS: false,
-        JOB_QUEUE_GRAPHILE_CONCURRENCY: 1,
-        JOB_QUEUE_S3_AWS_ACCESS_KEY: '',
-        JOB_QUEUE_S3_AWS_SECRET_ACCESS_KEY: '',
-        JOB_QUEUE_S3_AWS_REGION: 'us-west-1',
-        JOB_QUEUE_S3_BUCKET_NAME: '',
-        JOB_QUEUE_S3_PREFIX: '',
-        CRASH_IF_NO_PERSISTENT_JOB_QUEUE: false,
         HEALTHCHECK_MAX_STALE_SECONDS: 2 * 60 * 60, // 2 hours
         SITE_URL: null,
         KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,
@@ -293,13 +281,6 @@ export function overrideWithEnv(
         newConfig.JOB_QUEUE_GRAPHILE_URL = newConfig.DATABASE_URL
     }
 
-    if (!Object.keys(KAFKAJS_LOG_LEVEL_MAPPING).includes(newConfig.KAFKAJS_LOG_LEVEL)) {
-        throw Error(
-            `Invalid KAFKAJS_LOG_LEVEL ${newConfig.KAFKAJS_LOG_LEVEL}. Valid: ${Object.keys(
-                KAFKAJS_LOG_LEVEL_MAPPING
-            ).join(', ')}`
-        )
-    }
     return newConfig
 }
 

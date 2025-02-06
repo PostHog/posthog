@@ -13,7 +13,6 @@ import {
 } from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
 import { Redis } from 'ioredis'
-import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { VM } from 'vm2'
 
@@ -21,21 +20,14 @@ import { EncryptedFields } from './cdp/encryption-utils'
 import { BatchConsumer } from './kafka/batch-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { ObjectStorage } from './main/services/object_storage'
+import type { CookielessSaltManager } from './utils/cookieless/cookielessServerHashStep'
 import { Celery } from './utils/db/celery'
 import { DB } from './utils/db/db'
 import { PostgresRouter } from './utils/db/postgres'
 import { UUID } from './utils/utils'
-import { ActionManager } from './worker/ingestion/action-manager'
-import { ActionMatcher } from './worker/ingestion/action-matcher'
-import { AppMetrics } from './worker/ingestion/app-metrics'
-import type { CookielessSaltManager } from './utils/cookieless/cookielessServerHashStep'
 import { GroupTypeManager } from './worker/ingestion/group-type-manager'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
 import { TeamManager } from './worker/ingestion/team-manager'
-import { RustyHook } from './worker/rusty-hook'
-import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
-import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
-import { PluginInstance } from './worker/vm/lazy'
 
 export { Element } from '@posthog/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
 
@@ -226,16 +218,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     DISABLE_MMDB: boolean // whether to disable fetching MaxMind database for IP location
     DISTINCT_ID_LRU_SIZE: number
     EVENT_PROPERTY_LRU_SIZE: number // size of the event property tracker's LRU cache (keyed by [team.id, event])
-    JOB_QUEUES: string // retry queue engine and fallback queues
-    JOB_QUEUE_GRAPHILE_URL: string // use a different postgres connection in the graphile worker
-    JOB_QUEUE_GRAPHILE_SCHEMA: string // the postgres schema that the graphile worker
-    JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS: boolean // enable this to increase job queue throughput if not using pgbouncer
-    JOB_QUEUE_GRAPHILE_CONCURRENCY: number // concurrent jobs per pod
-    JOB_QUEUE_S3_AWS_ACCESS_KEY: string
-    JOB_QUEUE_S3_AWS_SECRET_ACCESS_KEY: string
-    JOB_QUEUE_S3_AWS_REGION: string
-    JOB_QUEUE_S3_BUCKET_NAME: string
-    JOB_QUEUE_S3_PREFIX: string // S3 filename prefix for the S3 job queue
     CRASH_IF_NO_PERSISTENT_JOB_QUEUE: boolean // refuse to start unless there is a properly configured persistent job queue (e.g. graphile)
     HEALTHCHECK_MAX_STALE_SECONDS: number // maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails
     SITE_URL: string | null
@@ -353,35 +335,15 @@ export interface Hub extends PluginsServerConfig {
     postgres: PostgresRouter
     redisPool: GenericPool<Redis>
     clickhouse: ClickHouse
-    kafka: Kafka
     kafkaProducer: KafkaProducerWrapper
     objectStorage?: ObjectStorage
-    // currently enabled plugin status
-    plugins: Map<PluginId, Plugin>
-    pluginConfigs: Map<PluginConfigId, PluginConfig>
-    pluginConfigsPerTeam: Map<TeamId, PluginConfig[]>
-    pluginSchedule: Record<string, PluginConfigId[]> | null
-    // unique hash for each plugin config; used to verify IDs caught on stack traces for unhandled promise rejections
-    pluginConfigSecrets: Map<PluginConfigId, string>
-    pluginConfigSecretLookup: Map<string, PluginConfigId>
     // tools
     teamManager: TeamManager
     organizationManager: OrganizationManager
-    pluginsApiKeyManager: PluginsApiKeyManager
-    rootAccessManager: RootAccessManager
-    actionManager: ActionManager
-    actionMatcher: ActionMatcher
-    appMetrics: AppMetrics
-    rustyHook: RustyHook
     groupTypeManager: GroupTypeManager
     celery: Celery
     // geoip database, setup in workers
     mmdb?: ReaderModel
-    // functions
-    enqueuePluginJob: (job: EnqueuedPluginJob) => Promise<void>
-    // ValueMatchers used for various opt-in/out features
-    pluginConfigsToSkipElementsParsing: ValueMatcher<number>
-    // lookups
     eventsToDropByToken: Map<string, string[]>
     eventsToSkipPersonsProcessingByToken: Map<string, string[]>
     encryptedFields: EncryptedFields
@@ -522,7 +484,6 @@ export interface PluginConfig {
     order: number
     config: Record<string, unknown>
     attachments?: Record<string, PluginAttachment>
-    instance?: PluginInstance | null
     created_at: string
     updated_at?: string
     // We're migrating to a new functions that take PostHogEvent instead of PluginEvent

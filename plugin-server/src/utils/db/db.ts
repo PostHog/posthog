@@ -46,7 +46,6 @@ import {
     TeamId,
     TimestampFormat,
 } from '../../types'
-import { fetchAction, fetchAllActionsGroupedByTeam } from '../../worker/ingestion/action-manager'
 import { fetchOrganization } from '../../worker/ingestion/organization-manager'
 import { fetchTeam, fetchTeamByToken } from '../../worker/ingestion/team-manager'
 import { parseRawClickHouseEvent } from '../event'
@@ -1038,59 +1037,6 @@ export class DB {
         return queryResult.data as PluginLogEntry[]
     }
 
-    public queuePluginLogEntry(entry: LogEntryPayload): Promise<void> {
-        const { pluginConfig, source, message, type, timestamp, instanceId } = entry
-        const configuredLogLevel = pluginConfig.plugin?.log_level || this.pluginsDefaultLogLevel
-
-        if (!shouldStoreLog(configuredLogLevel, type)) {
-            return Promise.resolve()
-        }
-
-        const parsedEntry = {
-            source,
-            type,
-            id: new UUIDT().toString(),
-            team_id: pluginConfig.team_id,
-            plugin_id: pluginConfig.plugin_id,
-            plugin_config_id: pluginConfig.id,
-            timestamp: (timestamp || new Date().toISOString()).replace('T', ' ').replace('Z', ''),
-            message: safeClickhouseString(message),
-            instance_id: instanceId.toString(),
-        }
-
-        if (parsedEntry.message.length > 50_000) {
-            const { message, ...rest } = parsedEntry
-            status.warn('⚠️', 'Plugin log entry too long, ignoring.', rest)
-            return Promise.resolve()
-        }
-
-        pluginLogEntryCounter.labels({ plugin_id: String(pluginConfig.plugin_id), source }).inc()
-
-        try {
-            // For logs, we relax our durability requirements a little and
-            // do not wait for acks that Kafka has persisted the message to
-            // disk.
-            void this.kafkaProducer
-                .queueMessages({
-                    topic: KAFKA_PLUGIN_LOG_ENTRIES,
-                    messages: [{ key: parsedEntry.id, value: JSON.stringify(parsedEntry) }],
-                })
-                .catch((error) => {
-                    status.warn('⚠️', 'Failed to produce plugin log entry', {
-                        error,
-                        entry: parsedEntry,
-                    })
-                })
-
-            // TRICKY: We don't want to block the caller, so we return a promise that resolves immediately.
-            return Promise.resolve()
-        } catch (e) {
-            captureException(e, { tags: { team_id: entry.pluginConfig.team_id } })
-            console.error('Failed to produce message', e, parsedEntry)
-            return Promise.resolve()
-        }
-    }
-
     // EventDefinition
 
     public async fetchEventDefinitions(teamId?: number): Promise<EventDefinitionType[]> {
@@ -1146,16 +1092,6 @@ export class DB {
                 'fetchEventProperties'
             )
         ).rows as EventPropertyType[]
-    }
-
-    // Action & ActionStep & Action<>Event
-
-    public async fetchAllActionsGroupedByTeam(): Promise<Record<Team['id'], Record<Action['id'], Action>>> {
-        return fetchAllActionsGroupedByTeam(this.postgres)
-    }
-
-    public async fetchAction(id: Action['id']): Promise<Action | null> {
-        return await fetchAction(this.postgres, id)
     }
 
     // Organization
