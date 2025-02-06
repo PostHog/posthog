@@ -5,8 +5,8 @@ import { defaultConfig } from '../config/config'
 import { PostgresRouter, PostgresUse } from '../utils/postgres'
 import { TeamManager } from './team-manager'
 
-jest.mock('../../../src/utils/status')
-jest.mock('../../../src/utils/posthog', () => ({
+jest.mock('../utils/status')
+jest.mock('../utils/posthog', () => ({
     posthog: {
         identify: jest.fn(),
         capture: jest.fn(),

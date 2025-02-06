@@ -1,12 +1,12 @@
-import { commonOrganizationId } from '../../tests/helpers/plugins'
-import { resetTestDatabase } from '../../tests/helpers/sql'
+import { commonOrganizationId } from '../_tests/helpers/sql'
+import { resetTestDatabase } from '../_tests/helpers/sql'
 import { Hub } from '../types'
 import { closeHub, createHub } from '../utils/hub'
 import { PostgresUse } from '../utils/postgres'
 import { UUIDT } from '../utils/utils'
 import { OrganizationManager } from './organization-manager'
 
-jest.mock('../../../src/utils/status')
+jest.mock('../utils/status')
 
 describe('OrganizationManager()', () => {
     let hub: Hub

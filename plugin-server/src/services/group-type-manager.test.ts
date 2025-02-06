@@ -1,4 +1,4 @@
-import { createTeam, resetTestDatabase } from '../../tests/helpers/sql'
+import { createTeam, resetTestDatabase } from '../_tests/helpers/sql'
 import { Hub, ProjectId } from '../types'
 import { closeHub, createHub } from '../utils/hub'
 import { captureTeamEvent } from '../utils/posthog'
