@@ -26,6 +26,17 @@ runs:
         - name: Set up Depot CLI
           uses: depot/setup-action@v1
 
+        - name: Configure AWS credentials
+          uses: aws-actions/configure-aws-credentials@v4
+          with:
+              aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+              aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+              aws-region: us-east-1
+
+        - name: Login to Amazon ECR
+          id: aws-ecr
+          uses: aws-actions/amazon-ecr-login@v2
+
         - name: Emit image tag
           id: emit
           shell: bash
@@ -37,7 +48,7 @@ runs:
           with:
               context: .
               buildx-fallback: false # buildx is so slow it's better to just fail
-              tags: ${{ steps.emit.outputs.tag }}
+              tags: ${{ steps.emit.outputs.tag }},${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:${{ github.sha }}
               platforms: linux/amd64,linux/arm64
               build-args: COMMIT_HASH=${{ github.sha }}
               save: ${{ inputs.save }}
