@@ -1,3 +1,5 @@
+import { IconWarning } from '@posthog/icons'
+import { router } from 'kea-router'
 import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewRecordingButton'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -65,6 +67,23 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                         }
                         data-attr="events-table-usage"
                     />
+                    {event.event === '$exception' && '$exception_issue_id' in event.properties ? (
+                        <LemonButton
+                            fullWidth
+                            sideIcon={<IconWarning />}
+                            data-attr="events-table-exception-link"
+                            onClick={() =>
+                                router.actions.push(
+                                    urls.errorTrackingIssue(
+                                        event.properties.$exception_issue_id,
+                                        event.properties.$exception_fingerprint
+                                    )
+                                )
+                            }
+                        >
+                            Visit issue
+                        </LemonButton>
+                    ) : null}
                     {insightUrl && (
                         <LemonButton to={insightUrl} fullWidth data-attr="events-table-usage">
                             Try out in Insights

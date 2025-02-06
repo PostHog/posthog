@@ -16,10 +16,11 @@ from posthog.models.error_tracking import (
     ErrorTrackingSymbolSet,
     ErrorTrackingStackFrame,
     ErrorTrackingIssueAssignment,
+    ErrorTrackingIssueFingerprintV2,
 )
 from posthog.models.utils import uuid7
 from posthog.storage import object_storage
-
+from django.shortcuts import redirect
 
 ONE_GIGABYTE = 1024 * 1024 * 1024
 JS_DATA_MAGIC = b"posthog_error_tracking"
@@ -47,6 +48,18 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     def safely_get_queryset(self, queryset):
         return queryset.filter(team_id=self.team.id)
 
+    def safely_get_object(self, queryset):
+        issue = queryset.filter(id=self.kwargs["pk"]).first()
+        if not issue and self.request.GET.get("fingerprint"):
+            fingerprint = ErrorTrackingIssueFingerprintV2.objects.filter(
+                fingerprint=self.request.GET.get("fingerprint")
+            ).first()
+
+            if fingerprint:
+                return redirect("/error_tracking/{fingerprint.issue_id}")
+
+        return issue
+
     @action(methods=["POST"], detail=True)
     def merge(self, request, **kwargs):
         issue: ErrorTrackingIssue = self.get_object()
@@ -70,6 +83,13 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             ErrorTrackingIssueAssignment.objects.filter(issue_id=self.get_object().id).delete()
 
         return Response({"success": True})
+
+    @action(methods=["GET"], detail=False)
+    def resolve_fingerprint(self, request, **kwargs):
+        fingerprint = ErrorTrackingIssueFingerprintV2.objects.filter(
+            fingerprint=self.request.GET.get("fingerprint")
+        ).first()
+        return Response({"issue_id": fingerprint.issue_id})
 
 
 class ErrorTrackingStackFrameSerializer(serializers.ModelSerializer):

@@ -51,6 +51,18 @@ class TestErrorTracking(APIBaseTest):
         bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
         bucket.objects.filter(Prefix=TEST_BUCKET).delete()
 
+    def test_issue_not_found_fingerprint_redirect(self):
+        issue = self.create_issue()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/error_tracking/issue/{issue.id}", data={"status": "resolved"}
+        )
+        issue.refresh_from_db()
+
+        assert response.status_code == 200
+        assert response.json() == {"status": "resolved"}
+        assert issue.status == ErrorTrackingIssue.Status.RESOLVED
+
     def test_issue_update(self):
         issue = self.create_issue()
 
