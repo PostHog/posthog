@@ -18,7 +18,6 @@ import { getObjectStorage } from '../object_storage'
 import { createRedisPool } from '../redis'
 import { status } from '../status'
 import { Celery } from './celery'
-import { DB } from './db'
 import { PostgresRouter } from './postgres'
 
 // `node-postgres` would return dates as plain JS Date objects, which would use the local timezone.
@@ -104,7 +103,6 @@ export async function createHub(
         status.warn('🪣', `Object storage could not be created`)
     }
 
-    const db = new DB(postgres, redisPool, kafkaProducer)
     const teamManager = new TeamManager(postgres, serverConfig)
     const organizationManager = new OrganizationManager(postgres, teamManager)
 
@@ -115,7 +113,6 @@ export async function createHub(
     const hub: Hub = {
         ...serverConfig,
         capabilities,
-        db,
         postgres,
         redisPool,
         clickhouse,

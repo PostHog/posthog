@@ -13,7 +13,6 @@ import { OrganizationManager } from './services/organization-manager'
 import { TeamManager } from './services/team-manager'
 import type { CookielessSaltManager } from './utils/cookieless/cookielessServerHashStep'
 import { Celery } from './utils/db/celery'
-import { DB } from './utils/db/db'
 import { PostgresRouter } from './utils/db/postgres'
 import { ObjectStorage } from './utils/object_storage'
 
@@ -282,8 +281,6 @@ export interface Config extends CdpConfig, IngestionConsumerConfig {
 export interface Hub extends Config {
     // what tasks this server will tackle - e.g. ingestion, scheduled plugins or others.
     capabilities: PluginServerCapabilities
-    // active connections to Postgres, Redis, ClickHouse, Kafka
-    db: DB
     postgres: PostgresRouter
     redisPool: GenericPool<Redis>
     clickhouse: ClickHouse

@@ -10,6 +10,7 @@ import { GroupTypeManager, MAX_GROUP_TYPES_PER_TEAM } from '../../services/group
 import { Hub, Person, PersonMode, PipelineEvent, RawKafkaEvent, Team, TimestampFormat } from '../../types'
 import { processAiEvent } from '../../utils/ai-costs/process-ai-event'
 import { processCookielessEvent } from '../../utils/cookieless/cookielessServerHashStep'
+import { PersonsDB } from '../../utils/db/persons-db'
 import { safeClickhouseString, sanitizeEventName, sanitizeString } from '../../utils/db/utils'
 import { captureIngestionWarning } from '../../utils/ingestion-warnings'
 import { eventDroppedCounter } from '../../utils/metrics'
@@ -53,7 +54,12 @@ export class EventPipelineRunnerV2 {
     private person?: Person
     private groupTypeManager: GroupTypeManager
 
-    constructor(private hub: Hub, private originalEvent: PipelineEvent, private hogTransformer: HogTransformerService) {
+    constructor(
+        private hub: Hub,
+        private originalEvent: PipelineEvent,
+        private db: PersonsDB,
+        private hogTransformer: HogTransformerService
+    ) {
         this.event = {
             ...this.originalEvent,
             properties: {
@@ -284,6 +290,7 @@ export class EventPipelineRunnerV2 {
         // NOTE: PersonState could derive so much of this stuff instead of it all being passed in
         const [person, kafkaAck] = await new PersonState(
             this.hub,
+            this.db,
             this.event,
             this.event.team_id,
             String(this.event.distinct_id),

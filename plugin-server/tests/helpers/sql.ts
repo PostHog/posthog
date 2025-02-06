@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 
 import { defaultConfig } from '../../src/config/config'
 import { Config, Hub, InternalPerson, ProjectId, RawOrganization, RawPerson, Team, TeamId } from '../../src/types'
-import { DB } from '../../src/utils/db/db'
+import { PersonsDB } from '../../src/utils/db/persons-db'
 import { PostgresRouter, PostgresUse } from '../../src/utils/db/postgres'
 import { UUIDT } from '../../src/utils/utils'
 import {
@@ -200,7 +200,7 @@ export async function createUserTeamAndOrganization(
 }
 
 export async function getTeams(hub: Hub): Promise<Team[]> {
-    const selectResult = await hub.db.postgres.query<Team>(
+    const selectResult = await hub.postgres.query<Team>(
         PostgresUse.COMMON_READ,
         'SELECT * FROM posthog_team ORDER BY id',
         undefined,
@@ -326,7 +326,7 @@ export const createOrganizationMembership = async (pg: PostgresRouter, organizat
     return membership.id
 }
 
-export async function fetchPostgresPersons(db: DB, teamId: number) {
+export async function fetchPostgresPersons(db: PersonsDB, teamId: number) {
     const query = `SELECT * FROM posthog_person WHERE team_id = ${teamId} ORDER BY id`
     return (await db.postgres.query(PostgresUse.COMMON_READ, query, undefined, 'persons')).rows.map(
         // NOTE: we map to update some values here to maintain

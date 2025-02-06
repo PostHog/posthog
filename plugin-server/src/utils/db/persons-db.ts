@@ -30,7 +30,7 @@ export const personUpdateVersionMismatchCounter = new Counter({
 })
 
 /** The recommended way of accessing the database. */
-export class DB {
+export class PersonsDB {
     /** Postgres connection router for database access. */
     postgres: PostgresRouter
     /** Redis used for various caches. */

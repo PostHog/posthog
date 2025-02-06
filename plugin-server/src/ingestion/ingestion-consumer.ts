@@ -7,6 +7,7 @@ import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../kafka/config'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { Hub, PipelineEvent, PluginServerService } from '../types'
+import { PersonsDB } from '../utils/db/persons-db'
 import { runInstrumentedFunction } from '../utils/instrument'
 import { eventDroppedCounter } from '../utils/metrics'
 import { status } from '../utils/status'
@@ -73,6 +74,7 @@ export class IngestionConsumer {
     protected kafkaProducer?: KafkaProducerWrapper
     protected kafkaOverflowProducer?: KafkaProducerWrapper
     public hogTransformer: HogTransformerService
+    public personsDB: PersonsDB
 
     private overflowRateLimiter: MemoryRateLimiter
     private ingestionWarningLimiter: MemoryRateLimiter
@@ -96,6 +98,7 @@ export class IngestionConsumer {
 
         this.ingestionWarningLimiter = new MemoryRateLimiter(1, 1.0 / 3600)
         this.hogTransformer = new HogTransformerService(hub)
+        this.personsDB = new PersonsDB(hub.postgres, hub.redisPool, hub.kafkaProducer)
     }
 
     public get service(): PluginServerService {
@@ -228,7 +231,7 @@ export class IngestionConsumer {
 
     private getEventPipelineRunner(event: PipelineEvent): EventPipelineRunnerV2 {
         // Mostly a helper method for testing
-        return new EventPipelineRunnerV2(this.hub, event, this.hogTransformer)
+        return new EventPipelineRunnerV2(this.hub, event, this.personsDB, this.hogTransformer)
     }
 
     private parseKafkaBatch(messages: Message[]): Promise<IncomingEventsByDistinctId> {

@@ -110,7 +110,7 @@ describe('cookielessServerHashStep', () => {
         beforeAll(async () => {
             hub = await createHub({})
 
-            organizationId = await createOrganization(hub.db.postgres)
+            organizationId = await createOrganization(hub.postgres)
 
             jest.useFakeTimers({
                 now,
@@ -124,7 +124,7 @@ describe('cookielessServerHashStep', () => {
         })
 
         const setModeForTeam = async (mode: CookielessServerHashMode, teamId: number) => {
-            await hub.db.postgres.query(
+            await hub.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `UPDATE posthog_team SET cookieless_server_hash_mode = $1 WHERE id = $2`,
                 [mode, teamId],
@@ -133,13 +133,13 @@ describe('cookielessServerHashStep', () => {
         }
 
         const clearRedis = async () => {
-            const client = await hub.db.redisPool.acquire()
+            const client = await hub.redisPool.acquire()
             await client.flushall()
-            await hub.db.redisPool.release(client)
+            await hub.redisPool.release(client)
         }
 
         beforeEach(async () => {
-            teamId = await createTeam(hub.db.postgres, organizationId)
+            teamId = await createTeam(hub.postgres, organizationId)
             await clearRedis()
             hub.cookielessSaltManager.deleteAllLocalSalts()
             event = deepFreeze({
