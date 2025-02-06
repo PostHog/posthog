@@ -1,10 +1,9 @@
 import { randomUUID } from 'crypto'
 
+import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS_V2_TEST } from '../../../../config/kafka-topics'
 import { KafkaProducerWrapper } from '../../../../kafka/producer'
 import { status } from '../../../../utils/status'
 import { SessionBlockMetadata } from './session-block-metadata'
-
-const SESSION_REPLAY_EVENTS_TOPIC = 'session_replay_events_v2'
 
 export class SessionMetadataStore {
     constructor(private producer: KafkaProducerWrapper) {
@@ -24,7 +23,7 @@ export class SessionMetadataStore {
         }))
 
         await this.producer.queueMessages({
-            topic: SESSION_REPLAY_EVENTS_TOPIC,
+            topic: KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS_V2_TEST,
             messages: events.map((event) => ({
                 key: event.session_id,
                 value: JSON.stringify(event),

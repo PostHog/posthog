@@ -45,7 +45,7 @@ describe('SessionMetadataStore', () => {
 
         expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
         const queuedMessage = mockProducer.queueMessages.mock.calls[0][0] as TopicMessage
-        expect(queuedMessage.topic).toBe('session_replay_events_v2')
+        expect(queuedMessage.topic).toBe('clickhouse_session_replay_events_v2_test_test')
         const queuedMessages = queuedMessage.messages
         const parsedEvents = queuedMessages.map((msg) => JSON.parse(msg.value as string))
 
@@ -89,7 +89,7 @@ describe('SessionMetadataStore', () => {
     it('should handle empty blocks array', async () => {
         await store.storeSessionBlocks([])
         expect(mockProducer.queueMessages).toHaveBeenCalledWith({
-            topic: 'session_replay_events_v2',
+            topic: 'clickhouse_session_replay_events_v2_test_test',
             messages: [],
         })
     })
