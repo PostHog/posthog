@@ -48,6 +48,9 @@
         "pkg-group": "nodejs",
         "version": "3.1"
       },
+      "openjdk17": {
+        "pkg-path": "openjdk17"
+      },
       "python3": {
         "pkg-path": "python3",
         "pkg-group": "python",
@@ -1728,13 +1731,13 @@
       "description": "TUI tool to run multiple commands in parallel and show the output of each command separately",
       "install_id": "mprocs",
       "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=825479c345a7f806485b7f00dbe3abb50641b083",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=852ff1d9e153d8875a83602e03fdef8a63f0ecf8",
       "name": "mprocs-0.7.2",
       "pname": "mprocs",
-      "rev": "825479c345a7f806485b7f00dbe3abb50641b083",
-      "rev_count": 743381,
-      "rev_date": "2025-01-24T19:21:52Z",
-      "scrape_date": "2025-01-26T03:27:56Z",
+      "rev": "852ff1d9e153d8875a83602e03fdef8a63f0ecf8",
+      "rev_count": 744133,
+      "rev_date": "2025-01-26T09:59:49Z",
+      "scrape_date": "2025-01-27T03:28:00Z",
       "stabilities": [
         "unstable"
       ],
@@ -1757,13 +1760,13 @@
       "description": "TUI tool to run multiple commands in parallel and show the output of each command separately",
       "install_id": "mprocs",
       "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=825479c345a7f806485b7f00dbe3abb50641b083",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=852ff1d9e153d8875a83602e03fdef8a63f0ecf8",
       "name": "mprocs-0.7.2",
       "pname": "mprocs",
-      "rev": "825479c345a7f806485b7f00dbe3abb50641b083",
-      "rev_count": 743381,
-      "rev_date": "2025-01-24T19:21:52Z",
-      "scrape_date": "2025-01-26T03:27:56Z",
+      "rev": "852ff1d9e153d8875a83602e03fdef8a63f0ecf8",
+      "rev_count": 744133,
+      "rev_date": "2025-01-26T09:59:49Z",
+      "scrape_date": "2025-01-27T03:28:00Z",
       "stabilities": [
         "unstable"
       ],
@@ -1786,13 +1789,13 @@
       "description": "TUI tool to run multiple commands in parallel and show the output of each command separately",
       "install_id": "mprocs",
       "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=825479c345a7f806485b7f00dbe3abb50641b083",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=852ff1d9e153d8875a83602e03fdef8a63f0ecf8",
       "name": "mprocs-0.7.2",
       "pname": "mprocs",
-      "rev": "825479c345a7f806485b7f00dbe3abb50641b083",
-      "rev_count": 743381,
-      "rev_date": "2025-01-24T19:21:52Z",
-      "scrape_date": "2025-01-26T03:27:56Z",
+      "rev": "852ff1d9e153d8875a83602e03fdef8a63f0ecf8",
+      "rev_count": 744133,
+      "rev_date": "2025-01-26T09:59:49Z",
+      "scrape_date": "2025-01-27T03:28:00Z",
       "stabilities": [
         "unstable"
       ],
@@ -1815,13 +1818,13 @@
       "description": "TUI tool to run multiple commands in parallel and show the output of each command separately",
       "install_id": "mprocs",
       "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=825479c345a7f806485b7f00dbe3abb50641b083",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=852ff1d9e153d8875a83602e03fdef8a63f0ecf8",
       "name": "mprocs-0.7.2",
       "pname": "mprocs",
-      "rev": "825479c345a7f806485b7f00dbe3abb50641b083",
-      "rev_count": 743381,
-      "rev_date": "2025-01-24T19:21:52Z",
-      "scrape_date": "2025-01-26T03:27:56Z",
+      "rev": "852ff1d9e153d8875a83602e03fdef8a63f0ecf8",
+      "rev_count": 744133,
+      "rev_date": "2025-01-26T09:59:49Z",
+      "scrape_date": "2025-01-27T03:28:00Z",
       "stabilities": [
         "unstable"
       ],
@@ -1838,19 +1841,137 @@
       "priority": 5
     },
     {
+      "attr_path": "openjdk17",
+      "broken": false,
+      "derivation": "/nix/store/cd0xn48b8b8x13bik93v31n4knn57chs-zulu-ca-jdk-17.0.12.drv",
+      "description": "Certified builds of OpenJDK",
+      "install_id": "openjdk17",
+      "license": "GPL-2.0-only",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=852ff1d9e153d8875a83602e03fdef8a63f0ecf8",
+      "name": "zulu-ca-jdk-17.0.12",
+      "pname": "openjdk17",
+      "rev": "852ff1d9e153d8875a83602e03fdef8a63f0ecf8",
+      "rev_count": 744133,
+      "rev_date": "2025-01-26T09:59:49Z",
+      "scrape_date": "2025-01-27T03:28:00Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "zulu-ca-jdk-17.0.12",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/hgm0854hs4vks6h8qkhgl62m2f0ysk6k-zulu-ca-jdk-17.0.12"
+      },
+      "system": "aarch64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "openjdk17",
+      "broken": false,
+      "derivation": "/nix/store/canjq7il3bay8kxlv913b05bssmcdapl-openjdk-17.0.13+11.drv",
+      "description": "Open-source Java Development Kit",
+      "install_id": "openjdk17",
+      "license": "GPL-2.0-only",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=852ff1d9e153d8875a83602e03fdef8a63f0ecf8",
+      "name": "openjdk-17.0.13+11",
+      "pname": "openjdk17",
+      "rev": "852ff1d9e153d8875a83602e03fdef8a63f0ecf8",
+      "rev_count": 744133,
+      "rev_date": "2025-01-26T09:59:49Z",
+      "scrape_date": "2025-01-27T03:28:00Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "openjdk-17.0.13+11",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "debug": "/nix/store/pcxw19bmmhival4gn0qgh3zcp6shc3cs-openjdk-17.0.13+11-debug",
+        "out": "/nix/store/791xnzdn9m059szs44mxx3gj99ks9wif-openjdk-17.0.13+11"
+      },
+      "system": "aarch64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "openjdk17",
+      "broken": false,
+      "derivation": "/nix/store/wh8r85ihryh9frnvm0rm91q1n0y44bc5-zulu-ca-jdk-17.0.12.drv",
+      "description": "Certified builds of OpenJDK",
+      "install_id": "openjdk17",
+      "license": "GPL-2.0-only",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=852ff1d9e153d8875a83602e03fdef8a63f0ecf8",
+      "name": "zulu-ca-jdk-17.0.12",
+      "pname": "openjdk17",
+      "rev": "852ff1d9e153d8875a83602e03fdef8a63f0ecf8",
+      "rev_count": 744133,
+      "rev_date": "2025-01-26T09:59:49Z",
+      "scrape_date": "2025-01-27T03:28:00Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "zulu-ca-jdk-17.0.12",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/a4ynwgfz30g9bxcijnwiqzj177dygnaw-zulu-ca-jdk-17.0.12"
+      },
+      "system": "x86_64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "openjdk17",
+      "broken": false,
+      "derivation": "/nix/store/vj8w56x1mzvmipd6zmmcrs9vdf9qpifx-openjdk-17.0.13+11.drv",
+      "description": "Open-source Java Development Kit",
+      "install_id": "openjdk17",
+      "license": "GPL-2.0-only",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=852ff1d9e153d8875a83602e03fdef8a63f0ecf8",
+      "name": "openjdk-17.0.13+11",
+      "pname": "openjdk17",
+      "rev": "852ff1d9e153d8875a83602e03fdef8a63f0ecf8",
+      "rev_count": 744133,
+      "rev_date": "2025-01-26T09:59:49Z",
+      "scrape_date": "2025-01-27T03:28:00Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "openjdk-17.0.13+11",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "debug": "/nix/store/zq94asm29gzzglah8lqr7h3zmzj050gd-openjdk-17.0.13+11-debug",
+        "out": "/nix/store/y2c3skvhv4l8h069ri1vkj0dwn7n6kcf-openjdk-17.0.13+11"
+      },
+      "system": "x86_64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
       "attr_path": "xmlsec",
       "broken": false,
       "derivation": "/nix/store/59xn6hgwaw3ypfapskx2nwqqv53hy4v5-xmlsec-1.3.6.drv",
       "description": "XML Security Library in C based on libxml2",
       "install_id": "xmlsec",
       "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=825479c345a7f806485b7f00dbe3abb50641b083",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=852ff1d9e153d8875a83602e03fdef8a63f0ecf8",
       "name": "xmlsec-1.3.6",
       "pname": "xmlsec",
-      "rev": "825479c345a7f806485b7f00dbe3abb50641b083",
-      "rev_count": 743381,
-      "rev_date": "2025-01-24T19:21:52Z",
-      "scrape_date": "2025-01-26T03:27:56Z",
+      "rev": "852ff1d9e153d8875a83602e03fdef8a63f0ecf8",
+      "rev_count": 744133,
+      "rev_date": "2025-01-26T09:59:49Z",
+      "scrape_date": "2025-01-27T03:28:00Z",
       "stabilities": [
         "unstable"
       ],
@@ -1874,13 +1995,13 @@
       "description": "XML Security Library in C based on libxml2",
       "install_id": "xmlsec",
       "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=825479c345a7f806485b7f00dbe3abb50641b083",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=852ff1d9e153d8875a83602e03fdef8a63f0ecf8",
       "name": "xmlsec-1.3.6",
       "pname": "xmlsec",
-      "rev": "825479c345a7f806485b7f00dbe3abb50641b083",
-      "rev_count": 743381,
-      "rev_date": "2025-01-24T19:21:52Z",
-      "scrape_date": "2025-01-26T03:27:56Z",
+      "rev": "852ff1d9e153d8875a83602e03fdef8a63f0ecf8",
+      "rev_count": 744133,
+      "rev_date": "2025-01-26T09:59:49Z",
+      "scrape_date": "2025-01-27T03:28:00Z",
       "stabilities": [
         "unstable"
       ],
@@ -1904,13 +2025,13 @@
       "description": "XML Security Library in C based on libxml2",
       "install_id": "xmlsec",
       "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=825479c345a7f806485b7f00dbe3abb50641b083",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=852ff1d9e153d8875a83602e03fdef8a63f0ecf8",
       "name": "xmlsec-1.3.6",
       "pname": "xmlsec",
-      "rev": "825479c345a7f806485b7f00dbe3abb50641b083",
-      "rev_count": 743381,
-      "rev_date": "2025-01-24T19:21:52Z",
-      "scrape_date": "2025-01-26T03:27:56Z",
+      "rev": "852ff1d9e153d8875a83602e03fdef8a63f0ecf8",
+      "rev_count": 744133,
+      "rev_date": "2025-01-26T09:59:49Z",
+      "scrape_date": "2025-01-27T03:28:00Z",
       "stabilities": [
         "unstable"
       ],
@@ -1934,13 +2055,13 @@
       "description": "XML Security Library in C based on libxml2",
       "install_id": "xmlsec",
       "license": "MIT",
-      "locked_url": "https://github.com/flox/nixpkgs?rev=825479c345a7f806485b7f00dbe3abb50641b083",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=852ff1d9e153d8875a83602e03fdef8a63f0ecf8",
       "name": "xmlsec-1.3.6",
       "pname": "xmlsec",
-      "rev": "825479c345a7f806485b7f00dbe3abb50641b083",
-      "rev_count": 743381,
-      "rev_date": "2025-01-24T19:21:52Z",
-      "scrape_date": "2025-01-26T03:27:56Z",
+      "rev": "852ff1d9e153d8875a83602e03fdef8a63f0ecf8",
+      "rev_count": 744133,
+      "rev_date": "2025-01-26T09:59:49Z",
+      "scrape_date": "2025-01-27T03:28:00Z",
       "stabilities": [
         "unstable"
       ],
