@@ -2,7 +2,7 @@ import { Properties } from '@posthog/plugin-scaffold'
 import LRU from 'lru-cache'
 
 import { Config, PipelineEvent, ProjectId, Team, TeamId, TeamIDWithConfig } from '../types'
-import { PostgresRouter, PostgresUse } from '../utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '../utils/postgres'
 import { timeoutGuard } from '../utils/db/utils'
 import { posthog } from '../utils/posthog'
 

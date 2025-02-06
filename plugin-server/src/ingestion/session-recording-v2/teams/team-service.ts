@@ -2,7 +2,7 @@ import { TeamIDWithConfig } from '~/src/types'
 
 import { fetchTeamTokensWithRecordings } from '../../../services/team-manager'
 import { BackgroundRefresher } from '../../../utils/background-refresher'
-import { PostgresRouter } from '../../../utils/db/postgres'
+import { PostgresRouter } from '../../../utils/postgres'
 import { status as logger } from '../../../utils/status'
 import { Team } from './types'
 

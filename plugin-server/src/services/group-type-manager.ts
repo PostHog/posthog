@@ -1,5 +1,5 @@
 import { GroupTypeIndex, GroupTypeToColumnIndex, ProjectId, Team, TeamId } from '../types'
-import { PostgresRouter, PostgresUse } from '../utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '../utils/postgres'
 import { timeoutGuard } from '../utils/db/utils'
 import { captureTeamEvent } from '../utils/posthog'
 import { getByAge } from '../utils/utils'

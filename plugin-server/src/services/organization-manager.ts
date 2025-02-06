@@ -1,5 +1,5 @@
 import { ProductFeature, RawOrganization, Team, TeamId } from '../types'
-import { PostgresRouter, PostgresUse } from '../utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '../utils/postgres'
 import { timeoutGuard } from '../utils/db/utils'
 import { getByAge } from '../utils/utils'
 import { TeamManager } from './team-manager'

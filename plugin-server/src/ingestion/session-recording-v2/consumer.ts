@@ -11,7 +11,7 @@ import {
 } from 'node-rdkafka'
 
 import { KafkaProducerWrapper } from '~/src/kafka/producer'
-import { PostgresRouter } from '~/src/utils/db/postgres'
+import { PostgresRouter } from '~/src/utils/postgres'
 
 import { buildIntegerMatcher } from '../../config/config'
 import { BatchConsumer } from '../../kafka/batch-consumer'

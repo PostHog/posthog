@@ -4,21 +4,22 @@ import { DateTime } from 'luxon'
 import * as path from 'path'
 import { types as pgTypes } from 'pg'
 
-import { getPluginServerCapabilities } from '../../capabilities'
-import { EncryptedFields } from '../../cdp/encryption-utils'
-import { defaultConfig } from '../../config/config'
-import { KafkaProducerWrapper } from '../../kafka/producer'
-import { GroupTypeManager } from '../../services/group-type-manager'
-import { OrganizationManager } from '../../services/organization-manager'
-import { TeamManager } from '../../services/team-manager'
-import { Config, Hub, PluginServerCapabilities } from '../../types'
-import { CookielessSaltManager } from '../cookieless/cookielessServerHashStep'
-import { isTestEnv } from '../env-utils'
-import { getObjectStorage } from '../object_storage'
-import { createRedisPool } from '../redis'
-import { status } from '../status'
+import { CookielessManager } from '~/src/ingestion/cookieless/cookieless-manager'
+
+import { getPluginServerCapabilities } from '../capabilities'
+import { EncryptedFields } from '../cdp/encryption-utils'
+import { defaultConfig } from '../config/config'
+import { KafkaProducerWrapper } from '../kafka/producer'
+import { GroupTypeManager } from '../services/group-type-manager'
+import { OrganizationManager } from '../services/organization-manager'
+import { TeamManager } from '../services/team-manager'
+import { Config, Hub, PluginServerCapabilities } from '../types'
 import { Celery } from './celery'
+import { isTestEnv } from './env-utils'
+import { getObjectStorage } from './object_storage'
 import { PostgresRouter } from './postgres'
+import { createRedisPool } from './redis'
+import { status } from './status'
 
 // `node-postgres` would return dates as plain JS Date objects, which would use the local timezone.
 // This converts all date fields to a proper luxon UTC DateTime and then casts them to a string
@@ -108,7 +109,7 @@ export async function createHub(
 
     const groupTypeManager = new GroupTypeManager(postgres, teamManager)
 
-    const cookielessSaltManager = new CookielessSaltManager(serverConfig, redisPool)
+    const cookielessManager = new CookielessManager(serverConfig, redisPool, teamManager)
 
     const hub: Hub = {
         ...serverConfig,
@@ -128,7 +129,7 @@ export async function createHub(
         ),
         encryptedFields: new EncryptedFields(serverConfig),
         celery: new Celery(serverConfig),
-        cookielessSaltManager,
+        cookielessManager,
     }
 
     return hub as Hub
@@ -137,7 +138,7 @@ export async function createHub(
 export const closeHub = async (hub: Hub): Promise<void> => {
     await Promise.allSettled([hub.kafkaProducer.disconnect(), hub.redisPool.drain(), hub.postgres?.end()])
     await hub.redisPool.clear()
-    hub.cookielessSaltManager.shutdown()
+    hub.cookielessManager.shutdown()
 
     if (isTestEnv()) {
         // Break circular references to allow the hub to be GCed when running unit tests

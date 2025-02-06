@@ -2,12 +2,12 @@
 
 import { Client, Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow } from 'pg'
 
-import { Config } from '../../types'
-import { instrumentQuery } from '../../utils/metrics'
-import { DependencyUnavailableError } from '../errors'
-import { status } from '../status'
-import { createPostgresPool } from '../utils'
-import { timeoutGuard } from './utils'
+import { Config } from '../types'
+import { timeoutGuard } from './db/utils'
+import { DependencyUnavailableError } from './errors'
+import { instrumentQuery } from './metrics'
+import { status } from './status'
+import { createPostgresPool } from './utils'
 
 const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'connection to server at',

@@ -1,10 +1,10 @@
 import { CacheOptions } from '@posthog/plugin-scaffold'
 
-import { Config, RedisPool } from '../../types'
-import { instrumentQuery } from '../metrics'
-import { createRedisPool } from '../redis'
-import { UUIDT } from '../utils'
-import { timeoutGuard } from './utils'
+import { Config, RedisPool } from '../types'
+import { instrumentQuery } from './metrics'
+import { createRedisPool } from './redis'
+import { UUIDT } from './utils'
+import { timeoutGuard } from './db/utils'
 
 const CELERY_DEFAULT_QUEUE = 'celery'
 

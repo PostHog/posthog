@@ -8,6 +8,7 @@ import { Hub, PipelineEvent, Team } from '../../../src/types'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KAFKA_EVENTS_JSON, KAFKA_INGESTION_WARNINGS } from '../../config/kafka-topics'
+import { PersonsDB } from '../../utils/db/persons-db'
 import { UUIDT } from '../../utils/utils'
 import { EventPipelineRunnerV2 } from './event-pipeline-runner'
 
@@ -15,6 +16,8 @@ describe('EventPipelineRunner', () => {
     let hub: Hub
     let team: Team
     let fixedTime: DateTime
+    let hogTransformer: HogTransformerService
+    let personsDB: PersonsDB
 
     const createEvent = (event?: Partial<PipelineEvent>): PipelineEvent => ({
         distinct_id: 'user-1',
@@ -31,7 +34,7 @@ describe('EventPipelineRunner', () => {
     })
 
     const createRunner = (event?: Partial<PipelineEvent>) => {
-        const runner = new EventPipelineRunnerV2(hub, createEvent(event), new HogTransformerService(hub))
+        const runner = new EventPipelineRunnerV2(hub, createEvent(event), personsDB, hogTransformer)
         jest.spyOn(runner as any, 'captureIngestionWarning')
         jest.spyOn(runner as any, 'dropEvent')
         return runner
@@ -45,10 +48,14 @@ describe('EventPipelineRunner', () => {
         hub = await createHub()
         hub.kafkaProducer = mockProducer
         team = await getFirstTeam(hub)
+        hogTransformer = new HogTransformerService(hub)
+        await hogTransformer.start()
+        personsDB = new PersonsDB(hub.postgres, hub.kafkaProducer)
     })
 
     afterEach(async () => {
         jest.restoreAllMocks()
+        await hogTransformer.stop()
         await closeHub(hub)
     })
 

@@ -1,7 +1,7 @@
 import LRUCache from 'lru-cache'
 
 import { Hub, Team } from '../../types'
-import { PostgresUse } from '../../utils/db/postgres'
+import { PostgresUse } from '../../utils/postgres'
 import { GroupType, HogFunctionInvocationGlobals } from '../types'
 
 export type GroupsMap = Record<string, GroupType>

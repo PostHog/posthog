@@ -1,6 +1,4 @@
 import { Properties } from '@posthog/plugin-scaffold'
-import { Pool as GenericPool } from 'generic-pool'
-import Redis from 'ioredis'
 import { DateTime } from 'luxon'
 import { QueryResult } from 'pg'
 import { Counter } from 'prom-client'
@@ -15,9 +13,9 @@ import {
     RawPerson,
     Team,
 } from '../../types'
+import { PostgresRouter, PostgresUse, TransactionClient } from '../postgres'
 import { status } from '../status'
 import { NoRowsUpdatedError, RaceConditionError, sanitizeSqlIdentifier } from '../utils'
-import { PostgresRouter, PostgresUse, TransactionClient } from './postgres'
 import { generateKafkaPersonUpdateMessage, sanitizeJsonbValue, unparsePersonPartial } from './utils'
 
 export const personUpdateVersionMismatchCounter = new Counter({
@@ -27,19 +25,7 @@ export const personUpdateVersionMismatchCounter = new Counter({
 
 /** The recommended way of accessing the database. */
 export class PersonsDB {
-    /** Postgres connection router for database access. */
-    postgres: PostgresRouter
-    /** Redis used for various caches. */
-    redisPool: GenericPool<Redis.Redis>
-    /** Kafka producer used for syncing Postgres and ClickHouse person data. */
-    private kafkaProducer: KafkaProducerWrapper
-    /** ClickHouse used for syncing Postgres and ClickHouse person data. */
-
-    constructor(postgres: PostgresRouter, redisPool: GenericPool<Redis.Redis>, kafkaProducer: KafkaProducerWrapper) {
-        this.postgres = postgres
-        this.redisPool = redisPool
-        this.kafkaProducer = kafkaProducer
-    }
+    constructor(private postgres: PostgresRouter, private kafkaProducer: KafkaProducerWrapper) {}
 
     // These are all methods to with persons
 

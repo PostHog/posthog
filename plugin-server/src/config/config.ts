@@ -1,4 +1,4 @@
-import { Config, CookielessConfig, LogLevel, stringToPluginServerMode, ValueMatcher } from '../types'
+import { Config, LogLevel, stringToPluginServerMode, ValueMatcher } from '../types'
 import { isDevEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
 import {
     KAFKA_CLICKHOUSE_HEATMAP_EVENTS,

@@ -11,10 +11,9 @@ import { KafkaProducerWrapper } from './kafka/producer'
 import { GroupTypeManager } from './services/group-type-manager'
 import { OrganizationManager } from './services/organization-manager'
 import { TeamManager } from './services/team-manager'
-import type { CookielessSaltManager } from './utils/cookieless/cookielessServerHashStep'
-import { Celery } from './utils/db/celery'
-import { PostgresRouter } from './utils/db/postgres'
+import { Celery } from './utils/celery'
 import { ObjectStorage } from './utils/object_storage'
+import { PostgresRouter } from './utils/postgres'
 
 export { Element } from '@posthog/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
 
@@ -298,7 +297,7 @@ export interface Hub extends Config {
     encryptedFields: EncryptedFields
 
     // cookieless
-    cookielessSaltManager: CookielessSaltManager
+    cookielessManager: CookielessManager
 }
 
 export interface PluginServerCapabilities {
@@ -934,14 +933,4 @@ export type AppMetric2Type = {
         | 'inputs_failed'
         | 'fetch'
     count: number
-}
-
-export interface CookielessConfig {
-    disabled: boolean
-    forceStatelessMode: boolean
-    deleteExpiredLocalSaltsIntervalMs: number
-    identifiesTtlSeconds: number
-    sessionTtlSeconds: number
-    saltTtlSeconds: number
-    sessionInactivityMs: number
 }

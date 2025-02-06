@@ -6,20 +6,19 @@ import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 import { getDomain } from 'tldts'
 
-import { Config, CookielessConfig, CookielessServerHashMode, Hub } from '../../types'
-import { ConcurrencyController } from '../concurrencyController'
-import { RedisOperationError } from '../errors'
-import { runInstrumentedFunction } from '../instrument'
-import { eventDroppedCounter } from '../metrics'
-import { base64StringToUint32ArrayLE, createRandomUint32x4, uint32ArrayLEToBase64String, UUID7 } from '../utils'
-import { RedisHelper } from './redis'
-
-export const cookielessRedisErrorCounter = new Counter({
-    name: 'cookieless_redis_error',
-    help: 'Count redis errors.',
-    labelNames: ['operation'],
-})
-
+import { TeamManager } from '../../services/team-manager'
+import { Config, CookielessServerHashMode } from '../../types'
+import { ConcurrencyController } from '../../utils/concurrencyController'
+import { RedisOperationError } from '../../utils/errors'
+import { runInstrumentedFunction } from '../../utils/instrument'
+import { eventDroppedCounter } from '../../utils/metrics'
+import {
+    base64StringToUint32ArrayLE,
+    createRandomUint32x4,
+    uint32ArrayLEToBase64String,
+    UUID7,
+} from '../../utils/utils'
+import { RedisHelpers } from './redis-helpers'
 /* ---------------------------------------------------------------------
  * This pipeline step is used to get the distinct id and session id for events that are using the cookieless server hash mode.
  * At the most basic level, the new distinct id is hash(daily_salt + team_id + ip + root_domain + user_agent).
@@ -73,57 +72,54 @@ export const COOKIELESS_EXTRA_HASH_CONTENTS_PROPERTY = '$cookieless_extra'
 const MAX_NEGATIVE_TIMEZONE_HOURS = 12
 const MAX_POSITIVE_TIMEZONE_HOURS = 14
 
-export function toYearMonthDayInTimezone(
-    timestamp: number,
-    timeZone: string
-): { year: number; month: number; day: number } {
-    const parts = new Intl.DateTimeFormat('en', {
-        timeZone,
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-    }).formatToParts(new Date(timestamp))
-    const year = parts.find((part) => part.type === 'year')?.value
-    const month = parts.find((part) => part.type === 'month')?.value
-    const day = parts.find((part) => part.type === 'day')?.value
-    if (!year || !month || !day) {
-        throw new Error('Failed to get year, month, or day')
-    }
-    return { year: Number(year), month: Number(month), day: Number(day) }
+const cookielessCacheHitCounter = new Counter({
+    name: 'cookieless_salt_cache_hit',
+    help: 'Number of local cache hits for cookieless salt',
+    labelNames: ['operation', 'day'],
+})
+
+const cookielessCacheMissCounter = new Counter({
+    name: 'cookieless_salt_cache_miss',
+    help: 'Number of local cache misses for cookieless salt',
+    labelNames: ['operation', 'day'],
+})
+
+export const cookielessRedisErrorCounter = new Counter({
+    name: 'cookieless_redis_error',
+    help: 'Count redis errors.',
+    labelNames: ['operation'],
+})
+
+interface CookielessConfig {
+    disabled: boolean
+    forceStatelessMode: boolean
+    deleteExpiredLocalSaltsIntervalMs: number
+    identifiesTtlSeconds: number
+    sessionTtlSeconds: number
+    saltTtlSeconds: number
+    sessionInactivityMs: number
 }
 
-export function toStartOfDayInTimezone(timestamp: number, timeZone: string): Date {
-    const { year, month, day } = toYearMonthDayInTimezone(timestamp, timeZone)
-    return DateTime.fromObject(
-        { year, month, day, hour: 0, minute: 0, second: 0, millisecond: 0 },
-        { zone: timeZone }
-    ).toJSDate()
-}
-
-const createCookielessConfig = (config: Config): CookielessConfig => {
-    return {
-        disabled: config.COOKIELESS_DISABLED,
-        forceStatelessMode: config.COOKIELESS_FORCE_STATELESS_MODE,
-        deleteExpiredLocalSaltsIntervalMs: config.COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS,
-        sessionTtlSeconds: config.COOKIELESS_SESSION_TTL_SECONDS,
-        saltTtlSeconds: config.COOKIELESS_SALT_TTL_SECONDS,
-        sessionInactivityMs: config.COOKIELESS_SESSION_INACTIVITY_MS,
-        identifiesTtlSeconds: config.COOKIELESS_IDENTIFIES_TTL_SECONDS,
-    }
-}
-
-// TODO: Refactor this whole thing into a single class
-export class CookielessSaltManager {
+export class CookielessManager {
+    public readonly redisHelpers: RedisHelpers
     public readonly config: CookielessConfig
+
     private readonly localSaltMap: Record<string, Uint32Array> = {}
     private readonly mutex = new ConcurrencyController(1)
     private cleanupInterval: NodeJS.Timeout | null = null
 
-    public readonly redisHelper: RedisHelper
+    constructor(config: Config, redis: GenericPool<Redis.Redis>, private teamManager: TeamManager) {
+        this.config = {
+            disabled: config.COOKIELESS_DISABLED,
+            forceStatelessMode: config.COOKIELESS_FORCE_STATELESS_MODE,
+            deleteExpiredLocalSaltsIntervalMs: config.COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS,
+            sessionTtlSeconds: config.COOKIELESS_SESSION_TTL_SECONDS,
+            saltTtlSeconds: config.COOKIELESS_SALT_TTL_SECONDS,
+            sessionInactivityMs: config.COOKIELESS_SESSION_INACTIVITY_MS,
+            identifiesTtlSeconds: config.COOKIELESS_IDENTIFIES_TTL_SECONDS,
+        }
 
-    constructor(config: Config, redisPool: GenericPool<Redis.Redis>) {
-        this.config = createCookielessConfig(config)
-        this.redisHelper = new RedisHelper(redisPool)
+        this.redisHelpers = new RedisHelpers(redis)
         // Periodically delete expired salts from the local cache. Note that this doesn't delete them from redis, but
         // that's handled by using redis TTLs. Deleting these salts is what allows us to use the hash of PII data in a
         // non PII way. Of course, these are also deleted when the node process restarts.
@@ -155,7 +151,7 @@ export class CookielessSaltManager {
                 }
 
                 // try to get it from redis instead
-                const saltBase64 = await this.redisHelper.redisGet<string | null>(
+                const saltBase64 = await this.redisHelpers.redisGet<string | null>(
                     `cookieless_salt:${yyyymmdd}`,
                     null,
                     'cookielessServerHashStep'
@@ -170,7 +166,7 @@ export class CookielessSaltManager {
 
                 // try to write a new one to redis, but don't overwrite
                 const newSaltParts = createRandomUint32x4()
-                const setResult = await this.redisHelper.redisSetNX(
+                const setResult = await this.redisHelpers.redisSetNX(
                     `cookieless_salt:${yyyymmdd}`,
                     uint32ArrayLEToBase64String(newSaltParts),
                     'cookielessServerHashStep',
@@ -182,7 +178,7 @@ export class CookielessSaltManager {
                 }
 
                 // if we couldn't write, it means that it exists in redis already
-                const saltBase64Retry = await this.redisHelper.redisGet<string | null>(
+                const saltBase64Retry = await this.redisHelpers.redisGet<string | null>(
                     `cookieless_salt:${yyyymmdd}`,
                     null,
                     'cookielessServerHashStep'
@@ -221,294 +217,308 @@ export class CookielessSaltManager {
         }
         this.deleteAllLocalSalts()
     }
-}
 
-export async function processCookielessEvent(hub: Hub, event: PluginEvent): Promise<PluginEvent | undefined> {
-    // if events aren't using this mode, skip all processing
-    if (!event.properties?.[COOKIELESS_MODE_FLAG_PROPERTY]) {
-        return event
-    }
-
-    // if the killswitch is enabled, drop the event
-    if (hub.cookielessSaltManager.disabled) {
-        eventDroppedCounter
-            .labels({
-                event_type: 'analytics',
-                drop_cause: 'cookieless_disabled_killswitch',
-            })
-            .inc()
-        return undefined
-    }
-
-    try {
-        return await runInstrumentedFunction({
-            func: () => cookielessServerHashStepInner(hub, event as PluginEvent & { properties: Properties }),
-            statsKey: 'cookieless.process_event',
-        })
-    } catch (e) {
-        // Drop the event if there are any errors.
-        // We fail close here as Cookieless is a new feature, not available for general use yet, and we don't want any
-        // errors to interfere with the processing of other events.
-        // Fail close rather than open, as events in this mode relying on this processing step to remove Personal Data.
-        eventDroppedCounter
-            .labels({
-                event_type: 'analytics',
-                drop_cause: 'cookieless_error_fail_close',
-            })
-            .inc()
-
-        if (e instanceof RedisOperationError) {
-            cookielessRedisErrorCounter.labels({
-                operation: e.operation,
-            })
-        }
-
-        return undefined
-    }
-}
-
-export async function cookielessServerHashStep(hub: Hub, event: PluginEvent): Promise<[PluginEvent | undefined]> {
-    return [await processCookielessEvent(hub, event)]
-}
-
-async function cookielessServerHashStepInner(
-    hub: Hub,
-    event: PluginEvent & { properties: Properties }
-): Promise<PluginEvent | undefined> {
-    const cookielessSaltManager = hub.cookielessSaltManager
-
-    // if the team isn't allowed to use this mode, drop the event
-    const team = await hub.teamManager.getTeamForEvent(event)
-    if (!team?.cookieless_server_hash_mode) {
-        eventDroppedCounter
-            .labels({
-                event_type: 'analytics',
-                drop_cause: 'cookieless_disabled_team',
-            })
-            .inc()
-        return undefined
-    }
-    const teamTimeZone = team.timezone
-
-    const timestamp = event.timestamp ?? event.sent_at ?? event.now
-
-    // drop some events that aren't valid in this mode
-    if (!timestamp) {
-        eventDroppedCounter
-            .labels({
-                event_type: 'analytics',
-                drop_cause: 'cookieless_no_timestamp',
-            })
-            .inc()
-        return undefined
-    }
-    const { $session_id: sessionId, $device_id: deviceId } = event.properties
-    if (sessionId != null || deviceId != null) {
-        eventDroppedCounter
-            .labels({
-                event_type: 'analytics',
-                drop_cause: sessionId != null ? 'cookieless_with_session_id' : 'cookieless_with_device_id',
-            })
-            .inc()
-        return undefined
-    }
-
-    if (event.event === '$create_alias' || event.event === '$merge_dangerously') {
-        eventDroppedCounter
-            .labels({
-                event_type: 'analytics',
-                drop_cause: 'cookieless_unsupported_event_type',
-            })
-            .inc()
-        return undefined
-    }
-
-    // if it's an identify event, it must have the sentinel distinct id
-    if (event.event === '$identify' && event.properties['$anon_distinct_id'] !== COOKIELESS_SENTINEL_VALUE) {
-        eventDroppedCounter
-            .labels({
-                event_type: 'analytics',
-                drop_cause: 'cookieless_missing_sentinel',
-            })
-            .inc()
-        return undefined
-    }
-
-    const {
-        userAgent,
+    async doHash({
+        timestampMs,
+        eventTimeZone,
+        teamTimeZone,
+        teamId,
         ip,
         host,
-        timezone: eventTimeZone,
-        timestampMs,
-        teamId,
-        hashExtra,
-    } = getProperties(event, timestamp)
-    if (!userAgent || !ip || !host) {
-        eventDroppedCounter
-            .labels({
-                event_type: 'analytics',
-                drop_cause: !userAgent
-                    ? 'cookieless_missing_ua'
-                    : !ip
-                    ? 'cookieless_missing_ip'
-                    : 'cookieless_missing_host',
-            })
-            .inc()
-        return undefined
+        userAgent,
+        n = 0,
+        hashExtra = '',
+    }: {
+        timestampMs: number
+        eventTimeZone: string | undefined
+        teamTimeZone: string
+        teamId: number
+        ip: string
+        host: string
+        userAgent: string
+        n?: number
+        hashExtra?: string
+    }) {
+        const yyyymmdd = toYYYYMMDDInTimezoneSafe(timestampMs, eventTimeZone, teamTimeZone)
+        const salt = await this.getSaltForDay(yyyymmdd, timestampMs)
+        const rootDomain = getDomain(host) || host
+        return siphashDouble.hash(
+            salt,
+            `${teamId.toString()}-${ip}-${rootDomain}-${userAgent}-${n}-${hashExtra.slice(0, 100)}`
+        )
     }
 
-    if (
-        team.cookieless_server_hash_mode === CookielessServerHashMode.Stateless ||
-        cookielessSaltManager.config.forceStatelessMode
-    ) {
-        if (event.event === '$identify' || event.distinct_id !== COOKIELESS_SENTINEL_VALUE) {
-            // identifies and post-identify events are not valid in the stateless mode, drop the event
+    async processEvent(event: PluginEvent): Promise<PluginEvent | undefined> {
+        // if events aren't using this mode, skip all processing
+        if (!event.properties?.[COOKIELESS_MODE_FLAG_PROPERTY]) {
+            return event
+        }
+
+        // if the killswitch is enabled, drop the event
+        if (this.config.disabled) {
             eventDroppedCounter
                 .labels({
                     event_type: 'analytics',
-                    drop_cause: 'cookieless_stateless_unsupported_identify',
+                    drop_cause: 'cookieless_disabled_killswitch',
                 })
                 .inc()
             return undefined
         }
 
-        const hashValue = await doHash(hub, {
-            timestampMs,
-            eventTimeZone,
-            teamTimeZone,
-            teamId,
+        try {
+            return await runInstrumentedFunction({
+                func: () => this.cookielessServerHashStepInner(event as PluginEvent & { properties: Properties }),
+                statsKey: 'cookieless.process_event',
+            })
+        } catch (e) {
+            // Drop the event if there are any errors.
+            // We fail close here as Cookieless is a new feature, not available for general use yet, and we don't want any
+            // errors to interfere with the processing of other events.
+            // Fail close rather than open, as events in this mode relying on this processing step to remove Personal Data.
+            eventDroppedCounter
+                .labels({
+                    event_type: 'analytics',
+                    drop_cause: 'cookieless_error_fail_close',
+                })
+                .inc()
+
+            if (e instanceof RedisOperationError) {
+                cookielessRedisErrorCounter.labels({
+                    operation: e.operation,
+                })
+            }
+
+            return undefined
+        }
+    }
+
+    async cookielessServerHashStepInner(
+        event: PluginEvent & { properties: Properties }
+    ): Promise<PluginEvent | undefined> {
+        // if the team isn't allowed to use this mode, drop the event
+        const team = await this.teamManager.getTeamForEvent(event)
+        if (!team?.cookieless_server_hash_mode) {
+            eventDroppedCounter
+                .labels({
+                    event_type: 'analytics',
+                    drop_cause: 'cookieless_disabled_team',
+                })
+                .inc()
+            return undefined
+        }
+        const teamTimeZone = team.timezone
+
+        const timestamp = event.timestamp ?? event.sent_at ?? event.now
+
+        // drop some events that aren't valid in this mode
+        if (!timestamp) {
+            eventDroppedCounter
+                .labels({
+                    event_type: 'analytics',
+                    drop_cause: 'cookieless_no_timestamp',
+                })
+                .inc()
+            return undefined
+        }
+        const { $session_id: sessionId, $device_id: deviceId } = event.properties
+        if (sessionId != null || deviceId != null) {
+            eventDroppedCounter
+                .labels({
+                    event_type: 'analytics',
+                    drop_cause: sessionId != null ? 'cookieless_with_session_id' : 'cookieless_with_device_id',
+                })
+                .inc()
+            return undefined
+        }
+
+        if (event.event === '$create_alias' || event.event === '$merge_dangerously') {
+            eventDroppedCounter
+                .labels({
+                    event_type: 'analytics',
+                    drop_cause: 'cookieless_unsupported_event_type',
+                })
+                .inc()
+            return undefined
+        }
+
+        // if it's an identify event, it must have the sentinel distinct id
+        if (event.event === '$identify' && event.properties['$anon_distinct_id'] !== COOKIELESS_SENTINEL_VALUE) {
+            eventDroppedCounter
+                .labels({
+                    event_type: 'analytics',
+                    drop_cause: 'cookieless_missing_sentinel',
+                })
+                .inc()
+            return undefined
+        }
+
+        const {
+            userAgent,
             ip,
             host,
-            userAgent,
-            hashExtra,
-        })
-        const distinctId = hashToDistinctId(hashValue)
-        const newEvent = {
-            ...event,
-            distinct_id: distinctId,
-            properties: {
-                ...event.properties,
-                $device_id: distinctId,
-                $session_id: createStatelessSessionId(timestampMs, eventTimeZone, teamTimeZone, hashValue),
-            },
-        }
-        stripPIIProperties(newEvent)
-        return newEvent
-    } else {
-        // TRICKY: if a user were to log in and out, to avoid collisions, we would want a different hash value, so we store the set of identify event uuids for identifies
-        // ASSUMPTION: all events are processed in order, for this to happen we need them to be in the same kafka topic at this point
-
-        // Find the base hash value, before we take the number of identifies into account
-        const baseHashValue = await doHash(hub, {
+            timezone: eventTimeZone,
             timestampMs,
-            eventTimeZone,
-            teamTimeZone,
             teamId,
-            ip,
-            host,
-            userAgent,
             hashExtra,
-        })
-
-        const newEvent = { ...event }
-        const newProperties: Properties = { ...event.properties, $distinct_id: undefined }
-
-        newProperties['$device_id'] = hashToDistinctId(baseHashValue)
-        const identifiesRedisKey = getRedisIdentifiesKey(baseHashValue, teamId)
-
-        let hashValue: Uint32Array
-        if (event.event === '$identify') {
-            // identify event, so the anon_distinct_id must be the sentinel and needs to be replaced
-
-            // add this identify event id to redis
-            const numIdentifies = await hub.cookielessSaltManager.redisHelper.redisSAddAndSCard(
-                identifiesRedisKey,
-                event.uuid
-            )
-
-            // we want the number of identifies that happened before this one
-            hashValue = await doHash(hub, {
-                timestampMs,
-                eventTimeZone,
-                teamTimeZone,
-                teamId,
-                ip,
-                host,
-                userAgent,
-                n: numIdentifies - 1,
-                hashExtra,
-            })
-
-            // set the distinct id to the new hash value
-            newProperties['$anon_distinct_id'] = hashToDistinctId(hashValue)
-        } else if (event.distinct_id === COOKIELESS_SENTINEL_VALUE) {
-            const numIdentifies = await hub.cookielessSaltManager.redisHelper.redisSCard(identifiesRedisKey)
-            hashValue = await doHash(hub, {
-                timestampMs,
-                eventTimeZone,
-                teamTimeZone,
-                teamId,
-                ip,
-                host,
-                userAgent,
-                n: numIdentifies,
-                hashExtra,
-            })
-            // event before identify has been called, distinct id is the sentinel and needs to be replaced
-            newEvent.distinct_id = hashToDistinctId(hashValue)
-        } else {
-            const numIdentifies = await hub.cookielessSaltManager.redisHelper.redisSCard(identifiesRedisKey)
-
-            // this event is after identify has been called, so subtract 1 from the numIdentifies
-            hashValue = await doHash(hub, {
-                timestampMs,
-                eventTimeZone,
-                teamTimeZone,
-                teamId,
-                ip,
-                host,
-                userAgent,
-                n: numIdentifies - 1,
-                hashExtra,
-            })
+        } = getProperties(event, timestamp)
+        if (!userAgent || !ip || !host) {
+            eventDroppedCounter
+                .labels({
+                    event_type: 'analytics',
+                    drop_cause: !userAgent
+                        ? 'cookieless_missing_ua'
+                        : !ip
+                        ? 'cookieless_missing_ip'
+                        : 'cookieless_missing_host',
+                })
+                .inc()
+            return undefined
         }
 
-        const sessionRedisKey = getRedisSessionsKey(hashValue, teamId)
-        // do we have a session id for this user already?
-        const sessionInfoBuffer = await hub.cookielessSaltManager.redisHelper.redisGetBuffer(
-            sessionRedisKey,
-            'cookielessServerHashStep'
-        )
-        let sessionState = sessionInfoBuffer ? bufferToSessionState(sessionInfoBuffer) : undefined
+        if (team.cookieless_server_hash_mode === CookielessServerHashMode.Stateless || this.config.forceStatelessMode) {
+            if (event.event === '$identify' || event.distinct_id !== COOKIELESS_SENTINEL_VALUE) {
+                // identifies and post-identify events are not valid in the stateless mode, drop the event
+                eventDroppedCounter
+                    .labels({
+                        event_type: 'analytics',
+                        drop_cause: 'cookieless_stateless_unsupported_identify',
+                    })
+                    .inc()
+                return undefined
+            }
 
-        // if not, or the TTL has expired, create a new one. Don't rely on redis TTL, as ingestion lag could approach the 30-minute session inactivity timeout
-        if (
-            !sessionState ||
-            timestampMs - sessionState.lastActivityTimestamp > cookielessSaltManager.config.sessionInactivityMs
-        ) {
-            const sessionId = new UUID7(timestampMs)
-            sessionState = { sessionId: sessionId, lastActivityTimestamp: timestampMs }
-            await hub.cookielessSaltManager.redisHelper.redisSetBuffer(
-                sessionRedisKey,
-                sessionStateToBuffer(sessionState),
-                'cookielessServerHashStep',
-                cookielessSaltManager.config.sessionTtlSeconds
-            )
+            const hashValue = await this.doHash({
+                timestampMs,
+                eventTimeZone,
+                teamTimeZone,
+                teamId,
+                ip,
+                host,
+                userAgent,
+                hashExtra,
+            })
+            const distinctId = hashToDistinctId(hashValue)
+            const newEvent = {
+                ...event,
+                distinct_id: distinctId,
+                properties: {
+                    ...event.properties,
+                    $device_id: distinctId,
+                    $session_id: createStatelessSessionId(timestampMs, eventTimeZone, teamTimeZone, hashValue),
+                },
+            }
+            stripPIIProperties(newEvent)
+            return newEvent
         } else {
-            // otherwise, update the timestamp
-            await hub.cookielessSaltManager.redisHelper.redisSetBuffer(
+            // TRICKY: if a user were to log in and out, to avoid collisions, we would want a different hash value, so we store the set of identify event uuids for identifies
+            // ASSUMPTION: all events are processed in order, for this to happen we need them to be in the same kafka topic at this point
+
+            // Find the base hash value, before we take the number of identifies into account
+            const baseHashValue = await this.doHash({
+                timestampMs,
+                eventTimeZone,
+                teamTimeZone,
+                teamId,
+                ip,
+                host,
+                userAgent,
+                hashExtra,
+            })
+
+            const newEvent = { ...event }
+            const newProperties: Properties = { ...event.properties, $distinct_id: undefined }
+
+            newProperties['$device_id'] = hashToDistinctId(baseHashValue)
+            const identifiesRedisKey = getRedisIdentifiesKey(baseHashValue, teamId)
+
+            let hashValue: Uint32Array
+            if (event.event === '$identify') {
+                // identify event, so the anon_distinct_id must be the sentinel and needs to be replaced
+
+                // add this identify event id to redis
+                const numIdentifies = await this.redisHelpers.redisSAddAndSCard(identifiesRedisKey, event.uuid)
+
+                // we want the number of identifies that happened before this one
+                hashValue = await this.doHash({
+                    timestampMs,
+                    eventTimeZone,
+                    teamTimeZone,
+                    teamId,
+                    ip,
+                    host,
+                    userAgent,
+                    n: numIdentifies - 1,
+                    hashExtra,
+                })
+
+                // set the distinct id to the new hash value
+                newProperties['$anon_distinct_id'] = hashToDistinctId(hashValue)
+            } else if (event.distinct_id === COOKIELESS_SENTINEL_VALUE) {
+                const numIdentifies = await this.redisHelpers.redisSCard(identifiesRedisKey)
+                hashValue = await this.doHash({
+                    timestampMs,
+                    eventTimeZone,
+                    teamTimeZone,
+                    teamId,
+                    ip,
+                    host,
+                    userAgent,
+                    n: numIdentifies,
+                    hashExtra,
+                })
+                // event before identify has been called, distinct id is the sentinel and needs to be replaced
+                newEvent.distinct_id = hashToDistinctId(hashValue)
+            } else {
+                const numIdentifies = await this.redisHelpers.redisSCard(identifiesRedisKey)
+
+                // this event is after identify has been called, so subtract 1 from the numIdentifies
+                hashValue = await this.doHash({
+                    timestampMs,
+                    eventTimeZone,
+                    teamTimeZone,
+                    teamId,
+                    ip,
+                    host,
+                    userAgent,
+                    n: numIdentifies - 1,
+                    hashExtra,
+                })
+            }
+
+            const sessionRedisKey = getRedisSessionsKey(hashValue, teamId)
+            // do we have a session id for this user already?
+            const sessionInfoBuffer = await this.redisHelpers.redisGetBuffer(
                 sessionRedisKey,
-                sessionStateToBuffer({ sessionId: sessionState.sessionId, lastActivityTimestamp: timestampMs }),
-                'cookielessServerHashStep',
-                cookielessSaltManager.config.sessionTtlSeconds
+                'cookielessServerHashStep'
             )
+            let sessionState = sessionInfoBuffer ? bufferToSessionState(sessionInfoBuffer) : undefined
+
+            // if not, or the TTL has expired, create a new one. Don't rely on redis TTL, as ingestion lag could approach the 30-minute session inactivity timeout
+            if (!sessionState || timestampMs - sessionState.lastActivityTimestamp > this.config.sessionInactivityMs) {
+                const sessionId = new UUID7(timestampMs)
+                sessionState = { sessionId: sessionId, lastActivityTimestamp: timestampMs }
+                await this.redisHelpers.redisSetBuffer(
+                    sessionRedisKey,
+                    sessionStateToBuffer(sessionState),
+                    'cookielessServerHashStep',
+                    this.config.sessionTtlSeconds
+                )
+            } else {
+                // otherwise, update the timestamp
+                await this.redisHelpers.redisSetBuffer(
+                    sessionRedisKey,
+                    sessionStateToBuffer({ sessionId: sessionState.sessionId, lastActivityTimestamp: timestampMs }),
+                    'cookielessServerHashStep',
+                    this.config.sessionTtlSeconds
+                )
+            }
+
+            newProperties['$session_id'] = sessionState.sessionId.toString()
+
+            newEvent.properties = newProperties
+            stripPIIProperties(newEvent)
+            return newEvent
         }
-
-        newProperties['$session_id'] = sessionState.sessionId.toString()
-
-        newEvent.properties = newProperties
-        stripPIIProperties(newEvent)
-        return newEvent
     }
 }
 
@@ -533,39 +543,6 @@ function getProperties(
     const teamId = event.team_id
 
     return { userAgent, ip, host, timezone, timestampMs, teamId, hashExtra }
-}
-
-export async function doHash(
-    hub: Hub,
-    {
-        timestampMs,
-        eventTimeZone,
-        teamTimeZone,
-        teamId,
-        ip,
-        host,
-        userAgent,
-        n = 0,
-        hashExtra = '',
-    }: {
-        timestampMs: number
-        eventTimeZone: string | undefined
-        teamTimeZone: string
-        teamId: number
-        ip: string
-        host: string
-        userAgent: string
-        n?: number
-        hashExtra?: string
-    }
-) {
-    const yyyymmdd = toYYYYMMDDInTimezoneSafe(timestampMs, eventTimeZone, teamTimeZone)
-    const salt = await hub.cookielessSaltManager.getSaltForDay(yyyymmdd, timestampMs)
-    const rootDomain = getDomain(host) || host
-    return siphashDouble.hash(
-        salt,
-        `${teamId.toString()}-${ip}-${rootDomain}-${userAgent}-${n}-${hashExtra.slice(0, 100)}`
-    )
 }
 
 export function isCalendarDateValid(yyyymmdd: string): boolean {
@@ -702,14 +679,29 @@ export function sessionStateToBuffer({ sessionId, lastActivityTimestamp }: Sessi
     return buffer
 }
 
-const cookielessCacheHitCounter = new Counter({
-    name: 'cookieless_salt_cache_hit',
-    help: 'Number of local cache hits for cookieless salt',
-    labelNames: ['operation', 'day'],
-})
+export function toYearMonthDayInTimezone(
+    timestamp: number,
+    timeZone: string
+): { year: number; month: number; day: number } {
+    const parts = new Intl.DateTimeFormat('en', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).formatToParts(new Date(timestamp))
+    const year = parts.find((part) => part.type === 'year')?.value
+    const month = parts.find((part) => part.type === 'month')?.value
+    const day = parts.find((part) => part.type === 'day')?.value
+    if (!year || !month || !day) {
+        throw new Error('Failed to get year, month, or day')
+    }
+    return { year: Number(year), month: Number(month), day: Number(day) }
+}
 
-const cookielessCacheMissCounter = new Counter({
-    name: 'cookieless_salt_cache_miss',
-    help: 'Number of local cache misses for cookieless salt',
-    labelNames: ['operation', 'day'],
-})
+export function toStartOfDayInTimezone(timestamp: number, timeZone: string): Date {
+    const { year, month, day } = toYearMonthDayInTimezone(timestamp, timeZone)
+    return DateTime.fromObject(
+        { year, month, day, hour: 0, minute: 0, second: 0, millisecond: 0 },
+        { zone: timeZone }
+    ).toJSDate()
+}

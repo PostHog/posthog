@@ -163,7 +163,7 @@ export class EventPipelineRunnerV2 {
         }
 
         // TODO: This needs better testing
-        const postCookielessEvent = await processCookielessEvent(this.hub, this.event)
+        const postCookielessEvent = await this.hub.cookielessManager.processEvent(this.event)
         if (postCookielessEvent == null) {
             droppedEventFromTransformationsCounter.inc()
             // NOTE: In this case we just return as it is expected, not an ingestion error
