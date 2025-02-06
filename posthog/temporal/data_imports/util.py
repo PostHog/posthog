@@ -30,7 +30,7 @@ def prepare_s3_files_for_querying(
         s3.delete(s3_folder_for_querying, recursive=True)
 
     for file in file_uris:
-        file_name = file.replace(f"{s3_folder_for_schema}/", "")
+        file_name = file.replace("s3a://", "s3://").replace(f"{s3_folder_for_schema}/", "")
         s3.copy(file, f"{s3_folder_for_querying}/{file_name}")
 
 
