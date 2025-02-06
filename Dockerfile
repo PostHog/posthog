@@ -26,6 +26,7 @@ WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY frontend/package.json frontend/
 COPY patches/ patches/
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
     corepack enable && pnpm --version && \
@@ -36,7 +37,7 @@ COPY products/ products/
 COPY ee/frontend/ ee/frontend/
 COPY ./bin/ ./bin/
 COPY babel.config.js tsconfig.json webpack.config.js tailwind.config.js ./
-RUN pnpm build
+RUN pnpm --filter=@posthog/frontend build
 
 #
 # ---------------------------------------------------------
