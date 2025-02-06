@@ -68,7 +68,7 @@ const Filters = (): JSX.Element => {
             )}
         >
             <div className="flex flex-row flex-wrap gap-2 md:[&>*]:grow-0 [&>*]:grow">
-                <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+                <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} allowTimePrecision={true} />
 
                 {productTab === ProductTab.ANALYTICS ? (
                     <>
