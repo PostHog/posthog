@@ -1,8 +1,8 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { delayUntilEventIngested } from '../../../../tests/helpers/clickhouse'
-import { createOrganization, createTeam, fetchPostgresPersons, insertRow } from '../../../../tests/helpers/sql'
+import { delayUntilEventIngested } from '../../../_tests/helpers/clickhouse'
+import { createOrganization, createTeam, fetchPostgresPersons, insertRow } from '../../../_tests/helpers/sql'
 import { Database, Hub, InternalPerson } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/errors'
 import { closeHub, createHub } from '../../../utils/hub'

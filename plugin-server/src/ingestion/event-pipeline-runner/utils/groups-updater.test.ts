@@ -12,7 +12,7 @@ import { upsertGroup } from './groups-updater'
 
 jest.mock('../../../utils/status')
 
-describe('properties-updater', () => {
+describe('groups-updater', () => {
     let hub: Hub
     let db: DB
 
