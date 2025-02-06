@@ -873,10 +873,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         if "regex" not in request.data:
             raise exceptions.ValidationError("Missing required field: regex")
 
-        messages = [
-            {"role": "system", "content": str(AI_REGEX_PROMPTS)},
-            {"role": "user", "content": str(request.data["regex"])},
-        ]
+        system_message = {"role": "system", "content": str(AI_REGEX_PROMPTS)}
+        user_message = {"role": "user", "content": str(request.data["regex"])}
+        messages = [system_message, user_message]
 
         client = _get_openai_client()
 
