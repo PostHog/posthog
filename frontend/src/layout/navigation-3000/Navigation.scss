@@ -223,6 +223,7 @@
 
     .LemonInput--type-search {
         max-width: none;
+        height: 100%;
         border-color: transparent; // Only show border on focus here
         border-radius: 0;
         transition: none;
