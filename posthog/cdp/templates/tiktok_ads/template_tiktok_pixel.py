@@ -1,39 +1,55 @@
 from posthog.cdp.templates.hog_function_template import HogFunctionMappingTemplate, HogFunctionTemplate
 
-common_inputs = [
-    {
-        "key": "eventProperties",
-        "type": "dictionary",
-        "description": "Map of Snapchat event attributes and their values. Check out this page for more details: https://businesshelp.snapchat.com/s/article/pixel-direct-implementation",
-        "label": "Event parameters",
-        "default": {
-            "price": "{toFloat(event.properties.price ?? event.properties.value ?? event.properties.revenue)}",
-            "currency": "{event.properties.currency}",
-            "item_ids": "{event.properties.item_ids}",
-            "item_category": "{event.properties.category}",
-            "description": "{event.properties.description}",
-            "search_string": "{event.properties.query ?? event.properties.search_string}",
-            "number_items": "{toInt(event.properties.number_items ?? event.properties.quantity)}",
-            "payment_info_available": "{toInt(event.properties.payment_info_available)}",
-            "sign_up_method": "{event.properties.sign_up_method}",
-            "brands": "{event.properties.brands}",
-            "success": "{toInt(event.properties.success) in (0, 1) ? toInt(event.properties.success) : null}",
-            "transaction_id": "{event.properties.orderId ?? event.properties.transactionId ?? event.properties.transaction_id}",
-            "client_dedup_id": "{event.uuid}",
+
+def build_inputs(multiProductEvent=False):
+    return [
+        {
+            "key": "eventProperties",
+            "type": "dictionary",
+            "description": "Map of TikTok event attributes and their values. Check out this page for more details: https://business-api.tiktok.com/portal/docs?id=1739585702922241",
+            "label": "Event parameters",
+            "default": {
+                "value": "{toFloat(event.properties.value ?? event.properties.revenue)}",
+                "currency": "{event.properties.currency ?? 'USD'}",
+                "content_ids": "{arrayMap(product -> product.product_id, event.properties.products)}"
+                if multiProductEvent
+                else "{event.properties.product_id ? [event.properties.product_id] : null}",
+                "contents": "{arrayMap(product -> ({ 'content_id': product.product_id, 'price': product.price, 'content_category': product.category, 'content_name': product.name, 'brand': product.brand, 'quantity': product.quantity }), event.properties.products)}"
+                if multiProductEvent
+                else "{[{ 'content_id': event.properties.product_id, 'price': event.properties.price, 'content_category': event.properties.category, 'content_name': event.properties.name, 'brand': event.properties.brand, 'quantity': event.properties.quantity }]}",
+                "description": "{event.properties.name}",
+                "search_string": "{event.properties.query ?? event.properties.search_string}",
+                "num_items": "{length(event.properties.products ?? [])}",
+                "order_id": "{event.properties.order_id}",
+                "shop_id": "{event.properties.shop_id}",
+            },
+            "secret": False,
+            "required": False,
         },
-        "secret": False,
-        "required": False,
-    },
-    {
-        "key": "eventId",
-        "type": "string",
-        "description": "The ID of the event. This will be used for deduplication. Check out this page for more details: https://business-api.tiktok.com/portal/docs?id=1771100965992450",
-        "label": "Event ID",
-        "default": "{event.uuid}",
-        "secret": False,
-        "required": True,
-    },
-]
+        {
+            "key": "contentType",
+            "type": "choice",
+            "description": "Type of the product item. When the content_id in the Contents field is specified as a sku_id, set this field to product. When the content_id in the Contents field is specified as an item_group_id, set this field to product_group.",
+            "label": "Content Type",
+            "default": "product_group" if multiProductEvent else "product",
+            "choices": [
+                {"value": "product", "label": "Product"},
+                {"value": "product_group", "label": "Product Group"},
+            ],
+            "secret": False,
+            "required": True,
+        },
+        {
+            "key": "eventId",
+            "type": "string",
+            "description": "The ID of the event. This will be used for deduplication. Check out this page for more details: https://business-api.tiktok.com/portal/docs?id=1771100965992450",
+            "label": "Event ID",
+            "default": "{event.uuid}",
+            "secret": False,
+            "required": True,
+        },
+    ]
+
 
 template_tiktok_pixel: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
@@ -68,27 +84,24 @@ export function onLoad({ inputs }) {
 }
 export function onEvent({ inputs }) {
     let eventProperties = {};
+
     for (const [key, value] of Object.entries(inputs.eventProperties)) {
-        if (value) {
+        if (value !== undefined) {
             eventProperties[key] = value;
         }
     };
-    ttq.instance(settings.pixelCode).track(
-        payload.event,
-        {
-            contents: payload.contents ? payload.contents : [],
-            content_type: payload.content_type ? payload.content_type : undefined,
-            currency: payload.currency ? payload.currency : 'USD',
-            value: payload.value || payload.value === 0 ? payload.value : undefined,
-            query: payload.query ? payload.query : undefined,
-            description: payload.description ? payload.description : undefined,
-            order_id: payload.order_id ? payload.order_id : undefined,
-            shop_id: payload.shop_id ? payload.shop_id : undefined
-        },
+
+    if (inputs.contentType !== undefined) {
+        eventProperties.content_type = inputs.contentType;
+    }
+
+    ttq.instance(inputs.pixelId).track(
+        inputs.eventType,
+        eventProperties,
         {
             event_id: inputs.eventId
         }
-    )
+    );
 }
 """.strip(),
     inputs_schema=[
@@ -104,7 +117,7 @@ export function onEvent({ inputs }) {
         {
             "key": "userProperties",
             "type": "dictionary",
-            "description": "Map of Snapchat user parameters and their values. Check out this page for more details: https://businesshelp.snapchat.com/s/article/pixel-direct-implementation",
+            "description": "Map of TikTok user parameters and their values. Check out this page for more details: https://business-api.tiktok.com/portal/docs?id=1739585700402178",
             "label": "User parameters",
             "default": {
                 "email": "{sha256Hex(person.properties.email)}",
@@ -135,7 +148,7 @@ export function onEvent({ inputs }) {
                     "default": "Pageview",
                     "required": True,
                 },
-                *common_inputs,
+                *build_inputs(multiProductEvent=False),
             ],
         ),
         HogFunctionMappingTemplate(
@@ -151,7 +164,7 @@ export function onEvent({ inputs }) {
                     "default": "CompletePayment",
                     "required": True,
                 },
-                *common_inputs,
+                *build_inputs(multiProductEvent=True),
             ],
         ),
         HogFunctionMappingTemplate(
@@ -167,7 +180,7 @@ export function onEvent({ inputs }) {
                     "default": "ViewContent",
                     "required": True,
                 },
-                *common_inputs,
+                *build_inputs(multiProductEvent=False),
             ],
         ),
         HogFunctionMappingTemplate(
@@ -183,7 +196,7 @@ export function onEvent({ inputs }) {
                     "default": "ClickButton",
                     "required": True,
                 },
-                *common_inputs,
+                *build_inputs(multiProductEvent=False),
             ],
         ),
         HogFunctionMappingTemplate(
@@ -199,7 +212,7 @@ export function onEvent({ inputs }) {
                     "default": "Search",
                     "required": True,
                 },
-                *common_inputs,
+                *build_inputs(multiProductEvent=False),
             ],
         ),
         HogFunctionMappingTemplate(
@@ -215,7 +228,7 @@ export function onEvent({ inputs }) {
                     "default": "AddToWishlist",
                     "required": True,
                 },
-                *common_inputs,
+                *build_inputs(multiProductEvent=False),
             ],
         ),
         HogFunctionMappingTemplate(
@@ -231,7 +244,7 @@ export function onEvent({ inputs }) {
                     "default": "AddToCart",
                     "required": True,
                 },
-                *common_inputs,
+                *build_inputs(multiProductEvent=False),
             ],
         ),
         HogFunctionMappingTemplate(
@@ -247,7 +260,7 @@ export function onEvent({ inputs }) {
                     "default": "InitiateCheckout",
                     "required": True,
                 },
-                *common_inputs,
+                *build_inputs(multiProductEvent=True),
             ],
         ),
         HogFunctionMappingTemplate(
@@ -263,7 +276,7 @@ export function onEvent({ inputs }) {
                     "default": "AddPaymentInfo",
                     "required": True,
                 },
-                *common_inputs,
+                *build_inputs(multiProductEvent=True),
             ],
         ),
         HogFunctionMappingTemplate(
@@ -279,7 +292,7 @@ export function onEvent({ inputs }) {
                     "default": "PlaceAnOrder",
                     "required": True,
                 },
-                *common_inputs,
+                *build_inputs(multiProductEvent=True),
             ],
         ),
         HogFunctionMappingTemplate(
@@ -295,7 +308,7 @@ export function onEvent({ inputs }) {
                     "default": "CompleteRegistration",
                     "required": True,
                 },
-                *common_inputs,
+                *build_inputs(multiProductEvent=True),
             ],
         ),
     ],
