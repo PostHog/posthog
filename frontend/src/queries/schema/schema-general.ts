@@ -104,7 +104,6 @@ export enum NodeKind {
     ExperimentEventMetricConfig = 'ExperimentEventMetricConfig',
     ExperimentDataWarehouseMetricConfig = 'ExperimentDataWarehouseMetricConfig',
     ExperimentTrendsQuery = 'ExperimentTrendsQuery',
-    ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
 
     // Database metadata
     DatabaseSchemaQuery = 'DatabaseSchemaQuery',
@@ -1822,6 +1821,15 @@ export interface ExperimentDataWarehouseMetricConfig {
     math?: ExperimentMetricMath
     math_hogql?: string
     math_property?: string
+}
+
+export interface ExperimentMetric {
+    kind: 'ExperimentMetric'
+    name?: string
+    metric_type: ExperimentMetricType
+    filterTestAccounts?: boolean
+    inverse?: boolean
+    metric_config: ExperimentEventMetricConfig | ExperimentDataWarehouseMetricConfig
 }
 
 export interface ExperimentQuery extends DataNode<ExperimentTrendsQueryResponse> {

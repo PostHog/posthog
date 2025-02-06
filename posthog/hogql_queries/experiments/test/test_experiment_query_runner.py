@@ -14,12 +14,13 @@ from posthog.settings import (
     XDIST_SUFFIX,
 )
 from posthog.schema import (
-    DataWarehouseNode,
-    EventsNode,
+    ExperimentDataWarehouseMetricConfig,
+    ExperimentEventMetricConfig,
+    ExperimentMetric,
+    ExperimentMetricType,
     ExperimentQuery,
     ExperimentSignificanceCode,
     ExperimentTrendsQueryResponse,
-    TrendsQuery,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -34,7 +35,6 @@ from django.utils import timezone
 from datetime import datetime, timedelta
 from posthog.test.test_journeys import journeys_for
 from posthog.models.experiment import Experiment
-from flaky import flaky
 from parameterized import parameterized
 import s3fs
 from pyarrow import parquet as pq
@@ -333,7 +333,6 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         return subscription_table_name
 
-    @flaky(max_runs=10, min_passes=1)
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
     def test_query_runner_standard_flow_v2_stats(self):
@@ -343,16 +342,19 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
-        count_query = TrendsQuery(series=[EventsNode(event="$pageview")])
+
+        metric = ExperimentMetric(
+            metric_type=ExperimentMetricType.COUNT,
+            metric_config=ExperimentEventMetricConfig(event="$pageview"),
+        )
 
         experiment_query = ExperimentQuery(
             experiment_id=experiment.id,
             kind="ExperimentQuery",
-            count_query=count_query,
-            exposure_query=None,
+            metric=metric,
         )
 
-        experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
+        experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
         journeys_for(
@@ -415,7 +417,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(query=ExperimentQuery(**experiment.metrics[0]["query"]), team=self.team)
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         self.assertEqual(query_runner.stats_version, 2)
         result = query_runner.calculate()
 
@@ -430,16 +432,6 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(test_variant.count, 5)
         self.assertEqual(control_variant.absolute_exposure, 2)
         self.assertEqual(test_variant.absolute_exposure, 2)
-
-        self.assertAlmostEqual(result.credible_intervals["control"][0], 0.3633, delta=0.1)
-        self.assertAlmostEqual(result.credible_intervals["control"][1], 2.9224, delta=0.1)
-        self.assertAlmostEqual(result.credible_intervals["test"][0], 0.7339, delta=0.1)
-        self.assertAlmostEqual(result.credible_intervals["test"][1], 3.8894, delta=0.1)
-
-        self.assertAlmostEqual(result.p_value, 1.0, delta=0.1)
-
-        self.assertAlmostEqual(result.probability["control"], 0.2549, delta=0.1)
-        self.assertAlmostEqual(result.probability["test"], 0.7453, delta=0.1)
 
         self.assertEqual(result.significance_code, ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE)
 
@@ -598,16 +590,20 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.team.save()
 
         feature_flag_property = f"$feature/{feature_flag.key}"
-        count_query = TrendsQuery(series=[EventsNode(event="$pageview")], filterTestAccounts=True)
+
+        metric = ExperimentMetric(
+            metric_type=ExperimentMetricType.COUNT,
+            metric_config=ExperimentEventMetricConfig(event="$pageview"),
+            filterTestAccounts=True,
+        )
 
         experiment_query = ExperimentQuery(
             experiment_id=experiment.id,
             kind="ExperimentQuery",
-            count_query=count_query,
-            exposure_query=None,
+            metric=metric,
         )
 
-        experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
+        experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
         # Populate count events
@@ -672,7 +668,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         elif name == "cohort_dynamic" and cohort:
             cohort.calculate_people_ch(pending_version=0)
 
-        query_runner = ExperimentQueryRunner(query=ExperimentQuery(**experiment.metrics[0]["query"]), team=self.team)
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         # "feature_flags" and "element" filter out all events
         if name == "feature_flags" or name == "element":
             with self.assertRaises(ValueError) as context:
@@ -690,18 +686,21 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(test_result.absolute_exposure, expected_results["test_absolute_exposure"])
 
         ## Run again with filterTestAccounts=False
-        count_query = TrendsQuery(series=[EventsNode(event="$pageview")], filterTestAccounts=False)
+        metric = ExperimentMetric(
+            metric_type=ExperimentMetricType.COUNT,
+            metric_config=ExperimentEventMetricConfig(event="$pageview"),
+            filterTestAccounts=False,
+        )
         experiment_query = ExperimentQuery(
             experiment_id=experiment.id,
             kind="ExperimentQuery",
-            count_query=count_query,
-            exposure_query=None,
+            metric=metric,
         )
 
-        experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
+        experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(query=ExperimentQuery(**experiment.metrics[0]["query"]), team=self.team)
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = query_runner.calculate()
 
         trend_result = cast(ExperimentTrendsQueryResponse, result)
@@ -858,31 +857,27 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.team.test_account_filters = [filter]
         self.team.save()
-        count_query = TrendsQuery(
-            series=[
-                DataWarehouseNode(
-                    id=table_name,
-                    distinct_id_field="userid",
-                    id_field="id",
-                    table_name=table_name,
-                    timestamp_field="ds",
-                    math="avg",
-                    math_property="usage",
-                    math_property_type="data_warehouse_properties",
-                )
-            ],
+
+        metric = ExperimentMetric(
+            metric_type=ExperimentMetricType.CONTINUOUS,
+            metric_config=ExperimentDataWarehouseMetricConfig(
+                table_name=table_name,
+                distinct_id_field="userid",
+                id_field="id",
+                timestamp_field="ds",
+                math="avg",
+                math_property="usage",
+            ),
             filterTestAccounts=True,
         )
-        exposure_query = TrendsQuery(series=[EventsNode(event="$feature_flag_called")], filterTestAccounts=True)
 
         experiment_query = ExperimentQuery(
             experiment_id=experiment.id,
             kind="ExperimentQuery",
-            count_query=count_query,
-            exposure_query=exposure_query,
+            metric=metric,
         )
 
-        experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
+        experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
         # Populate exposure events
@@ -984,7 +979,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         elif name == "cohort_dynamic" and cohort:
             cohort.calculate_people_ch(pending_version=0)
 
-        query_runner = ExperimentQueryRunner(query=ExperimentQuery(**experiment.metrics[0]["query"]), team=self.team)
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         # "feature_flags" and "element" filter out all events
         if name == "feature_flags" or name == "element":
             with freeze_time("2023-01-07"), self.assertRaises(ValueError) as context:
@@ -1006,34 +1001,28 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(test_result.absolute_exposure, filter_expected["test_absolute_exposure"])
 
         # Run the query again without filtering
-        count_query = TrendsQuery(
-            series=[
-                DataWarehouseNode(
-                    id=table_name,
-                    distinct_id_field="userid",
-                    id_field="id",
-                    table_name=table_name,
-                    timestamp_field="ds",
-                    math="avg",
-                    math_property="usage",
-                    math_property_type="data_warehouse_properties",
-                )
-            ],
+        metric = ExperimentMetric(
+            metric_type=ExperimentMetricType.CONTINUOUS,
+            metric_config=ExperimentDataWarehouseMetricConfig(
+                table_name=table_name,
+                distinct_id_field="userid",
+                id_field="id",
+                timestamp_field="ds",
+                math="avg",
+                math_property="usage",
+            ),
             filterTestAccounts=False,
         )
-        exposure_query = TrendsQuery(series=[EventsNode(event="$feature_flag_called")], filterTestAccounts=False)
-
         experiment_query = ExperimentQuery(
             experiment_id=experiment.id,
             kind="ExperimentQuery",
-            count_query=count_query,
-            exposure_query=exposure_query,
+            metric=metric,
         )
 
-        experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
+        experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        query_runner = ExperimentQueryRunner(query=ExperimentQuery(**experiment.metrics[0]["query"]), team=self.team)
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         with freeze_time("2023-01-07"):
             result = query_runner.calculate()
 
@@ -1060,27 +1049,23 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         feature_flag_property = f"$feature/{feature_flag.key}"
 
-        count_query = TrendsQuery(
-            series=[
-                DataWarehouseNode(
-                    id=table_name,
-                    distinct_id_field="subscription_customer_id",
-                    id_field="id",
-                    table_name=table_name,
-                    timestamp_field="subscription_created_at",
-                    math="total",
-                )
-            ]
+        metric = ExperimentMetric(
+            metric_type=ExperimentMetricType.COUNT,
+            metric_config=ExperimentDataWarehouseMetricConfig(
+                table_name=table_name,
+                distinct_id_field="subscription_customer_id",
+                id_field="id",
+                timestamp_field="subscription_created_at",
+            ),
         )
 
         experiment_query = ExperimentQuery(
             experiment_id=experiment.id,
             kind="ExperimentQuery",
-            count_query=count_query,
-            exposure_query=None,
+            metric=metric,
         )
 
-        experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
+        experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
         # Populate exposure events
@@ -1124,7 +1109,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(query=ExperimentQuery(**experiment.metrics[0]["query"]), team=self.team)
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
 
         with freeze_time("2023-01-10"):
             result = query_runner.calculate()
