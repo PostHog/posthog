@@ -65,7 +65,7 @@ export function DurationPicker({ value, onChange, autoFocus }: DurationPickerPro
             />
             <LemonSelect
                 value={unit}
-                onChange={(newValue) => _onChange({ newUnit: newValue as SmallTimeUnit, newTimeValue: localTimeValue })}
+                onChange={(newValue) => _onChange({ newUnit: newValue, newTimeValue: localTimeValue })}
                 options={durationOptions.map((value) => ({ value, label: value }))}
             />
         </div>

@@ -177,7 +177,7 @@ export function SidePanel(): JSX.Element | null {
             ref={ref}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                width: sidePanelOpenAndAvailable ? desiredSize ?? DEFAULT_WIDTH : undefined,
+                width: sidePanelOpenAndAvailable ? (desiredSize ?? DEFAULT_WIDTH) : undefined,
                 ...(theme?.sidebarStyle ?? {}),
             }}
         >
@@ -191,9 +191,7 @@ export function SidePanel(): JSX.Element | null {
                                 <LemonButton
                                     key={tab}
                                     icon={<Icon />}
-                                    onClick={() =>
-                                        activeTab === tab ? closeSidePanel() : openSidePanel(tab as SidePanelTab)
-                                    }
+                                    onClick={() => (activeTab === tab ? closeSidePanel() : openSidePanel(tab))}
                                     data-attr={`sidepanel-tab-${tab}`}
                                     data-ph-capture-attribute-state-before-click={activeTab === tab ? 'open' : 'closed'}
                                     active={activeTab === tab}

@@ -2,6 +2,8 @@ packages:
     - '.'
     - frontend
     - plugin-server
+    - common/eslint_rules
     - common/plugin_transpiler
     - common/hogvm/typescript
     - rust/cyclotron-node
+    - products/*

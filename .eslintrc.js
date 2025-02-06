@@ -20,7 +20,8 @@ module.exports = {
         },
         'import/resolver': {
             node: {
-                paths: ['eslint-rules'], // Add the directory containing your custom rules
+                // Depending on from which folder eslint is run
+                paths: ['./common/eslint_rules', '../common/eslint_rules', '../../common/eslint_rules', '../../../common/eslint_rules'], // Add the directory containing your custom rules
                 extensions: ['.js', '.jsx', '.ts', '.tsx'], // Ensure ESLint resolves both JS and TS files
             },
         },
@@ -362,7 +363,7 @@ module.exports = {
             globals: { ...globals, process: 'readonly' },
         },
         {
-            files: 'eslint-rules/**/*',
+            files: './common/eslint_rules/*',
             rules: {
                 '@typescript-eslint/no-var-requires': 'off',
             },

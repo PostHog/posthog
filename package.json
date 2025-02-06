@@ -15,7 +15,7 @@
     "engines": {
         "node": ">=18 <19"
     },
-    "packageManager": "pnpm@8.10.5",
+    "packageManager": "pnpm@9.15.4",
     "scripts": {
         "schema:build": "pnpm run schema:build:json && pnpm run schema:build:python",
         "schema:build:json": "ts-node bin/build-schema-json.mjs && prettier --write frontend/src/queries/schema.json",
@@ -41,6 +41,7 @@
     "devDependencies": {
         "@parcel/packager-ts": "2.13.3",
         "@parcel/transformer-typescript-types": "2.13.3",
+        "eslint-plugin-posthog": "workspace:*",
         "syncpack": "^13.0.1"
     },
     "pnpm": {

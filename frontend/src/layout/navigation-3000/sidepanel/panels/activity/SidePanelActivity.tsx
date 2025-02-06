@@ -131,7 +131,7 @@ export const SidePanelActivity = (): JSX.Element => {
                 <div className="flex flex-col flex-1 overflow-hidden">
                     <div className="mx-2 shrink-0">
                         <LemonTabs
-                            activeKey={activeTab as SidePanelActivityTab}
+                            activeKey={activeTab}
                             onChange={(key) => setActiveTab(key)}
                             tabs={[
                                 {
