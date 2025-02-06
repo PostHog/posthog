@@ -1,5 +1,3 @@
-import fs from 'node:fs/promises'
-
 import autoprefixer from 'autoprefixer'
 import * as ps from 'child_process'
 import chokidar from 'chokidar'
@@ -11,6 +9,7 @@ import { polyfillNode } from 'esbuild-plugin-polyfill-node'
 import { sassPlugin } from 'esbuild-sass-plugin'
 import express from 'express'
 import fse from 'fs-extra'
+import fs from 'node:fs/promises'
 import * as path from 'path'
 import postcss from 'postcss'
 import postcssPresetEnv from 'postcss-preset-env'
@@ -314,12 +313,12 @@ export async function buildOrWatch(config) {
                     ? 'Building'
                     : 'Rebuilding'
                 : logOpts.success
-                ? buildCount === 1
-                    ? 'Built'
-                    : 'Rebuilt'
-                : buildCount === 1
-                ? 'Building failed'
-                : 'Rebuilding failed '
+                  ? buildCount === 1
+                      ? 'Built'
+                      : 'Rebuilt'
+                  : buildCount === 1
+                    ? 'Building failed'
+                    : 'Rebuilding failed '
 
         console.log(`${icon} ${name ? `"${name}": ` : ''}${message}${timingSuffix}`)
     }
@@ -505,8 +504,8 @@ export function gatherProductUrls(products) {
     const sourceFiles = []
     for (const product of products) {
         try {
-            if (fse.readFileSync(`products/${product}/frontend/urls.ts`)) {
-                sourceFiles.push(`products/${product}/frontend/urls.ts`)
+            if (fse.readFileSync(`../products/${product}/frontend/urls.ts`)) {
+                sourceFiles.push(`../products/${product}/frontend/urls.ts`)
             }
         } catch (e) {
             // ignore
@@ -552,7 +551,7 @@ export function gatherProductUrls(products) {
 }
 
 export function gatherProductManifests() {
-    const products = fse.readdirSync('products').filter((p) => !['__pycache__', 'README.md'].includes(p))
+    const products = fse.readdirSync('../products').filter((p) => !['__pycache__', 'README.md'].includes(p))
     const allScenes = {}
     const allRoutes = {}
     const allRedirects = {}
@@ -560,7 +559,7 @@ export function gatherProductManifests() {
 
     for (const product of products) {
         try {
-            const manifest = JSON.parse(fse.readFileSync(`products/${product}/manifest.json`, 'utf-8'))
+            const manifest = JSON.parse(fse.readFileSync(`../products/${product}/manifest.json`, 'utf-8'))
             const scenes = Object.fromEntries(
                 Object.entries(manifest.scenes ?? {}).map(([key, value]) => [key, { name: manifest.name, ...value }])
             )
@@ -610,7 +609,7 @@ export function gatherProductManifests() {
         /** This const is auto-generated, as is the whole file */
         export const productUrls = ${productUrls}
     `
-    fse.writeFileSync('frontend/src/products.ts', productsTsx)
+    fse.writeFileSync('./src/products.ts', productsTsx)
 
-    ps.execSync('prettier --write frontend/src/products.ts')
+    ps.execSync('prettier --write ./src/products.ts')
 }
