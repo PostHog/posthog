@@ -18,8 +18,7 @@ from kafka.errors import KafkaError, MessageSizeTooLargeError, KafkaTimeoutError
 from kafka.producer.future import FutureRecordMetadata
 from prometheus_client import Counter, Gauge, Histogram
 from rest_framework import status
-from sentry_sdk import configure_scope
-from sentry_sdk.api import capture_exception, start_span
+from sentry_sdk import configure_scope, start_span
 from statshog.defaults.django import statsd
 from token_bucket import Limiter, MemoryStorage
 from typing import Any, Optional, Literal
@@ -28,6 +27,7 @@ from ee.billing.quota_limiting import QuotaLimitingCaches
 from posthog.api.utils import get_data, get_token, safe_clickhouse_string
 from posthog.cache_utils import cache_for
 from posthog.exceptions import generate_exception_response
+from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import KafkaProducer, session_recording_kafka_producer
 from posthog.kafka_client.topics import (
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
