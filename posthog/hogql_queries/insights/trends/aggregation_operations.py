@@ -148,7 +148,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             chain = ["properties", self.series.math_property]
 
         return ast.Call(
-            # Two caveats here:
+            # Two caveats here - similar to the math_quantile, but not quite:
             # 1. We always parse/convert the value to a Float64, to make sure it's a number. This truncates precision
             # of very large integers, but it's a tradeoff preventing queries failing with "Illegal type String"
             # 2. We fall back to 0 when there's no data, which is not quite kosher for math functions other than sum
@@ -161,15 +161,28 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         )
 
     def _math_quantile(self, percentile: float, override_chain: Optional[list[str | int]]) -> ast.Call:
-        if self.series.math_property == "$session_duration":
+        if override_chain is not None:
+            chain = override_chain
+        elif self.series.math_property == "$session_duration":
             chain = ["session_duration"]
         else:
             chain = ["properties", self.series.math_property]
 
         return ast.Call(
-            name="quantile",
-            params=[ast.Constant(value=percentile)],
-            args=[ast.Field(chain=override_chain or chain)],
+            # Two caveats here - similar to the math_func, but not quite:
+            # 1. We always parse/convert the value to a Float64, to make sure it's a number. This truncates precision
+            # of very large integers, but it's a tradeoff preventing queries failing with "Illegal type String"
+            # 2. We fall back to 0 when there's no data, which makes some kind of sense for percentile,
+            # (null would actually be more meaningful for e.g. min or max), but formulas aren't equipped to handle nulls
+            name="ifNull",
+            args=[
+                ast.Call(
+                    name="quantile",
+                    params=[ast.Constant(value=percentile)],
+                    args=[ast.Call(name="toFloat", args=[ast.Field(chain=chain)])],
+                ),
+                ast.Constant(value=0),
+            ],
         )
 
     def _interval_placeholders(self):

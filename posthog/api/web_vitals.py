@@ -7,7 +7,6 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
 
 from posthog.hogql_queries.query_runner import get_query_runner, ExecutionMode
-from posthog.errors import ExposedCHQueryError
 
 
 # This is a simple wrapper around a basic query, so that's why `scope_object = "query"`
@@ -79,16 +78,7 @@ class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             team=self.team,
         )
 
-        # In case the team has not opted in to Web Vitals collection, we'll get an error complaining
-        # about the lack of values for any of the web vitals properties. We'll catch that here and
-        # return a 400 error if that's the case.
-        try:
-            result = query_runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
-        except ExposedCHQueryError as e:
-            if e.code_name == "illegal_type_of_argument":
-                return Response({"error": "No web vitals data found for this path"}, status=status.HTTP_400_BAD_REQUEST)
-            raise
-
+        result = query_runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
         if result is None:
             return Response({"error": "Failed to calculate web vitals"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
