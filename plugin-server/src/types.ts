@@ -215,7 +215,6 @@ export interface Config extends CdpConfig, IngestionConsumerConfig {
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
     DROP_EVENTS_BY_TOKEN: string
     SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: string
-    SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
     CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
 
     // dump profiles to disk, covering the first N seconds of runtime
