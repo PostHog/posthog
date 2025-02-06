@@ -67,7 +67,7 @@ runs:
           shell: bash
           run: |
               TAGS="posthog/posthog:${{ github.sha }}"
-              if [ "${{ inputs.push-image }}" == "true" ]; then
+              if [[ "${{ inputs.push-image }}" == "true" ]]; then
                 TAGS="$TAGS,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:${{ github.sha }}"
               fi
               echo "tags=$TAGS" >> $GITHUB_OUTPUT
