@@ -157,6 +157,81 @@ describe('experimentLogic', () => {
         })
     })
 
+    describe('loadSecondaryMetricResults', () => {
+        it('given a refresh, loads the secondary metric results', async () => {
+            logic.actions.setExperiment(experiment)
+
+            useMocks({
+                post: {
+                    '/api/environments/:team/query': (() => {
+                        let callCount = 0
+                        return () => {
+                            callCount++
+                            return [
+                                200,
+                                {
+                                    cache_key: 'cache_key',
+                                    query_status:
+                                        callCount === 2
+                                            ? experimentMetricResultsSuccessJson.query_status
+                                            : experimentMetricResultsErrorJson.query_status,
+                                },
+                            ]
+                        }
+                    })(),
+                },
+                get: {
+                    '/api/environments/:team/query/:id': (() => {
+                        let callCount = 0
+                        return () => {
+                            callCount++
+                            return callCount === 2
+                                ? [200, experimentMetricResultsSuccessJson]
+                                : [400, experimentMetricResultsErrorJson]
+                        }
+                    })(),
+                },
+            })
+
+            const promise = logic.asyncActions.loadSecondaryMetricResults(true)
+
+            await expectLogic(logic)
+                .toDispatchActions(['setSecondaryMetricResultsLoading', 'setSecondaryMetricResults'])
+                .toMatchValues({
+                    secondaryMetricResults: [],
+                    secondaryMetricResultsLoading: true,
+                    secondaryMetricsResultErrors: [],
+                })
+
+            await promise
+
+            await expectLogic(logic)
+                .toDispatchActions(['setSecondaryMetricResultsLoading'])
+                .toMatchValues({
+                    secondaryMetricResults: [
+                        null,
+                        {
+                            ...experimentMetricResultsSuccessJson.query_status.results,
+                            fakeInsightId: expect.any(String),
+                        },
+                    ],
+                    secondaryMetricResultsLoading: false,
+                    secondaryMetricsResultErrors: [
+                        {
+                            detail: {
+                                'no-control-variant': true,
+                                'no-test-variant': true,
+                                'no-exposures': false,
+                            },
+                            hasDiagnostics: true,
+                            statusCode: 400,
+                        },
+                        undefined,
+                    ],
+                })
+        })
+    })
+
     describe('selector values', () => {
         it('given an mde, calculates correct sample size', async () => {
             await expectLogic(logic).toMatchValues({
