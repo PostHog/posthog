@@ -6,7 +6,6 @@ import { HogTransformerService } from '../cdp/hog-transformations/hog-transforme
 import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../kafka/config'
 import { KafkaProducerWrapper } from '../kafka/producer'
-import { IngestionOverflowMode } from '../main/ingestion-queues/batch-processing/each-batch-ingestion'
 import { ingestionOverflowingMessagesTotal } from '../main/ingestion-queues/batch-processing/metrics'
 import { addSentryBreadcrumbsEventListeners } from '../main/ingestion-queues/kafka-metrics'
 import {
@@ -417,12 +416,8 @@ export class IngestionConsumer {
         }
 
         ingestionOverflowingMessagesTotal.inc(kafkaMessages.length)
-
-        const overflowMode = this.hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY
-            ? IngestionOverflowMode.Reroute
-            : IngestionOverflowMode.RerouteRandomly
-
-        const useRandomPartitioning = overflowMode === IngestionOverflowMode.RerouteRandomly
+        // TODO: Do we want this as a flag?
+        const useRandomPartitioning = true
 
         await Promise.all(
             kafkaMessages.map((message) =>
