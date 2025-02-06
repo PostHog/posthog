@@ -12,10 +12,8 @@ from django.db import transaction
 from django.db.models import Q
 from django.core.paginator import Paginator
 
-# python manage.py migrate_plugins_to_hog_functions --test-mode --kind=transformation
-# from posthog.models.hog_functions.hog_function import HogFunction
-# HogFunction.objects.filter(type="transformation").count()
-# HogFunction.objects.filter(type="transformation").delete()
+# python manage.py migrate_plugins_to_hog_functions --dry-run --test-mode --kind=transformation
+
 
 def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool):
     hog_functions = []
@@ -197,7 +195,14 @@ def migrate_legacy_plugins(
             # Order by order asc but with nulls last
         )
         .filter(enabled=True)
-        .filter(plugin__name="GeoIP")
+        .exclude(plugin__name="GeoIP")
+        .exclude(plugin__name="Advanced GeoIP")
+        .exclude(plugin__name="Private: George Anonymization")
+        .exclude(plugin__name="Stonly Clean Campaign Name")
+        .exclude(plugin__name="Stonly UTM Extractor")
+        .exclude(plugin__name="First Time Event Tracker") # TODO: What do
+        .exclude(plugin__name="UTM Referrer")
+        .exclude(plugin__name="Currency Normalization") # TODO: What do
         .order_by("order", "team_id")
     )
 
