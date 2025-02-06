@@ -1,12 +1,12 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { Group, GroupTypeIndex, TeamId } from '../../types'
-import { DB } from '../../utils/db/db'
-import { MessageSizeTooLarge } from '../../utils/db/error'
-import { PostgresUse } from '../../utils/db/postgres'
-import { RaceConditionError } from '../../utils/utils'
-import { captureIngestionWarning } from './utils'
+import { Group, GroupTypeIndex, TeamId } from '../../../types'
+import { DB } from '../../../utils/db/db'
+import { MessageSizeTooLarge } from '../../../utils/db/error'
+import { PostgresUse } from '../../../utils/db/postgres'
+import { RaceConditionError } from '../../../utils/utils'
+import { captureIngestionWarning } from '../../../utils/ingestion-warnings'
 
 interface PropertiesUpdate {
     updated: boolean

@@ -9,7 +9,7 @@ import { retryOnDependencyUnavailableError } from '../../../kafka/error-handling
 import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { eventDroppedCounter } from '../../../utils/shared-metrics'
 import { status } from '../../../utils/status'
-import { captureIngestionWarning } from '../../../worker/ingestion/utils'
+import { captureIngestionWarning } from '../../../utils/ingestion-warnings'
 import { createSessionReplayEvent, RRWebEventType } from '../process-event'
 import { IncomingRecordingMessage } from '../types'
 import { OffsetHighWaterMarker } from './offset-high-water-marker'

@@ -1,13 +1,14 @@
 import { DateTime } from 'luxon'
 
-import { KAFKA_EVENTS_JSON, KAFKA_INGESTION_WARNINGS } from '~/src/config/kafka-topics'
-import { UUIDT } from '~/src/utils/utils'
 import { getProducedKafkaMessagesForTopic, mockProducer } from '~/tests/helpers/mocks/producer.mock'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, PipelineEvent, Team } from '../../../src/types'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
+import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
+import { KAFKA_EVENTS_JSON, KAFKA_INGESTION_WARNINGS } from '../../config/kafka-topics'
+import { UUIDT } from '../../utils/utils'
 import { EventPipelineRunnerV2 } from './event-pipeline-runner'
 
 describe('EventPipelineRunner', () => {
@@ -30,7 +31,7 @@ describe('EventPipelineRunner', () => {
     })
 
     const createRunner = (event?: Partial<PipelineEvent>) => {
-        const runner = new EventPipelineRunnerV2(hub, createEvent(event))
+        const runner = new EventPipelineRunnerV2(hub, createEvent(event), new HogTransformerService(hub))
         jest.spyOn(runner as any, 'captureIngestionWarning')
         jest.spyOn(runner as any, 'dropEvent')
         return runner

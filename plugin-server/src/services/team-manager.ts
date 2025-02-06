@@ -1,11 +1,10 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import LRU from 'lru-cache'
 
-import { TeamIDWithConfig } from '../../ingestion/session-recording/session-recordings-consumer'
-import { Config, PipelineEvent, ProjectId, Team, TeamId } from '../../types'
-import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
-import { timeoutGuard } from '../../utils/db/utils'
-import { posthog } from '../../utils/posthog'
+import { Config, PipelineEvent, ProjectId, Team, TeamId, TeamIDWithConfig } from '../types'
+import { PostgresRouter, PostgresUse } from '../utils/db/postgres'
+import { timeoutGuard } from '../utils/db/utils'
+import { posthog } from '../utils/posthog'
 
 export const ONE_MINUTE = 60 * 1000
 

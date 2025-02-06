@@ -8,14 +8,14 @@ import { DateTime } from 'luxon'
 import { EncryptedFields } from './cdp/encryption-utils'
 import { BatchConsumer } from './kafka/batch-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
+import { GroupTypeManager } from './services/group-type-manager'
+import { OrganizationManager } from './services/organization-manager'
+import { TeamManager } from './services/team-manager'
 import type { CookielessSaltManager } from './utils/cookieless/cookielessServerHashStep'
 import { Celery } from './utils/db/celery'
 import { DB } from './utils/db/db'
 import { PostgresRouter } from './utils/db/postgres'
 import { ObjectStorage } from './utils/object_storage'
-import { GroupTypeManager } from './worker/ingestion/group-type-manager'
-import { OrganizationManager } from './worker/ingestion/organization-manager'
-import { TeamManager } from './worker/ingestion/team-manager'
 
 export { Element } from '@posthog/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
 
@@ -326,6 +326,7 @@ export interface PluginServerCapabilities {
 }
 
 export type TeamId = Team['id']
+
 /**
  * An integer, just like team ID. In fact project ID = ID of its first team, the one was created along with the project.
  * A branded type here so that we don't accidentally pass a team ID as a project ID, or vice versa.
@@ -387,6 +388,11 @@ export interface Team {
         | null
     cookieless_server_hash_mode: CookielessServerHashMode | null
     timezone: string
+}
+
+export interface TeamIDWithConfig {
+    teamId: TeamId | null
+    consoleLogIngestionEnabled: boolean
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */

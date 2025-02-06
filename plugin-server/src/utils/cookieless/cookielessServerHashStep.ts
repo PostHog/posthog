@@ -5,7 +5,6 @@ import { Counter } from 'prom-client'
 import { getDomain } from 'tldts'
 
 import { CookielessConfig, CookielessServerHashMode, Hub } from '../../types'
-import { toStartOfDayInTimezone, toYearMonthDayInTimezone } from '../../worker/ingestion/timestamps'
 import { ConcurrencyController } from '../concurrencyController'
 import { DB } from '../db/db'
 import { RedisOperationError } from '../db/error'
@@ -72,6 +71,33 @@ export const COOKIELESS_MODE_FLAG_PROPERTY = '$cookieless_mode'
 export const COOKIELESS_EXTRA_HASH_CONTENTS_PROPERTY = '$cookieless_extra'
 const MAX_NEGATIVE_TIMEZONE_HOURS = 12
 const MAX_POSITIVE_TIMEZONE_HOURS = 14
+
+export function toYearMonthDayInTimezone(
+    timestamp: number,
+    timeZone: string
+): { year: number; month: number; day: number } {
+    const parts = new Intl.DateTimeFormat('en', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).formatToParts(new Date(timestamp))
+    const year = parts.find((part) => part.type === 'year')?.value
+    const month = parts.find((part) => part.type === 'month')?.value
+    const day = parts.find((part) => part.type === 'day')?.value
+    if (!year || !month || !day) {
+        throw new Error('Failed to get year, month, or day')
+    }
+    return { year: Number(year), month: Number(month), day: Number(day) }
+}
+
+export function toStartOfDayInTimezone(timestamp: number, timeZone: string): Date {
+    const { year, month, day } = toYearMonthDayInTimezone(timestamp, timeZone)
+    return DateTime.fromObject(
+        { year, month, day, hour: 0, minute: 0, second: 0, millisecond: 0 },
+        { zone: timeZone }
+    ).toJSDate()
+}
 
 export class CookielessSaltManager {
     private readonly db: DB

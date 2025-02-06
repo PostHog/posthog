@@ -5,7 +5,7 @@ import { KAFKA_APP_METRICS_2, KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_LOG_ENTRIES }
 import { BatchConsumer, startBatchConsumer } from '../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { AppMetric2Type, Hub, PluginServerService, TeamId, TimestampFormat } from '../../types'
+import { AppMetric2Type, Hub, PluginServerService, TimestampFormat } from '../../types'
 import { safeClickhouseString } from '../../utils/db/utils'
 import { runInstrumentedFunction } from '../../utils/instrument'
 import { status } from '../../utils/status'
@@ -64,11 +64,6 @@ export const counterJobsProcessed = new Counter({
     help: 'The number of jobs we are managing to process',
     labelNames: ['queue'],
 })
-
-export interface TeamIDWithConfig {
-    teamId: TeamId | null
-    consoleLogIngestionEnabled: boolean
-}
 
 export abstract class CdpConsumerBase {
     batchConsumer?: BatchConsumer

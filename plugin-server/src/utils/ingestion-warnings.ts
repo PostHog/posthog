@@ -1,9 +1,9 @@
-import { KafkaProducerWrapper } from '../../kafka/producer'
-import { TeamId, TimestampFormat } from '../../types'
-import { status } from '../../utils/status'
-import { IngestionWarningLimiter } from '../../utils/token-bucket'
-import { castTimestampOrNow } from '../../utils/utils'
-import { KAFKA_INGESTION_WARNINGS } from './../../config/kafka-topics'
+import { KAFKA_INGESTION_WARNINGS } from '../config/kafka-topics'
+import { KafkaProducerWrapper } from '../kafka/producer'
+import { TeamId, TimestampFormat } from '../types'
+import { status } from './status'
+import { IngestionWarningLimiter } from './token-bucket'
+import { castTimestampOrNow } from './utils'
 
 // These get displayed under Data Management > Ingestion Warnings
 // These warnings get displayed to end users. Make sure these errors are actionable and useful for them and

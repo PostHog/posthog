@@ -18,7 +18,7 @@ import { BatchConsumer } from '../../kafka/batch-consumer'
 import { Config, PluginServerService, ValueMatcher } from '../../types'
 import { runInstrumentedFunction } from '../../utils/instrument'
 import { status as logger } from '../../utils/status'
-import { captureIngestionWarning } from '../../worker/ingestion/utils'
+import { captureIngestionWarning } from '../../utils/ingestion-warnings'
 import { BatchConsumerFactory } from './batch-consumer-factory'
 import {
     KAFKA_CONSUMER_GROUP_ID,

@@ -35,7 +35,7 @@ import {
     TimestampFormat,
 } from '../../types'
 import { fetchOrganization } from '../../worker/ingestion/organization-manager'
-import { fetchTeam, fetchTeamByToken } from '../../worker/ingestion/team-manager'
+import { fetchTeam, fetchTeamByToken } from '../../services/team-manager'
 import { instrumentQuery } from '../metrics'
 import { status } from '../status'
 import {

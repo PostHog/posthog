@@ -13,7 +13,8 @@ import {
 import { BatchConsumer, startBatchConsumer } from '../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { Config, PluginServerService, RedisPool, TeamId, ValueMatcher } from '../../types'
+import { fetchTeamTokensWithRecordings } from '../../services/team-manager'
+import { Config, PluginServerService, RedisPool, TeamIDWithConfig, ValueMatcher } from '../../types'
 import { BackgroundRefresher } from '../../utils/background-refresher'
 import { PostgresRouter } from '../../utils/db/postgres'
 import { createRedisPool } from '../../utils/db/redis'
@@ -21,7 +22,6 @@ import { runInstrumentedFunction } from '../../utils/instrument'
 import { ObjectStorage } from '../../utils/object_storage'
 import { eventDroppedCounter } from '../../utils/shared-metrics'
 import { status } from '../../utils/status'
-import { fetchTeamTokensWithRecordings } from '../../worker/ingestion/team-manager'
 import { ConsoleLogsIngester } from './services/console-logs-ingester'
 import { OffsetHighWaterMarker } from './services/offset-high-water-marker'
 import { OverflowManager } from './services/overflow-manager'
@@ -121,11 +121,6 @@ type PartitionMetrics = {
     lastMessageTimestamp?: number
     lastMessageOffset?: number
     offsetLag?: number
-}
-
-export interface TeamIDWithConfig {
-    teamId: TeamId | null
-    consoleLogIngestionEnabled: boolean
 }
 
 export class SessionRecordingIngester {

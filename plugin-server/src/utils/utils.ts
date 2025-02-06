@@ -544,21 +544,6 @@ export class RaceConditionError extends Error {
     name = 'RaceConditionError'
 }
 
-/** Get a value from a properties object by its path. This allows accessing nested properties. */
-export function getPropertyValueByPath(properties: Properties, [firstKey, ...nestedKeys]: string[]): any {
-    if (firstKey === undefined) {
-        throw new Error('No path to property was provided')
-    }
-    let value = properties[firstKey]
-    for (const key of nestedKeys) {
-        if (value === undefined) {
-            return undefined
-        }
-        value = value[key]
-    }
-    return value
-}
-
 export async function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
 }

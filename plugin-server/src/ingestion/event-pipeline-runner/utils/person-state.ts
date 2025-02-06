@@ -4,15 +4,15 @@ import LRU from 'lru-cache'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
-import { TopicMessage } from '../../kafka/producer'
-import { InternalPerson, Person, PropertyUpdateOperation } from '../../types'
-import { DB } from '../../utils/db/db'
-import { PostgresUse, TransactionClient } from '../../utils/db/postgres'
-import { eventToPersonProperties, initialEventToPersonProperties, timeoutGuard } from '../../utils/db/utils'
-import { promiseRetry } from '../../utils/retries'
-import { status } from '../../utils/status'
+import { TopicMessage } from '../../../kafka/producer'
+import { InternalPerson, Person, PropertyUpdateOperation } from '../../../types'
+import { DB } from '../../../utils/db/db'
+import { PostgresUse, TransactionClient } from '../../../utils/db/postgres'
+import { eventToPersonProperties, initialEventToPersonProperties, timeoutGuard } from '../../../utils/db/utils'
+import { captureIngestionWarning } from '../../../utils/ingestion-warnings'
+import { promiseRetry } from '../../../utils/retries'
+import { status } from '../../../utils/status'
 import { uuidFromDistinctId } from './person-uuid'
-import { captureIngestionWarning } from './utils'
 
 export const mergeFinalFailuresCounter = new Counter({
     name: 'person_merge_final_failure_total',

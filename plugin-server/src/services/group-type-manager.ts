@@ -1,8 +1,8 @@
-import { GroupTypeIndex, GroupTypeToColumnIndex, ProjectId, Team, TeamId } from '../../types'
-import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
-import { timeoutGuard } from '../../utils/db/utils'
-import { captureTeamEvent } from '../../utils/posthog'
-import { getByAge } from '../../utils/utils'
+import { GroupTypeIndex, GroupTypeToColumnIndex, ProjectId, Team, TeamId } from '../types'
+import { PostgresRouter, PostgresUse } from '../utils/db/postgres'
+import { timeoutGuard } from '../utils/db/utils'
+import { captureTeamEvent } from '../utils/posthog'
+import { getByAge } from '../utils/utils'
 import { TeamManager } from './team-manager'
 
 /** How many unique group types to allow per team */
