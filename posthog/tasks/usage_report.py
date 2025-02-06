@@ -118,7 +118,7 @@ class UsageReportCounters:
     rows_synced_in_period: int
     # Error Tracking
     issues_created_total: int
-    posthog_exceptions_captured_in_period: int
+    exceptions_captured_in_period: int
     # CDP Delivery
     hog_function_calls_in_period: int
     hog_function_fetch_calls_in_period: int
@@ -618,7 +618,7 @@ def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_posthog_exceptions_captured_in_period(
+def get_teams_with_exceptions_captured_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
@@ -727,7 +727,7 @@ def has_non_zero_usage(report: FullUsageReport) -> bool:
         or report.local_evaluation_requests_count_in_period > 0
         or report.survey_responses_count_in_period > 0
         or report.rows_synced_in_period > 0
-        # explicitly not including issues_created or posthog_exceptions_captured
+        # explicitly not including issues_created or exceptions_captured
         # for now given we do not charge for error tracking yet
     )
 
@@ -905,7 +905,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start, period_end
         ),
         "teams_with_rows_synced_in_period": get_teams_with_rows_synced_in_period(period_start, period_end),
-        "teams_with_posthog_exceptions_captured_in_period": get_teams_with_posthog_exceptions_captured_in_period(
+        "teams_with_exceptions_captured_in_period": get_teams_with_exceptions_captured_in_period(
             period_start, period_end
         ),
         "teams_with_hog_function_calls_in_period": get_teams_with_hog_function_calls_in_period(
@@ -998,9 +998,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         ruby_events_count_in_period=all_data["teams_with_ruby_events_count_in_period"].get(team.id, 0),
         python_events_count_in_period=all_data["teams_with_python_events_count_in_period"].get(team.id, 0),
         php_events_count_in_period=all_data["teams_with_php_events_count_in_period"].get(team.id, 0),
-        posthog_exceptions_captured_in_period=all_data["teams_with_posthog_exceptions_captured_in_period"].get(
-            team.id, 0
-        ),
+        exceptions_captured_in_period=all_data["teams_with_exceptions_captured_in_period"].get(team.id, 0),
     )
 
 
