@@ -34,7 +34,7 @@ export function QuestionInput(): JSX.Element {
                 onChange={(value) => setQuestion(value)}
                 placeholder={threadLoading ? 'Thinking…' : isFloating ? 'Ask follow-up' : 'Ask away'}
                 onPressEnter={() => {
-                    if (question) {
+                    if (question && !submissionDisabledReason) {
                         askMax(question)
                     }
                 }}

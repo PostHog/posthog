@@ -1,9 +1,8 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyTransformationPlugin, LegacyTransformationPluginMeta } from '../../types'
-import metadata from './plugin.json'
+import { LegacyTransformationPluginMeta } from '../../types'
 
-function processEvent(event: PluginEvent, _meta: LegacyTransformationPluginMeta) {
+export function processEvent(event: PluginEvent, _meta: LegacyTransformationPluginMeta) {
     if (event.properties && event['timestamp'] && !isNaN(event['timestamp'] as any)) {
         const eventDate = new Date(event['timestamp'])
         event.properties['day_of_the_week'] = eventDate.toLocaleDateString('en-GB', { weekday: 'long' })
@@ -16,10 +15,4 @@ function processEvent(event: PluginEvent, _meta: LegacyTransformationPluginMeta)
     }
 
     return event
-}
-
-export const timestampParserPlugin: LegacyTransformationPlugin = {
-    id: 'timestamp-parser-plugin',
-    metadata,
-    processEvent,
 }

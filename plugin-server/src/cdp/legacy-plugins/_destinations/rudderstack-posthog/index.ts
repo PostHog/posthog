@@ -1,7 +1,6 @@
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from '../../types'
-import metadata from './plugin.json'
+import { LegacyDestinationPluginMeta } from '../../types'
 
 const alias = {
     userId: 'properties.alias',
@@ -303,11 +302,4 @@ function constructPayload(outPayload: any, inPayload: any, mapping: any, direct 
             set(outPayload, rudderKeyPath, pHKeyVal)
         }
     })
-}
-
-export const rudderstackPlugin: LegacyDestinationPlugin = {
-    id: 'rudderstack-posthog-plugin',
-    metadata: metadata as any,
-    onEvent,
-    setupPlugin: setupPlugin as any,
 }

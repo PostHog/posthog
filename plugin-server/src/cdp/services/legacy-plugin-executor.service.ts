@@ -80,9 +80,7 @@ export class LegacyPluginExecutorService {
             return this.fetch(...args)
         }
 
-        const pluginId = isLegacyPluginHogFunction(invocation.hogFunction)
-            ? invocation.hogFunction.template_id?.replace('plugin-', '')
-            : null
+        const pluginId = isLegacyPluginHogFunction(invocation.hogFunction) ? invocation.hogFunction.template_id : null
 
         try {
             const plugin = pluginId
