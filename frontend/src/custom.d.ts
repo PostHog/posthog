@@ -21,13 +21,3 @@ declare module '*.lottie' {
     const content: any
     export default content
 }
-
-declare module 'prettier/standalone' {
-    export * from 'prettier'
-    export { default } from 'prettier'
-}
-
-declare module 'prettier/parser-typescript' {
-    const parser: any
-    export default parser
-}

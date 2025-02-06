@@ -584,8 +584,8 @@ importers:
         specifier: ^6.0.1
         version: 6.0.1
       '@types/prettier':
-        specifier: ^3.0.0
-        version: 3.0.0
+        specifier: ^2.7.3
+        version: 2.7.3
       '@types/query-selector-shadow-dom':
         specifier: ^1.0.0
         version: 1.0.0
@@ -6265,10 +6265,6 @@ packages:
 
   '@types/prettier@2.7.3':
     resolution: {integrity: sha512-+68kP9yzs4LMp7VNh8gdzMSPZFL44MLGqiHWvttYJe+6qnuVr4Ek9wSBQoveqY/r+LwjCcU29kNVkidwim+kYA==}
-
-  '@types/prettier@3.0.0':
-    resolution: {integrity: sha512-mFMBfMOz8QxhYVbuINtswBp9VL2b4Y0QqYHwqLz3YbgtfAcat2Dl6Y1o4e22S/OVE6Ebl9m7wWiMT2lSbAs1wA==}
-    deprecated: This is a stub types definition. prettier provides its own type definitions, so you do not need this installed.
 
   '@types/pretty-hrtime@1.0.1':
     resolution: {integrity: sha512-VjID5MJb1eGKthz2qUerWT8+R4b9N+CHvGCzg9fn4kWZgaF9AhdYikQio3R7wV8YY1NsQKPaCwKz1Yff+aHNUQ==}
@@ -23643,10 +23639,6 @@ snapshots:
       '@types/node': 18.18.4
 
   '@types/prettier@2.7.3': {}
-
-  '@types/prettier@3.0.0':
-    dependencies:
-      prettier: 3.4.2
 
   '@types/pretty-hrtime@1.0.1': {}
 

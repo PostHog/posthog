@@ -123,7 +123,7 @@ export async function formatSource(filename: string, source: string): Promise<st
     return prettier.format(source, {
         filepath: filename,
         parser: 'typescript',
-        plugins: [parserTypeScript],
+        plugins: [parserTypeScript as any],
         // copied from .prettierrc
         semi: false,
         trailingComma: 'es5',
