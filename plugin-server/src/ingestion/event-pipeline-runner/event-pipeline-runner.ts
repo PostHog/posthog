@@ -3,8 +3,6 @@ import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
-import { processCookielessEvent } from '~/src/utils/cookieless/cookielessServerHashStep'
-
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KAFKA_INGESTION_WARNINGS } from '../../config/kafka-topics'
 import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
@@ -161,7 +159,7 @@ export class EventPipelineRunnerV2 {
         }
 
         // TODO: This needs better testing
-        const postCookielessEvent = await processCookielessEvent(this.hub, this.event)
+        const postCookielessEvent = await this.hub.cookielessManager.processEvent(this.event)
         if (postCookielessEvent == null) {
             droppedEventFromTransformationsCounter.inc()
             // NOTE: In this case we just return as it is expected, not an ingestion error
