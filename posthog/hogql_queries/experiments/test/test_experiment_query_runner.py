@@ -14,8 +14,8 @@ from posthog.settings import (
     XDIST_SUFFIX,
 )
 from posthog.schema import (
-    ExperimentDataWarehouseMetricProps,
-    ExperimentEventMetricProps,
+    ExperimentDataWarehouseMetricConfig,
+    ExperimentEventMetricConfig,
     ExperimentMetric,
     ExperimentMetricType,
     ExperimentQuery,
@@ -345,7 +345,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         metric = ExperimentMetric(
             metric_type=ExperimentMetricType.COUNT,
-            metric_props=ExperimentEventMetricProps(event="$pageview"),
+            metric_config=ExperimentEventMetricConfig(event="$pageview"),
         )
 
         experiment_query = ExperimentQuery(
@@ -593,7 +593,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         metric = ExperimentMetric(
             metric_type=ExperimentMetricType.COUNT,
-            metric_props=ExperimentEventMetricProps(event="$pageview"),
+            metric_config=ExperimentEventMetricConfig(event="$pageview"),
             filterTestAccounts=True,
         )
 
@@ -688,7 +688,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ## Run again with filterTestAccounts=False
         metric = ExperimentMetric(
             metric_type=ExperimentMetricType.COUNT,
-            metric_props=ExperimentEventMetricProps(event="$pageview"),
+            metric_config=ExperimentEventMetricConfig(event="$pageview"),
             filterTestAccounts=False,
         )
         experiment_query = ExperimentQuery(
@@ -860,7 +860,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         metric = ExperimentMetric(
             metric_type=ExperimentMetricType.CONTINUOUS,
-            metric_props=ExperimentDataWarehouseMetricProps(
+            metric_config=ExperimentDataWarehouseMetricConfig(
                 table_name=table_name,
                 distinct_id_field="userid",
                 id_field="id",
@@ -1003,7 +1003,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Run the query again without filtering
         metric = ExperimentMetric(
             metric_type=ExperimentMetricType.CONTINUOUS,
-            metric_props=ExperimentDataWarehouseMetricProps(
+            metric_config=ExperimentDataWarehouseMetricConfig(
                 table_name=table_name,
                 distinct_id_field="userid",
                 id_field="id",
@@ -1051,7 +1051,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         metric = ExperimentMetric(
             metric_type=ExperimentMetricType.COUNT,
-            metric_props=ExperimentDataWarehouseMetricProps(
+            metric_config=ExperimentDataWarehouseMetricConfig(
                 table_name=table_name,
                 distinct_id_field="subscription_customer_id",
                 id_field="id",

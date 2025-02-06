@@ -7202,7 +7202,7 @@ class ExperimentMetricType(Enum):
     FUNNEL = "funnel"
 
 
-class ExperimentEventMetricProps(BaseModel):
+class ExperimentEventMetricConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7213,11 +7213,11 @@ class ExperimentEventMetricProps(BaseModel):
     math_property: Optional[str] = None
 
 
-class ExperimentDataWarehouseMetricProps(BaseModel):
+class ExperimentDataWarehouseMetricConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    kind: Literal["ExperimentDataWarehouseMetricProps"] = "ExperimentDataWarehouseMetricProps"
+    kind: Literal["ExperimentDataWarehouseMetricConfig"] = "ExperimentDataWarehouseMetricConfig"
     table_name: str
     id_field: str
     distinct_id_field: str
@@ -7253,7 +7253,7 @@ class ExperimentMetric(BaseModel):
 
     # This contains the properties required to evalutate the different kind of metrics
     # NOTE: is there a better name for this?
-    metric_props: ExperimentEventMetricProps | ExperimentDataWarehouseMetricProps
+    metric_config: ExperimentEventMetricConfig | ExperimentDataWarehouseMetricConfig
 
 
 class ExperimentQuery(BaseModel):

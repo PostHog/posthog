@@ -22,21 +22,17 @@ from posthog.hogql_queries.experiments.trends_statistics_v2_continuous import (
 )
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models.experiment import Experiment
-from posthog.queries.trends.util import ALL_SUPPORTED_MATH_FUNCTIONS
 from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     CachedExperimentTrendsQueryResponse,
-    DataWarehouseNode,
-    ExperimentDataWarehouseMetricProps,
-    ExperimentEventMetricProps,
+    ExperimentDataWarehouseMetricConfig,
+    ExperimentEventMetricConfig,
     ExperimentMetricType,
     ExperimentSignificanceCode,
     ExperimentQuery,
     ExperimentTrendsQueryResponse,
     ExperimentVariantTrendsBaseStats,
     DateRange,
-    PropertyMathType,
-    TrendsQuery,
 )
 from typing import Optional
 from datetime import datetime, timedelta, UTC
@@ -89,13 +85,13 @@ class ExperimentQueryRunner(QueryRunner):
 
         feature_flag_key = self.feature_flag.key
 
-        is_data_warehouse_query = isinstance(self.metric.metric_props, ExperimentDataWarehouseMetricProps)
+        is_data_warehouse_query = isinstance(self.metric.metric_config, ExperimentDataWarehouseMetricConfig)
 
         # Pick the correct value for the aggregation chosen
         match self.metric.metric_type:
             case ExperimentMetricType.CONTINUOUS:
                 # If the metric type is continuous, we need to extract the value from the event property
-                metric_property = self.metric.metric_props.math_property
+                metric_property = self.metric.metric_config.math_property
                 if is_data_warehouse_query:
                     metric_value = f"toFloat('{metric_property}')"
                 else:
@@ -137,30 +133,30 @@ class ExperimentQueryRunner(QueryRunner):
             group_by=[ast.Field(chain=["variant"]), ast.Field(chain=["distinct_id"])],
         )
 
-        match self.metric.metric_props:
-            case ExperimentDataWarehouseMetricProps() as metric_props:
+        match self.metric.metric_config:
+            case ExperimentDataWarehouseMetricConfig() as metric_config:
                 events_after_exposure_query = ast.SelectQuery(
                     select=[
                         ast.Alias(
                             alias="timestamp",
-                            expr=ast.Field(chain=[metric_props.table_name, metric_props.timestamp_field]),
+                            expr=ast.Field(chain=[metric_config.table_name, metric_config.timestamp_field]),
                         ),
                         ast.Alias(
                             alias="distinct_id",
-                            expr=ast.Field(chain=[metric_props.table_name, metric_props.distinct_id_field]),
+                            expr=ast.Field(chain=[metric_config.table_name, metric_config.distinct_id_field]),
                         ),
                         ast.Field(chain=["exposure", "variant"]),
                         parse_expr(f"{metric_value} as value"),
                     ],
                     select_from=ast.JoinExpr(
-                        table=ast.Field(chain=[metric_props.table_name]),
+                        table=ast.Field(chain=[metric_config.table_name]),
                         next_join=ast.JoinExpr(
                             table=exposure_query,
                             join_type="INNER JOIN",
                             alias="exposure",
                             constraint=ast.JoinConstraint(
                                 expr=ast.CompareOperation(
-                                    left=ast.Field(chain=[metric_props.table_name, metric_props.distinct_id_field]),
+                                    left=ast.Field(chain=[metric_config.table_name, metric_config.distinct_id_field]),
                                     right=ast.Field(chain=["exposure", "distinct_id"]),
                                     op=ast.CompareOperationOp.Eq,
                                 ),
@@ -171,7 +167,7 @@ class ExperimentQueryRunner(QueryRunner):
                     where=ast.And(
                         exprs=[
                             ast.CompareOperation(
-                                left=ast.Field(chain=[metric_props.table_name, metric_props.timestamp_field]),
+                                left=ast.Field(chain=[metric_config.table_name, metric_config.timestamp_field]),
                                 right=ast.Field(chain=["exposure", "first_exposure_time"]),
                                 op=ast.CompareOperationOp.GtEq,
                             ),
@@ -181,7 +177,7 @@ class ExperimentQueryRunner(QueryRunner):
                     ),
                 )
 
-            case ExperimentEventMetricProps() as metric_props:
+            case ExperimentEventMetricConfig() as metric_config:
                 # Metric events seen after exposure
                 # One row per event
                 events_after_exposure_query = ast.SelectQuery(
@@ -215,7 +211,7 @@ class ExperimentQueryRunner(QueryRunner):
                                 right=ast.Field(chain=["exposure", "first_exposure_time"]),
                                 op=ast.CompareOperationOp.GtEq,
                             ),
-                            parse_expr(f"event = '{metric_props.event}'"),
+                            parse_expr(f"event = '{metric_config.event}'"),
                         ],
                     ),
                 )
