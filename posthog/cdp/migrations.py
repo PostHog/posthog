@@ -46,45 +46,8 @@ def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool
                 plugin_name = f"[CDP-TEST-HIDDEN] {plugin_name}"
 
             inputs = {}
-            inputs_schema = []
 
             # Iterate over the plugin config to build the inputs
-
-            for schema in plugin_config["plugin__config_schema"]:
-                if not schema.get("key"):
-                    continue
-
-                print("Converting schema", schema)  # noqa: T201
-
-                # Some hacky stuff to convert the schemas correctly
-                input_schema = {
-                    "key": schema["key"],
-                    "type": schema["type"],
-                    "label": schema.get("name", schema["key"]),
-                    "secret": schema.get("secret", False),
-                    "required": schema.get("required", False),
-                    "templating": False,
-                }
-
-                if schema.get("default"):
-                    input_schema["default"] = schema["default"]
-
-                if schema.get("hint"):
-                    input_schema["description"] = schema["hint"]
-
-                if schema["type"] == "choice":
-                    input_schema["choices"] = [
-                        {
-                            "label": choice,
-                            "value": choice,
-                        }
-                        for choice in schema["choices"]
-                    ]
-                elif schema["type"] == "attachment":
-                    input_schema["secret"] = schema["key"] == "googleCloudKeyJson"
-                    input_schema["type"] = "json"
-
-                inputs_schema.append(input_schema)
 
             for key, value in plugin_config["config"].items():
                 inputs[key] = {"value": value}
@@ -122,7 +85,6 @@ def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool
                 "description": "This is a legacy destination migrated from our old plugin system.",
                 "filters": {},
                 "inputs": inputs,
-                "inputs_schema": inputs_schema,
                 "enabled": True,
                 "hog": "return event",
                 "icon_url": icon_url,
