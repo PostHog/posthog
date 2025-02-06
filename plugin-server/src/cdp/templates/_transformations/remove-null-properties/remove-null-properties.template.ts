@@ -13,7 +13,6 @@ export const template: HogFunctionTemplate = {
     hog: `
 // Check if the event has properties
 if (empty(event.properties)) {
-    print('No properties found in event')
     return event
 }
 
@@ -24,8 +23,6 @@ let propertiesToKeep := {}
 for (let key, value in event.properties) {
     if (value != null) {
         propertiesToKeep[key] := value
-    } else {
-        print('Removing null property:', key)
     }
 }
 
