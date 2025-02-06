@@ -88,19 +88,19 @@ jobs:
 
             - name: Check formatting with prettier
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm prettier:check
+              run: pnpm --filter=@posthog/frontend prettier:check
 
             - name: Lint with Stylelint
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm lint:css
+              run: pnpm --filter=@posthog/frontend lint:css
 
             - name: Generate logic types and run typescript with strict
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm typegen:write && pnpm typescript:check
+              run: pnpm --filter=@posthog/frontend typegen:write && pnpm --filter=@posthog/frontend typescript:check
 
             - name: Lint with ESLint
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm lint:js
+              run: pnpm --filter=@posthog/frontend lint:js
 
             - name: Check if "schema.json" is up to date
               if: needs.changes.outputs.frontend == 'true'
