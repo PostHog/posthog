@@ -1,4 +1,5 @@
 import { offset } from '@floating-ui/react'
+import { IconLock } from '@posthog/icons'
 import { LemonButton, Popover } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { HedgehogBuddy } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
@@ -19,7 +20,7 @@ const HEADLINES = [
 export function Intro(): JSX.Element {
     const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
     const { acceptDataProcessing } = useActions(maxGlobalLogic)
-    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+    const { dataProcessingApprovalDisabledReason, dataProcessingAccepted } = useValues(maxGlobalLogic)
     const { conversation } = useValues(maxLogic)
 
     const [hedgehogDirection, setHedgehogDirection] = useState<'left' | 'right'>('right')
@@ -43,11 +44,20 @@ export function Intro(): JSX.Element {
                                 <br />
                                 <em>Your data won't be used for training models.</em>
                             </p>
-                            <LemonButton type="secondary" size="small" onClick={() => acceptDataProcessing()}>
-                                Got it, I accept OpenAI processing data
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={() => acceptDataProcessing()}
+                                sideIcon={dataProcessingApprovalDisabledReason ? <IconLock /> : undefined}
+                                disabledReason={dataProcessingApprovalDisabledReason}
+                                tooltip="You are approving this as an organization admin"
+                                tooltipPlacement="bottom"
+                            >
+                                I allow OpenAI-based analysis in this organization
                             </LemonButton>
                         </div>
                     }
+                    style={{ zIndex: 'var(--z-modal)' }}
                     placement={`${hedgehogDirection}-end`}
                     middleware={[offset(-12)]}
                     showArrow

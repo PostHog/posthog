@@ -58,6 +58,7 @@ import { UserGroups } from './environment/UserGroups'
 import { WebhookIntegration } from './environment/WebhookIntegration'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
+import { OrganizationAI } from './organization/OrgAI'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
@@ -479,6 +480,22 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'organization-logo',
                 title: 'Logo',
                 component: <OrganizationLogo />,
+            },
+            {
+                id: 'organization-ai-consent',
+                title: 'PostHog AI data analysis',
+                description: (
+                    <>
+                        PostHog AI features, such as our assistant Max, use OpenAI services for data analysis.
+                        <br />
+                        This <i>can</i> involve transfer of identifying user data, so we ask for your org-wide consent
+                        below.
+                        <br />
+                        <strong>Your data will not be used for training models.</strong>
+                    </>
+                ),
+                component: <OrganizationAI />,
+                flag: 'ARTIFICIAL_HOG',
             },
         ],
     },
