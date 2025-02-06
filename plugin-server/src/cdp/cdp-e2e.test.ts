@@ -1,16 +1,16 @@
 // eslint-disable-next-line simple-import-sort/imports
-import { getProducedKafkaMessages, getProducedKafkaMessagesForTopic } from '../helpers/mocks/producer.mock'
+import { getProducedKafkaMessages, getProducedKafkaMessagesForTopic } from '../_tests/helpers/producer.mock'
 
-import { CdpCyclotronWorker, CdpCyclotronWorkerFetch } from '../../src/cdp/consumers/cdp-cyclotron-worker.consumer'
-import { CdpProcessedEventsConsumer } from '../../src/cdp/consumers/cdp-processed-events.consumer'
-import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
-import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../src/config/kafka-topics'
-import { Hub, Team } from '../../src/types'
-import { closeHub, createHub } from '../../src/utils/hub'
-import { waitForExpect } from '../helpers/expectations'
-import { getFirstTeam, resetTestDatabase } from '../helpers/sql'
-import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './examples'
-import { createHogExecutionGlobals, insertHogFunction as _insertHogFunction } from './fixtures'
+import { CdpCyclotronWorker, CdpCyclotronWorkerFetch } from './consumers/cdp-cyclotron-worker.consumer'
+import { CdpProcessedEventsConsumer } from './consumers/cdp-processed-events.consumer'
+import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
+import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../config/kafka-topics'
+import { Hub, Team } from '../types'
+import { closeHub, createHub } from '../utils/hub'
+import { waitForExpect } from '../_tests/helpers/expectations'
+import { getFirstTeam, resetTestDatabase } from '../_tests/helpers/sql'
+import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_tests/examples'
+import { createHogExecutionGlobals, insertHogFunction as _insertHogFunction } from './_tests/fixtures'
 
 jest.mock('../../src/utils/fetch', () => {
     return {

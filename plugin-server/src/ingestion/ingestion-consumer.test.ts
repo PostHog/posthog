@@ -5,20 +5,19 @@ import { Message } from 'node-rdkafka'
 import { join } from 'path'
 import { brotliDecompressSync } from 'zlib'
 
-import { template as geoipTemplate } from '~/src/cdp/templates/_transformations/geoip/geoip.template'
-import { compileHog } from '~/src/cdp/templates/compiler'
-import { insertHogFunction as _insertHogFunction } from '~/tests/cdp/fixtures'
+import { Hub, PipelineEvent, Team } from '../../src/types'
+import { closeHub, createHub } from '../../src/utils/hub'
 import {
     getProducedKafkaMessages,
     getProducedKafkaMessagesForTopic,
     mockProducer,
     resetMockProducer,
-} from '~/tests/helpers/mocks/producer.mock'
-import { forSnapshot } from '~/tests/helpers/snapshots'
-import { createTeam, getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
-
-import { Hub, PipelineEvent, Team } from '../../src/types'
-import { closeHub, createHub } from '../../src/utils/hub'
+} from '../_tests/helpers/producer.mock'
+import { forSnapshot } from '../_tests/helpers/snapshots'
+import { createTeam, getFirstTeam, resetTestDatabase } from '../_tests/helpers/sql'
+import { insertHogFunction as _insertHogFunction } from '../cdp/_tests/fixtures'
+import { template as geoipTemplate } from '../cdp/templates/_transformations/geoip/geoip.template'
+import { compileHog } from '../cdp/templates/compiler'
 import { HogFunctionType } from '../cdp/types'
 import { fetchTeam } from '../services/team-manager'
 import { status } from '../utils/status'
@@ -109,7 +108,7 @@ describe('IngestionConsumer', () => {
 
         // TODO: Move thos to beforeAll
         // Set up GeoIP database
-        const mmdbBrotliContents = readFileSync(join(__dirname, '../../tests/assets/GeoLite2-City-Test.mmdb.br'))
+        const mmdbBrotliContents = readFileSync(join(__dirname, '../_tests/assets/GeoLite2-City-Test.mmdb.br'))
         hub.mmdb = Reader.openBuffer(Buffer.from(brotliDecompressSync(mmdbBrotliContents)))
 
         hub.kafkaProducer = mockProducer

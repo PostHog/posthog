@@ -1,18 +1,18 @@
 import { randomUUID } from 'crypto'
 import { Message } from 'node-rdkafka'
 
-import { CdpInternalEvent } from '../../src/cdp/schema'
+import { insertRow } from '../../_tests/helpers/sql'
+import { ClickHouseTimestamp, RawClickHouseEvent, Team } from '../../types'
+import { PostgresRouter } from '../../utils/postgres'
+import { UUIDT } from '../../utils/utils'
+import { CdpInternalEvent } from '../schema'
 import {
     HogFunctionInvocation,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
     HogFunctionType,
     IntegrationType,
-} from '../../src/cdp/types'
-import { ClickHouseTimestamp, RawClickHouseEvent, Team } from '../../src/types'
-import { PostgresRouter } from '../../src/utils/postgres'
-import { UUIDT } from '../../src/utils/utils'
-import { insertRow } from '../helpers/sql'
+} from '../types'
 
 export const createHogFunction = (hogFunction: Partial<HogFunctionType>) => {
     const item: HogFunctionType = {

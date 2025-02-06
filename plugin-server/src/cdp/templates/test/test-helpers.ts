@@ -25,7 +25,7 @@ export type DeepPartialHogFunctionInvocationGlobals = {
 
 export function loadTestMMDB() {
     try {
-        const mmdbBrotliContents = readFileSync(join(__dirname, '../../../../tests/assets/GeoLite2-City-Test.mmdb.br'))
+        const mmdbBrotliContents = readFileSync(join(__dirname, '../../../_tests/assets/GeoLite2-City-Test.mmdb.br'))
         const mmdbBuffer = brotliDecompressSync(mmdbBrotliContents)
         const mmdb = Reader.openBuffer(mmdbBuffer)
 

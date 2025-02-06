@@ -1,17 +1,15 @@
 import { DateTime } from 'luxon'
 
-import { defaultConfig } from '../../src/config/config'
-import { PersonsDB } from '../../src/ingestion/event-pipeline-runner/utils/persons-db'
-import { Config, Hub, InternalPerson, ProjectId, RawOrganization, RawPerson, Team, TeamId } from '../../src/types'
-import { PostgresRouter, PostgresUse } from '../../src/utils/postgres'
-import { UUIDT } from '../../src/utils/utils'
-import {
-    commonOrganizationId,
-    commonOrganizationMembershipId,
-    commonUserId,
-    commonUserUuid,
-    makePluginObjects,
-} from './plugins'
+import { defaultConfig } from '../../config/config'
+import { PersonsDB } from '../../ingestion/event-pipeline-runner/utils/persons-db'
+import { Config, Hub, InternalPerson, ProjectId, RawOrganization, RawPerson, Team, TeamId } from '../../types'
+import { PostgresRouter, PostgresUse } from '../../utils/postgres'
+import { UUIDT } from '../../utils/utils'
+
+export const commonUserId = 1001
+export const commonOrganizationMembershipId = '0177364a-fc7b-0000-511c-137090b9e4e1'
+export const commonOrganizationId = 'ca30f2ec-e9a4-4001-bf27-3ef194086068'
+export const commonUserUuid = '797757a4-baed-4fa8-b73b-2b6cf0300299'
 
 export const POSTGRES_DELETE_TABLES_QUERY = `
 DO $$ DECLARE
@@ -28,10 +26,7 @@ export async function resetTestDatabase(code?: string, extraServerConfig: Partia
     const db = new PostgresRouter(config)
     await db.query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_TABLES_QUERY, undefined, 'delete-tables')
 
-    const mocks = makePluginObjects(code)
-    const teamIds = mocks.pluginConfigRows.map((c) => c.team_id)
-    const teamIdToCreate = teamIds[0]
-    await createUserTeamAndOrganization(db, teamIdToCreate)
+    await createUserTeamAndOrganization(db, 1)
     await db.end()
 }
 

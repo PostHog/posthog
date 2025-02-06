@@ -6,9 +6,9 @@ import { HogFunctionInvocation, HogFunctionType } from '../../../src/cdp/types'
 import { Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/hub'
 import { status } from '../../../src/utils/status'
-import { truth } from '../../helpers/truth'
-import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../examples'
-import { createHogExecutionGlobals, createHogFunction, createInvocation } from '../fixtures'
+import { truth } from '../../_tests/helpers/truth'
+import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
+import { createHogExecutionGlobals, createHogFunction, createInvocation } from '../_tests/fixtures'
 
 jest.mock('../../../src/utils/status', () => ({
     status: {

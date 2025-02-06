@@ -3,17 +3,17 @@ import {
     getProducedKafkaMessages,
     getProducedKafkaMessagesForTopic,
     mockProducer,
-} from '../../../tests/helpers/mocks/producer.mock'
+} from '../../_tests/helpers/producer.mock'
 
-import { HogWatcherState } from '../../../src/cdp/services/hog-watcher.service'
-import { HogFunctionInvocationGlobals, HogFunctionType } from '../../../src/cdp/types'
-import { Hub, Team } from '../../../src/types'
-import { closeHub, createHub } from '../../../src/utils/hub'
-import { getFirstTeam, resetTestDatabase } from '../../helpers/sql'
-import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../examples'
-import { createHogExecutionGlobals, insertHogFunction as _insertHogFunction } from '../fixtures'
-import { CdpProcessedEventsConsumer } from '../../../src/cdp/consumers/cdp-processed-events.consumer'
-import { CdpInternalEventsConsumer } from '../../../src/cdp/consumers/cdp-internal-event.consumer'
+import { HogWatcherState } from '../services/hog-watcher.service'
+import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
+import { Hub, Team } from '../../types'
+import { closeHub, createHub } from '../../utils/hub'
+import { getFirstTeam, resetTestDatabase } from '../../_tests/helpers/sql'
+import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
+import { createHogExecutionGlobals, insertHogFunction as _insertHogFunction } from '../_tests/fixtures'
+import { CdpProcessedEventsConsumer } from './cdp-processed-events.consumer'
+import { CdpInternalEventsConsumer } from './cdp-internal-event.consumer'
 
 const mockConsumer = {
     on: jest.fn(),

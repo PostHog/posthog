@@ -1,10 +1,10 @@
 import ClickHouse from '@posthog/clickhouse'
 import { performance } from 'perf_hooks'
 
-import { defaultConfig } from '../../src/config/config'
-import { Config } from '../../src/types'
-import { status } from '../../src/utils/status'
-import { delay } from '../../src/utils/utils'
+import { defaultConfig } from '../../config/config'
+import { Config } from '../../types'
+import { status } from '../../utils/status'
+import { delay } from '../../utils/utils'
 
 export async function resetTestDatabaseClickhouse(extraServerConfig?: Partial<Config>): Promise<void> {
     const config = { ...defaultConfig, ...extraServerConfig }

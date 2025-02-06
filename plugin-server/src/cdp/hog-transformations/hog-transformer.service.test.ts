@@ -8,10 +8,10 @@ import { posthogFilterOutPlugin } from '../../../src/cdp/legacy-plugins/_transfo
 import { template as defaultTemplate } from '../../../src/cdp/templates/_transformations/default/default.template'
 import { template as geoipTemplate } from '../../../src/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '../../../src/cdp/templates/compiler'
-import { createHogFunction, insertHogFunction } from '../../../tests/cdp/fixtures'
-import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
+import { getFirstTeam, resetTestDatabase } from '../../_tests/helpers/sql'
 import { Hub } from '../../types'
 import { closeHub, createHub } from '../../utils/hub'
+import { createHogFunction, insertHogFunction } from '../_tests/fixtures'
 import { HogFunctionTemplate } from '../templates/types'
 import { HogTransformerService } from './hog-transformer.service'
 
@@ -45,7 +45,7 @@ describe('HogTransformer', () => {
     let hogTransformer: HogTransformerService
     let teamId: number
 
-    const mmdbBrotliContents = readFileSync(join(__dirname, '../../../tests/assets/GeoLite2-City-Test.mmdb.br'))
+    const mmdbBrotliContents = readFileSync(join(__dirname, '../../_tests/assets/GeoLite2-City-Test.mmdb.br'))
 
     beforeEach(async () => {
         hub = await createHub()

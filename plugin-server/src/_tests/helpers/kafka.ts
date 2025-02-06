@@ -1,7 +1,8 @@
 import { CompressionCodecs, CompressionTypes, Kafka, logLevel } from 'kafkajs'
 import SnappyCodec from 'kafkajs-snappy'
 
-import { defaultConfig, overrideWithEnv } from '../../src/config/config'
+import { defaultConfig, overrideWithEnv } from '../../config/config'
+import { KAFKA_EVENTS_DEAD_LETTER_QUEUE } from '../../config/kafka-topics'
 import {
     KAFKA_EVENTS_JSON,
     KAFKA_EVENTS_PLUGIN_INGESTION,
@@ -11,9 +12,8 @@ import {
     KAFKA_PERSON_DISTINCT_ID,
     KAFKA_PERSON_UNIQUE_ID,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
-} from '../../src/config/kafka-topics'
-import { Config } from '../../src/types'
-import { KAFKA_EVENTS_DEAD_LETTER_QUEUE } from './../../src/config/kafka-topics'
+} from '../../config/kafka-topics'
+import { Config } from '../../types'
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 

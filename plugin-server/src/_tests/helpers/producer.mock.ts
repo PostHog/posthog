@@ -1,4 +1,4 @@
-import { KafkaProducerWrapper, TopicMessage } from '../../../src/kafka/producer'
+import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
 
 export type ParsedTopicMessage = {
     topic: string
@@ -14,7 +14,7 @@ export type DecodedKafkaMessage = {
     value: Record<string, unknown>
 }
 
-jest.mock('../../../src/kafka/producer', () => {
+jest.mock('../../kafka/producer', () => {
     const mockKafkaProducer: jest.Mocked<KafkaProducerWrapper> = {
         producer: {
             connect: jest.fn(),
@@ -34,7 +34,7 @@ jest.mock('../../../src/kafka/producer', () => {
     }
 })
 
-export const mockProducer = require('../../../src/kafka/producer')._producer as KafkaProducerWrapper
+export const mockProducer = require('../../kafka/producer')._producer as KafkaProducerWrapper
 
 export const resetMockProducer = () => {
     mockProducer.produce = jest.fn().mockReturnValue(Promise.resolve())

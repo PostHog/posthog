@@ -1,11 +1,10 @@
-import { HogFunctionType, IntegrationType } from '~/src/cdp/types'
-import { Hub } from '~/src/types'
-import { closeHub, createHub } from '~/src/utils/hub'
-import { PostgresUse } from '~/src/utils/postgres'
-import { insertHogFunction, insertIntegration } from '~/tests/cdp/fixtures'
-import { createTeam, resetTestDatabase } from '~/tests/helpers/sql'
-
+import { createTeam, resetTestDatabase } from '../../_tests/helpers/sql'
 import { fetchTeam } from '../../services/team-manager'
+import { Hub } from '../../types'
+import { closeHub, createHub } from '../../utils/hub'
+import { PostgresUse } from '../../utils/postgres'
+import { insertHogFunction, insertIntegration } from '../_tests/fixtures'
+import { HogFunctionType, IntegrationType } from '../types'
 import { HogFunctionManagerService } from './hog-function-manager.service'
 
 describe('HogFunctionManager', () => {
@@ -352,7 +351,7 @@ describe('Hogfunction Manager - Execution Order', () => {
         jest.setSystemTime(new Date('2024-01-01T00:00:00Z'))
         await insertHogFunction(hub.postgres, teamId2, {
             name: 'fn1',
-            execution_order: null,
+            execution_order: undefined,
             type: 'transformation',
         })
 
@@ -395,7 +394,7 @@ describe('Hogfunction Manager - Execution Order', () => {
         jest.setSystemTime(new Date('2024-01-02T00:00:00Z'))
         await insertHogFunction(hub.postgres, teamId2, {
             name: 'fn2',
-            execution_order: null,
+            execution_order: undefined,
             type: 'transformation',
         })
 

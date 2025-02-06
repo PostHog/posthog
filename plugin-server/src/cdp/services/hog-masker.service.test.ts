@@ -1,19 +1,12 @@
-jest.mock('../../../src/utils/now', () => {
-    return {
-        now: jest.fn(() => Date.now()),
-    }
-})
-import { CdpRedis, createCdpRedisPool } from '../../../src/cdp/redis'
-import { BASE_REDIS_KEY, HogMaskerService } from '../../../src/cdp/services/hog-masker.service'
-import { HogFunctionType } from '../../../src/cdp/types'
-import { Hub } from '../../../src/types'
-import { closeHub, createHub } from '../../../src/utils/hub'
-import { delay } from '../../../src/utils/utils'
-import { HOG_MASK_EXAMPLES } from '../examples'
-import { createHogExecutionGlobals, createHogFunction, createInvocation } from '../fixtures'
-import { deleteKeysWithPrefix } from '../helpers/redis'
-
-const mockNow: jest.Mock = require('../../../src/utils/now').now as any
+import { deleteCDPKeysWithPrefix } from '../../_tests/helpers/redis'
+import { Hub } from '../../types'
+import { closeHub, createHub } from '../../utils/hub'
+import { delay } from '../../utils/utils'
+import { HOG_MASK_EXAMPLES } from '../_tests/examples'
+import { createHogExecutionGlobals, createHogFunction, createInvocation } from '../_tests/fixtures'
+import { CdpRedis, createCdpRedisPool } from '../redis'
+import { HogFunctionType } from '../types'
+import { BASE_REDIS_KEY, HogMaskerService } from './hog-masker.service'
 
 describe('HogMasker', () => {
     describe('integration', () => {
@@ -25,17 +18,17 @@ describe('HogMasker', () => {
         beforeEach(async () => {
             hub = await createHub()
             now = 1720000000000
-            mockNow.mockReturnValue(now)
+            jest.spyOn(Date, 'now').mockReturnValue(now)
 
             redis = createCdpRedisPool(hub)
-            await deleteKeysWithPrefix(redis, BASE_REDIS_KEY)
+            await deleteCDPKeysWithPrefix(redis, BASE_REDIS_KEY)
 
             masker = new HogMaskerService(redis)
         })
 
         const advanceTime = (ms: number) => {
             now += ms
-            mockNow.mockReturnValue(now)
+            jest.spyOn(Date, 'now').mockReturnValue(now)
         }
 
         const reallyAdvanceTime = async (ms: number) => {

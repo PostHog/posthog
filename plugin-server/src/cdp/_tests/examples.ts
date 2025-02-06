@@ -1,5 +1,5 @@
-import { HogFunctionType } from '../../src/cdp/types'
-import { PropertyOperator } from '../../src/types'
+import { PropertyOperator } from '../../types'
+import { HogFunctionType } from '../types'
 
 /**
  * Hog functions are largely generated and built in the django service, making it tricky to test on this side.
