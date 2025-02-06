@@ -118,4 +118,32 @@ describe('remove-null-properties.template', () => {
             },
         })
     })
+
+    it('should return original event when max depth is reached', async () => {
+        interface DeepObject {
+            nested?: DeepObject
+            nullProp?: null
+            value?: string
+        }
+
+        let deepObj: DeepObject = { value: 'test' }
+        for (let i = 0; i < 15; i++) {
+            deepObj = { nested: deepObj, nullProp: null }
+        }
+
+        mockGlobals = tester.createGlobals({
+            event: {
+                properties: {
+                    deep: deepObj,
+                },
+            },
+        })
+
+        const response = await tester.invoke({}, mockGlobals)
+
+        expect(response.finished).toBe(true)
+        expect(response.error).toBeUndefined()
+        // Should match the original input exactly
+        expect(response.execResult).toMatchObject(mockGlobals.event)
+    })
 })
