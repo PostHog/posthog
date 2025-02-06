@@ -4,7 +4,7 @@
 # PostHog has sunset support for self-hosted K8s deployments.
 # See: https://posthog.com/blog/sunsetting-helm-support-posthog
 #
-# Note: for PostHog Cloud remember to update ‘Dockerfile.cloud’ as appropriate.
+# Note: for PostHog Cloud remember to update 'Dockerfile.cloud' as appropriate.
 #
 # The stages are used to:
 #
@@ -53,15 +53,7 @@ RUN apt-get update && \
     "libssl-dev" \
     "zlib1g-dev" \
     && \
-    rm -rf /var/lib/apt/lists/* && \
-    corepack enable && \
-    mkdir /tmp/pnpm-store && \
-    pnpm add -D undici@5.28.2 && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
-    cd ../common/plugin_transpiler && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
-    pnpm build && \
-    rm -rf /tmp/pnpm-store
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /code
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -78,6 +70,7 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
     corepack enable && \
     pnpm --filter=@posthog/plugin-server install --frozen-lockfile --store-dir /tmp/pnpm-store && \
     pnpm --filter=@posthog/plugin-transpiler install --frozen-lockfile --store-dir /tmp/pnpm-store && \
+    pnpm --filter=@posthog/plugin-transpiler add -D undici@5.28.2 && \
     pnpm --filter=@posthog/plugin-transpiler build
 
 WORKDIR /code/plugin-server
@@ -90,7 +83,7 @@ COPY ./plugin-server/src/ ./src/
 COPY ./plugin-server/tests/ ./tests/
 RUN pnpm run build:cyclotron && pnpm build
 
-# As the plugin-server is now built, let’s keep
+# As the plugin-server is now built, let's keep
 # only prod dependencies in the node_module folder
 # as we will copy it to the last image.
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \
