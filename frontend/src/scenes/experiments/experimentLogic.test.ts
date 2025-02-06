@@ -142,7 +142,7 @@ describe('experimentLogic', () => {
                     ],
                     metricResultsLoading: false,
                     primaryMetricsResultErrors: [
-                        undefined,
+                        null,
                         {
                             detail: {
                                 'no-control-variant': true,
@@ -226,7 +226,7 @@ describe('experimentLogic', () => {
                             hasDiagnostics: true,
                             statusCode: 400,
                         },
-                        undefined,
+                        null,
                     ],
                 })
         })

@@ -98,6 +98,64 @@ export interface ExperimentLogicProps {
     experimentId?: Experiment['id']
 }
 
+interface MetricLoadingConfig {
+    metrics: any[]
+    experimentId: Experiment['id']
+    refresh?: boolean
+    onSetResults: (
+        results: (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null)[]
+    ) => void
+    onSetErrors: (errors: any[]) => void
+    onTimeout: (experimentId: Experiment['id'], metric: any) => void
+}
+
+const loadMetrics = async ({
+    metrics,
+    experimentId,
+    refresh,
+    onSetResults,
+    onSetErrors,
+    onTimeout,
+}: MetricLoadingConfig): Promise<void[]> => {
+    const results: (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null)[] = []
+
+    return await Promise.all(
+        metrics.map(async (metric, index) => {
+            try {
+                const queryWithExperimentId = {
+                    ...metric,
+                    experiment_id: experimentId,
+                }
+                const response = await performQuery(queryWithExperimentId, undefined, refresh)
+
+                results[index] = {
+                    ...response,
+                    fakeInsightId: Math.random().toString(36).substring(2, 15),
+                }
+                onSetResults([...results])
+            } catch (error: any) {
+                const errorDetailMatch = error.detail?.match(/\{.*\}/)
+                const errorDetail = errorDetailMatch ? JSON.parse(errorDetailMatch[0]) : error.detail || error.message
+
+                const currentErrors = new Array(metrics.length).fill(null)
+                currentErrors[index] = {
+                    detail: errorDetail,
+                    statusCode: error.status,
+                    hasDiagnostics: !!errorDetailMatch,
+                }
+                onSetErrors(currentErrors)
+
+                if (errorDetail === QUERY_TIMEOUT_ERROR_MESSAGE) {
+                    onTimeout(experimentId, metric)
+                }
+
+                results[index] = null
+                onSetResults([...results])
+            }
+        })
+    )
+}
+
 export const experimentLogic = kea<experimentLogicType>([
     props({} as ExperimentLogicProps),
     key((props) => props.experimentId || 'new'),
@@ -1134,46 +1192,14 @@ export const experimentLogic = kea<experimentLogicType>([
                 metrics = [...metrics, ...sharedMetrics]
             }
 
-            const results: (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null)[] = []
-
-            await Promise.all(
-                metrics.map(async (metric, index) => {
-                    try {
-                        const queryWithExperimentId = {
-                            ...metric,
-                            experiment_id: values.experimentId,
-                        }
-                        const response = await performQuery(queryWithExperimentId, undefined, refresh)
-
-                        results[index] = {
-                            ...response,
-                            // @ts-expect-error
-                            fakeInsightId: Math.random().toString(36).substring(2, 15),
-                        }
-                        actions.setMetricResults([...results])
-                    } catch (error: any) {
-                        const errorDetailMatch = error.detail?.match(/\{.*\}/)
-                        const errorDetail = errorDetailMatch
-                            ? JSON.parse(errorDetailMatch[0])
-                            : error.detail || error.message
-
-                        const currentErrors = [...(values.primaryMetricsResultErrors || [])]
-                        currentErrors[index] = {
-                            detail: errorDetail,
-                            statusCode: error.status,
-                            hasDiagnostics: !!errorDetailMatch,
-                        }
-                        actions.setPrimaryMetricsResultErrors(currentErrors)
-
-                        if (errorDetail === QUERY_TIMEOUT_ERROR_MESSAGE) {
-                            actions.reportExperimentMetricTimeout(values.experimentId, metric)
-                        }
-
-                        results[index] = null
-                        actions.setMetricResults([...results])
-                    }
-                })
-            )
+            await loadMetrics({
+                metrics,
+                experimentId: values.experimentId,
+                refresh,
+                onSetResults: actions.setMetricResults,
+                onSetErrors: actions.setPrimaryMetricsResultErrors,
+                onTimeout: actions.reportExperimentMetricTimeout,
+            })
 
             actions.setMetricResultsLoading(false)
         },
@@ -1189,46 +1215,14 @@ export const experimentLogic = kea<experimentLogicType>([
                 secondaryMetrics = [...secondaryMetrics, ...sharedMetrics]
             }
 
-            const results: (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse | null)[] = []
-
-            await Promise.all(
-                secondaryMetrics.map(async (metric, index) => {
-                    try {
-                        const queryWithExperimentId = {
-                            ...metric,
-                            experiment_id: values.experimentId,
-                        }
-                        const response = await performQuery(queryWithExperimentId, undefined, refresh)
-
-                        results[index] = {
-                            ...response,
-                            // @ts-expect-error
-                            fakeInsightId: Math.random().toString(36).substring(2, 15),
-                        }
-                        actions.setSecondaryMetricResults([...results])
-                    } catch (error: any) {
-                        const errorDetailMatch = error.detail?.match(/\{.*\}/)
-                        const errorDetail = errorDetailMatch
-                            ? JSON.parse(errorDetailMatch[0])
-                            : error.detail || error.message
-
-                        const currentErrors = [...(values.secondaryMetricsResultErrors || [])]
-                        currentErrors[index] = {
-                            detail: errorDetail,
-                            statusCode: error.status,
-                            hasDiagnostics: !!errorDetailMatch,
-                        }
-                        actions.setSecondaryMetricsResultErrors(currentErrors)
-
-                        if (errorDetail === QUERY_TIMEOUT_ERROR_MESSAGE) {
-                            actions.reportExperimentMetricTimeout(values.experimentId, metric)
-                        }
-
-                        results[index] = null
-                        actions.setSecondaryMetricResults([...results])
-                    }
-                })
-            )
+            await loadMetrics({
+                metrics: secondaryMetrics,
+                experimentId: values.experimentId,
+                refresh,
+                onSetResults: actions.setSecondaryMetricResults,
+                onSetErrors: actions.setSecondaryMetricsResultErrors,
+                onTimeout: actions.reportExperimentMetricTimeout,
+            })
 
             actions.setSecondaryMetricResultsLoading(false)
         },
