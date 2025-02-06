@@ -104,7 +104,8 @@ function SidebarSearchBar({
     return (
         <div className="h-10">
             <LemonInput
-                className="h-full"
+                // h-full classname is overridden by lemoninput styles, need to use style to override
+                containerStyle={{ height: '100%' }}
                 inputRef={inputElementRef}
                 type="search"
                 value={localSearchTerm}

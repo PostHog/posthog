@@ -55,6 +55,8 @@ interface LemonInputPropsBase
     'aria-label'?: string
     /** Whether to stop propagation of events from the input */
     stopPropagation?: boolean
+    /** Style for the container element to override defaults */
+    containerStyle?: React.CSSProperties
 }
 
 export interface LemonInputPropsText extends LemonInputPropsBase {
@@ -94,6 +96,7 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
         size = 'medium',
         stopPropagation = false,
         inputRef,
+        containerStyle,
         ...props
     },
     ref
@@ -170,6 +173,8 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
             aria-disabled={props.disabled}
             onClick={() => focus()}
             ref={ref}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={containerStyle}
         >
             {prefix}
             <InputComponent
