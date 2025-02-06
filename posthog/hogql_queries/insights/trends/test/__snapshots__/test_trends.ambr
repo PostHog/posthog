@@ -5812,14 +5812,7 @@
                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               WHERE and(equals(e.team_id, 99999), equals(e.event, '$pageview'), greaterOrEquals(timestamp, minus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-09 06:00:00', 6, 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-09 17:00:00', 6, 'UTC'))))
               GROUP BY timestamp, actor_id) AS e
-<<<<<<< HEAD
-           CROSS JOIN
-             (SELECT minus(toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-09 17:00:00', 6, 'UTC'))), toIntervalHour(numbers.number)) AS timestamp
-              FROM numbers(dateDiff('hour', minus(toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-09 06:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-09 17:00:00', 6, 'UTC')))) AS numbers) AS d
-           WHERE and(ifNull(lessOrEquals(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greater(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
-=======
            WHERE and(ifNull(less(e.timestamp, plus(d.timestamp, toIntervalDay(1))), 0), ifNull(greaterOrEquals(e.timestamp, minus(d.timestamp, toIntervalDay(6))), 0))
->>>>>>> e9c00974434 (fix test case)
            GROUP BY d.timestamp
            ORDER BY d.timestamp ASC)
         WHERE and(ifNull(greaterOrEquals(timestamp, toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-09 06:00:00', 6, 'UTC')))), 0), ifNull(lessOrEquals(timestamp, assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-09 17:00:00', 6, 'UTC'))), 0)))
