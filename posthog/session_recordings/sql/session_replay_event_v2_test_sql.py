@@ -92,7 +92,11 @@ SESSION_REPLAY_EVENTS_V2_TEST_TABLE_BASE_SQL = """
         distinct_id VARCHAR,
         min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
         max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
-        block_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+        blocks SimpleAggregateFunction(groupArrayArray, Array(Tuple(
+            url String,
+            first_timestamp DateTime64(6, 'UTC'),
+            last_timestamp DateTime64(6, 'UTC')
+        ))),
     ) ENGINE = {engine}
 """
 
@@ -112,7 +116,11 @@ SESSION_REPLAY_EVENTS_V2_TEST_MV_BASE_SQL = """
         `distinct_id` String,
         `min_first_timestamp` DateTime64(6, 'UTC'),
         `max_last_timestamp` DateTime64(6, 'UTC'),
-        `block_urls` SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+        `blocks` SimpleAggregateFunction(groupArrayArray, Array(Tuple(
+            url String,
+            first_timestamp DateTime64(6, 'UTC'),
+            last_timestamp DateTime64(6, 'UTC')
+        ))),
         `_timestamp` Nullable(DateTime)
     )
     AS SELECT
@@ -121,7 +129,7 @@ SESSION_REPLAY_EVENTS_V2_TEST_MV_BASE_SQL = """
         distinct_id,
         min(first_timestamp) AS min_first_timestamp,
         max(last_timestamp) AS max_last_timestamp,
-        groupUniqArrayArray(block_url) as block_urls,
+        groupArrayArray([(block_url, first_timestamp, last_timestamp)]) as blocks,
         max(_timestamp) as _timestamp
     FROM {database}.kafka_session_replay_events_v2_test
     GROUP BY session_id, team_id, distinct_id
