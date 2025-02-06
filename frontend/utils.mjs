@@ -1,6 +1,5 @@
 import fs from 'node:fs/promises'
 
-import tailwindPostCss from '@tailwindcss/postcss'
 import autoprefixer from 'autoprefixer'
 import * as ps from 'child_process'
 import chokidar from 'chokidar'
@@ -15,6 +14,7 @@ import fse from 'fs-extra'
 import * as path from 'path'
 import postcss from 'postcss'
 import postcssPresetEnv from 'postcss-preset-env'
+import tailwindcss from 'tailwindcss'
 import ts from 'typescript'
 
 const defaultHost = process.argv.includes('--host') && process.argv.includes('0.0.0.0') ? '0.0.0.0' : 'localhost'
@@ -28,6 +28,12 @@ export function copyPublicFolder(srcDir, destDir) {
             console.error(err)
         }
     })
+}
+
+/** Update the file's modified and accessed times to now. */
+async function touchFile(file) {
+    const now = new Date()
+    await fs.utimes(file, now, now)
 }
 
 export function copyIndexHtml(
@@ -135,7 +141,7 @@ export const commonConfig = {
         sassPlugin({
             async transform(source, resolveDir, filePath) {
                 // Sync the plugins list with postcss.config.js
-                const plugins = [tailwindPostCss, autoprefixer, postcssPresetEnv({ stage: 0 })]
+                const plugins = [tailwindcss, autoprefixer, postcssPresetEnv({ stage: 0 })]
                 if (!isDev) {
                     plugins.push(cssnano({ preset: 'default' }))
                 }
@@ -356,6 +362,8 @@ export async function buildOrWatch(config) {
     }
 
     if (isDev) {
+        const tailwindConfigJsPath = path.resolve(absWorkingDir, '../tailwind.config.js')
+
         chokidar
             .watch(
                 [
@@ -364,6 +372,7 @@ export async function buildOrWatch(config) {
                     path.resolve(absWorkingDir, '../common'),
                     path.resolve(absWorkingDir, '../products/*/manifest.json'),
                     path.resolve(absWorkingDir, '../products/*/frontend/**/*'),
+                    tailwindConfigJsPath,
                 ],
                 {
                     ignored: /.*(Type|\.test\.stories)\.[tj]sx?$/,
@@ -380,7 +389,12 @@ export async function buildOrWatch(config) {
                     gatherProductManifests()
                 }
 
-                if (inputFiles.has(filePath)) {
+                if (inputFiles.has(filePath) || filePath === tailwindConfigJsPath) {
+                    if (filePath.match(/\.tsx?$/) || filePath === tailwindConfigJsPath) {
+                        // For changed TS/TSX files, we need to initiate a Tailwind JIT rescan
+                        // in case any new utility classes are used. `touch`ing `utilities.scss` achieves this.
+                        await touchFile(path.resolve(absWorkingDir, 'src/styles/utilities.scss'))
+                    }
                     void debouncedBuild()
                 }
             })

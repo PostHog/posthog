@@ -3,11 +3,10 @@
 @import '../../../node_modules/react-toastify/dist/ReactToastify';
 @import 'functions';
 @import 'mixins';
-@import 'tailwindcss';
+@import 'tailwindcss/components';
+@import 'tailwindcss/base';
+@import 'tailwindcss/utilities';
 @import 'utilities-legacy'; // TODO: Remove all legacy utilities
-// Tailwind config
-@config "../../../tailwind.config.js";
-@custom-variant dark (&:where([theme="dark"], [theme="dark"] * ));
 
 // Set variables
 :root {

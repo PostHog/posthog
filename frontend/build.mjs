@@ -23,10 +23,6 @@ gatherProductManifests()
 const common = {
     absWorkingDir: __dirname,
     bundle: true,
-    alias: {
-        // Add an alias for the tailwind config
-        '../../../tailwind.config.js': path.resolve(__dirname, 'tailwind.config.js'),
-    },
 }
 
 await buildInParallel(
@@ -62,9 +58,6 @@ await buildInParallel(
             publicPath: isDev ? '/static/' : 'https://us.posthog.com/static/',
             alias: {
                 'posthog-js': 'posthog-js-lite',
-
-                // Merge with existing aliases
-                ...common.alias,
             },
             writeMetaFile: true,
             extraPlugins: [
