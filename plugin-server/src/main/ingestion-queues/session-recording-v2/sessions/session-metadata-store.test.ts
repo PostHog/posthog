@@ -18,6 +18,7 @@ describe('SessionMetadataStore', () => {
             {
                 sessionId: 'session123',
                 teamId: 1,
+                distinctId: 'user1',
                 blockLength: 100,
                 startTimestamp: 1000,
                 endTimestamp: 2000,
@@ -26,6 +27,7 @@ describe('SessionMetadataStore', () => {
             {
                 sessionId: 'different456',
                 teamId: 2,
+                distinctId: 'user2',
                 blockLength: 150,
                 startTimestamp: 1500,
                 endTimestamp: 2500,
@@ -34,6 +36,7 @@ describe('SessionMetadataStore', () => {
             {
                 sessionId: 'session123',
                 teamId: 1,
+                distinctId: 'user1',
                 blockLength: 200,
                 startTimestamp: 2000,
                 endTimestamp: 3000,
@@ -54,6 +57,7 @@ describe('SessionMetadataStore', () => {
                 uuid: expect.any(String),
                 session_id: 'session123',
                 team_id: 1,
+                distinct_id: 'user1',
                 start_timestamp: 1000,
                 end_timestamp: 2000,
                 block_url: 's3://bucket/file1?range=bytes=0-99',
@@ -62,6 +66,7 @@ describe('SessionMetadataStore', () => {
                 uuid: expect.any(String),
                 session_id: 'different456',
                 team_id: 2,
+                distinct_id: 'user2',
                 start_timestamp: 1500,
                 end_timestamp: 2500,
                 block_url: 's3://bucket/file1?range=bytes=100-249',
@@ -70,6 +75,7 @@ describe('SessionMetadataStore', () => {
                 uuid: expect.any(String),
                 session_id: 'session123',
                 team_id: 1,
+                distinct_id: 'user1',
                 start_timestamp: 2000,
                 end_timestamp: 3000,
                 block_url: 's3://bucket/file1?range=bytes=250-449',
@@ -102,6 +108,7 @@ describe('SessionMetadataStore', () => {
             {
                 sessionId: 'session123',
                 teamId: 1,
+                distinctId: 'user1',
                 blockLength: 100,
                 startTimestamp: 1000,
                 endTimestamp: 2000,
@@ -117,6 +124,7 @@ describe('SessionMetadataStore', () => {
             {
                 sessionId: 'session123',
                 teamId: 1,
+                distinctId: 'user1',
                 blockLength: 100,
                 startTimestamp: 1000,
                 endTimestamp: 2000,
@@ -129,5 +137,6 @@ describe('SessionMetadataStore', () => {
         const queuedMessage = mockProducer.queueMessages.mock.calls[0][0] as TopicMessage
         const parsedEvent = JSON.parse(queuedMessage.messages[0].value as string)
         expect(parsedEvent.block_url).toBeNull()
+        expect(parsedEvent.distinct_id).toBe('user1')
     })
 })

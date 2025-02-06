@@ -234,4 +234,63 @@ describe('SnappySessionRecorder', () => {
             expect(result.endTimestamp).toBe(0)
         })
     })
+
+    describe('distinctId', () => {
+        it('should throw error when accessing distinctId before recording any messages', () => {
+            expect(() => recorder.distinctId).toThrow('No distinct_id set. No messages recorded yet.')
+        })
+
+        it('should store distinctId from first message', () => {
+            const message = createMessage('window1', [
+                {
+                    type: EventType.Meta,
+                    timestamp: 1000,
+                    data: {},
+                },
+            ])
+            recorder.recordMessage(message)
+
+            expect(recorder.distinctId).toBe('distinct_id')
+        })
+
+        it('should keep first message distinctId even if later messages have different distinctId', () => {
+            recorder.recordMessage(
+                createMessage('window1', [
+                    {
+                        type: EventType.Meta,
+                        timestamp: 1000,
+                        data: {},
+                    },
+                ])
+            )
+
+            const message2 = {
+                ...createMessage('window1', [
+                    {
+                        type: EventType.Meta,
+                        timestamp: 2000,
+                        data: {},
+                    },
+                ]),
+                distinct_id: 'different_distinct_id',
+            }
+            recorder.recordMessage(message2)
+
+            expect(recorder.distinctId).toBe('distinct_id')
+        })
+
+        it('should maintain distinctId after end() is called', async () => {
+            const message = createMessage('window1', [
+                {
+                    type: EventType.Meta,
+                    timestamp: 1000,
+                    data: {},
+                },
+            ])
+            recorder.recordMessage(message)
+            await recorder.end()
+
+            expect(recorder.distinctId).toBe('distinct_id')
+        })
+    })
 })

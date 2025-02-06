@@ -36,11 +36,17 @@ export class SnappySessionRecorderMock {
     private size: number = 0
     private startTimestamp: number | null = null
     private endTimestamp: number | null = null
+    private _distinctId: string | null = null
 
     constructor(public readonly sessionId: string, public readonly teamId: number) {}
 
     public recordMessage(message: ParsedMessageData): number {
         let bytesWritten = 0
+
+        // Store distinctId from first message
+        if (!this._distinctId) {
+            this._distinctId = message.distinct_id
+        }
 
         if (message.eventsRange.start > 0) {
             this.startTimestamp =
@@ -65,6 +71,13 @@ export class SnappySessionRecorderMock {
 
         this.size += bytesWritten
         return bytesWritten
+    }
+
+    public get distinctId(): string {
+        if (!this._distinctId) {
+            throw new Error('No distinct_id set. No messages recorded yet.')
+        }
+        return this._distinctId
     }
 
     public end(): EndResult {
@@ -140,14 +153,15 @@ describe('SessionBatchRecorder', () => {
         sessionId: string,
         events: RRWebEvent[],
         metadata: MessageMetadata = {},
-        teamId: number = 1
+        teamId: number = 1,
+        distinctId: string = 'distinct_id'
     ): MessageWithTeam => ({
         team: {
             teamId,
             consoleLogIngestionEnabled: false,
         },
         message: {
-            distinct_id: 'distinct_id',
+            distinct_id: distinctId,
             session_id: sessionId,
             eventsByWindowId: {
                 window1: events,
@@ -485,6 +499,7 @@ describe('SessionBatchRecorder', () => {
                 expect.objectContaining({
                     sessionId: 'session1',
                     teamId: 1,
+                    distinctId: 'distinct_id',
                     startTimestamp: 1000,
                     endTimestamp: 1000,
                     blockUrl: 's3://test/file?range=bytes=0-99',
@@ -531,8 +546,9 @@ describe('SessionBatchRecorder', () => {
                         },
                     ],
                     {},
-                    2
-                ), // Different team ID
+                    2,
+                    'other_distinct_id'
+                ),
             ]
 
             messages.forEach((message) => recorder.record(message))
@@ -543,6 +559,7 @@ describe('SessionBatchRecorder', () => {
                     expect.objectContaining({
                         sessionId: 'session1',
                         teamId: 1,
+                        distinctId: 'distinct_id',
                         startTimestamp: 1000,
                         endTimestamp: 1000,
                         blockUrl: 's3://test/file?range=bytes=0-99',
@@ -550,6 +567,7 @@ describe('SessionBatchRecorder', () => {
                     expect.objectContaining({
                         sessionId: 'session2',
                         teamId: 2,
+                        distinctId: 'other_distinct_id',
                         startTimestamp: 2000,
                         endTimestamp: 2000,
                         blockUrl: 's3://test/file?range=bytes=0-99',

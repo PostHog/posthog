@@ -43,6 +43,7 @@ export class SnappySessionRecorder {
     private ended = false
     private startTimestamp: number | null = null
     private endTimestamp: number | null = null
+    private _distinctId: string | null = null
 
     constructor(public readonly sessionId: string, public readonly teamId: number) {}
 
@@ -57,6 +58,11 @@ export class SnappySessionRecorder {
     public recordMessage(message: ParsedMessageData): number {
         if (this.ended) {
             throw new Error('Cannot record message after end() has been called')
+        }
+
+        // Store the distinctId from the first message if not already set
+        if (!this._distinctId) {
+            this._distinctId = message.distinct_id
         }
 
         let rawBytesWritten = 0
@@ -84,6 +90,16 @@ export class SnappySessionRecorder {
 
         this.rawBytesWritten += rawBytesWritten
         return rawBytesWritten
+    }
+
+    /**
+     * The distinct_id associated with this session recording
+     */
+    public get distinctId(): string {
+        if (!this._distinctId) {
+            throw new Error('No distinct_id set. No messages recorded yet.')
+        }
+        return this._distinctId
     }
 
     /**

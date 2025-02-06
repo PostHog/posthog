@@ -165,6 +165,7 @@ export class SessionBatchRecorder {
                     blockMetadata.push({
                         sessionId: recorder.sessionId,
                         teamId: recorder.teamId,
+                        distinctId: recorder.distinctId,
                         blockLength: bytesWritten,
                         startTimestamp,
                         endTimestamp,

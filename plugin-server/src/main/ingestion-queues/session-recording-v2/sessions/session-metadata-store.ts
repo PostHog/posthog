@@ -17,8 +17,7 @@ export class SessionMetadataStore {
             uuid: randomUUID(),
             session_id: metadata.sessionId,
             team_id: metadata.teamId,
-            start_timestamp: metadata.startTimestamp,
-            end_timestamp: metadata.endTimestamp,
+            distinct_id: metadata.distinctId,
             block_url: metadata.blockUrl,
         }))
 
