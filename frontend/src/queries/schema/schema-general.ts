@@ -99,12 +99,9 @@ export enum NodeKind {
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
 
     // Experiment queries
-    ExperimentMetric = 'ExperimentMetric',
-    ExperimentQuery = 'ExperimentQuery',
-    ExperimentEventMetricConfig = 'ExperimentEventMetricConfig',
-    ExperimentDataWarehouseMetricConfig = 'ExperimentDataWarehouseMetricConfig',
-    ExperimentTrendsQuery = 'ExperimentTrendsQuery',
     ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
+    ExperimentTrendsQuery = 'ExperimentTrendsQuery',
+    ExperimentQuery = 'ExperimentQuery',
 
     // Database metadata
     DatabaseSchemaQuery = 'DatabaseSchemaQuery',
@@ -891,8 +888,6 @@ export type TrendsFilter = {
     /** @default 1 */
     smoothingIntervals?: integer
     formula?: TrendsFilterLegacy['formula']
-    /** List of formulas to apply to the data. Takes precedence over formula if both are set. */
-    formulas?: string[]
     /** @default ActionsLineGraph */
     display?: TrendsFilterLegacy['display']
     /** @default false */
@@ -1115,14 +1110,7 @@ export interface RetentionQuery extends InsightsQueryBase<RetentionQueryResponse
     retentionFilter: RetentionFilter
 }
 
-export type PathsLink = {
-    source: string
-    target: string
-    value: number
-    average_conversion_time: number
-}
-
-export interface PathsQueryResponse extends AnalyticsQueryResponseBase<PathsLink[]> {}
+export interface PathsQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
 
 export type CachedPathsQueryResponse = CachedQueryResponse<PathsQueryResponse>
 
@@ -1182,7 +1170,6 @@ export type StickinessFilter = {
     display?: StickinessFilterLegacy['display']
     showLegend?: StickinessFilterLegacy['show_legend']
     showValuesOnSeries?: StickinessFilterLegacy['show_values_on_series']
-    showMultipleYAxes?: StickinessFilterLegacy['show_multiple_y_axes']
     hiddenLegendIndexes?: integer[]
     stickinessCriteria?: {
         operator: StickinessOperator
@@ -1657,7 +1644,6 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     issueId?: ErrorTrackingIssue['id']
     orderBy?: 'last_seen' | 'first_seen' | 'occurrences' | 'users' | 'sessions'
     dateRange: DateRange
-    status?: ErrorTrackingIssue['status'] | 'all'
     assignee?: ErrorTrackingIssueAssignee | null
     filterGroup?: PropertyGroupFilter
     filterTestAccounts?: boolean
@@ -1677,30 +1663,23 @@ export type ErrorTrackingSparklineConfig = {
     interval: 'minute' | 'hour' | 'day' | 'week' | 'month'
 }
 
-export interface ErrorTrackingIssueAggregations {
+export interface ErrorTrackingIssue {
+    id: string
+    name: string | null
+    description: string | null
+    /**  @format date-time */
+    first_seen: string
+    /**  @format date-time */
+    last_seen: string
+    earliest?: string
     occurrences: number
     sessions: number
     users: number
     volumeDay: number[]
     volumeMonth: number[]
-    customVolume: number[] | null
-}
-
-export interface ErrorTrackingRelationalIssue {
-    id: string
-    name: string | null
-    description: string | null
+    customVolume?: number[]
     assignee: ErrorTrackingIssueAssignee | null
     status: 'archived' | 'active' | 'resolved' | 'pending_release'
-    /**  @format date-time */
-    first_seen: string
-}
-
-export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
-    /**  @format date-time */
-    last_seen?: string
-    earliest?: string
-    aggregations?: ErrorTrackingIssueAggregations
 }
 
 export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<ErrorTrackingIssue[]> {
@@ -1796,17 +1775,8 @@ export enum ExperimentMetricType {
 
 export type ExperimentMetricMath = 'total' | 'sum' | 'avg' | 'median' | 'min' | 'max'
 
-export interface ExperimentMetric {
-    kind: NodeKind.ExperimentMetric
-    name?: string
-    metric_type: ExperimentMetricType
-    filterTestAccounts?: boolean
-    inverse?: boolean
-    metric_config: ExperimentEventMetricConfig | ExperimentDataWarehouseMetricConfig
-}
-
 export interface ExperimentEventMetricConfig {
-    kind: NodeKind.ExperimentEventMetricConfig
+    kind: 'ExperimentEventMetricConfig'
     event: string
     math?: ExperimentMetricMath
     math_hogql?: string
@@ -1814,7 +1784,7 @@ export interface ExperimentEventMetricConfig {
 }
 
 export interface ExperimentDataWarehouseMetricConfig {
-    kind: NodeKind.ExperimentDataWarehouseMetricConfig
+    kind: 'ExperimentDataWarehouseMetricConfig'
     table_name: string
     id_field: string
     distinct_id_field: string
@@ -1824,28 +1794,21 @@ export interface ExperimentDataWarehouseMetricConfig {
     math_property?: string
 }
 
+export interface ExperimentMetric {
+    kind: 'ExperimentMetric'
+    name?: string
+    metric_type: ExperimentMetricType
+    filterTestAccounts?: boolean
+    inverse?: boolean
+    metric_config: ExperimentEventMetricConfig | ExperimentDataWarehouseMetricConfig
+}
+
 export interface ExperimentQuery extends DataNode<ExperimentTrendsQueryResponse> {
     kind: NodeKind.ExperimentQuery
     metric: ExperimentMetric
     experiment_id?: integer
     name?: string
 }
-
-export interface ExperimentQueryResponse {
-    kind: NodeKind.ExperimentTrendsQuery
-    insight: Record<string, any>[]
-    count_query?: TrendsQuery
-    exposure_query?: TrendsQuery
-    variants: ExperimentVariantTrendsBaseStats[]
-    probability: Record<string, number>
-    significant: boolean
-    significance_code: ExperimentSignificanceCode
-    stats_version?: integer
-    p_value: number
-    credible_intervals: Record<string, [number, number]>
-}
-
-export type CachedExperimentQueryResponse = CachedQueryResponse<ExperimentQueryResponse>
 
 /**
  * @discriminator kind

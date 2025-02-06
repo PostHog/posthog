@@ -236,7 +236,7 @@ class AssistantTrendsFilter(BaseModel):
             " `$geoip_country_name`, and only then."
         ),
     )
-    formulas: Optional[list[str]] = Field(default=None, description="If the formula is provided, apply it here.")
+    formula: Optional[str] = Field(default=None, description="If the formula is provided, apply it here.")
     showLegend: Optional[bool] = Field(
         default=False, description="Whether to show the legend describing series and breakdowns."
     )
@@ -632,18 +632,6 @@ class Status(StrEnum):
     PENDING_RELEASE = "pending_release"
 
 
-class ErrorTrackingIssueAggregations(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    customVolume: Optional[list[float]] = None
-    occurrences: float
-    sessions: float
-    users: float
-    volumeDay: list[float]
-    volumeMonth: list[float]
-
-
 class Type1(StrEnum):
     USER_GROUP = "user_group"
     USER = "user"
@@ -655,21 +643,6 @@ class OrderBy(StrEnum):
     OCCURRENCES = "occurrences"
     USERS = "users"
     SESSIONS = "sessions"
-
-
-class Status1(StrEnum):
-    ARCHIVED = "archived"
-    ACTIVE = "active"
-    RESOLVED = "resolved"
-    PENDING_RELEASE = "pending_release"
-    ALL = "all"
-
-
-class Status2(StrEnum):
-    ARCHIVED = "archived"
-    ACTIVE = "active"
-    RESOLVED = "resolved"
-    PENDING_RELEASE = "pending_release"
 
 
 class Interval(StrEnum):
@@ -1084,12 +1057,9 @@ class NodeKind(StrEnum):
     WEB_GOALS_QUERY = "WebGoalsQuery"
     WEB_VITALS_QUERY = "WebVitalsQuery"
     WEB_VITALS_PATH_BREAKDOWN_QUERY = "WebVitalsPathBreakdownQuery"
-    EXPERIMENT_METRIC = "ExperimentMetric"
-    EXPERIMENT_QUERY = "ExperimentQuery"
-    EXPERIMENT_EVENT_METRIC_CONFIG = "ExperimentEventMetricConfig"
-    EXPERIMENT_DATA_WAREHOUSE_METRIC_CONFIG = "ExperimentDataWarehouseMetricConfig"
-    EXPERIMENT_TRENDS_QUERY = "ExperimentTrendsQuery"
     EXPERIMENT_FUNNELS_QUERY = "ExperimentFunnelsQuery"
+    EXPERIMENT_TRENDS_QUERY = "ExperimentTrendsQuery"
+    EXPERIMENT_QUERY = "ExperimentQuery"
     DATABASE_SCHEMA_QUERY = "DatabaseSchemaQuery"
     SUGGESTED_QUESTIONS_QUERY = "SuggestedQuestionsQuery"
     TEAM_TAXONOMY_QUERY = "TeamTaxonomyQuery"
@@ -1132,16 +1102,6 @@ class PathsFilterLegacy(BaseModel):
     paths_hogql_expression: Optional[str] = None
     start_point: Optional[str] = None
     step_limit: Optional[int] = None
-
-
-class PathsLink(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    average_conversion_time: float
-    source: str
-    target: str
-    value: float
 
 
 class PersonType(BaseModel):
@@ -1386,7 +1346,6 @@ class StickinessFilterLegacy(BaseModel):
     display: Optional[ChartDisplayType] = None
     hidden_legend_keys: Optional[dict[str, Union[bool, Any]]] = None
     show_legend: Optional[bool] = None
-    show_multiple_y_axes: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
 
 
@@ -2033,7 +1992,6 @@ class CohortPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    cohort_name: Optional[str] = None
     key: Literal["id"] = "id"
     label: Optional[str] = None
     operator: Optional[PropertyOperator] = PropertyOperator.IN_
@@ -2138,18 +2096,6 @@ class ErrorTrackingIssueAssignee(BaseModel):
     )
     id: Union[str, int]
     type: Type1
-
-
-class ErrorTrackingRelationalIssue(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    assignee: Optional[ErrorTrackingIssueAssignee] = None
-    description: Optional[str] = None
-    first_seen: AwareDatetime
-    id: str
-    name: Optional[str] = None
-    status: Status2
 
 
 class ErrorTrackingSparklineConfig(BaseModel):
@@ -2706,7 +2652,6 @@ class StickinessFilter(BaseModel):
     display: Optional[ChartDisplayType] = None
     hiddenLegendIndexes: Optional[list[int]] = None
     showLegend: Optional[bool] = None
-    showMultipleYAxes: Optional[bool] = None
     showValuesOnSeries: Optional[bool] = None
     stickinessCriteria: Optional[StickinessCriteria] = None
 
@@ -2855,10 +2800,6 @@ class TrendsFilter(BaseModel):
     decimalPlaces: Optional[float] = None
     display: Optional[ChartDisplayType] = ChartDisplayType.ACTIONS_LINE_GRAPH
     formula: Optional[str] = None
-    formulas: Optional[list[str]] = Field(
-        default=None,
-        description="List of formulas to apply to the data. Takes precedence over formula if both are set.",
-    )
     goalLines: Optional[list[GoalLine]] = Field(default=None, description="Goal Lines")
     hiddenLegendIndexes: Optional[list[int]] = None
     resultCustomizationBy: Optional[ResultCustomizationBy] = Field(
@@ -3580,7 +3521,7 @@ class CachedPathsQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[PathsLink]
+    results: list[dict[str, Any]]
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -4335,15 +4276,20 @@ class ErrorTrackingIssue(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregations: Optional[ErrorTrackingIssueAggregations] = None
     assignee: Optional[ErrorTrackingIssueAssignee] = None
+    customVolume: Optional[list[float]] = None
     description: Optional[str] = None
     earliest: Optional[str] = None
     first_seen: AwareDatetime
     id: str
-    last_seen: Optional[AwareDatetime] = None
+    last_seen: AwareDatetime
     name: Optional[str] = None
+    occurrences: float
+    sessions: float
     status: Status
+    users: float
+    volumeDay: list[float]
+    volumeMonth: list[float]
 
 
 class ErrorTrackingQueryResponse(BaseModel):
@@ -4812,7 +4758,7 @@ class PathsQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[PathsLink]
+    results: list[dict[str, Any]]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -5419,27 +5365,6 @@ class QueryResponseAlternative32(BaseModel):
 
 
 class QueryResponseAlternative34(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    error: Optional[str] = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-    )
-    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    results: list[PathsLink]
-    timings: Optional[list[QueryTiming]] = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
-    )
-
-
-class QueryResponseAlternative35(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6646,35 +6571,6 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     useSessionsTable: Optional[bool] = None
 
 
-class CachedExperimentQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
-    calculation_trigger: Optional[str] = Field(
-        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
-    )
-    count_query: Optional[TrendsQuery] = None
-    credible_intervals: dict[str, list[float]]
-    exposure_query: Optional[TrendsQuery] = None
-    insight: list[dict[str, Any]]
-    is_cached: bool
-    kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
-    last_refresh: AwareDatetime
-    next_allowed_client_refresh: AwareDatetime
-    p_value: float
-    probability: dict[str, float]
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: Optional[int] = None
-    timezone: str
-    variants: list[ExperimentVariantTrendsBaseStats]
-
-
 class CachedExperimentTrendsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6775,7 +6671,6 @@ class ErrorTrackingQuery(BaseModel):
     orderBy: Optional[OrderBy] = None
     response: Optional[ErrorTrackingQueryResponse] = None
     searchQuery: Optional[str] = None
-    status: Optional[Status1] = None
 
 
 class EventsQuery(BaseModel):
@@ -6843,23 +6738,6 @@ class EventsQuery(BaseModel):
     response: Optional[EventsQueryResponse] = None
     select: list[str] = Field(..., description="Return a limited set of data. Required.")
     where: Optional[list[str]] = Field(default=None, description="HogQL filters to apply on returned data")
-
-
-class ExperimentQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    count_query: Optional[TrendsQuery] = None
-    credible_intervals: dict[str, list[float]]
-    exposure_query: Optional[TrendsQuery] = None
-    insight: list[dict[str, Any]]
-    kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
-    p_value: float
-    probability: dict[str, float]
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: Optional[int] = None
-    variants: list[ExperimentVariantTrendsBaseStats]
 
 
 class ExperimentTrendsQueryResponse(BaseModel):
@@ -7529,7 +7407,6 @@ class QueryResponseAlternative(
             QueryResponseAlternative32,
             QueryResponseAlternative33,
             QueryResponseAlternative34,
-            QueryResponseAlternative35,
             QueryResponseAlternative37,
             QueryResponseAlternative38,
             QueryResponseAlternative39,
@@ -7573,7 +7450,6 @@ class QueryResponseAlternative(
         QueryResponseAlternative32,
         QueryResponseAlternative33,
         QueryResponseAlternative34,
-        QueryResponseAlternative35,
         QueryResponseAlternative37,
         QueryResponseAlternative38,
         QueryResponseAlternative39,

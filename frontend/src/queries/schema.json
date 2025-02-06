@@ -1501,12 +1501,9 @@
                     ],
                     "type": "string"
                 },
-                "formulas": {
+                "formula": {
                     "description": "If the formula is provided, apply it here.",
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
+                    "type": "string"
                 },
                 "showLegend": {
                     "default": false,
@@ -2378,107 +2375,6 @@
             ],
             "type": "object"
         },
-        "CachedExperimentQueryResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "cache_key": {
-                    "type": "string"
-                },
-                "cache_target_age": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "calculation_trigger": {
-                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
-                    "type": "string"
-                },
-                "count_query": {
-                    "$ref": "#/definitions/TrendsQuery"
-                },
-                "credible_intervals": {
-                    "additionalProperties": {
-                        "items": {
-                            "type": "number"
-                        },
-                        "maxItems": 2,
-                        "minItems": 2,
-                        "type": "array"
-                    },
-                    "type": "object"
-                },
-                "exposure_query": {
-                    "$ref": "#/definitions/TrendsQuery"
-                },
-                "insight": {
-                    "items": {
-                        "type": "object"
-                    },
-                    "type": "array"
-                },
-                "is_cached": {
-                    "type": "boolean"
-                },
-                "kind": {
-                    "const": "ExperimentTrendsQuery",
-                    "type": "string"
-                },
-                "last_refresh": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "next_allowed_client_refresh": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "p_value": {
-                    "type": "number"
-                },
-                "probability": {
-                    "additionalProperties": {
-                        "type": "number"
-                    },
-                    "type": "object"
-                },
-                "query_status": {
-                    "$ref": "#/definitions/QueryStatus",
-                    "description": "Query status indicates whether next to the provided data, a query is still running."
-                },
-                "significance_code": {
-                    "$ref": "#/definitions/ExperimentSignificanceCode"
-                },
-                "significant": {
-                    "type": "boolean"
-                },
-                "stats_version": {
-                    "$ref": "#/definitions/integer"
-                },
-                "timezone": {
-                    "type": "string"
-                },
-                "variants": {
-                    "items": {
-                        "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": [
-                "cache_key",
-                "credible_intervals",
-                "insight",
-                "is_cached",
-                "kind",
-                "last_refresh",
-                "next_allowed_client_refresh",
-                "p_value",
-                "probability",
-                "significance_code",
-                "significant",
-                "timezone",
-                "variants"
-            ],
-            "type": "object"
-        },
         "CachedExperimentTrendsQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -3097,7 +2993,7 @@
                 },
                 "results": {
                     "items": {
-                        "$ref": "#/definitions/PathsLink"
+                        "type": "object"
                     },
                     "type": "array"
                 },
@@ -4301,9 +4197,6 @@
             "additionalProperties": false,
             "description": "Sync with plugin-server/src/types.ts",
             "properties": {
-                "cohort_name": {
-                    "type": "string"
-                },
                 "key": {
                     "const": "id",
                     "type": "string"
@@ -6055,9 +5948,6 @@
         "ErrorTrackingIssue": {
             "additionalProperties": false,
             "properties": {
-                "aggregations": {
-                    "$ref": "#/definitions/ErrorTrackingIssueAggregations"
-                },
                 "assignee": {
                     "anyOf": [
                         {
@@ -6067,6 +5957,12 @@
                             "type": "null"
                         }
                     ]
+                },
+                "customVolume": {
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
                 },
                 "description": {
                     "type": ["string", "null"]
@@ -6088,35 +5984,15 @@
                 "name": {
                     "type": ["string", "null"]
                 },
-                "status": {
-                    "enum": ["archived", "active", "resolved", "pending_release"],
-                    "type": "string"
-                }
-            },
-            "required": ["assignee", "description", "first_seen", "id", "name", "status"],
-            "type": "object"
-        },
-        "ErrorTrackingIssueAggregations": {
-            "additionalProperties": false,
-            "properties": {
-                "customVolume": {
-                    "anyOf": [
-                        {
-                            "items": {
-                                "type": "number"
-                            },
-                            "type": "array"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
                 "occurrences": {
                     "type": "number"
                 },
                 "sessions": {
                     "type": "number"
+                },
+                "status": {
+                    "enum": ["archived", "active", "resolved", "pending_release"],
+                    "type": "string"
                 },
                 "users": {
                     "type": "number"
@@ -6134,7 +6010,20 @@
                     "type": "array"
                 }
             },
-            "required": ["occurrences", "sessions", "users", "volumeDay", "volumeMonth", "customVolume"],
+            "required": [
+                "id",
+                "name",
+                "description",
+                "first_seen",
+                "last_seen",
+                "occurrences",
+                "sessions",
+                "users",
+                "volumeDay",
+                "volumeMonth",
+                "assignee",
+                "status"
+            ],
             "type": "object"
         },
         "ErrorTrackingIssueAssignee": {
@@ -6216,10 +6105,6 @@
                 },
                 "searchQuery": {
                     "type": "string"
-                },
-                "status": {
-                    "enum": ["archived", "active", "resolved", "pending_release", "all"],
-                    "type": "string"
                 }
             },
             "required": ["dateRange", "kind"],
@@ -6274,40 +6159,6 @@
                 }
             },
             "required": ["results"],
-            "type": "object"
-        },
-        "ErrorTrackingRelationalIssue": {
-            "additionalProperties": false,
-            "properties": {
-                "assignee": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/ErrorTrackingIssueAssignee"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "description": {
-                    "type": ["string", "null"]
-                },
-                "first_seen": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": ["string", "null"]
-                },
-                "status": {
-                    "enum": ["archived", "active", "resolved", "pending_release"],
-                    "type": "string"
-                }
-            },
-            "required": ["id", "name", "description", "assignee", "status", "first_seen"],
             "type": "object"
         },
         "ErrorTrackingSparklineConfig": {
@@ -6980,73 +6831,6 @@
                 }
             },
             "required": ["kind", "metric"],
-            "type": "object"
-        },
-        "ExperimentQueryResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "count_query": {
-                    "$ref": "#/definitions/TrendsQuery"
-                },
-                "credible_intervals": {
-                    "additionalProperties": {
-                        "items": {
-                            "type": "number"
-                        },
-                        "maxItems": 2,
-                        "minItems": 2,
-                        "type": "array"
-                    },
-                    "type": "object"
-                },
-                "exposure_query": {
-                    "$ref": "#/definitions/TrendsQuery"
-                },
-                "insight": {
-                    "items": {
-                        "type": "object"
-                    },
-                    "type": "array"
-                },
-                "kind": {
-                    "const": "ExperimentTrendsQuery",
-                    "type": "string"
-                },
-                "p_value": {
-                    "type": "number"
-                },
-                "probability": {
-                    "additionalProperties": {
-                        "type": "number"
-                    },
-                    "type": "object"
-                },
-                "significance_code": {
-                    "$ref": "#/definitions/ExperimentSignificanceCode"
-                },
-                "significant": {
-                    "type": "boolean"
-                },
-                "stats_version": {
-                    "$ref": "#/definitions/integer"
-                },
-                "variants": {
-                    "items": {
-                        "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": [
-                "kind",
-                "insight",
-                "variants",
-                "probability",
-                "significant",
-                "significance_code",
-                "p_value",
-                "credible_intervals"
-            ],
             "type": "object"
         },
         "ExperimentSignificanceCode": {
@@ -9662,12 +9446,9 @@
                 "WebGoalsQuery",
                 "WebVitalsQuery",
                 "WebVitalsPathBreakdownQuery",
-                "ExperimentMetric",
-                "ExperimentQuery",
-                "ExperimentEventMetricConfig",
-                "ExperimentDataWarehouseMetricConfig",
-                "ExperimentTrendsQuery",
                 "ExperimentFunnelsQuery",
+                "ExperimentTrendsQuery",
+                "ExperimentQuery",
                 "DatabaseSchemaQuery",
                 "SuggestedQuestionsQuery",
                 "TeamTaxonomyQuery",
@@ -9839,25 +9620,6 @@
             },
             "type": "object"
         },
-        "PathsLink": {
-            "additionalProperties": false,
-            "properties": {
-                "average_conversion_time": {
-                    "type": "number"
-                },
-                "source": {
-                    "type": "string"
-                },
-                "target": {
-                    "type": "string"
-                },
-                "value": {
-                    "type": "number"
-                }
-            },
-            "required": ["source", "target", "value", "average_conversion_time"],
-            "type": "object"
-        },
         "PathsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -9948,7 +9710,7 @@
                 },
                 "results": {
                     "items": {
-                        "$ref": "#/definitions/PathsLink"
+                        "type": "object"
                     },
                     "type": "array"
                 },
@@ -11978,7 +11740,7 @@
                         },
                         "results": {
                             "items": {
-                                "$ref": "#/definitions/PathsLink"
+                                "type": "object"
                             },
                             "type": "array"
                         },
@@ -13606,9 +13368,6 @@
                 "showLegend": {
                     "type": "boolean"
                 },
-                "showMultipleYAxes": {
-                    "type": "boolean"
-                },
                 "showValuesOnSeries": {
                     "type": "boolean"
                 },
@@ -13655,9 +13414,6 @@
                     "type": "object"
                 },
                 "show_legend": {
-                    "type": "boolean"
-                },
-                "show_multiple_y_axes": {
                     "type": "boolean"
                 },
                 "show_values_on_series": {
@@ -14191,13 +13947,6 @@
                 },
                 "formula": {
                     "type": "string"
-                },
-                "formulas": {
-                    "description": "List of formulas to apply to the data. Takes precedence over formula if both are set.",
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
                 },
                 "goalLines": {
                     "description": "Goal Lines",
