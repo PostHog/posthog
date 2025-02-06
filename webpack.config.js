@@ -14,24 +14,12 @@ function createEntry(entry) {
             loader: 'style-loader',
         },
         {
+            // This loader resolves url() and @imports inside CSS
             loader: 'css-loader',
-            options: {
-                importLoaders: 3, // Important: this tells css-loader how many loaders before it should apply
-            }
         },
         {
+            // Then we apply postCSS fixes like autoprefixer and minifying
             loader: 'postcss-loader',
-            options: {
-                postcssOptions: {
-                    plugins: [
-                        require('@tailwindcss/postcss'),
-                        require('autoprefixer'),
-                        require('postcss-preset-env')({
-                            stage: 0,
-                        }),
-                    ],
-                },
-            },
         },
     ]
 
@@ -83,7 +71,7 @@ function createEntry(entry) {
             rules: [
                 {
                     test: /\.[jt]sx?$/,
-                    exclude: /(node_modules|frontend\/dist)/,
+                    exclude: /(node_modules)/,
                     use: {
                         loader: 'babel-loader',
                     },
@@ -105,7 +93,6 @@ function createEntry(entry) {
                             },
                         },
                     ].filter((a) => a),
-                    exclude: /frontend\/dist/
                 },
                 {
                     // Apply rule for less files (used to import and override AntD)
@@ -121,7 +108,6 @@ function createEntry(entry) {
                             },
                         },
                     ],
-                    exclude: /frontend\/dist/
                 },
 
                 {
@@ -140,7 +126,6 @@ function createEntry(entry) {
                             },
                         },
                     ],
-                    exclude: /frontend\/dist/
                 },
                 {
                     // Apply rule for fonts files
@@ -155,7 +140,6 @@ function createEntry(entry) {
                             },
                         },
                     ],
-                    exclude: /frontend\/dist/
                 },
                 {
                     // Apply rule for sound files
@@ -170,7 +154,6 @@ function createEntry(entry) {
                             },
                         },
                     ],
-                    exclude: /frontend\/dist/
                 },
                 // probably only need this because we're using webpack v4
                 {
