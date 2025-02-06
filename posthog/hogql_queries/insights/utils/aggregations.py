@@ -70,19 +70,20 @@ class FirstTimeForUserEventsQueryAlternator(QueryAlternator):
         ratio: ast.RatioExpr | None = None,
         is_first_matching_event: bool = False,
     ):
-        query.select = self._select_expr(date_from, filters, is_first_matching_event)
+        self._filters = filters
+        query.select = self._select_expr(date_from, is_first_matching_event)
         query.select_from = self._select_from_expr(ratio)
         query.where = self._where_expr(date_to, event_or_action_filter)
         query.group_by = self._group_by_expr()
         query.having = self._having_expr()
         super().__init__(query)
 
-    def _select_expr(self, date_from: ast.Expr, filters: ast.Expr | None = None, is_first_matching_event: bool = False):
-        aggregation_filters = date_from if filters is None else ast.And(exprs=[date_from, filters])
+    def _select_expr(self, date_from: ast.Expr, is_first_matching_event: bool = False):
+        aggregation_filters = date_from if self._filters is None else ast.And(exprs=[date_from, self._filters])
         min_timestamp_expr = (
             ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])
-            if not is_first_matching_event
-            else ast.Call(name="minIf", args=[ast.Field(chain=["timestamp"]), aggregation_filters])
+            if not is_first_matching_event or self._filters is None
+            else ast.Call(name="minIf", args=[ast.Field(chain=["timestamp"]), self._filters])
         )
 
         return [
@@ -118,16 +119,23 @@ class FirstTimeForUserEventsQueryAlternator(QueryAlternator):
         return [ast.Field(chain=["person_id"])]
 
     def _having_expr(self) -> ast.Expr:
-        return ast.CompareOperation(
+        left = ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
             left=ast.Field(chain=["min_timestamp"]),
             right=ast.Field(chain=["min_timestamp_with_condition"]),
         )
+        right = ast.CompareOperation(
+            op=ast.CompareOperationOp.NotEq,
+            left=ast.Field(chain=["min_timestamp"]),
+            right=ast.Call(name="fromUnixTimestamp", args=[ast.Constant(value=0)]),
+        )
+
+        return ast.And(exprs=[left, right])
 
     def _transform_column(self, column: ast.Expr):
         return ast.Call(
-            name="argMin",
-            args=[column, ast.Field(chain=["timestamp"])],
+            name="argMinIf",
+            args=[column, ast.Field(chain=["timestamp"]), self._filters],
         )
 
     def append_select(self, expr: ast.Expr, aggregate: bool = False):
