@@ -1,8 +1,6 @@
 import { PluginEvent, PostHogEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
-import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
-import { setUsageInNonPersonEventsCounter } from '../main/ingestion-queues/metrics'
 import {
     ClickHouseEvent,
     HookPayload,
@@ -23,14 +21,6 @@ import {
     clickHouseTimestampToISO,
     getKnownLibValueOrSentinel,
 } from './utils'
-
-const PERSON_EVENTS = new Set(['$set', '$identify', '$create_alias', '$merge_dangerously', '$groupidentify'])
-const KNOWN_SET_EVENTS = new Set([
-    '$feature_interaction',
-    '$feature_enrollment_update',
-    'survey dismissed',
-    'survey sent',
-])
 
 const DIFFERENCE_WITH_PROPOSED_NORMALISATION_MODE_COUNTER = new Counter({
     name: 'difference_with_proposed_normalisation_mode',
@@ -232,28 +222,5 @@ export function normalizeEvent<T extends PipelineEvent | PluginEvent>(event: T):
     }
 
     event.properties = properties
-    return event
-}
-
-export function formPipelineEvent(message: Message): PipelineEvent {
-    // TODO: inefficient to do this twice?
-    const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
-    const combinedEvent: PipelineEvent = { ...JSON.parse(dataStr), ...rawEvent }
-
-    // Track $set usage in events that aren't known to use it, before ingestion adds anything there
-    if (
-        combinedEvent.properties &&
-        !PERSON_EVENTS.has(combinedEvent.event) &&
-        !KNOWN_SET_EVENTS.has(combinedEvent.event) &&
-        ('$set' in combinedEvent.properties ||
-            '$set_once' in combinedEvent.properties ||
-            '$unset' in combinedEvent.properties)
-    ) {
-        setUsageInNonPersonEventsCounter.inc()
-    }
-
-    const event: PipelineEvent = normalizeEvent({
-        ...combinedEvent,
-    })
     return event
 }

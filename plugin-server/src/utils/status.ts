@@ -1,7 +1,7 @@
 import pino from 'pino'
 
 import { defaultConfig } from '../config/config'
-import { LogLevel, Config } from '../types'
+import { Config,LogLevel } from '../types'
 import { isProdEnv } from './env-utils'
 
 export type StatusMethod = (icon: string, ...message: any[]) => void

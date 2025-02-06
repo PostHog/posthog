@@ -1,7 +1,7 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import LRU from 'lru-cache'
 
-import { TeamIDWithConfig } from '../../main/ingestion-queues/session-recording/session-recordings-consumer'
+import { TeamIDWithConfig } from '../../ingestion/session-recording/session-recordings-consumer'
 import { Config, PipelineEvent, ProjectId, Team, TeamId } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'

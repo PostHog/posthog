@@ -1,6 +1,6 @@
 import { CyclotronJob, CyclotronWorker } from '@posthog/cyclotron'
 
-import { runInstrumentedFunction } from '../../main/utils'
+import { runInstrumentedFunction } from '../../utils/instrument'
 import { status } from '../../utils/status'
 import { HogFunctionInvocation, HogFunctionInvocationResult, HogFunctionTypeType } from '../types'
 import { cyclotronJobToInvocation, invocationToCyclotronJobUpdate } from '../utils'

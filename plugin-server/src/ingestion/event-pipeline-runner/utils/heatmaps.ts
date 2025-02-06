@@ -1,8 +1,8 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { URL } from 'url'
 
-import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { RawClickhouseHeatmapEvent, TimestampFormat } from '../../../types'
+import { eventDroppedCounter } from '../../../utils/shared-metrics'
 import { status } from '../../../utils/status'
 import { castTimestampOrNow } from '../../../utils/utils'
 import { isDistinctIdIllegal } from '../../../worker/ingestion/person-state'

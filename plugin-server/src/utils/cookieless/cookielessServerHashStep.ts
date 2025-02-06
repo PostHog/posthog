@@ -4,15 +4,21 @@ import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 import { getDomain } from 'tldts'
 
-import { cookielessRedisErrorCounter, eventDroppedCounter } from '../../main/ingestion-queues/metrics'
-import { runInstrumentedFunction } from '../../main/utils'
 import { CookielessConfig, CookielessServerHashMode, Hub } from '../../types'
 import { toStartOfDayInTimezone, toYearMonthDayInTimezone } from '../../worker/ingestion/timestamps'
 import { ConcurrencyController } from '../concurrencyController'
 import { DB } from '../db/db'
 import { RedisOperationError } from '../db/error'
+import { runInstrumentedFunction } from '../instrument'
 import { now } from '../now'
+import { eventDroppedCounter } from '../shared-metrics'
 import { base64StringToUint32ArrayLE, createRandomUint32x4, uint32ArrayLEToBase64String, UUID7 } from '../utils'
+
+export const cookielessRedisErrorCounter = new Counter({
+    name: 'cookieless_redis_error',
+    help: 'Count redis errors.',
+    labelNames: ['operation'],
+})
 
 /* ---------------------------------------------------------------------
  * This pipeline step is used to get the distinct id and session id for events that are using the cookieless server hash mode.

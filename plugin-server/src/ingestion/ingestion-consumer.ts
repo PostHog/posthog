@@ -1,22 +1,15 @@
 import { captureException } from '@sentry/node'
 import { Message, MessageHeader } from 'node-rdkafka'
-import { Histogram } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../kafka/config'
 import { KafkaProducerWrapper } from '../kafka/producer'
-import { ingestionOverflowingMessagesTotal } from '../main/ingestion-queues/batch-processing/metrics'
-import { addSentryBreadcrumbsEventListeners } from '../main/ingestion-queues/kafka-metrics'
-import {
-    eventDroppedCounter,
-    ingestionPartitionKeyOverflowed,
-    latestOffsetTimestampGauge,
-    setUsageInNonPersonEventsCounter,
-} from '../main/ingestion-queues/metrics'
-import { runInstrumentedFunction } from '../main/utils'
 import { Hub, PipelineEvent, PluginServerService } from '../types'
 import { normalizeEvent } from '../utils/event'
+import { runInstrumentedFunction } from '../utils/instrument'
+import { eventDroppedCounter } from '../utils/shared-metrics'
 import { status } from '../utils/status'
 import { EventDroppedError, EventPipelineRunnerV2 } from './event-pipeline-runner/event-pipeline-runner'
 import { MemoryRateLimiter } from './utils/overflow-detector'
@@ -34,6 +27,22 @@ const histogramKafkaBatchSizeKb = new Histogram({
     name: 'ingestion_batch_size_kb',
     help: 'The size in kb of the batches we are receiving from Kafka',
     buckets: [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity],
+})
+
+const ingestionOverflowingMessagesTotal = new Counter({
+    name: 'ingestion_overflowing_messages_total',
+    help: 'Count of messages rerouted to the overflow topic.',
+})
+
+export const setUsageInNonPersonEventsCounter = new Counter({
+    name: 'set_usage_in_non_person_events',
+    help: 'Count of events where $set usage was found in non-person events',
+})
+
+export const ingestionPartitionKeyOverflowed = new Counter({
+    name: 'ingestion_partition_key_overflowed',
+    help: 'Indicates that a given key has overflowed capacity and been redirected to a different topic. Value incremented once a minute.',
+    labelNames: ['partition_key'],
 })
 
 type IncomingEvent = { message: Message; event: PipelineEvent }
@@ -164,14 +173,6 @@ export class IngestionConsumer {
         status.debug('🔁', `Waiting for promises`, { promises: this.promises.size })
         await this.runInstrumented('awaitScheduledWork', () => Promise.all(this.promises))
         status.debug('🔁', `Processed batch`)
-
-        for (const message of messages) {
-            if (message.timestamp) {
-                latestOffsetTimestampGauge
-                    .labels({ partition: message.partition, topic: message.topic, groupId: this.groupId })
-                    .set(message.timestamp)
-            }
-        }
     }
 
     private async processEventsForDistinctId(incomingEvents: IncomingEvent[]): Promise<void> {
@@ -318,8 +319,6 @@ export class IngestionConsumer {
             },
             callEachBatchWhenEmpty: false,
         })
-
-        addSentryBreadcrumbsEventListeners(this.batchConsumer.consumer)
 
         this.batchConsumer.consumer.on('disconnected', async (err) => {
             if (!this.isStopping) {

@@ -1,6 +1,6 @@
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../src/config/kafka-topics'
 import { startPluginsServer } from '../src/main/pluginsServer'
-import { Hub, LogLevel, PluginsServerConfig } from '../src/types'
+import { Config, Hub, LogLevel } from '../src/types'
 import { delay, UUIDT } from '../src/utils/utils'
 import { makePiscina } from '../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../src/worker/vm/extensions/posthog'
@@ -11,7 +11,7 @@ import { resetTestDatabase } from './helpers/sql'
 
 jest.setTimeout(60000) // 60 sec timeout
 
-const extraServerConfig: Partial<PluginsServerConfig> = {
+const extraServerConfig: Partial<Config> = {
     TASK_TIMEOUT: 2,
     KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
     LOG_LEVEL: LogLevel.Log,

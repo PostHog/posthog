@@ -1,21 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { defaultConfig } from '../../src/config/config'
-import {
-    Hub,
-    InternalPerson,
-    Plugin,
-    PluginAttachmentDB,
-    PluginConfig,
-    PluginsServerConfig,
-    ProjectId,
-    PropertyOperator,
-    RawAction,
-    RawOrganization,
-    RawPerson,
-    Team,
-    TeamId,
-} from '../../src/types'
+import { Config, Hub, InternalPerson, ProjectId, RawOrganization, RawPerson, Team, TeamId } from '../../src/types'
 import { DB } from '../../src/utils/db/db'
 import { PostgresRouter, PostgresUse } from '../../src/utils/db/postgres'
 import { UUIDT } from '../../src/utils/utils'
@@ -27,12 +13,6 @@ import {
     makePluginObjects,
 } from './plugins'
 
-export interface ExtraDatabaseRows {
-    plugins?: Omit<Plugin, 'id'>[]
-    pluginConfigs?: Omit<PluginConfig, 'id'>[]
-    pluginAttachments?: Omit<PluginAttachmentDB, 'id'>[]
-}
-
 export const POSTGRES_DELETE_TABLES_QUERY = `
 DO $$ DECLARE
   r RECORD;
@@ -43,12 +23,7 @@ BEGIN
 END $$;
 `
 
-export async function resetTestDatabase(
-    code?: string,
-    extraServerConfig: Partial<PluginsServerConfig> = {},
-    extraRows: ExtraDatabaseRows = {},
-    { withExtendedTestData = true }: { withExtendedTestData?: boolean } = {}
-): Promise<void> {
+export async function resetTestDatabase(code?: string, extraServerConfig: Partial<Config> = {}): Promise<void> {
     const config = { ...defaultConfig, ...extraServerConfig, POSTGRES_CONNECTION_POOL_SIZE: 1 }
     const db = new PostgresRouter(config)
     await db.query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_TABLES_QUERY, undefined, 'delete-tables')
@@ -57,45 +32,6 @@ export async function resetTestDatabase(
     const teamIds = mocks.pluginConfigRows.map((c) => c.team_id)
     const teamIdToCreate = teamIds[0]
     await createUserTeamAndOrganization(db, teamIdToCreate)
-    if (withExtendedTestData) {
-        await insertRow(db, 'posthog_action', {
-            id: teamIdToCreate + 67,
-            team_id: teamIdToCreate,
-            name: 'Test Action',
-            description: '',
-            created_at: new Date().toISOString(),
-            created_by_id: commonUserId,
-            deleted: false,
-            post_to_slack: true,
-            slack_message_format: '',
-            is_calculating: false,
-            updated_at: new Date().toISOString(),
-            last_calculated_at: new Date().toISOString(),
-            bytecode_error: null,
-            bytecode: null,
-            steps_json: [
-                {
-                    tag_name: null,
-                    text: null,
-                    href: null,
-                    selector: null,
-                    url: null,
-                    url_matching: null,
-                    event: null,
-                    properties: [{ type: 'event', operator: PropertyOperator.Exact, key: 'foo', value: ['bar'] }],
-                },
-            ],
-        } as RawAction)
-        for (const plugin of mocks.pluginRows.concat(extraRows.plugins ?? [])) {
-            await insertRow(db, 'posthog_plugin', plugin)
-        }
-        for (const pluginConfig of mocks.pluginConfigRows.concat(extraRows.pluginConfigs ?? [])) {
-            await insertRow(db, 'posthog_pluginconfig', pluginConfig)
-        }
-        for (const pluginAttachment of mocks.pluginAttachmentRows.concat(extraRows.pluginAttachments ?? [])) {
-            await insertRow(db, 'posthog_pluginattachment', pluginAttachment)
-        }
-    }
     await db.end()
 }
 
@@ -278,33 +214,6 @@ export async function getTeams(hub: Hub): Promise<Team[]> {
 
 export async function getFirstTeam(hub: Hub): Promise<Team> {
     return (await getTeams(hub))[0]
-}
-
-export const createPlugin = async (pg: PostgresRouter, plugin: Omit<Plugin, 'id'>) => {
-    return await insertRow(pg, 'posthog_plugin', {
-        ...plugin,
-        config_schema: {},
-        from_json: false,
-        from_web: false,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        is_preinstalled: false,
-        capabilities: {},
-    })
-}
-
-export const createPluginConfig = async (
-    pg: PostgresRouter,
-    pluginConfig: Omit<PluginConfig, 'id' | 'created_at' | 'enabled' | 'order' | 'config'>
-) => {
-    return await insertRow(pg, 'posthog_pluginconfig', {
-        ...pluginConfig,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        enabled: true,
-        order: 0,
-        config: {},
-    })
 }
 
 export const createOrganization = async (pg: PostgresRouter) => {

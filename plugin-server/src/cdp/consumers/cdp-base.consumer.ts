@@ -5,10 +5,9 @@ import { KAFKA_APP_METRICS_2, KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_LOG_ENTRIES }
 import { BatchConsumer, startBatchConsumer } from '../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { addSentryBreadcrumbsEventListeners } from '../../main/ingestion-queues/kafka-metrics'
-import { runInstrumentedFunction } from '../../main/utils'
 import { AppMetric2Type, Hub, PluginServerService, TeamId, TimestampFormat } from '../../types'
 import { safeClickhouseString } from '../../utils/db/utils'
+import { runInstrumentedFunction } from '../../utils/instrument'
 import { status } from '../../utils/status'
 import { castTimestampOrNow, UUIDT } from '../../utils/utils'
 import { CdpRedis, createCdpRedisPool } from '../redis'
@@ -288,8 +287,6 @@ export abstract class CdpConsumerBase {
             },
             callEachBatchWhenEmpty: false,
         })
-
-        addSentryBreadcrumbsEventListeners(this.batchConsumer.consumer)
 
         this.batchConsumer.consumer.on('disconnected', async (err) => {
             if (!this.isStopping) {

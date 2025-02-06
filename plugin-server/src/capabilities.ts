@@ -86,5 +86,8 @@ export function getPluginServerCapabilities(config: Config): PluginServerCapabil
                 appManagementSingleton: true,
                 ...sharedCapabilities,
             }
+
+        default:
+            throw new Error(`Unknown plugin server mode: ${mode}`)
     }
 }

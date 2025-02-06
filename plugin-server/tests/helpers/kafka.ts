@@ -3,7 +3,6 @@ import SnappyCodec from 'kafkajs-snappy'
 
 import { defaultConfig, overrideWithEnv } from '../../src/config/config'
 import {
-    KAFKA_BUFFER,
     KAFKA_EVENTS_JSON,
     KAFKA_EVENTS_PLUGIN_INGESTION,
     KAFKA_GROUPS,
@@ -11,16 +10,15 @@ import {
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
     KAFKA_PERSON_UNIQUE_ID,
-    KAFKA_PLUGIN_LOG_ENTRIES,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
 } from '../../src/config/kafka-topics'
-import { PluginsServerConfig } from '../../src/types'
+import { Config } from '../../src/types'
 import { KAFKA_EVENTS_DEAD_LETTER_QUEUE } from './../../src/config/kafka-topics'
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 
 /** Clear the Kafka queue and return Kafka object */
-export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig>): Promise<Kafka> {
+export async function resetKafka(extraServerConfig?: Partial<Config>): Promise<Kafka> {
     const config = { ...overrideWithEnv(defaultConfig, process.env), ...extraServerConfig }
     const kafka = new Kafka({
         clientId: `plugin-server-test`,
@@ -31,14 +29,12 @@ export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig
     await createTopics(kafka, [
         KAFKA_EVENTS_JSON,
         KAFKA_EVENTS_PLUGIN_INGESTION,
-        KAFKA_BUFFER,
         KAFKA_GROUPS,
         KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
         KAFKA_PERFORMANCE_EVENTS,
         KAFKA_PERSON,
         KAFKA_PERSON_UNIQUE_ID,
         KAFKA_PERSON_DISTINCT_ID,
-        KAFKA_PLUGIN_LOG_ENTRIES,
         KAFKA_EVENTS_DEAD_LETTER_QUEUE,
     ])
 

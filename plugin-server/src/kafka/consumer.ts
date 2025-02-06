@@ -10,9 +10,22 @@ import {
     TopicPartition,
     TopicPartitionOffset,
 } from 'node-rdkafka'
+import { Gauge } from 'prom-client'
 
-import { kafkaRebalancePartitionCount, latestOffsetTimestampGauge } from '../main/ingestion-queues/metrics'
 import { status } from '../utils/status'
+
+const kafkaRebalancePartitionCount = new Gauge({
+    name: 'kafka_rebalance_partition_count',
+    help: 'Number of partitions assigned to this consumer. (Calculated during rebalance events.)',
+    labelNames: ['topic'],
+})
+
+const latestOffsetTimestampGauge = new Gauge({
+    name: 'latest_processed_timestamp_ms',
+    help: 'Timestamp of the latest offset that has been committed.',
+    labelNames: ['topic', 'partition', 'groupId'],
+    aggregator: 'max',
+})
 
 export const createKafkaConsumer = async (config: ConsumerGlobalConfig, topicConfig: ConsumerTopicConfig = {}) => {
     // Creates a node-rdkafka consumer and connects it to the brokers, resolving

@@ -12,6 +12,7 @@ import {
     instrumentConsumerMetrics,
     storeOffsetsForMessages,
 } from './consumer'
+import { addSentryBreadcrumbsEventListeners } from './kafka-metrics'
 
 export interface BatchConsumer {
     consumer: KafkaConsumer
@@ -387,6 +388,8 @@ export const startBatchConsumer = async ({
             await mainLoop
         }
     }
+
+    addSentryBreadcrumbsEventListeners(consumer)
 
     return { isHealthy, stop, join, consumer }
 }
