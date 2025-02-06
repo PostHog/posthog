@@ -9,7 +9,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.core.paginator import Paginator
 
-# python manage.py migrate_plugins_to_hog_functions --dry-run --test-mode --kind=transformation --limit=10
+# python manage.py migrate_plugins_to_hog_functions --dry-run --test-mode --kind=transformation
 
 
 def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool):
@@ -80,11 +80,6 @@ def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool
             icon_url = (
                 plugin_config["plugin__icon"] or f"https://raw.githubusercontent.com/PostHog/{plugin_id}/main/logo.png"
             )
-
-            # Check it doesn't already exist
-            if HogFunction.objects.filter(template_id=f"plugin-{plugin_id}", type=kind, team_id=team.id).exists():
-                print(f"Skipping plugin {plugin_name} as it already exists as a hog function")  # noqa: T201
-                continue
 
             data = {
                 "template_id": f"plugin-{plugin_id}",
