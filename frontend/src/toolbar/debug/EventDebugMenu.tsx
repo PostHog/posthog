@@ -67,7 +67,7 @@ function EventTimestamp({ e }: { e: EventType }): JSX.Element {
     return (
         <div>
             <span>{ts.format(formatString)}</span>
-            <span className="text-xxs text-muted">{ts.format('.SSS')}</span>
+            <span className="text-xxs text-secondary">{ts.format('.SSS')}</span>
         </div>
     )
 }
@@ -168,7 +168,7 @@ export const EventDebugMenu = (): JSX.Element => {
                                         expanded ? markExpanded(null) : markExpanded(e.uuid || null)
                                     }}
                                 >
-                                    <div className="flex flex-row justify-between hover:bg-bg-light hover:text-text-3000">
+                                    <div className="flex flex-row justify-between hover:bg-surface-primary hover:text-accent-highlight">
                                         <EventTimestamp e={e} />
 
                                         <div className="flex flex-row items-end gap-1">
