@@ -48,12 +48,12 @@ describe('ip-anonymization.template', () => {
 
     it('should handle invalid IP address format', async () => {
         const invalidIPs = [
-            '89.160.20',  // missing octet
-            '',           // empty string
-            'abc.def.ghi.jkl',  // non-numeric
-            '256.256.256.256',  // values > 255
-            '1.2.3.4.5',  // too many octets
-            'not an ip'
+            '89.160.20', // missing octet
+            '', // empty string
+            'abc.def.ghi.jkl', // non-numeric
+            '256.256.256.256', // values > 255
+            '1.2.3.4.5', // too many octets
+            'not an ip',
         ]
 
         for (const invalidIP of invalidIPs) {
@@ -71,7 +71,7 @@ describe('ip-anonymization.template', () => {
             expect(response.error).toBeUndefined()
             expect(response.execResult).toMatchObject({
                 properties: {
-                    $ip: invalidIP,  // should return unchanged
+                    $ip: invalidIP,
                 },
             })
         }
