@@ -23,7 +23,7 @@ if (empty(inputs.identifier_value) or empty(inputs.identifier_key)) {
     return
 }
 
-let identifiers = {
+let identifiers := {
     inputs.identifier_key: inputs.identifier_value
 }
 
