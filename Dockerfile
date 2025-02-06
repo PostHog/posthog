@@ -23,7 +23,6 @@
 #
 FROM node:18.19.1-bookworm-slim AS frontend-build
 WORKDIR /code
-ENV NODE_OPTIONS="--max-old-space-size=7168"
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -36,8 +35,8 @@ COPY frontend/ frontend/
 COPY products/ products/
 COPY ee/frontend/ ee/frontend/
 COPY ./bin/ ./bin/
-COPY babel.config.js tsconfig.json webpack.config.js ./
-RUN pnpm build --concurrency=2
+COPY babel.config.js tsconfig.json webpack.config.js tailwind.config.js ./
+RUN pnpm build
 
 #
 # ---------------------------------------------------------
