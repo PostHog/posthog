@@ -709,6 +709,21 @@ class EventsQueryPersonColumn(BaseModel):
     uuid: str
 
 
+class ExperimentMetricMath(StrEnum):
+    TOTAL = "total"
+    SUM = "sum"
+    AVG = "avg"
+    MEDIAN = "median"
+    MIN = "min"
+    MAX = "max"
+
+
+class ExperimentMetricType(StrEnum):
+    COUNT = "count"
+    CONTINUOUS = "continuous"
+    FUNNEL = "funnel"
+
+
 class ExperimentSignificanceCode(StrEnum):
     SIGNIFICANT = "significant"
     NOT_ENOUGH_EXPOSURE = "not_enough_exposure"
@@ -1044,6 +1059,7 @@ class NodeKind(StrEnum):
     WEB_VITALS_PATH_BREAKDOWN_QUERY = "WebVitalsPathBreakdownQuery"
     EXPERIMENT_FUNNELS_QUERY = "ExperimentFunnelsQuery"
     EXPERIMENT_TRENDS_QUERY = "ExperimentTrendsQuery"
+    EXPERIMENT_QUERY = "ExperimentQuery"
     DATABASE_SCHEMA_QUERY = "DatabaseSchemaQuery"
     SUGGESTED_QUESTIONS_QUERY = "SuggestedQuestionsQuery"
     TEAM_TAXONOMY_QUERY = "TeamTaxonomyQuery"
@@ -2118,6 +2134,43 @@ class EventTaxonomyItem(BaseModel):
     property: str
     sample_count: int
     sample_values: list[str]
+
+
+class ExperimentDataWarehouseMetricConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    distinct_id_field: str
+    id_field: str
+    kind: Literal["ExperimentDataWarehouseMetricConfig"] = "ExperimentDataWarehouseMetricConfig"
+    math: Optional[ExperimentMetricMath] = None
+    math_hogql: Optional[str] = None
+    math_property: Optional[str] = None
+    table_name: str
+    timestamp_field: str
+
+
+class ExperimentEventMetricConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event: str
+    kind: Literal["ExperimentEventMetricConfig"] = "ExperimentEventMetricConfig"
+    math: Optional[ExperimentMetricMath] = None
+    math_hogql: Optional[str] = None
+    math_property: Optional[str] = None
+
+
+class ExperimentMetric(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    filterTestAccounts: Optional[bool] = None
+    inverse: Optional[bool] = None
+    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
+    metric_config: Union[ExperimentEventMetricConfig, ExperimentDataWarehouseMetricConfig]
+    metric_type: ExperimentMetricType
+    name: Optional[str] = None
 
 
 class FeaturePropertyFilter(BaseModel):
@@ -7181,6 +7234,20 @@ class ExperimentFunnelsQueryResponse(BaseModel):
     variants: list[ExperimentVariantFunnelsBaseStats]
 
 
+class ExperimentQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    experiment_id: Optional[int] = None
+    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
+    metric: ExperimentMetric
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    name: Optional[str] = None
+    response: Optional[ExperimentTrendsQueryResponse] = None
+
+
 class ExperimentTrendsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7189,80 +7256,6 @@ class ExperimentTrendsQuery(BaseModel):
     experiment_id: Optional[int] = None
     exposure_query: Optional[TrendsQuery] = None
     kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    name: Optional[str] = None
-    response: Optional[ExperimentTrendsQueryResponse] = None
-
-
-class ExperimentMetricType(Enum):
-    COUNT = "count"
-    CONTINUOUS = "continuous"
-    FUNNEL = "funnel"
-
-
-class ExperimentEventMetricConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    kind: Literal["ExperimentEventMetricProps"] = "ExperimentEventMetricProps"
-    event: str
-    math: Optional[Literal["total", "sum", "avg", "median", "min", "max"]] = None
-    math_hogql: Optional[str] = None
-    math_property: Optional[str] = None
-
-
-class ExperimentDataWarehouseMetricConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    kind: Literal["ExperimentDataWarehouseMetricConfig"] = "ExperimentDataWarehouseMetricConfig"
-    table_name: str
-    id_field: str
-    distinct_id_field: str
-    timestamp_field: str
-    math: Optional[Literal["total", "sum", "avg", "median", "min", "max"]] = None
-    math_hogql: Optional[str] = None
-    math_property: Optional[str] = None
-
-
-class ExperimentMetric(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        json_encoders={ExperimentMetricType: lambda x: x.value},
-    )
-    kind: Literal["ExperimentMetric"] = "ExperimentMetric"
-
-    # The name of the metric, ex. "Revenue"
-    name: Optional[str] = None
-
-    # The type of the metric, which we use to determine the statistical method to use
-    metric_type: ExperimentMetricType
-
-    # NOTE: adding this for compatibility with the existing codebase,
-    # but this will be moved up to experiment level. I am aware of the inconsitent
-    # naming here ... kept it like this to minmize changes.
-    filterTestAccounts: Optional[bool] = False
-
-    # Example of additional attributes that can be added to the metric
-    # Winsorize the metric at a certain percentile threshold, etc.
-    # Override priors
-    # Is the goal is to increase or decrease the metric, ex.
-    inverse: Optional[bool] = False
-
-    # This contains the properties required to evalutate the different kind of metrics
-    # NOTE: is there a better name for this?
-    metric_config: ExperimentEventMetricConfig | ExperimentDataWarehouseMetricConfig
-
-
-class ExperimentQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    metric: ExperimentMetric
-    experiment_id: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )

@@ -6616,6 +6616,61 @@
             "required": ["columns", "hogql", "results", "types"],
             "type": "object"
         },
+        "ExperimentDataWarehouseMetricConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "distinct_id_field": {
+                    "type": "string"
+                },
+                "id_field": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "ExperimentDataWarehouseMetricConfig",
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/ExperimentMetricMath"
+                },
+                "math_hogql": {
+                    "type": "string"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "table_name": {
+                    "type": "string"
+                },
+                "timestamp_field": {
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "table_name", "id_field", "distinct_id_field", "timestamp_field"],
+            "type": "object"
+        },
+        "ExperimentEventMetricConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "event": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "ExperimentEventMetricConfig",
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/ExperimentMetricMath"
+                },
+                "math_hogql": {
+                    "type": "string"
+                },
+                "math_property": {
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "event"],
+            "type": "object"
+        },
         "ExperimentFunnelsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -6708,6 +6763,74 @@
                 "expected_loss",
                 "credible_intervals"
             ],
+            "type": "object"
+        },
+        "ExperimentMetric": {
+            "additionalProperties": false,
+            "properties": {
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "inverse": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "ExperimentMetric",
+                    "type": "string"
+                },
+                "metric_config": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ExperimentEventMetricConfig"
+                        },
+                        {
+                            "$ref": "#/definitions/ExperimentDataWarehouseMetricConfig"
+                        }
+                    ]
+                },
+                "metric_type": {
+                    "$ref": "#/definitions/ExperimentMetricType"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "metric_type", "metric_config"],
+            "type": "object"
+        },
+        "ExperimentMetricMath": {
+            "enum": ["total", "sum", "avg", "median", "min", "max"],
+            "type": "string"
+        },
+        "ExperimentMetricType": {
+            "enum": ["count", "continuous", "funnel"],
+            "type": "string"
+        },
+        "ExperimentQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "experiment_id": {
+                    "$ref": "#/definitions/integer"
+                },
+                "kind": {
+                    "const": "ExperimentQuery",
+                    "type": "string"
+                },
+                "metric": {
+                    "$ref": "#/definitions/ExperimentMetric"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/ExperimentTrendsQueryResponse"
+                }
+            },
+            "required": ["kind", "metric"],
             "type": "object"
         },
         "ExperimentSignificanceCode": {
@@ -9325,6 +9448,7 @@
                 "WebVitalsPathBreakdownQuery",
                 "ExperimentFunnelsQuery",
                 "ExperimentTrendsQuery",
+                "ExperimentQuery",
                 "DatabaseSchemaQuery",
                 "SuggestedQuestionsQuery",
                 "TeamTaxonomyQuery",

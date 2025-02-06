@@ -101,6 +101,7 @@ export enum NodeKind {
     // Experiment queries
     ExperimentFunnelsQuery = 'ExperimentFunnelsQuery',
     ExperimentTrendsQuery = 'ExperimentTrendsQuery',
+    ExperimentQuery = 'ExperimentQuery',
 
     // Database metadata
     DatabaseSchemaQuery = 'DatabaseSchemaQuery',
@@ -1762,6 +1763,49 @@ export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryRes
     // Defaults to $feature_flag_called if not specified
     // https://github.com/PostHog/posthog/blob/master/posthog/hogql_queries/experiments/experiment_trends_query_runner.py
     exposure_query?: TrendsQuery
+}
+
+export enum ExperimentMetricType {
+    COUNT = 'count',
+    CONTINUOUS = 'continuous',
+    FUNNEL = 'funnel',
+}
+
+export type ExperimentMetricMath = 'total' | 'sum' | 'avg' | 'median' | 'min' | 'max'
+
+export interface ExperimentEventMetricConfig {
+    kind: 'ExperimentEventMetricConfig'
+    event: string
+    math?: ExperimentMetricMath
+    math_hogql?: string
+    math_property?: string
+}
+
+export interface ExperimentDataWarehouseMetricConfig {
+    kind: 'ExperimentDataWarehouseMetricConfig'
+    table_name: string
+    id_field: string
+    distinct_id_field: string
+    timestamp_field: string
+    math?: ExperimentMetricMath
+    math_hogql?: string
+    math_property?: string
+}
+
+export interface ExperimentMetric {
+    kind: 'ExperimentMetric'
+    name?: string
+    metric_type: ExperimentMetricType
+    filterTestAccounts?: boolean
+    inverse?: boolean
+    metric_config: ExperimentEventMetricConfig | ExperimentDataWarehouseMetricConfig
+}
+
+export interface ExperimentQuery extends DataNode<ExperimentTrendsQueryResponse> {
+    kind: NodeKind.ExperimentQuery
+    metric: ExperimentMetric
+    experiment_id?: integer
+    name?: string
 }
 
 /**
