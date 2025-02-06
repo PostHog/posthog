@@ -14,7 +14,7 @@ import { cloneObject } from '../../../utils/utils'
 import { EventsProcessor } from '../process-event'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
 import { compareToHogTransformStep } from './compareToHogTransformStep'
-import { cookielessServerHashStep } from '../../../ingestion/cookieless/cookieless-manager'
+import { cookielessServerHashStep } from './cookielessServerHashStep'
 import { createEventStep } from './createEventStep'
 import { emitEventStep } from './emitEventStep'
 import { extractHeatmapDataStep } from './extractHeatmapDataStep'
@@ -33,6 +33,7 @@ import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
 import { produceExceptionSymbolificationEventStep } from './produceExceptionSymbolificationEventStep'
 import { transformEventStep } from './transformEventStep'
+
 export type EventPipelineResult = {
     // Promises that the batch handler should await on before committing offsets,
     // contains the Kafka producer ACKs and message promises, to avoid blocking after every message.

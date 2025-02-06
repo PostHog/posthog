@@ -8,7 +8,7 @@ import { getDomain } from 'tldts'
 
 import { cookielessRedisErrorCounter, eventDroppedCounter } from '../../main/ingestion-queues/metrics'
 import { runInstrumentedFunction } from '../../main/utils'
-import { CookielessServerHashMode, Hub, PluginsServerConfig } from '../../types'
+import { CookielessServerHashMode, PluginsServerConfig } from '../../types'
 import { ConcurrencyController } from '../../utils/concurrencyController'
 import { RedisOperationError } from '../../utils/db/error'
 import { now } from '../../utils/now'
@@ -229,10 +229,10 @@ export class CookielessManager {
         )
     }
 
-    async processEvent(event: PluginEvent): Promise<[PluginEvent | undefined]> {
+    async processEvent(event: PluginEvent): Promise<PluginEvent | undefined> {
         // if events aren't using this mode, skip all processing
         if (!event.properties?.[COOKIELESS_MODE_FLAG_PROPERTY]) {
-            return [event]
+            return event
         }
 
         // if the killswitch is enabled, drop the event
@@ -243,7 +243,7 @@ export class CookielessManager {
                     drop_cause: 'cookieless_disabled_killswitch',
                 })
                 .inc()
-            return [undefined]
+            return undefined
         }
 
         try {
@@ -269,13 +269,13 @@ export class CookielessManager {
                 })
             }
 
-            return [undefined]
+            return undefined
         }
     }
 
     async cookielessServerHashStepInner(
         event: PluginEvent & { properties: Properties }
-    ): Promise<[PluginEvent | undefined]> {
+    ): Promise<PluginEvent | undefined> {
         // if the team isn't allowed to use this mode, drop the event
         const team = await this.teamManager.getTeamForEvent(event)
         if (!team?.cookieless_server_hash_mode) {
@@ -285,7 +285,7 @@ export class CookielessManager {
                     drop_cause: 'cookieless_disabled_team',
                 })
                 .inc()
-            return [undefined]
+            return undefined
         }
         const teamTimeZone = team.timezone
 
@@ -299,7 +299,7 @@ export class CookielessManager {
                     drop_cause: 'cookieless_no_timestamp',
                 })
                 .inc()
-            return [undefined]
+            return undefined
         }
         const { $session_id: sessionId, $device_id: deviceId } = event.properties
         if (sessionId != null || deviceId != null) {
@@ -309,7 +309,7 @@ export class CookielessManager {
                     drop_cause: sessionId != null ? 'cookieless_with_session_id' : 'cookieless_with_device_id',
                 })
                 .inc()
-            return [undefined]
+            return undefined
         }
 
         if (event.event === '$create_alias' || event.event === '$merge_dangerously') {
@@ -319,7 +319,7 @@ export class CookielessManager {
                     drop_cause: 'cookieless_unsupported_event_type',
                 })
                 .inc()
-            return [undefined]
+            return undefined
         }
 
         // if it's an identify event, it must have the sentinel distinct id
@@ -330,7 +330,7 @@ export class CookielessManager {
                     drop_cause: 'cookieless_missing_sentinel',
                 })
                 .inc()
-            return [undefined]
+            return undefined
         }
 
         const {
@@ -353,7 +353,7 @@ export class CookielessManager {
                         : 'cookieless_missing_host',
                 })
                 .inc()
-            return [undefined]
+            return undefined
         }
 
         if (team.cookieless_server_hash_mode === CookielessServerHashMode.Stateless || this.config.forceStatelessMode) {
@@ -365,7 +365,7 @@ export class CookielessManager {
                         drop_cause: 'cookieless_stateless_unsupported_identify',
                     })
                     .inc()
-                return [undefined]
+                return undefined
             }
 
             const hashValue = await this.doHash({
@@ -389,7 +389,7 @@ export class CookielessManager {
                 },
             }
             stripPIIProperties(newEvent)
-            return [newEvent]
+            return newEvent
         } else {
             // TRICKY: if a user were to log in and out, to avoid collisions, we would want a different hash value, so we store the set of identify event uuids for identifies
             // ASSUMPTION: all events are processed in order, for this to happen we need them to be in the same kafka topic at this point
@@ -498,7 +498,7 @@ export class CookielessManager {
 
             newEvent.properties = newProperties
             stripPIIProperties(newEvent)
-            return [newEvent]
+            return newEvent
         }
     }
 }

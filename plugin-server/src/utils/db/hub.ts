@@ -142,7 +142,7 @@ export async function createHub(
     const actionMatcher = new ActionMatcher(postgres, actionManager, teamManager)
     const groupTypeManager = new GroupTypeManager(postgres, teamManager)
 
-    const cookielessSaltManager = new CookielessManager(serverConfig, redisPool)
+    const cookielessSaltManager = new CookielessManager(serverConfig, redisPool, teamManager)
 
     const enqueuePluginJob = async (job: EnqueuedPluginJob) => {
         // NOTE: we use the producer directly here rather than using the wrapper
