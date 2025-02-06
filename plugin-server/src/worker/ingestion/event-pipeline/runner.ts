@@ -33,6 +33,7 @@ import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
 import { produceExceptionSymbolificationEventStep } from './produceExceptionSymbolificationEventStep'
 import { transformEventStep } from './transformEventStep'
+
 export type EventPipelineResult = {
     // Promises that the batch handler should await on before committing offsets,
     // contains the Kafka producer ACKs and message promises, to avoid blocking after every message.
