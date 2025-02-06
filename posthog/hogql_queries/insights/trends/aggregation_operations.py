@@ -161,9 +161,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         )
 
     def _math_quantile(self, percentile: float, override_chain: Optional[list[str | int]]) -> ast.Call:
-        if override_chain is not None:
-            chain = override_chain
-        elif self.series.math_property == "$session_duration":
+        if self.series.math_property == "$session_duration":
             chain = ["session_duration"]
         else:
             chain = ["properties", self.series.math_property]
@@ -179,7 +177,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 ast.Call(
                     name="quantile",
                     params=[ast.Constant(value=percentile)],
-                    args=[ast.Call(name="toFloat", args=[ast.Field(chain=chain)])],
+                    args=[ast.Call(name="toFloat", args=[ast.Field(chain=override_chain or chain)])],
                 ),
                 ast.Constant(value=0),
             ],
