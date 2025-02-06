@@ -279,7 +279,7 @@
 
             &::after {
                 position: absolute;
-                inset: -1px -1px calc(var(--lemon-button-chrome-depth) - 1px) -1px;
+                inset: -1px -1px calc(var(--lemon-button-chrome-depth) - 1px);
                 z-index: 0;
                 content: '';
                 background: var(--lemon-button-bg-color);

@@ -55,7 +55,7 @@ export function PrimitiveColors(): JSX.Element {
         <div className="flex gap-4 flex-wrap items-start">
             {Array.from(primtiveColorMap.entries()).map(([colorName, steps]) => (
                 <div key={colorName} className="flex flex-col gap-1">
-                    <div className="content-primary font-medium">{colorName}</div>
+                    <div className="text-primary font-medium">{colorName}</div>
                     <div className="flex flex-col gap-1">
                         {steps.map((step) => (
                             <div key={step} className="flex items-center gap-2">
@@ -64,7 +64,7 @@ export function PrimitiveColors(): JSX.Element {
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{ backgroundColor: `var(--${colorName}-${step})` }}
                                 />
-                                <div className="text-sm content-primary">{step}</div>
+                                <div className="text-sm text-primary">{step}</div>
                             </div>
                         ))}
                     </div>
@@ -104,7 +104,7 @@ export function BrandAccentColors(): JSX.Element {
             </div>
 
             <div className="flex flex-col gap-2 border border-border rounded-md p-2">
-                <div className="content-primary font-medium">Primary accent color</div>
+                <div className="text-primary font-medium">Primary accent color</div>
 
                 <div className="flex gap-2">
                     <label className="flex flex-col gap-1 flex-1">
@@ -129,7 +129,7 @@ export function BrandAccentColors(): JSX.Element {
             </div>
 
             <div className="flex flex-col gap-2 border border-border rounded-md p-2">
-                <div className="content-primary font-medium">Secondary accent color</div>
+                <div className="text-primary font-medium">Secondary accent color</div>
                 <div className="flex gap-2">
                     <label className="flex flex-col gap-1 flex-1">
                         <label htmlFor="secondary-hue">Hue</label>
@@ -253,30 +253,31 @@ export function SemanticColors(): JSX.Element {
     ]
     const textOnFillColors: RenderColorConfig[] = [
         {
-            tailwindClass: 'text-info-on-bg-fill',
-            description: 'the main text color on an info fill',
-            name: '--text-info-on-bg-fill',
+            tailwindClass: 'text-info-on-fill',
+            description: 'the info text color on an info fill',
+            name: '--text-info-on-fill',
         },
         {
-            tailwindClass: 'text-warning-on-bg-fill',
-            description: 'the main text color on a warning fill',
-            name: '--text-warning-on-bg-fill',
+            tailwindClass: 'text-warning-on-fill',
+            description: 'the warning text color on a warning fill',
+            name: '--text-warning-on-fill',
         },
         {
-            tailwindClass: 'text-error-on-bg-fill',
-            description: 'the main text color on an error fill',
-            name: '--text-error-on-bg-fill',
+            tailwindClass: 'text-error-on-fill',
+            description: 'the error text color on an error fill',
+            name: '--text-error-on-fill',
         },
         {
-            tailwindClass: 'text-success-on-bg-fill',
-            description: 'the main text color on a success fill',
-            name: '--text-success-on-bg-fill',
+            tailwindClass: 'text-success-on-fill',
+            description: 'the success text color on a success fill',
+            name: '--text-success-on-fill',
         },
     ]
     const backgroundColors: RenderColorConfig[] = [
         {
             tailwindClass: 'bg-primary',
-            description: 'the main background color',
+            description:
+                'the main background color, use behind everything, or on something to fade into the background',
             name: '--bg-primary',
         },
     ]
@@ -352,6 +353,16 @@ export function SemanticColors(): JSX.Element {
             tailwindClass: 'bg-fill-success-secondary',
             description: 'the main fill color on a success fill',
             name: '--bg-fill-success-secondary',
+        },
+        {
+            tailwindClass: 'bg-fill-success-highlight',
+            description: 'the success highlight fill color',
+            name: '--bg-fill-success-highlight',
+        },
+        {
+            tailwindClass: 'bg-fill-success-tertiary',
+            description: 'the success tertiary fill color',
+            name: '--bg-fill-success-tertiary',
         },
         {
             tailwindClass: 'bg-fill-input',

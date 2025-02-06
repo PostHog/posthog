@@ -40,22 +40,18 @@ module.exports = {
                 message: 'Expected variable to match kebab-case or snake_case',
             },
         ],
-        'scss/at-rule-no-unknown': [
-            true,
-            {
-                ignoreAtRules: ['tailwind'],
-            },
-        ],
+        'at-rule-no-unknown': null,
+        'scss/at-rule-no-unknown': null, // For tailwind v4
         'scss/operator-no-newline-after': null, // Doesn't always play well with prettier
         'scss/at-extend-no-missing-placeholder': null,
         'scss/comment-no-empty': [
             true,
-            {
-                ignoreAtRules: ['theme', 'custom-variant'],
+            {   
+                ignoreAtRules: ['theme', 'custom-variant'], // For tailwind v4
             },
         ],
-        'scss/at-rule-no-unknown': null,
         'order/order': ['dollar-variables', 'custom-properties', 'declarations', 'rules', 'at-rules'],
         'color-function-notation': ['modern', { ignore: ['with-var-inside'] }],
+        'hue-degree-notation': null,
     },
 }
