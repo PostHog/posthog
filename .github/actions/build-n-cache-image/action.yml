@@ -24,6 +24,10 @@ inputs:
     dockerhub-password:
         required: false
         description: Dockerhub password for pushing image
+    pr-number:
+        required: false
+        default: ''
+        description: PR number for tagging the image
 
 outputs:
     tag:
@@ -74,8 +78,10 @@ runs:
           run: |
               TAGS="posthog/posthog:${{ github.sha }}"
               if [[ "${{ inputs.push-image }}" == "true" ]]; then
-                echo "HELLOOOOO"
                 TAGS="$TAGS,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:${{ github.sha }}"
+              fi
+              if [[ "${{ inputs.pr-number }}" != "" ]]; then
+                TAGS="$TAGS,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:pr-${{ inputs.pr-number }}"
               fi
               echo "tag=$TAGS" >> $GITHUB_OUTPUT
 

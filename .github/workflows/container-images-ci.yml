@@ -46,6 +46,7 @@ jobs:
                   aws-access-secret: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
+                  pr-number: ${{ github.event.number }}
 
     deploy_preview:
         name: Deploy preview environment
