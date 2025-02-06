@@ -466,7 +466,7 @@ class Resolver(CloningVisitor):
         else:
             node.type = ast.UnknownType()
 
-        dataclasses.replace(node.type, nullable=left_type.nullable or right_type.nullable)
+        node.type.nullable = left_type.nullable or right_type.nullable
         return node
 
     def visit_call(self, node: ast.Call):
