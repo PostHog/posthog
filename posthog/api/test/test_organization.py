@@ -452,14 +452,14 @@ class TestOrganizationRbacMigrations(APIBaseTest):
         self.assertEqual(base_access.resource_id, str(team_with_access_control.id))
 
         # Verify admin access control was created
-        admin_access = AccessControl.objects.get(
+        admin_access = AccessControl.objects.filter(
             team=team_with_access_control,
             organization_member=cast(OrganizationMembership, self.admin_user.organization_memberships.first()),
             access_level="admin",
             resource="project",
             resource_id=str(team_with_access_control.id),
         )
-        self.assertIsNotNone(admin_access)
+        self.assertEqual(admin_access.count(), 0)
 
         # Verify member access control was created
         member_access = AccessControl.objects.get(
@@ -566,14 +566,15 @@ class TestOrganizationRbacMigrations(APIBaseTest):
         )
         self.assertIsNotNone(base_access)
 
-        admin_access = AccessControl.objects.get(
+        admin_access = AccessControl.objects.filter(
             team=team_with_access_control,
             organization_member=cast(OrganizationMembership, self.admin_user.organization_memberships.first()),
             access_level="admin",
             resource="project",
             resource_id=str(team_with_access_control.id),
         )
-        self.assertIsNotNone(admin_access)
+        # Shouldn't exist
+        self.assertEqual(admin_access.count(), 0)
 
         member_access = AccessControl.objects.get(
             team=team_with_access_control,
@@ -585,5 +586,5 @@ class TestOrganizationRbacMigrations(APIBaseTest):
         self.assertIsNotNone(member_access)
 
         # Verify total number of access controls
-        # 2 feature flags + 3 team access controls (base + admin + member)
-        self.assertEqual(AccessControl.objects.count(), 5)
+        # 2 feature flags + 2 team access controls (base + member)
+        self.assertEqual(AccessControl.objects.count(), 4)
