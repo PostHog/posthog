@@ -552,7 +552,7 @@ class JavaScriptCompiler(Visitor):
         self._end_scope()
         self.stl_functions.add("__lambda")
         # we wrap it in __lambda() to make the function anonymous (a true lambda without a name)
-        return f"__lambda(({params_code}) => {expr_code})"
+        return f"__lambda(({params_code}) => ({expr_code}))"
 
     def visit_dict(self, node: ast.Dict):
         items = []
