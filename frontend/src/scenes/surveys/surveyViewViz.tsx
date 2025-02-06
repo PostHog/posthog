@@ -1,4 +1,3 @@
-import { offset } from '@floating-ui/react'
 import {
     IconInfo,
     IconSparkles,
@@ -6,9 +5,8 @@ import {
     IconThumbsDownFilled,
     IconThumbsUp,
     IconThumbsUpFilled,
-    IconX,
 } from '@posthog/icons'
-import { LemonButton, LemonTable, Popover, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -22,8 +20,9 @@ import { useEffect, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
-import { surveyDataProcessingLogic } from 'scenes/surveys/suveyDataProcessingLogic'
+import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
 import { GraphType } from '~/types'
 import { InsightLogicProps, SurveyQuestionType } from '~/types'
@@ -644,76 +643,32 @@ export function OpenTextViz({
 }
 
 function ResponseSummariesButton({ questionIndex }: { questionIndex: number | undefined }): JSX.Element {
-    const [popOverClosed, setPopOverClosed] = useState(false)
-
     const { summarize } = useActions(surveyLogic)
     const { responseSummary, responseSummaryLoading } = useValues(surveyLogic)
-    const { surveyDataProcessingAccepted, surveyDataProcessingRefused } = useValues(surveyDataProcessingLogic)
-    const { acceptSurveyDataProcessing, refuseSurveyDataProcessing } = useActions(surveyDataProcessingLogic)
+    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
 
-    const summarizeButton = (
-        <LemonButton
-            type="secondary"
-            data-attr="summarize-survey"
-            onClick={() => summarize({ questionIndex })}
-            disabledReason={
-                surveyDataProcessingRefused
-                    ? 'OpenAI processing refused'
-                    : responseSummaryLoading
-                    ? 'Let me think...'
-                    : responseSummary
-                    ? 'Already summarized'
-                    : undefined
-            }
-            icon={<IconSparkles />}
-        >
-            {responseSummaryLoading ? (
-                <>
-                    Let me think...
-                    <Spinner />
-                </>
-            ) : (
-                <>Summarize responses</>
-            )}
-        </LemonButton>
-    )
     return (
         <FlaggedFeature flag={FEATURE_FLAGS.AI_SURVEY_RESPONSE_SUMMARY} match={true}>
-            {surveyDataProcessingAccepted ? (
-                summarizeButton
-            ) : (
-                <Popover
-                    overlay={
-                        <div className="mx-1.5 my 0.5 flex flex-col gap-1">
-                            <div className="flex justify-end">
-                                <LemonButton size="small" icon={<IconX />} onClick={() => setPopOverClosed(true)} />
-                            </div>
-                            <div>
-                                <p className="font-medium text-pretty mb-1.5">
-                                    Uses OpenAI services to analyze your survey responses,
-                                    <br />
-                                    This <em>can</em> include personal data of your users,
-                                    <br />
-                                    if they include it in their responses.
-                                    <br />
-                                    <em>Your data won't be used for training models.</em>
-                                </p>
-                            </div>
-                            <LemonButton type="secondary" size="small" onClick={() => acceptSurveyDataProcessing()}>
-                                Got it, I accept OpenAI processing survey data
-                            </LemonButton>
-                            <LemonButton type="secondary" size="small" onClick={() => refuseSurveyDataProcessing()}>
-                                No thanks, I don't want OpenAI processing survey data
-                            </LemonButton>
-                        </div>
+            <AIConsentPopoverWrapper showArrow>
+                <LemonButton
+                    type="secondary"
+                    data-attr="summarize-survey"
+                    onClick={() => summarize({ questionIndex })}
+                    disabledReason={
+                        !dataProcessingAccepted
+                            ? dataProcessingApprovalDisabledReason || 'Data processing not accepted'
+                            : responseSummaryLoading
+                            ? 'Let me think...'
+                            : responseSummary
+                            ? 'Already summarized'
+                            : undefined
                     }
-                    middleware={[offset(-12)]}
-                    showArrow
-                    visible={!popOverClosed && !surveyDataProcessingAccepted && !surveyDataProcessingRefused}
+                    icon={<IconSparkles />}
+                    loading={responseSummaryLoading}
                 >
-                    {summarizeButton}
-                </Popover>
-            )}
+                    {responseSummaryLoading ? 'Let me think...' : 'Summarize responses'}
+                </LemonButton>
+            </AIConsentPopoverWrapper>
         </FlaggedFeature>
     )
 }
