@@ -10,14 +10,13 @@ version = 1
 # the `[install]` section.
 [install]
 # Python
-python3 = { pkg-path = "python3", version = "3.11", pkg-group = "python" }
+python3 = { pkg-path = "python3", version = "3.11.9", pkg-group = "python" } # Same as in Dockerfile
 uv = { pkg-path = "uv", pkg-group = "python" }
 libtool = { pkg-path = "libtool", pkg-group = "python" }
 # Node
-nodejs = { pkg-path = "nodejs_18", pkg-group = "nodejs" }
+nodejs = { pkg-path = "nodejs_18", pkg-group = "nodejs", version = "nodejs-18.19.1" } # Same as in Dockerfile
 corepack = { pkg-path = "corepack", pkg-group = "nodejs" }
 brotli = { pkg-path = "brotli", pkg-group = "nodejs" }
-nodemon = { pkg-path = "nodemon", pkg-group = "nodejs", version = "3.1" }
 # Rust toolchain (based on https://flox.dev/docs/cookbook/languages/rust/)
 cargo.pkg-path = "cargo"
 cargo.pkg-group = "rust-toolchain"
@@ -36,7 +35,8 @@ libiconv.pkg-group = "rust-toolchain"
 # Go
 go = { pkg-path = "go", version = "1.22", pkg-group = "go" }
 # Top level
-mprocs.pkg-path = "mprocs"
+mprocs = { pkg-path = "mprocs" }
+nodemon = { pkg-path = "nodemon" }
 xmlsec = { pkg-path = "xmlsec", version = "1.3.6" }
 
 # Set environment variables in the `[vars]` section. These variables may not
@@ -82,11 +82,14 @@ source "$PYTHON_DIR/bin/activate"
 
 # Install Python dependencies (this is practically instant thanks to uv)
 uv pip install -q -r requirements.txt -r requirements-dev.txt
+echo "Python dependencies ready"
 
 # Install top-level Node dependencies (only if not present all yet, because this takes almost a second even with pnpm)
 # This also sets up pre-commit hooks via Husky
 if [ ! -d "node_modules" ]; then
+  echo "Installing Node dependencies..."
   pnpm install -s
+  echo "Node dependencies ready"
 fi
 
 if [[ -t 0 ]]; then # The block below only runs when in an interactive shell
