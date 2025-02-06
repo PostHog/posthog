@@ -1,5 +1,6 @@
 packages:
     - '.'
+    - frontend
     - plugin-server
     - common/plugin_transpiler
     - common/hogvm/typescript
