@@ -6,7 +6,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from json import JSONDecodeError
-from typing import Any, Optional, cast
+from typing import Any, Optional, cast, Literal
 
 from posthoganalytics.ai.openai import OpenAI
 from urllib.parse import urlparse
@@ -19,7 +19,7 @@ from django.core.cache import cache
 from django.http import HttpResponse, JsonResponse
 from drf_spectacular.utils import extend_schema
 from prometheus_client import Counter, Histogram
-from pydantic import ValidationError
+from pydantic import ValidationError, BaseModel
 from rest_framework import exceptions, request, serializers, viewsets, status
 from rest_framework.mixins import UpdateModelMixin
 from rest_framework.renderers import JSONRenderer
@@ -85,6 +85,15 @@ STREAM_RESPONSE_TO_CLIENT_HISTOGRAM = Histogram(
     "session_snapshots_stream_response_to_client_histogram",
     "Time taken to stream a session snapshot to the client",
 )
+
+
+class ChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+
+
+class AiFilterRequest(BaseModel):
+    messages: list[ChatMessage]
 
 
 class SurrogatePairSafeJSONEncoder(JSONEncoder):
@@ -836,13 +845,16 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         if not request.user.is_authenticated:
             raise exceptions.NotAuthenticated()
 
-        if "messages" not in request.data:
-            raise exceptions.ValidationError("Missing required field: messages")
+        try:
+            # Validate request data against schema
+            request_data = AiFilterRequest(messages=[ChatMessage(**msg) for msg in request.data.get("messages", [])])
+        except ValidationError as e:
+            raise exceptions.ValidationError(f"Invalid message format: {str(e)}")
 
         # Create system prompt by combining the initial and properties prompts
         system_message = {"role": "system", "content": AI_FILTER_INITIAL_PROMPT + AI_FILTER_PROPERTIES_PROMPT}
         # Combine system prompt with user messages
-        messages = [system_message, *request.data["messages"]]
+        messages = [system_message, *request_data.messages]
 
         client = _get_openai_client()
 
