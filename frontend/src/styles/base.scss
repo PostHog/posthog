@@ -239,8 +239,8 @@
     // Content on fills
     // Texts which are on colourful fills, ensures contrast
     // //////////////////////////////////////////////////////////
-    --text-warning-on-fill: light-dark(var(--color-yellow-800), var(--color-yellow-50)); /* On-fill text for warning */
     --text-info-on-fill: light-dark(var(--color-blue-800), var(--color-blue-50)); /* On-fill text for info */
+    --text-warning-on-fill: light-dark(var(--color-yellow-800), var(--color-yellow-50)); /* On-fill text for warning */
     --text-error-on-fill: light-dark(var(--color-red-800), var(--color-red-50)); /* On-fill text for error */
     --text-success-on-fill: light-dark(var(--color-green-800), var(--color-green-50)); /* On-fill text for success */
 

@@ -345,18 +345,19 @@ const config = {
             },
             backgroundColor: {
                 ...commonColors,
-                'bg-primary': 'var(--bg-primary)',
-                
+                'primary': 'var(--bg-primary)',
+
                 'surface-primary': 'var(--bg-surface-primary)',
                 'surface-secondary': 'var(--bg-surface-secondary)',
                 'surface-tertiary': 'var(--bg-surface-tertiary)',
                 'surface-tooltip': 'var(--bg-surface-tooltip)',
                 'surface-popover': 'var(--bg-surface-popover)',
-    
+                
                 'fill-primary': 'var(--bg-fill-primary)',
                 'fill-secondary': 'var(--bg-fill-secondary)',
                 'fill-tertiary': 'var(--bg-fill-tertiary)',
                 'fill-info-secondary': 'var(--bg-fill-info-secondary)',
+                'fill-input': 'var(--bg-fill-input)',
                 'fill-info-tertiary': 'var(--bg-fill-info-tertiary)',
                 'fill-info-highlight': 'var(--bg-fill-info-highlight)',
                 'fill-warning-secondary': 'var(--bg-fill-warning-secondary)',
