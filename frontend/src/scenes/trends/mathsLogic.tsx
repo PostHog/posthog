@@ -1,5 +1,4 @@
 import { connect, kea, path, selectors } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -388,8 +387,8 @@ export const mathsLogic = kea<mathsLogicType>([
     }),
     selectors({
         mathDefinitions: [
-            (s) => [s.groupsMathDefinitions, s.featureFlags],
-            (groupsMathDefinitions, featureFlags): Record<string, MathDefinition> => {
+            (s) => [s.groupsMathDefinitions],
+            (groupsMathDefinitions): Record<string, MathDefinition> => {
                 const allMathDefinitions: Record<string, MathDefinition> = {
                     ...BASE_MATH_DEFINITIONS,
                     ...groupsMathDefinitions,
@@ -397,27 +396,27 @@ export const mathsLogic = kea<mathsLogicType>([
                     ...COUNT_PER_ACTOR_MATH_DEFINITIONS,
                     ...HOGQL_MATH_DEFINITIONS,
                 }
-                return filterMathTypesUnderFeatureFlags(allMathDefinitions, featureFlags)
+                return allMathDefinitions
             },
         ],
         funnelMathDefinitions: [
-            (s) => [s.featureFlags],
-            (featureFlags): Record<string, MathDefinition> => {
+            () => [],
+            (): Record<string, MathDefinition> => {
                 const funnelMathDefinitions: Record<string, MathDefinition> = {
                     ...FUNNEL_MATH_DEFINITIONS,
                 }
-                return filterMathTypesUnderFeatureFlags(funnelMathDefinitions, featureFlags)
+                return funnelMathDefinitions
             },
         ],
         // Static means the options do not have nested selectors (like math function)
         staticMathDefinitions: [
-            (s) => [s.groupsMathDefinitions, s.needsUpgradeForGroups, s.featureFlags],
-            (groupsMathDefinitions, needsUpgradeForGroups, featureFlags): Record<string, MathDefinition> => {
+            (s) => [s.groupsMathDefinitions, s.needsUpgradeForGroups],
+            (groupsMathDefinitions, needsUpgradeForGroups): Record<string, MathDefinition> => {
                 const staticMathDefinitions: Record<string, MathDefinition> = {
                     ...BASE_MATH_DEFINITIONS,
                     ...(!needsUpgradeForGroups ? groupsMathDefinitions : {}),
                 }
-                return filterMathTypesUnderFeatureFlags(staticMathDefinitions, featureFlags)
+                return staticMathDefinitions
             },
         ],
         staticActorsOnlyMathDefinitions: [
@@ -462,14 +461,3 @@ export const mathsLogic = kea<mathsLogicType>([
         ],
     }),
 ])
-
-export function filterMathTypesUnderFeatureFlags(
-    mathDefinitions: Record<string, MathDefinition>,
-    featureFlags: Record<string, boolean | string>
-): Record<string, MathDefinition> {
-    const copy = { ...mathDefinitions }
-    if (!featureFlags[FEATURE_FLAGS.FIRST_TIME_FOR_USER_MATH]) {
-        delete copy[BaseMathType.FirstTimeForUser]
-    }
-    return copy
-}
