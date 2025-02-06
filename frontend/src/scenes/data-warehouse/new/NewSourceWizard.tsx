@@ -1,5 +1,5 @@
 import { LemonButton, LemonTable, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -234,7 +234,13 @@ function FirstStep(): JSX.Element {
 function SecondStep(): JSX.Element {
     const { selectedConnector } = useValues(sourceWizardLogic)
 
-    return selectedConnector ? <SourceForm sourceConfig={selectedConnector} /> : <DatawarehouseTableForm />
+    return selectedConnector ? (
+        <SourceForm sourceConfig={selectedConnector} />
+    ) : (
+        <BindLogic logic={dataWarehouseTableLogic} props={{ id: 'new' }}>
+            <DatawarehouseTableForm />
+        </BindLogic>
+    )
 }
 
 function ThirdStep(): JSX.Element {

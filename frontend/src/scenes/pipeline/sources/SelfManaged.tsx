@@ -14,16 +14,11 @@ interface SelfManagedProps {
 
 export const SelfManaged = ({ id }: SelfManagedProps): JSX.Element => {
     const { table } = useValues(dataWarehouseTableLogic({ id }))
-    const { updateTable, resetTable, editingTable } = useActions(dataWarehouseTableLogic({ id }))
+    const { updateTable, editingTable } = useActions(dataWarehouseTableLogic({ id }))
 
     return (
         <BindLogic logic={dataWarehouseTableLogic} props={{ id }}>
-            <SelfManagedTable
-                table={table}
-                updateTable={updateTable}
-                resetTable={resetTable}
-                editingTable={editingTable}
-            />
+            <SelfManagedTable table={table} updateTable={updateTable} editingTable={editingTable} />
         </BindLogic>
     )
 }
@@ -31,11 +26,10 @@ export const SelfManaged = ({ id }: SelfManagedProps): JSX.Element => {
 interface Props {
     table: DataWarehouseTable
     updateTable: (tablePayload: any) => void
-    resetTable: (values?: DataWarehouseTable | undefined) => void
     editingTable: (editing: boolean) => void
 }
 
-export function SelfManagedTable({ table, updateTable, resetTable, editingTable }: Props): JSX.Element {
+export function SelfManagedTable({ table, updateTable, editingTable }: Props): JSX.Element {
     return (
         <>
             <PageHeader
@@ -43,7 +37,6 @@ export function SelfManagedTable({ table, updateTable, resetTable, editingTable 
                     <LemonButton
                         type="secondary"
                         onClick={() => {
-                            resetTable()
                             editingTable(false)
                             router.actions.push(urls.pipeline())
                         }}
