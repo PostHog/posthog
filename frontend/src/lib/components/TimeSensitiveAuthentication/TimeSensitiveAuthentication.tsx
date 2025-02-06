@@ -54,9 +54,8 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
             }
         >
             <p>
-                Before accessing and changing sensitive settings, we ask you
-                <br />
-                to re-authenticate. Just to ensure you are you!
+                Before accessing and changing sensitive settings, we ask you to&nbsp;re-authenticate. Just to ensure you
+                are you!
             </p>
 
             {showPassword ? (
