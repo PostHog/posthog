@@ -1,11 +1,13 @@
 import type { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { cookielessRedisErrorCounter } from '../../../src/main/ingestion-queues/metrics'
-import { CookielessServerHashMode, Hub } from '../../../src/types'
-import { RedisOperationError } from '../../../src/utils/db/error'
-import { closeHub, createHub } from '../../../src/utils/db/hub'
-import { PostgresUse } from '../../../src/utils/db/postgres'
-import { UUID7 } from '../../../src/utils/utils'
+import { createOrganization, createTeam } from '~/tests/helpers/sql'
+
+import { cookielessRedisErrorCounter } from '../../main/ingestion-queues/metrics'
+import { CookielessServerHashMode, Hub } from '../../types'
+import { RedisOperationError } from '../../utils/db/error'
+import { closeHub, createHub } from '../../utils/db/hub'
+import { PostgresUse } from '../../utils/db/postgres'
+import { UUID7 } from '../../utils/utils'
 import {
     bufferToSessionState,
     COOKIELESS_MODE_FLAG_PROPERTY,
@@ -13,9 +15,27 @@ import {
     cookielessServerHashStep,
     sessionStateToBuffer,
     toYYYYMMDDInTimezoneSafe,
-} from '../../../src/worker/ingestion/event-pipeline/cookielessServerHashStep'
-import { createOrganization, createTeam } from '../../helpers/sql'
-import { deepFreeze } from '../../testUtils'
+} from './cookieless-manager'
+
+function deepFreeze<T extends object>(t: T): T {
+    function deepFreezeInner(obj: any) {
+        if (obj === null || typeof obj !== 'object') {
+            return
+        }
+        if (Object.isFrozen(obj)) {
+            return
+        }
+        Object.freeze(obj)
+        Object.keys(obj).forEach((key) => {
+            if (key in obj) {
+                deepFreezeInner(obj[key])
+            }
+        })
+        return obj
+    }
+    deepFreezeInner(t)
+    return t
+}
 
 describe('cookielessServerHashStep', () => {
     describe('sessionStateToBuffer', () => {
@@ -141,7 +161,7 @@ describe('cookielessServerHashStep', () => {
         beforeEach(async () => {
             teamId = await createTeam(hub.db.postgres, organizationId)
             await clearRedis()
-            hub.cookielessSaltManager.deleteAllLocalSalts()
+            hub.cookielessManager.deleteAllLocalSalts()
             event = deepFreeze({
                 event: 'test event',
                 distinct_id: COOKIELESS_SENTINEL_VALUE,
@@ -315,7 +335,7 @@ describe('cookielessServerHashStep', () => {
             })
             it('should work even if the local salt map is torn down between events (as it can use redis)', async () => {
                 const [actual1] = await cookielessServerHashStep(hub, event)
-                hub.cookielessSaltManager.deleteAllLocalSalts()
+                hub.cookielessManager.deleteAllLocalSalts()
                 const [actual2] = await cookielessServerHashStep(hub, eventABitLater)
 
                 if (!actual1?.properties || !actual2?.properties) {
