@@ -1,4 +1,5 @@
 import 'react-data-grid/lib/styles.css'
+import './DataGrid.scss'
 
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonTabs, Spinner } from '@posthog/lemon-ui'
@@ -114,7 +115,7 @@ export function OutputPane(): JSX.Element {
             <div className="flex flex-row justify-between align-center py-2 px-4 w-full h-[55px]">
                 <LemonTabs
                     activeKey={activeTab}
-                    onChange={(tab) => setActiveTab(tab as OutputTab)}
+                    onChange={(tab) => setActiveTab(tab)}
                     tabs={[
                         {
                             key: OutputTab.Results,
@@ -328,8 +329,8 @@ const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: an
                     queryCancelled
                         ? 'The query was cancelled'
                         : response && 'error' in response
-                        ? response.error
-                        : responseError
+                          ? response.error
+                          : responseError
                 }
             />
         </div>

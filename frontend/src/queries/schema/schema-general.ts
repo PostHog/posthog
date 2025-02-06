@@ -905,6 +905,8 @@ export type TrendsFilter = {
     /** @default false */
     showPercentStackView?: TrendsFilterLegacy['show_percent_stack_view']
     yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
+    /** @default false */
+    showMultipleYAxes?: TrendsFilterLegacy['show_multiple_y_axes']
     hiddenLegendIndexes?: integer[]
     /**
      * Wether result datasets are associated by their values or by their order.

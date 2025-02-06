@@ -63,6 +63,7 @@ export interface LemonSelectPropsBase<T>
         | 'tabIndex'
         | 'type'
         | 'tooltip'
+        | 'icon'
     > {
     options: LemonSelectOptions<T>
     /** Callback fired when a value is selected, even if it already is set. */
@@ -167,8 +168,8 @@ export function LemonSelect<T extends string | number | boolean | null>({
                     {renderButtonContent
                         ? renderButtonContent(activeLeaf)
                         : activeLeaf
-                        ? activeLeaf.label
-                        : value ?? <span className="text-muted">{placeholder}</span>}
+                          ? activeLeaf.label
+                          : (value ?? <span className="text-muted">{placeholder}</span>)}
                 </span>
             </LemonButton>
         </LemonMenu>
