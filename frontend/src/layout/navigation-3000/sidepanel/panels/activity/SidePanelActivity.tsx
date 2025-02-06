@@ -15,7 +15,7 @@ import { MemberSelect } from 'lib/components/MemberSelect'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useRef } from 'react'
@@ -69,7 +69,7 @@ export const SidePanelActivity = (): JSX.Element => {
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    usePageVisibility((pageIsVisible) => {
+    usePageVisibilityCb((pageIsVisible) => {
         togglePolling(pageIsVisible)
     })
 

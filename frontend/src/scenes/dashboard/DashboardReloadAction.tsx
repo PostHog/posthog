@@ -3,7 +3,7 @@ import { LemonBadge, LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
-import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
@@ -32,7 +32,7 @@ export function DashboardReloadAction(): JSX.Element {
         useValues(dashboardLogic)
     const { refreshAllDashboardItemsManual, setAutoRefresh, setPageVisibility } = useActions(dashboardLogic)
 
-    usePageVisibility((pageIsVisible) => {
+    usePageVisibilityCb((pageIsVisible) => {
         setPageVisibility(pageIsVisible)
     })
 
