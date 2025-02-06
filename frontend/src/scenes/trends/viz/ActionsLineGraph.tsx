@@ -41,6 +41,7 @@ export function ActionsLineGraph({
         hiddenLegendIndexes,
         querySource,
         yAxisScaleType,
+        showMultipleYAxes,
         goalLines,
     } = useValues(trendsDataLogic(insightProps))
 
@@ -96,6 +97,7 @@ export function ActionsLineGraph({
             showPercentStackView={showPercentStackView}
             supportsPercentStackView={supportsPercentStackView}
             yAxisScaleType={yAxisScaleType}
+            showMultipleYAxes={showMultipleYAxes}
             tooltip={
                 isLifecycle
                     ? {

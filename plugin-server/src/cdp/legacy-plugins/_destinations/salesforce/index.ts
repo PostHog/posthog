@@ -4,8 +4,7 @@ import { URL } from 'url'
 
 import type { Response } from '~/src/utils/fetch'
 
-import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from '../../types'
-import metadata from './plugin.json'
+import { LegacyDestinationPluginMeta } from '../../types'
 
 export interface EventSink {
     salesforcePath: string
@@ -299,11 +298,4 @@ export function getProperties(
     })
 
     return mappedProperties
-}
-
-export const salesforcePlugin: LegacyDestinationPlugin = {
-    id: 'salesforce-plugin',
-    metadata: metadata as any,
-    setupPlugin: setupPlugin as any,
-    onEvent,
 }
