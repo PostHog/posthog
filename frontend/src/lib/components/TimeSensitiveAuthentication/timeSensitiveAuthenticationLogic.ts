@@ -145,8 +145,8 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
             if (values.sensitiveSessionExpiresAt.diff(dayjs(), 'seconds') < LOOKAHEAD_EXPIRY_SECONDS) {
                 // Here we try to offer a better UX by forcing re-authentication if they are about to timeout
                 // which is nicer than when they try to do something later and get a 403.
-                // We also make this a promise, so that `checkReauthentication` call sites can await
-                // `syncActions.checkReauthentication()` and proceed once re-authentication is completed
+                // We also make this a promise, so that `checkReauthentication` callsites can await
+                // `asyncActions.checkReauthentication()` and proceed once re-authentication is completed
                 return new Promise((resolve, reject) =>
                     actions.setTimeSensitiveAuthenticationRequired([resolve, reject])
                 )
