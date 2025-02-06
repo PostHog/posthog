@@ -317,7 +317,6 @@ export interface PluginServerCapabilities {
     cdpApi?: boolean
     appManagementSingleton?: boolean
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
-    http?: boolean
     mmdb?: boolean
 }
 

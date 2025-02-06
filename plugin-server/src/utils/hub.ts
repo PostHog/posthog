@@ -15,7 +15,6 @@ import { OrganizationManager } from '../services/organization-manager'
 import { TeamManager } from '../services/team-manager'
 import { Config, Hub, PluginServerCapabilities } from '../types'
 import { Celery } from './celery'
-import { isTestEnv } from './env-utils'
 import { getObjectStorage } from './object_storage'
 import { PostgresRouter } from './postgres'
 import { createRedisPool } from './redis'
@@ -139,13 +138,6 @@ export const closeHub = async (hub: Hub): Promise<void> => {
     await Promise.allSettled([hub.kafkaProducer.disconnect(), hub.redisPool.drain(), hub.postgres?.end()])
     await hub.redisPool.clear()
     hub.cookielessManager.shutdown()
-
-    if (isTestEnv()) {
-        // Break circular references to allow the hub to be GCed when running unit tests
-        // TODO: change these structs to not directly reference the hub
-        ;(hub as any).eventsProcessor = undefined
-        ;(hub as any).appMetrics = undefined
-    }
 }
 
 export type KafkaConfig = Pick<

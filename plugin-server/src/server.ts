@@ -1,13 +1,7 @@
 import * as Sentry from '@sentry/node'
-import fs from 'fs'
 import { Server } from 'http'
-import { CompressionCodecs, CompressionTypes } from 'kafkajs'
-// @ts-expect-error no type definitions
-import SnappyCodec from 'kafkajs-snappy'
-import LZ4 from 'lz4-kafkajs'
 import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
-import v8Profiler from 'v8-profiler-next'
 
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
@@ -26,7 +20,8 @@ import { IngestionConsumer } from './ingestion/ingestion-consumer'
 import { SessionRecordingIngester } from './ingestion/session-recording/session-recordings-consumer'
 import { DefaultBatchConsumerFactory } from './ingestion/session-recording-v2/batch-consumer-factory'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './ingestion/session-recording-v2/consumer'
-import { Config, Hub, PluginServerCapabilities, PluginServerService } from './types'
+import { Config, Hub, PluginServerService } from './types'
+import { isTestEnv } from './utils/env-utils'
 import { closeHub, createHub } from './utils/hub'
 import { getObjectStorage } from './utils/object_storage'
 import { PostgresRouter } from './utils/postgres'
@@ -36,332 +31,296 @@ import { createRedisClient } from './utils/redis'
 import { status } from './utils/status'
 import { delay } from './utils/utils'
 
-CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
-CompressionCodecs[CompressionTypes.LZ4] = new LZ4().codec
-
-export type ServerInstance = {
-    hub?: Hub
-    stop: () => Promise<void>
-}
-
 const pluginServerStartupTimeMs = new Counter({
     name: 'plugin_server_startup_time_ms',
     help: 'Time taken to start the plugin server, in milliseconds',
 })
 
-export async function startPluginsServer(
-    config: Partial<Config>,
-    capabilities?: PluginServerCapabilities
-): Promise<ServerInstance> {
-    const timer = new Date()
+export class PluginServer {
+    config: Config
+    pubsub?: PubSub
+    services: PluginServerService[] = []
+    httpServer?: Server
+    stopping = false
+    hub?: Hub
 
-    const serverConfig: Config = {
-        ...defaultConfig,
-        ...config,
+    constructor(config: Config) {
+        this.config = {
+            ...config,
+            ...defaultConfig,
+        }
+
+        status.updatePrompt(this.config.PLUGIN_SERVER_MODE)
     }
 
-    status.updatePrompt(serverConfig.PLUGIN_SERVER_MODE)
-    runStartupProfiles(serverConfig)
+    async start() {
+        const startupTimer = new Date()
+        this.setupListeners()
 
-    // Used to trigger reloads of plugin code/config
-    let pubSub: PubSub | undefined
+        const capabilities = getPluginServerCapabilities(this.config)
+        const hub = (this.hub = await createHub(this.config, capabilities))
 
-    const services: PluginServerService[] = []
+        this.pubsub = new PubSub(this.hub, {
+            'reset-available-product-features-cache': (message) => {
+                // TODO: Can we make this nicer?
+                this.hub?.organizationManager.resetAvailableProductFeaturesCache(JSON.parse(message).organization_id)
+            },
+        })
 
-    // Kafka consumer. Handles events that we couldn't find an existing person
-    // to associate. The buffer handles delaying the ingestion of these events
-    // (default 60 seconds) to allow for the person to be created in the
-    // meantime.
-    let httpServer: Server | undefined // server
-    let lastActivityCheck: NodeJS.Timeout | undefined
-    let stopEventLoopMetrics: (() => void) | undefined
+        await this.pubsub.start()
 
-    let shuttingDown = false
-    async function shutdown(): Promise<void> {
-        shuttingDown = true
+        // // Creating a dedicated single-connection redis client to this Redis, as it's not relevant for hobby
+        // // and cloud deploys don't have concurrent uses. We should abstract multi-Redis into a router util.
+        const captureRedis = this.config.CAPTURE_CONFIG_REDIS_HOST
+            ? await createRedisClient(this.config.CAPTURE_CONFIG_REDIS_HOST)
+            : undefined
+
+        try {
+            const serviceLoaders: (() => Promise<PluginServerService>)[] = []
+
+            if (capabilities.ingestionV2Combined) {
+                // NOTE: This is for single process deployments like local dev and hobby - it runs all possible consumers
+                // in a single process. In production these are each separate Deployments of the standard ingestion consumer
+
+                const consumersOptions = [
+                    {
+                        topic: KAFKA_EVENTS_PLUGIN_INGESTION,
+                        group_id: `clickhouse-ingestion`,
+                    },
+                    {
+                        topic: KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
+                        group_id: `clickhouse-ingestion-historical`,
+                    },
+                    { topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW, group_id: 'clickhouse-ingestion-overflow' },
+                    { topic: 'client_iwarnings_ingestion', group_id: 'client_iwarnings_ingestion' },
+                    { topic: 'heatmaps_ingestion', group_id: 'heatmaps_ingestion' },
+                    { topic: 'exceptions_ingestion', group_id: 'exceptions_ingestion' },
+                ]
+
+                for (const consumerOption of consumersOptions) {
+                    serviceLoaders.push(async () => {
+                        const modifiedHub: Hub = {
+                            ...hub,
+                            INGESTION_CONSUMER_CONSUME_TOPIC: consumerOption.topic,
+                            INGESTION_CONSUMER_GROUP_ID: consumerOption.group_id,
+                        }
+
+                        const consumer = new IngestionConsumer(modifiedHub)
+                        await consumer.start()
+                        return consumer.service
+                    })
+                }
+            } else {
+                if (capabilities.ingestionV2) {
+                    serviceLoaders.push(async () => {
+                        const consumer = new IngestionConsumer(hub)
+                        await consumer.start()
+                        return consumer.service
+                    })
+                }
+            }
+
+            if (capabilities.sessionRecordingBlobIngestion) {
+                serviceLoaders.push(async () => {
+                    const postgres = hub?.postgres ?? new PostgresRouter(this.config)
+                    const s3 = hub?.objectStorage ?? getObjectStorage(this.config)
+
+                    if (!s3) {
+                        throw new Error("Can't start session recording blob ingestion without object storage")
+                    }
+                    // NOTE: We intentionally pass in the original this.config as the ingester uses both kafkas
+                    const ingester = new SessionRecordingIngester(this.config, postgres, s3, false, captureRedis)
+                    await ingester.start()
+
+                    return {
+                        id: 'session-recordings-blob',
+                        onShutdown: async () => await ingester.stop(),
+                        healthcheck: () => ingester.isHealthy() ?? false,
+                        batchConsumer: ingester.batchConsumer,
+                    }
+                })
+            }
+
+            if (capabilities.sessionRecordingBlobOverflowIngestion) {
+                serviceLoaders.push(async () => {
+                    const postgres = hub?.postgres ?? new PostgresRouter(this.config)
+                    const s3 = hub?.objectStorage ?? getObjectStorage(this.config)
+
+                    if (!s3) {
+                        throw new Error("Can't start session recording blob ingestion without object storage")
+                    }
+                    // NOTE: We intentionally pass in the original this.config as the ingester uses both kafkas
+                    // NOTE: We don't pass captureRedis to disable overflow computation on the overflow topic
+                    const ingester = new SessionRecordingIngester(this.config, postgres, s3, true, undefined)
+                    await ingester.start()
+                    return ingester.service
+                })
+            }
+
+            if (capabilities.sessionRecordingBlobIngestionV2) {
+                serviceLoaders.push(async () => {
+                    const postgres = hub?.postgres ?? new PostgresRouter(this.config)
+                    const batchConsumerFactory = new DefaultBatchConsumerFactory(this.config)
+                    const ingester = new SessionRecordingIngesterV2(this.config, false, postgres, batchConsumerFactory)
+                    await ingester.start()
+                    return ingester.service
+                })
+            }
+
+            if (capabilities.sessionRecordingBlobIngestionV2Overflow) {
+                serviceLoaders.push(async () => {
+                    const postgres = hub?.postgres ?? new PostgresRouter(this.config)
+                    const batchConsumerFactory = new DefaultBatchConsumerFactory(this.config)
+                    const ingester = new SessionRecordingIngesterV2(this.config, true, postgres, batchConsumerFactory)
+                    await ingester.start()
+                    return ingester.service
+                })
+            }
+
+            if (capabilities.cdpProcessedEvents) {
+                serviceLoaders.push(async () => {
+                    const consumer = new CdpProcessedEventsConsumer(hub)
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
+            if (capabilities.cdpInternalEvents) {
+                serviceLoaders.push(async () => {
+                    const consumer = new CdpInternalEventsConsumer(hub)
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
+            if (capabilities.cdpApi) {
+                serviceLoaders.push(async () => {
+                    const api = new CdpApi(hub)
+                    await api.start()
+                    expressApp.use('/', api.router())
+                    return api.service
+                })
+            }
+
+            if (capabilities.cdpCyclotronWorker) {
+                if (!hub.CYCLOTRON_DATABASE_URL) {
+                    status.error('💥', 'Cyclotron database URL not set.')
+                } else {
+                    serviceLoaders.push(async () => {
+                        const worker = new CdpCyclotronWorker(hub)
+                        await worker.start()
+                        return worker.service
+                    })
+
+                    if (process.env.EXPERIMENTAL_CDP_FETCH_WORKER) {
+                        serviceLoaders.push(async () => {
+                            const workerFetch = new CdpCyclotronWorkerFetch(hub)
+                            await workerFetch.start()
+                            return workerFetch.service
+                        })
+                    }
+                }
+            }
+
+            if (capabilities.cdpCyclotronWorkerPlugins) {
+                if (!hub.CYCLOTRON_DATABASE_URL) {
+                    status.error('💥', 'Cyclotron database URL not set.')
+                } else {
+                    serviceLoaders.push(async () => {
+                        const worker = new CdpCyclotronWorkerPlugins(hub)
+                        await worker.start()
+                        return worker.service
+                    })
+                }
+            }
+
+            const readyServices = await Promise.all(serviceLoaders.map((loader) => loader()))
+            this.services.push(...readyServices)
+            if (!isTestEnv()) {
+                // We don't run http server in test env currently
+                const app = setupCommonRoutes(this.services)
+
+                this.httpServer = app.listen(this.config.HTTP_SERVER_PORT, () => {
+                    status.info('🩺', `Status server listening on port ${this.config.HTTP_SERVER_PORT}`)
+                })
+            }
+
+            pluginServerStartupTimeMs.inc(Date.now() - startupTimer.valueOf())
+            status.info('🚀', `All systems go in ${Date.now() - startupTimer.valueOf()}ms`)
+
+            // If join rejects or throws, then the consumer is unhealthy and we should shut down the process.
+            // Ideally we would also join all the other background tasks as well to ensure we stop the
+            // server if we hit any errors and don't end up with zombie instances, but I'll leave that
+            // refactoring for another time. Note that we have the liveness health checks already, so in K8s
+            // cases zombies should be reaped anyway, albeit not in the most efficient way.
+
+            this.services.forEach((service) => {
+                service.batchConsumer?.join().catch(async (error) => {
+                    status.error('💥', 'Unexpected task joined!', { error: error.stack ?? error })
+                    await this.stop(error)
+                })
+            })
+        } catch (error) {
+            Sentry.captureException(error)
+            status.error('💥', 'Launchpad failure!', { error: error.stack ?? error })
+            void Sentry.flush().catch(() => null) // Flush Sentry in the background
+            status.error('💥', 'Exception while starting server, shutting down!', { error })
+            await this.stop(error)
+        }
+    }
+
+    private setupListeners() {
+        for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+            process.on(signal, async () => {
+                // This makes async exit possible with the process waiting until jobs are closed
+                status.info('👋', `process handling ${signal} event. Stopping...`)
+                await this.stop()
+            })
+        }
+
+        process.on('unhandledRejection', (error: Error | any, promise: Promise<any>) => {
+            status.error('🤮', `Unhandled Promise Rejection`, { error, promise })
+
+            Sentry.captureException(error, {
+                extra: { detected_at: `pluginServer.ts on unhandledRejection` },
+            })
+        })
+
+        process.on('uncaughtException', async (error: Error) => {
+            await this.stop(error)
+        })
+    }
+
+    async stop(error?: Error): Promise<void> {
+        if (error) {
+            status.error('🤮', `Shutting down due to error`, { error: error.stack })
+        }
+        if (this.stopping) {
+            status.info('🚨', 'Stop called but already stopping...')
+            return
+        }
+
+        this.stopping = true
+
         status.info('💤', ' Shutting down gracefully...')
-        lastActivityCheck && clearInterval(lastActivityCheck)
 
-        // HACKY: Stop all consumers and the graphile worker, as well as the
-        // http server. Note that we close the http server before the others to
-        // ensure that e.g. if something goes wrong and we deadlock, then if
-        // we're running in k8s, the liveness check will fail, and thus k8s will
-        // kill the pod.
-        //
-        // I say hacky because we've got a weak dependency on the liveness check
-        // configuration.
-        httpServer?.close()
+        this.httpServer?.close()
         Object.values(schedule.scheduledJobs).forEach((job) => {
             job.cancel()
         })
 
-        stopEventLoopMetrics?.()
         await Promise.allSettled([
-            pubSub?.stop(),
-            ...services.map((service) => service.onShutdown()),
+            this.pubsub?.stop(),
+            ...this.services.map((s) => s.onShutdown()),
             posthog.shutdownAsync(),
         ])
 
-        if (serverInstance.hub) {
+        if (this.hub) {
             // Wait 2 seconds to flush the last queues and caches
-            await Promise.all([serverInstance.hub?.kafkaProducer.flush(), delay(2000)])
-            await closeHub(serverInstance.hub)
-        }
-    }
-
-    for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
-        process.on(signal, () => process.emit('beforeExit', 0))
-    }
-
-    process.on('beforeExit', async () => {
-        // This makes async exit possible with the process waiting until jobs are closed
-        status.info('👋', 'process handling beforeExit event. Closing jobs...')
-        await shutdown()
-        status.info('👋', 'Over and out!')
-        process.exit(0)
-    })
-
-    process.on('unhandledRejection', (error: Error | any, promise: Promise<any>) => {
-        status.error('🤮', `Unhandled Promise Rejection`, { error, promise })
-
-        Sentry.captureException(error, {
-            extra: { detected_at: `pluginServer.ts on unhandledRejection` },
-        })
-    })
-
-    process.on('uncaughtException', async (error: Error) => {
-        // If there are unhandled exceptions anywhere, perform a graceful
-        // shutdown. The initial trigger for including this handler is due to
-        // the graphile-worker code throwing an exception when it can't call
-        // `nudge` on a worker. Unsure as to why this happens, but at any rate,
-        // to ensure that we gracefully shutdown Kafka consumers, for which
-        // unclean shutdowns can cause considerable delay in starting to consume
-        // again, we try to gracefully shutdown.
-        //
-        // See https://nodejs.org/api/process.html#event-uncaughtexception for
-        // details on the handler.
-        if (shuttingDown) {
-            return
-        }
-        status.error('🤮', `uncaught_exception`, { error: error.stack })
-        await shutdown()
-
-        process.exit(1)
-    })
-
-    capabilities = capabilities ?? getPluginServerCapabilities(serverConfig)
-    const hub = await createHub(serverConfig, capabilities)
-
-    const serverInstance: ServerInstance = {
-        hub,
-        stop: shutdown,
-    }
-
-    // Creating a dedicated single-connection redis client to this Redis, as it's not relevant for hobby
-    // and cloud deploys don't have concurrent uses. We should abstract multi-Redis into a router util.
-    const captureRedis = serverConfig.CAPTURE_CONFIG_REDIS_HOST
-        ? await createRedisClient(serverConfig.CAPTURE_CONFIG_REDIS_HOST)
-        : undefined
-
-    try {
-        if (capabilities.ingestionV2Combined) {
-            // NOTE: This is for single process deployments like local dev and hobby - it runs all possible consumers
-            // in a single process. In production these are each separate Deployments of the standard ingestion consumer
-
-            const consumersOptions = [
-                {
-                    topic: KAFKA_EVENTS_PLUGIN_INGESTION,
-                    group_id: `clickhouse-ingestion`,
-                },
-                {
-                    topic: KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
-                    group_id: `clickhouse-ingestion-historical`,
-                },
-                { topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW, group_id: 'clickhouse-ingestion-overflow' },
-                { topic: 'client_iwarnings_ingestion', group_id: 'client_iwarnings_ingestion' },
-                { topic: 'heatmaps_ingestion', group_id: 'heatmaps_ingestion' },
-                { topic: 'exceptions_ingestion', group_id: 'exceptions_ingestion' },
-            ]
-
-            for (const consumerOption of consumersOptions) {
-                const modifiedHub: Hub = {
-                    ...hub,
-                    INGESTION_CONSUMER_CONSUME_TOPIC: consumerOption.topic,
-                    INGESTION_CONSUMER_GROUP_ID: consumerOption.group_id,
-                }
-
-                const consumer = new IngestionConsumer(modifiedHub)
-                await consumer.start()
-                services.push(consumer.service)
-            }
-        } else {
-            if (capabilities.ingestionV2) {
-                // NOTE: Piscina is only needed whilst we have legacy plugins running. Once we have all
-                // moved to hog functions we can remove this.
-                const consumer = new IngestionConsumer(hub)
-                await consumer.start()
-                services.push(consumer.service)
-            }
+            await Promise.all([this.hub?.kafkaProducer.flush(), delay(2000)])
+            await closeHub(this.hub)
         }
 
-        if (capabilities.sessionRecordingBlobIngestion) {
-            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
-            const s3 = hub?.objectStorage ?? getObjectStorage(serverConfig)
-
-            if (!s3) {
-                throw new Error("Can't start session recording blob ingestion without object storage")
-            }
-            // NOTE: We intentionally pass in the original serverConfig as the ingester uses both kafkas
-            const ingester = new SessionRecordingIngester(serverConfig, postgres, s3, false, captureRedis)
-            await ingester.start()
-
-            services.push({
-                id: 'session-recordings-blob',
-                onShutdown: async () => await ingester.stop(),
-                healthcheck: () => ingester.isHealthy() ?? false,
-                batchConsumer: ingester.batchConsumer,
-            })
-        }
-
-        if (capabilities.sessionRecordingBlobOverflowIngestion) {
-            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
-            const s3 = hub?.objectStorage ?? getObjectStorage(serverConfig)
-
-            if (!s3) {
-                throw new Error("Can't start session recording blob ingestion without object storage")
-            }
-            // NOTE: We intentionally pass in the original serverConfig as the ingester uses both kafkas
-            // NOTE: We don't pass captureRedis to disable overflow computation on the overflow topic
-            const ingester = new SessionRecordingIngester(serverConfig, postgres, s3, true, undefined)
-            await ingester.start()
-            services.push(ingester.service)
-        }
-
-        if (capabilities.sessionRecordingBlobIngestionV2) {
-            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
-            const batchConsumerFactory = new DefaultBatchConsumerFactory(serverConfig)
-            const ingester = new SessionRecordingIngesterV2(serverConfig, false, postgres, batchConsumerFactory)
-            await ingester.start()
-            services.push(ingester.service)
-        }
-
-        if (capabilities.sessionRecordingBlobIngestionV2Overflow) {
-            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
-            const batchConsumerFactory = new DefaultBatchConsumerFactory(serverConfig)
-            const ingester = new SessionRecordingIngesterV2(serverConfig, true, postgres, batchConsumerFactory)
-            await ingester.start()
-            services.push(ingester.service)
-        }
-
-        if (capabilities.cdpProcessedEvents) {
-            const consumer = new CdpProcessedEventsConsumer(hub)
-            await consumer.start()
-            services.push(consumer.service)
-        }
-
-        if (capabilities.cdpInternalEvents) {
-            const consumer = new CdpInternalEventsConsumer(hub)
-            await consumer.start()
-            services.push(consumer.service)
-        }
-
-        if (capabilities.cdpApi) {
-            const api = new CdpApi(hub)
-            await api.start()
-            services.push(api.service)
-            expressApp.use('/', api.router())
-        }
-
-        if (capabilities.cdpCyclotronWorker) {
-            if (!hub.CYCLOTRON_DATABASE_URL) {
-                status.error('💥', 'Cyclotron database URL not set.')
-            } else {
-                const worker = new CdpCyclotronWorker(hub)
-                await worker.start()
-                services.push(worker.service)
-
-                if (process.env.EXPERIMENTAL_CDP_FETCH_WORKER) {
-                    const workerFetch = new CdpCyclotronWorkerFetch(hub)
-                    await workerFetch.start()
-                    services.push(workerFetch.service)
-                }
-            }
-        }
-
-        if (capabilities.cdpCyclotronWorkerPlugins) {
-            if (!hub.CYCLOTRON_DATABASE_URL) {
-                status.error('💥', 'Cyclotron database URL not set.')
-            } else {
-                const worker = new CdpCyclotronWorkerPlugins(hub)
-                await worker.start()
-                services.push(worker.service)
-            }
-        }
-
-        if (capabilities.http) {
-            const app = setupCommonRoutes(services)
-
-            httpServer = app.listen(serverConfig.HTTP_SERVER_PORT, () => {
-                status.info('🩺', `Status server listening on port ${serverConfig.HTTP_SERVER_PORT}`)
-            })
-        }
-
-        pubSub = new PubSub(hub, {
-            'reset-available-product-features-cache': (message) => {
-                // TODO: Can we make this nicer?
-                hub.organizationManager.resetAvailableProductFeaturesCache(JSON.parse(message).organization_id)
-            },
-        })
-
-        await pubSub.start()
-
-        pluginServerStartupTimeMs.inc(Date.now() - timer.valueOf())
-        status.info('🚀', 'All systems go')
-
-        // If join rejects or throws, then the consumer is unhealthy and we should shut down the process.
-        // Ideally we would also join all the other background tasks as well to ensure we stop the
-        // server if we hit any errors and don't end up with zombie instances, but I'll leave that
-        // refactoring for another time. Note that we have the liveness health checks already, so in K8s
-        // cases zombies should be reaped anyway, albeit not in the most efficient way.
-
-        services.forEach((service) => {
-            service.batchConsumer?.join().catch(async (error) => {
-                status.error('💥', 'Unexpected task joined!', { error: error.stack ?? error })
-                await shutdown()
-                process.exit(1)
-            })
-        })
-
-        return serverInstance
-    } catch (error) {
-        Sentry.captureException(error)
-        status.error('💥', 'Launchpad failure!', { error: error.stack ?? error })
-        void Sentry.flush().catch(() => null) // Flush Sentry in the background
-        status.error('💥', 'Exception while starting server, shutting down!', { error })
-        await shutdown()
-        process.exit(1)
-    }
-}
-
-function runStartupProfiles(config: Config) {
-    if (config.STARTUP_PROFILE_CPU) {
-        status.info('🩺', `Collecting cpu profile...`)
-        v8Profiler.setGenerateType(1)
-        v8Profiler.startProfiling('startup', true)
-        setTimeout(() => {
-            const profile = v8Profiler.stopProfiling('startup')
-            fs.writeFileSync('./startup.cpuprofile', JSON.stringify(profile))
-            status.info('🩺', `Wrote cpu profile to disk`)
-            profile.delete()
-        }, config.STARTUP_PROFILE_DURATION_SECONDS * 1000)
-    }
-    if (config.STARTUP_PROFILE_HEAP) {
-        status.info('🩺', `Collecting heap profile...`)
-        v8Profiler.startSamplingHeapProfiling(config.STARTUP_PROFILE_HEAP_INTERVAL, config.STARTUP_PROFILE_HEAP_DEPTH)
-        setTimeout(() => {
-            const profile = v8Profiler.stopSamplingHeapProfiling()
-            fs.writeFileSync('./startup.heapprofile', JSON.stringify(profile))
-            status.info('🩺', `Wrote heap profile to disk`)
-        }, config.STARTUP_PROFILE_DURATION_SECONDS * 1000)
+        process.exit(error ? 1 : 0)
     }
 }
