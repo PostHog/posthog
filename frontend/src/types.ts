@@ -2333,6 +2333,7 @@ export interface TrendsFilterType extends FilterType {
     show_labels_on_series?: boolean
     show_percent_stack_view?: boolean
     y_axis_scale_type?: 'log10' | 'linear'
+    show_multiple_y_axes?: boolean
 }
 
 export interface StickinessFilterType extends FilterType {
@@ -4943,4 +4944,9 @@ export type UserGroup = {
     id: string
     name: string
     members: UserBasicType[]
+}
+
+export interface CoreMemory {
+    id: string
+    text: string
 }

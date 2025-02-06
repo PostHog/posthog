@@ -128,7 +128,7 @@ export function RetentionModal(): JSX.Element | null {
                                                 {data.count}
                                                 &nbsp;
                                                 {data.count > 0 && (
-                                                    <span className="text-muted">
+                                                    <span className="text-secondary">
                                                         ({percentage(data.count / row?.values[0]['count'])})
                                                     </span>
                                                 )}

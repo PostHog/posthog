@@ -83,7 +83,7 @@ export function Products(): JSX.Element {
     const { selectedProducts, firstProductOnboarding } = useValues(productsLogic)
 
     return (
-        <div className="flex flex-col flex-1 w-full p-4 items-center justify-center bg-bg-3000">
+        <div className="flex flex-col flex-1 w-full p-4 items-center justify-center bg-primary">
             <>
                 <div className="flex flex-col justify-center flex-grow items-center">
                     <div className="mb-2">
@@ -120,7 +120,7 @@ export function Products(): JSX.Element {
                                         }))}
                                         onChange={(value) => value && setFirstProductOnboarding(value)}
                                         placeholder="Select a product"
-                                        className="bg-bg-light"
+                                        className="bg-surface-primary"
                                     />
                                     <LemonButton
                                         sideIcon={<IconArrowRight />}

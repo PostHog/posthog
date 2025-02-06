@@ -38,7 +38,7 @@ body[theme=dark] {
     --primary-3000-frame-bg-light: #00FF01;
     --primary-3000-button-bg: #00FF01;
     --primary-3000-button-border: #00FF01;
-    --text-secondary-3000: #00FF01;
+    --text-tertiary: #00FF01;
 }
 
 .TopBar3000__content {
@@ -71,7 +71,7 @@ body[theme=light] {
     --primary-3000-button-bg: #FF69B4;
     --primary-3000-button-border: #FF1493;
     --primary-3000-button-border-hover: #db097b;
-    --text-secondary-3000: #FFB6C1;
+    --text-tertiary: #FFB6C1;
 
     --secondary-3000-button-border: #FF1493;
     --secondary-3000-frame-bg-light: #F7B9D7;

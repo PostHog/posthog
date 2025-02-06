@@ -21,7 +21,7 @@ export function QuestionSuggestions(): JSX.Element {
                 sideIcon={<IconOpenSidebar />}
                 className="relative"
                 onClick={() => {
-                    openSettingsPanel({ settingId: 'product-description' })
+                    openSettingsPanel({ settingId: 'core-memory' })
                     setTimeout(() => document.getElementById('product-description-textarea')?.focus(), 1)
                 }}
             >
@@ -74,7 +74,7 @@ export function QuestionSuggestions(): JSX.Element {
                                 tooltip="Shuffle suggestions"
                             />
                             <LemonButton
-                                onClick={() => openSettingsPanel({ settingId: 'product-description' })}
+                                onClick={() => openSettingsPanel({ settingId: 'core-memory' })}
                                 size="xsmall"
                                 type="secondary"
                                 icon={<IconGear />}
