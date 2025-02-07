@@ -9,11 +9,22 @@ import pyarrow as pa
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from django.conf import settings
 from posthog.exceptions_capture import capture_exception
-from posthog.settings.base_variables import TEST
+from posthog.settings.base_variables import DEBUG, TEST
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.pipeline.utils import arrow_to_spark_schema, spark_to_arrow_schema
 from posthog.warehouse.models import ExternalDataJob
 from posthog.warehouse.s3 import get_s3_client
+
+
+def _get_pod_memory():
+    try:
+        with open("/sys/fs/cgroup/memory.max") as f:
+            memory_bytes = int(f.read().strip())
+        memory_gb = memory_bytes / (1024**3)
+
+        return memory_gb
+    except Exception as e:
+        raise Exception(f"Could not read pod memory limit: {e}")
 
 
 def _get_credentials():
@@ -43,13 +54,19 @@ def _get_spark_session_singleton() -> SparkSession:
 
     credentials = _get_credentials()
 
+    if DEBUG or TEST:
+        spark_memory = 2  # Use 2 GB when running locally or in unit tests
+    else:
+        total_memory_gb = _get_pod_memory()
+        spark_memory = int(total_memory_gb * 0.8)  # Use 80% of available memory
+
     spark_conf = SparkConf()
     spark_conf.set("spark.hadoop.security.authentication", "simple")
     spark_conf.set("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
     spark_conf.set("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
     spark_conf.set("spark.sql.execution.arrow.pyspark.enabled", "true")
 
-    spark_conf.set("spark.driver.memory", "8g")  # TODO: change this for prod/local/etc - use env var
+    spark_conf.set("spark.driver.memory", f"{spark_memory}g")
     spark_conf.set("spark.driver.memoryOverhead", "1g")
     spark_conf.set("spark.executor.memoryOverhead", "1g")
     spark_conf.set("spark.kubernetes.memoryOverheadFactor", "0.1")
@@ -150,7 +167,7 @@ class DeltaTableHelper:
         self, data: pa.Table, is_incremental: bool, chunk_index: int, primary_keys: Sequence[Any] | None
     ) -> DeltaTable:
         table_size_mb = data.nbytes / (1024 * 1024)
-        repartitions = int(table_size_mb / 10)
+        repartitions = int(table_size_mb / 20)
         if repartitions == 0:
             repartitions = 1
 
