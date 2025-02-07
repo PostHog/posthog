@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 
 from posthog.schema import (
     AssistantFunnelsEventsNode,
@@ -6,6 +7,7 @@ from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantRetentionFilter,
     AssistantRetentionQuery,
+    AssistantTrendsQuery,
     Compare,
     DateRange,
     FunnelStepReference,
@@ -16,11 +18,10 @@ from posthog.test.base import BaseTest
 from ..format import (
     FunnelResultsFormatter,
     RetentionResultsFormatter,
-    _extract_series_label,
+    TrendsResultsFormatter,
     _format_duration,
     _format_number,
     _strip_datetime_seconds,
-    compress_and_format_trends_results,
 )
 
 
@@ -65,7 +66,7 @@ class TestCompression(BaseTest):
         ]
 
         self.assertEqual(
-            compress_and_format_trends_results(results),
+            TrendsResultsFormatter(AssistantTrendsQuery(series=[]), results).format(),
             "Date|$pageview\n2025-01-23|242\n2025-01-24|46\n2025-01-25|0",
         )
 
@@ -88,7 +89,7 @@ class TestCompression(BaseTest):
         ]
 
         self.assertEqual(
-            compress_and_format_trends_results(results),
+            TrendsResultsFormatter(AssistantTrendsQuery(series=[]), results).format(),
             "Date|$pageview1|$pageview2\n2025-01-23|242|46\n2025-01-24|46|0\n2025-01-25|0|242",
         )
 
@@ -114,7 +115,7 @@ class TestCompression(BaseTest):
         ]
 
         self.assertEqual(
-            compress_and_format_trends_results(results),
+            TrendsResultsFormatter(AssistantTrendsQuery(series=[]), results).format(),
             "Previous period:\nDate|$pageview\n2025-01-20|242\n2025-01-21|46\n2025-01-22|0\n\nCurrent period:\nDate|$pageview\n2025-01-23|46\n2025-01-24|0\n2025-01-25|242",
         )
 
@@ -132,7 +133,7 @@ class TestCompression(BaseTest):
         ]
 
         self.assertEqual(
-            compress_and_format_trends_results(results),
+            TrendsResultsFormatter(AssistantTrendsQuery(series=[]), results).format(),
             "Date|$pageview\n2025-01-20|242\n2025-01-21|46\n2025-01-22|0",
         )
 
@@ -147,13 +148,14 @@ class TestCompression(BaseTest):
                 "custom_name": "Custom Name",
             },
         }
+        formatter = TrendsResultsFormatter(AssistantTrendsQuery(series=[]), [series])
 
-        self.assertEqual(_extract_series_label(series), "Custom Name (breakdown)")
+        self.assertEqual(formatter._extract_series_label(series), "Custom Name (breakdown)")
         series.pop("action")
-        self.assertEqual(_extract_series_label(series), "$pageview (breakdown)")
+        self.assertEqual(formatter._extract_series_label(series), "$pageview (breakdown)")
 
     def test_funnels_single_series(self):
-        results = [
+        results: list[dict[str, Any]] = [
             {
                 "action_id": "$pageview",
                 "name": "$pageview",
@@ -205,7 +207,7 @@ class TestCompression(BaseTest):
         )
 
     def test_funnels_with_zero_count(self):
-        results = [
+        results: list[dict[str, Any]] = [
             {
                 "action_id": "$pageview",
                 "name": "$pageview",
@@ -422,7 +424,7 @@ class TestCompression(BaseTest):
             }
         ]
         self.assertEqual(
-            compress_and_format_trends_results(results),
+            TrendsResultsFormatter(AssistantTrendsQuery(series=[]), results).format(),
             "Date range|Aggregated value for $pageview\n2025-01-20 to 2025-01-22|993",
         )
 
@@ -450,7 +452,7 @@ class TestCompression(BaseTest):
             },
         ]
         self.assertEqual(
-            compress_and_format_trends_results(results),
+            TrendsResultsFormatter(AssistantTrendsQuery(series=[]), results).format(),
             "Date range|Aggregated value for $pageview|Aggregated value for $pageleave\n2025-01-20 to 2025-01-22|993|1000",
         )
 
@@ -482,7 +484,7 @@ class TestCompression(BaseTest):
             },
         ]
         self.assertEqual(
-            compress_and_format_trends_results(results),
+            TrendsResultsFormatter(AssistantTrendsQuery(series=[]), results).format(),
             "Previous period:\nDate range|Aggregated value for $pageview\n2025-01-17 to 2025-01-19|993\n\nCurrent period:\nDate range|Aggregated value for $pageview\n2025-01-20 to 2025-01-22|1000",
         )
 
@@ -518,8 +520,38 @@ class TestCompression(BaseTest):
             dateRange=DateRange(date_from="2025-01-08", date_to="2025-01-10"),
             funnelsFilter=AssistantFunnelsFilter(funnelVizType=FunnelVizType.TRENDS),
         )
+        self.assertEqual(
+            FunnelResultsFormatter(query, results, self.team, datetime.now()).format(),
+            "Date|$pageview (custom) -> $ai_trace conversion|$pageview (custom) -> $ai_trace drop-off\n2025-01-08|10%|90%\n2025-01-09|15.5%|84.5%\n2025-01-10|0%|100%",
+        )
+
+    def test_funnel_trends_with_breakdown(self):
+        results = [
+            {
+                "count": 31,
+                "data": [10, 15.5, 0],
+                "days": ["2025-01-08", "2025-01-09", "2025-01-10"],
+                "labels": ["8-Jan-2025", "9-Jan-2025", "10-Jan-2025"],
+                "breakdown_value": ["au"],
+            },
+            {
+                "count": 31,
+                "data": [5, 25, 50],
+                "days": ["2025-01-08", "2025-01-09", "2025-01-10"],
+                "labels": ["8-Jan-2025", "9-Jan-2025", "10-Jan-2025"],
+                "breakdown_value": ["us"],
+            },
+        ]
+        query = AssistantFunnelsQuery(
+            series=[
+                AssistantFunnelsEventsNode(event="$pageview", custom_name="custom"),
+                AssistantFunnelsEventsNode(event="$ai_trace"),
+            ],
+            dateRange=DateRange(date_from="2025-01-08", date_to="2025-01-10"),
+            funnelsFilter=AssistantFunnelsFilter(funnelVizType=FunnelVizType.TRENDS),
+        )
 
         self.assertEqual(
             FunnelResultsFormatter(query, results, self.team, datetime.now()).format(),
-            "Date range: 2025-01-08 00:00:00 to 2025-01-10 23:59:59\n\nEvents: $pageview (custom) -> $ai_trace\nTime|User distribution\n10m|100%\n10m 1s|15.5%\n10m 2s|0%\n\nThe user distribution is the percentage of users who completed the funnel at the given time.",
+            "Date|$pageview (custom) -> $ai_trace au breakdown conversion|$pageview (custom) -> $ai_trace au breakdown drop-off|$pageview (custom) -> $ai_trace us breakdown conversion|$pageview (custom) -> $ai_trace us breakdown drop-off\n2025-01-08|10%|90%|5%|95%\n2025-01-09|15.5%|84.5%|25%|75%\n2025-01-10|0%|100%|50%|50%",
         )

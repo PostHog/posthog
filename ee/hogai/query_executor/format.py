@@ -1,4 +1,3 @@
-from collections.abc import Callable
 from datetime import datetime
 from math import floor
 from typing import Any, Optional, Union, cast
@@ -157,8 +156,7 @@ class TrendsResultsFormatter:
 
         return self._format_results(results)
 
-    @classmethod
-    def format_aggregated_values(cls, results: list[dict[str, Any]]) -> str:
+    def _format_aggregated_values(self, results: list[dict[str, Any]]) -> str:
         # Get dates and series labels
         result = results[0]
         dates = result.get("action", {}).get("days") or []
@@ -169,7 +167,7 @@ class TrendsResultsFormatter:
 
         series_labels = []
         for series in results:
-            label = f"Aggregated value for {cls.extract_series_label(series)}"
+            label = f"Aggregated value for {self._extract_series_label(series)}"
             series_labels.append(label)
 
         # Build header row
@@ -184,18 +182,14 @@ class TrendsResultsFormatter:
 
         return _format_matrix(matrix)
 
-    @classmethod
-    def format_non_aggregated_values(
-        cls, results: list[dict[str, Any]], value_formatter: Callable[[Any], str] | None = None
-    ) -> str:
+    def _format_non_aggregated_values(self, results: list[dict[str, Any]]) -> str:
         # Get dates and series labels
         result = results[0]
         dates = result["days"]
-        formatter = value_formatter or _format_number
 
         series_labels = []
         for series in results:
-            label = cls.extract_series_label(series)
+            label = self._extract_series_label(series)
 
             series_labels.append(label)
 
@@ -208,13 +202,12 @@ class TrendsResultsFormatter:
         for i, date in enumerate(dates):
             row = [_strip_datetime_seconds(date)]
             for series in results:
-                row.append(formatter(series["data"][i]))
+                row.append(_format_number(series["data"][i]))
             matrix.append(row)
 
         return _format_matrix(matrix)
 
-    @classmethod
-    def extract_series_label(cls, series: dict[str, Any]) -> str:
+    def _extract_series_label(self, series: dict[str, Any]) -> str:
         action = series.get("action")
         name = series["label"]
         if isinstance(action, dict):
@@ -231,9 +224,9 @@ class TrendsResultsFormatter:
         result = results[0]
         aggregation_applied = result.get("aggregated_value") is not None
         if aggregation_applied:
-            return self.format_aggregated_values(results)
+            return self._format_aggregated_values(results)
         else:
-            return self.format_non_aggregated_values(results)
+            return self._format_non_aggregated_values(results)
 
 
 class RetentionResultsFormatter:
@@ -367,17 +360,8 @@ class FunnelResultsFormatter:
         for series in results.get("bins") or []:
             matrix.append([_format_duration(series[0]), _format_percentage(series[1])])
 
-        series_labels: list[str] = []
-        for node in self._query.series:
-            if node.custom_name is not None:
-                series_labels.append(f"{node.event} ({node.custom_name})")
-            else:
-                series_labels.append(node.event)
-
         hint = "The user distribution is the percentage of users who completed the funnel at the given time."
-        return (
-            f"{self._format_time_range()}\n\nEvents: {' -> '.join(series_labels)}\n{_format_matrix(matrix)}\n\n{hint}"
-        )
+        return f"{self._format_time_range()}\n\nEvents: {self._format_filter_series_label()}\n{_format_matrix(matrix)}\n\n{hint}"
 
     def _format_trends(self) -> str:
         results = self._results
@@ -385,9 +369,7 @@ class FunnelResultsFormatter:
             return "No data recorded for this time period."
 
         results = cast(list[dict[str, Any]], results)
-        return TrendsResultsFormatter.format_non_aggregated_values(
-            results, value_formatter=lambda x: _format_percentage(x / 100)
-        )
+        return self._format_trends_series(results)
 
     @property
     def _step_reference(self) -> FunnelStepReference:
@@ -468,3 +450,42 @@ class FunnelResultsFormatter:
 
     def _format_time_range(self) -> str:
         return f"Date range: {self._query_date_range.date_from_str} to {self._query_date_range.date_to_str}"
+
+    def _format_filter_series_label(self) -> str:
+        series_labels: list[str] = []
+        for node in self._query.series:
+            if node.custom_name is not None:
+                series_labels.append(f"{node.event} ({node.custom_name})")
+            else:
+                series_labels.append(node.event)
+        return " -> ".join(series_labels)
+
+    def _format_trends_series(self, results: list[dict[str, Any]]) -> str:
+        # Get dates and series labels
+        result = results[0]
+        dates = result["days"]
+        label = self._format_filter_series_label()
+
+        # Build header row
+        header = ["Date"]
+        for series in results:
+            label_with_breakdown = label
+            if series.get("breakdown_value") is not None:
+                breakdown = ", ".join([str(value) for value in series["breakdown_value"]])
+                label_with_breakdown = f"{label} {breakdown} breakdown"
+            header.append(f"{label_with_breakdown} conversion")
+            header.append(f"{label_with_breakdown} drop-off")
+
+        matrix: list[list[str]] = [
+            header,
+        ]
+
+        # Build data rows
+        for i, date in enumerate(dates):
+            row = [_strip_datetime_seconds(date)]
+            for series in results:
+                row.append(_format_percentage(series["data"][i] / 100))
+                row.append(_format_percentage((100 - series["data"][i]) / 100))
+            matrix.append(row)
+
+        return _format_matrix(matrix)
