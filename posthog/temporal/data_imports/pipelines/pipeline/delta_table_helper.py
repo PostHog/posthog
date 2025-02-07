@@ -48,7 +48,7 @@ def _get_credentials():
     }
 
 
-def _get_spark_session_singleton() -> SparkSession:
+def _get_spark_session_singleton(logger: FilteringBoundLogger) -> SparkSession:
     if hasattr(_get_spark_session_singleton, "_spark"):
         return _get_spark_session_singleton._spark
 
@@ -59,6 +59,8 @@ def _get_spark_session_singleton() -> SparkSession:
     else:
         total_memory_gb = _get_pod_memory()
         spark_memory = int(total_memory_gb * 0.8)  # Use 80% of available memory
+
+    logger.debug(f"PySpark: spark.driver.memory = {spark_memory}g")
 
     spark_conf = SparkConf()
     spark_conf.set("spark.hadoop.security.authentication", "simple")
@@ -107,7 +109,7 @@ class DeltaTableHelper:
         self._resource_name = resource_name
         self._job = job
         self._logger = logger
-        self._spark = _get_spark_session_singleton()
+        self._spark = _get_spark_session_singleton(logger)
 
     def _get_delta_table_uri(self) -> str:
         normalized_resource_name = NamingConvention().normalize_identifier(self._resource_name)
@@ -167,7 +169,7 @@ class DeltaTableHelper:
         self, data: pa.Table, is_incremental: bool, chunk_index: int, primary_keys: Sequence[Any] | None
     ) -> DeltaTable:
         table_size_mb = data.nbytes / (1024 * 1024)
-        repartitions = int(table_size_mb / 20)
+        repartitions = int(table_size_mb / 5)
         if repartitions == 0:
             repartitions = 1
 
