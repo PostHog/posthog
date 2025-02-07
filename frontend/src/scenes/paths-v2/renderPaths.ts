@@ -24,7 +24,7 @@ const createSankeyGenerator = (width: number, height: number): Sankey.SankeyLayo
     // @ts-expect-error - d3 sankey typing things
     return new Sankey.sankey()
         .nodeId((d: PathNodeData) => d.name)
-        .nodeAlign(Sankey.sankeyJustify)
+        .nodeAlign(Sankey.sankeyLeft)
         .nodeSort(null)
         .nodeWidth(15)
         .size([width, height])
