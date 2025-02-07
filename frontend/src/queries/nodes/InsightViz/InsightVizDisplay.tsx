@@ -3,7 +3,6 @@ import { useValues } from 'kea'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -59,7 +58,7 @@ export function InsightVizDisplay({
     embedded: boolean
     inSharedMode?: boolean
 }): JSX.Element | null {
-    const { insightProps, canEditInsight } = useValues(insightLogic)
+    const { insightProps, canEditInsight, isUsingPathsV2 } = useValues(insightLogic)
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
@@ -81,9 +80,6 @@ export function InsightVizDisplay({
         query,
     } = useValues(insightVizDataLogic(insightProps))
     const { exportContext, queryId } = useValues(insightDataLogic(insightProps))
-
-    const { featureFlags } = useValues(featureFlagLogic)
-    const isUsingPathsV2 = featureFlags['paths-v2']
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
