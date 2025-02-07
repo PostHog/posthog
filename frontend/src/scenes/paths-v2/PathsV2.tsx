@@ -8,7 +8,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { FunnelPathsFilter } from '~/queries/schema'
 
-import { PathNodeCard } from './PathNodeCard'
+import { PathNodeLabel } from './PathNodeLabel'
 import { pathsDataLogic } from './pathsDataLogic'
 import type { PathNodeData } from './pathUtils'
 import { renderPaths } from './renderPaths'
@@ -72,7 +72,7 @@ export function PathsV2(): JSX.Element {
                 {!insightDataLoading && paths && paths.nodes.length === 0 && !insightDataError && <InsightEmptyState />}
                 {!insightDataError &&
                     nodes &&
-                    nodes.map((node, idx) => <PathNodeCard key={idx} node={node} insightProps={insightProps} />)}
+                    nodes.map((node, idx) => <PathNodeLabel key={idx} node={node} insightProps={insightProps} />)}
             </div>
         </div>
     )

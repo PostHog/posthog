@@ -34,15 +34,15 @@ const NODE_MIN_HEIGHT = 3
  * Node label
  */
 
-export const PATH_NODE_CARD_WIDTH = 240
-export const PATH_NODE_CARD_HEIGHT = 44
-const PATH_NODE_CARD_MARGIN_TOP = 20
-const PATH_NODE_CARD_MARGIN_BOTTOM = 10
-export const PATH_NODE_CARD_TOP_OFFSET = -(PATH_NODE_CARD_HEIGHT + PATH_NODE_CARD_MARGIN_BOTTOM)
-export const PATH_NODE_CARD_LEFT_OFFSET = 0 - NODE_BORDER_RADIUS
+export const NODE_LABEL_WIDTH = 240
+export const NODE_LABEL_HEIGHT = 44
+const NODE_LABEL_MARGIN_TOP = 20
+const NODE_LABEL_MARGIN_BOTTOM = 10
+export const NODE_LABEL_TOP_OFFSET = -(NODE_LABEL_HEIGHT + NODE_LABEL_MARGIN_BOTTOM)
+export const NODE_LABEL_LEFT_OFFSET = 0 - NODE_BORDER_RADIUS
 
 /** Space between two nodes, should fit the node label and it's vertical margins. */
-const NODE_PADDING = PATH_NODE_CARD_MARGIN_TOP + PATH_NODE_CARD_HEIGHT + PATH_NODE_CARD_MARGIN_BOTTOM
+const NODE_PADDING = NODE_LABEL_MARGIN_TOP + NODE_LABEL_HEIGHT + NODE_LABEL_MARGIN_BOTTOM
 
 const createCanvas = (canvasRef: RefObject<HTMLDivElement>, width: number, height: number): D3Selector => {
     return d3
@@ -64,14 +64,14 @@ const createSankeyGenerator = (width: number, height: number): Sankey.SankeyLayo
      * - Expanded by the node label height and it's bottom margin, so that the
      * first label fits into the canvas.
      */
-    const marginTop = PATH_NODE_CARD_HEIGHT + PATH_NODE_CARD_MARGIN_BOTTOM + CANVAS_PADDING_VERTICAL
+    const marginTop = NODE_LABEL_HEIGHT + NODE_LABEL_MARGIN_BOTTOM + CANVAS_PADDING_VERTICAL
 
     /** **Right canvas margin**
      * - Expanded by the border radius to make sure the nodes are not cut off.
      * - Expanded by the width of the node label, minus the already existing
      * node width to make sure the node label fits into the canvas.
      */
-    const marginRight = CANVAS_PADDING_HORIZONTAL + NODE_BORDER_RADIUS + PATH_NODE_CARD_WIDTH - NODE_WIDTH
+    const marginRight = CANVAS_PADDING_HORIZONTAL + NODE_BORDER_RADIUS + NODE_LABEL_WIDTH - NODE_WIDTH
 
     /** **Bottom canvas margin** */
     const marginBottom = CANVAS_PADDING_VERTICAL

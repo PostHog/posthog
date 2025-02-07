@@ -11,7 +11,7 @@ import { AvailableFeature } from '~/types'
 import { pathsDataLogicType } from './pathsDataLogicType'
 import { pageUrl, PathNodeData } from './pathUtils'
 
-type PathNodeCardButton = {
+type PathNodeLabelButtonProps = {
     name: string
     count: number
     node: PathNodeData
@@ -21,7 +21,7 @@ type PathNodeCardButton = {
     setFilter: (filter: PathsFilter) => void
 }
 
-export function PathNodeCardButton({
+export function PathNodeLabelButton({
     name,
     count,
     node,
@@ -29,7 +29,7 @@ export function PathNodeCardButton({
     openPersonsModal,
     filter,
     setFilter,
-}: PathNodeCardButton): JSX.Element {
+}: PathNodeLabelButtonProps): JSX.Element {
     const { hasAvailableFeature } = useValues(userLogic)
     const hasAdvancedPaths = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
 
