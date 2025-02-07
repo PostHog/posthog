@@ -11,10 +11,10 @@ from dagster_aws.s3.resources import s3_resource
 from dagster import fs_io_manager
 from django.conf import settings
 
-from . import ch_examples, deletes, orm_examples
+from . import ch_examples, deletes, orm_examples, usage_reports
 from .person_overrides import ClickhouseClusterResource, squash_person_overrides
 
-all_assets = load_assets_from_modules([ch_examples, orm_examples])
+all_assets = load_assets_from_modules([ch_examples, orm_examples, usage_reports])
 
 
 env = "local" if settings.DEBUG else "prod"
