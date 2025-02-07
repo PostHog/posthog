@@ -42,7 +42,7 @@ function __escapeIdentifier(identifier) {
 
 let a = [3, 4, 5];
 let b = tuple(3, 4, 5);
-let c = ({"key": "value", "other": "val"});
+let c = {"key": "value", "other": "val"};
 print(">> A");
 print(keys(a));
 print(values(a));

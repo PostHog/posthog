@@ -140,11 +140,11 @@ function __DateTimeToString(dt) {
     }
 }
 
-let obj = ({"key": "value", "key2": "value2"});
+let obj = {"key": "value", "key2": "value2"};
 let str = "na";
 for (let i = 0; (i < 100); i = (i + 1)) {
     str = concat(str, "na")
-    __setProperty(obj, concat("key_", i), ({"wasted": concat("memory: ", str, " batman!"), "something": obj}));
+    __setProperty(obj, concat("key_", i), {"wasted": concat("memory: ", str, " batman!"), "something": obj});
 }
 print(obj);
 let json = jsonStringify(obj);

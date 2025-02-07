@@ -42,13 +42,13 @@ function __escapeIdentifier(identifier) {
     return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
 }
 
-print(({}));
-print(({"key": "value"}));
-print(({"key": "value", "other": "thing"}));
-print(({"key": ({"otherKey": "value"})}));
+print({});
+print({"key": "value"});
+print({"key": "value", "other": "thing"});
+print({"key": {"otherKey": "value"}});
 let key = "kk";
-print(({[key]: "value"}));
-print(__getProperty(({"key": "value"}), "key", false));
-print(__getProperty(({"key": "value"}), "key", false));
-print(__getProperty(__getProperty(({"key": ({"otherKey": "value"})}), "key", false), "otherKey", false));
-print(__getProperty(__getProperty(({"key": ({"otherKey": "value"})}), "key", false), "otherKey", false));
+print({[key]: "value"});
+print(__getProperty({"key": "value"}, "key", false));
+print(__getProperty({"key": "value"}, "key", false));
+print(__getProperty(__getProperty({"key": {"otherKey": "value"}}, "key", false), "otherKey", false));
+print(__getProperty(__getProperty({"key": {"otherKey": "value"}}, "key", false), "otherKey", false));

@@ -160,16 +160,16 @@ function __getNestedValue(obj, path, allowNull = false) {
 }
 
 print(jsonParse("[1,2,3]"));
-let event = ({"event": "$pageview", "properties": ({"$browser": "Chrome", "$os": "Windows"})});
+let event = {"event": "$pageview", "properties": {"$browser": "Chrome", "$os": "Windows"}};
 let json = jsonStringify(event);
 print(jsonParse(json));
 print("-- JSONHas --");
 print(JSONHas("{\"a\": \"hello\", \"b\": [-100, 200.0, 300]}", "b"));
 print(JSONHas("{\"a\": \"hello\", \"b\": [-100, 200.0, 300]}", "b", 4));
-print(JSONHas(({"a": "hello", "b": [-100, 200.0, 300]}), "b"));
-print(JSONHas(({"a": "hello", "b": [-100, 200.0, 300]}), "b", 4));
-print(JSONHas(({"a": "hello", "b": [-100, 200.0, 300]}), "b", -2));
-print(JSONHas(({"a": "hello", "b": [-100, 200.0, 300]}), "b", -4));
+print(JSONHas({"a": "hello", "b": [-100, 200.0, 300]}, "b"));
+print(JSONHas({"a": "hello", "b": [-100, 200.0, 300]}, "b", 4));
+print(JSONHas({"a": "hello", "b": [-100, 200.0, 300]}, "b", -2));
+print(JSONHas({"a": "hello", "b": [-100, 200.0, 300]}, "b", -4));
 print(JSONHas("[1,2,3]", 0));
 print(JSONHas("[1,2,[1,2]]", -1, 1));
 print(JSONHas("[1,2,[1,2]]", -1, -3));
@@ -180,8 +180,8 @@ print(isValidJSON("not a json"));
 print("-- JSONLength --");
 print(JSONLength("{\"a\": \"hello\", \"b\": [-100, 200.0, 300]}", "b"));
 print(JSONLength("{\"a\": \"hello\", \"b\": [-100, 200.0, 300]}"));
-print(JSONLength(({"a": "hello", "b": [-100, 200.0, 300]}), "b"));
-print(JSONLength(({"a": "hello", "b": [-100, 200.0, 300]})));
+print(JSONLength({"a": "hello", "b": [-100, 200.0, 300]}, "b"));
+print(JSONLength({"a": "hello", "b": [-100, 200.0, 300]}));
 print("-- JSONExtractBool --");
 print(JSONExtractBool("{\"a\": \"hello\", \"b\": true}", "b"));
 print(JSONExtractBool("{\"a\": \"hello\", \"b\": false}", "b"));

@@ -547,6 +547,8 @@ class JavaScriptCompiler(Visitor):
             expr_code = self.visit(
                 ast.Block(declarations=[ast.ExprStatement(expr=node.expr.expr), ast.ReturnStatement(expr=None)])
             )
+        elif isinstance(node.expr, ast.Dict):
+            expr_code = f"({self.visit(node.expr)})"
         else:
             expr_code = self.visit(node.expr)
         self._end_scope()
@@ -563,7 +565,7 @@ class JavaScriptCompiler(Visitor):
             value_code = self.visit(value)
             items.append(f"{key_code}: {value_code}")
         items_code = ", ".join(items)
-        return f"({{{items_code}}})"
+        return f"{{{items_code}}}"
 
     def visit_array(self, node: ast.Array):
         items_code = ", ".join([self.visit(expr) for expr in node.exprs])

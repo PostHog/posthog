@@ -79,7 +79,7 @@ print(a);
 innerA();
 print(a);
 print("--------");
-let b = ({"key": 3});
+let b = {"key": 3};
 function outerB() {
     print(b);
     __setProperty(b, "key", 4)
