@@ -429,7 +429,6 @@ class TestExternalDataSource(APIBaseTest):
                     "name": schema.name,
                     "latest_error": schema.latest_error,
                     "should_sync": schema.should_sync,
-                    "latest_error": schema.latest_error,
                     "status": schema.status,
                     "sync_type": schema.sync_type,
                     "table": schema.table,
