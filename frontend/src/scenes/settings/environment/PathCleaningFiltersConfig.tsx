@@ -2,6 +2,7 @@ import { LemonInput, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'
+import { isValidRegexp } from 'lib/utils/regexp'
 import { useState } from 'react'
 import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -11,16 +12,12 @@ import { AvailableFeature, InsightType, PathCleaningFilter } from '~/types'
 
 const cleanPathWithRegexes = (path: string, filters: PathCleaningFilter[]): string => {
     return filters.reduce((text, filter) => {
-        try {
-            return text.replace(new RegExp(filter.regex ?? ''), filter.alias ?? '')
-        } catch (e) {
-            // If error is RegExp syntax error just return text, this means regexp is invalid, just ignore it
-            if (e instanceof SyntaxError) {
-                return text
-            }
-
-            throw e
+        // If for some reason we don't have a valid RegExp, don't attempt to clean the path
+        if (!isValidRegexp(filter.regex ?? '')) {
+            return text
         }
+
+        return text.replace(new RegExp(filter.regex ?? ''), filter.alias ?? '')
     }, path)
 }
 
