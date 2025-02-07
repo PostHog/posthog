@@ -126,11 +126,12 @@ impl ServerHandle {
             .expect("failed to send request")
     }
 
-    pub async fn capture_recording<T: Into<reqwest::Body>>(&self, body: T) -> reqwest::Response {
+    pub async fn capture_recording<T: Into<reqwest::Body>>(&self, body: T, user_agent: Option<&str>) -> reqwest::Response {
         let client = reqwest::Client::new();
         client
             .post(format!("http://{:?}/s/", self.addr))
             .body(body)
+            .header("User-Agent", user_agent.unwrap_or("test-client"))
             .send()
             .await
             .expect("failed to send request")
