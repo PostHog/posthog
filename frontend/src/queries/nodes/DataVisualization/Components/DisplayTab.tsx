@@ -1,7 +1,8 @@
-import { IconPlusSmall, IconTrash } from '@posthog/icons'
+import { IconEye, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonLabel, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { IconEyeHidden } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { ChartDisplayType } from '~/types'
@@ -91,20 +92,33 @@ export const DisplayTab = (): JSX.Element => {
             )}
 
             <div className="mt-1 mb-2">
-                <LemonLabel className="mb-1">Goal line</LemonLabel>
-                {goalLines.map((goalLine, goalLineIndex) => (
+                <LemonLabel className="mb-1">{`Goal line${goalLines.length > 1 ? 's' : ''}`}</LemonLabel>
+
+                {goalLines.map(({ label, value = 0, displayLabel = true }, goalLineIndex) => (
                     <div className="flex flex-1 gap-1 mb-1" key={`${goalLineIndex}`}>
                         <SeriesLetter className="self-center" hasBreakdown={false} seriesIndex={goalLineIndex} />
                         <LemonInput
                             placeholder="Label"
                             className="grow-2"
-                            value={goalLine.label}
+                            value={label}
+                            suffix={
+                                <LemonButton
+                                    size="small"
+                                    noPadding
+                                    icon={displayLabel ? <IconEye /> : <IconEyeHidden />}
+                                    tooltip={displayLabel ? 'Display label' : 'Hide label'}
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        updateGoalLine(goalLineIndex, 'displayLabel', !displayLabel)
+                                    }}
+                                />
+                            }
                             onChange={(value) => updateGoalLine(goalLineIndex, 'label', value)}
                         />
                         <LemonInput
                             placeholder="Value"
                             className="grow"
-                            value={(goalLine.value ?? 0).toString()}
+                            value={value.toString()}
                             inputMode="numeric"
                             onChange={(value) => updateGoalLine(goalLineIndex, 'value', parseInt(value))}
                         />
@@ -118,7 +132,8 @@ export const DisplayTab = (): JSX.Element => {
                         />
                     </div>
                 ))}
-                <LemonButton className="mt-1" onClick={() => addGoalLine()} icon={<IconPlusSmall />} fullWidth>
+
+                <LemonButton className="mt-1" onClick={addGoalLine} icon={<IconPlusSmall />} fullWidth>
                     Add goal line
                 </LemonButton>
             </div>
