@@ -49,7 +49,7 @@ def _get_spark_session_singleton() -> SparkSession:
     spark_conf.set("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
     spark_conf.set("spark.sql.execution.arrow.pyspark.enabled", "true")
 
-    spark_conf.set("spark.driver.memory", "8g")
+    spark_conf.set("spark.driver.memory", "8g")  # TODO: change this for prod/local/etc - use env var
     spark_conf.set("spark.driver.memoryOverhead", "1g")
     spark_conf.set("spark.executor.memoryOverhead", "1g")
     spark_conf.set("spark.kubernetes.memoryOverheadFactor", "0.1")
