@@ -46,7 +46,7 @@ describe('Insights', () => {
             it('can open a new retention insight', () => {
                 insight.clickTab('RETENTION')
                 cy.get('.RetentionContainer canvas').should('exist')
-                cy.get('.RetentionTable__Tab').should('have.length', 66)
+                cy.get('.RetentionTable__Tab').should('have.length', 77)
             })
 
             it('can open a new paths insight', () => {

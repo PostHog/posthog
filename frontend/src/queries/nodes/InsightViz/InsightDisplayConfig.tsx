@@ -22,7 +22,7 @@ import { ShowMultipleYAxesFilter } from 'scenes/insights/EditorFilters/ShowMulti
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
 import { RetentionCumulativeCheckbox } from 'scenes/insights/filters/RetentionCumulativeCheckbox'
-import { RetentionMeanCheckbox } from 'scenes/insights/filters/RetentionMeanCheckbox'
+import { RetentionMeanDropdown } from 'scenes/insights/filters/RetentionMeanDropdown'
 import { RetentionReferencePicker } from 'scenes/insights/filters/RetentionReferencePicker'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -178,7 +178,7 @@ export function InsightDisplayConfig(): JSX.Element {
                     <ConfigFilter>
                         <RetentionDatePicker />
                         <RetentionReferencePicker />
-                        <RetentionMeanCheckbox />
+                        <RetentionMeanDropdown />
                         <RetentionCumulativeCheckbox />
                     </ConfigFilter>
                 )}
