@@ -4,7 +4,7 @@ import { forms } from 'kea-forms'
 import api from 'lib/api'
 import { tryJsonParse } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { editor, MarkerSeverity } from 'monaco-editor'
+import { editor } from 'monaco-editor'
 
 import { groupsModel } from '~/models/groupsModel'
 import { HogFunctionInvocationGlobals, HogFunctionTestInvocationResult } from '~/types'
@@ -51,6 +51,12 @@ const convertFromTransformationEvent = (result: HogTransformationEvent): Record<
     }
 }
 
+export interface CodeEditorValidation {
+    value: string
+    editor: editor.IStandaloneCodeEditor
+    decorations: string[]
+}
+
 export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
     props({} as HogFunctionConfigurationLogicProps),
     key(({ id, templateId }: HogFunctionConfigurationLogicProps) => {
@@ -87,11 +93,8 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         setTestResultMode: (mode: 'raw' | 'diff') => ({ mode }),
         receiveExampleGlobals: (globals: HogFunctionInvocationGlobals | null) => ({ globals }),
         setJsonError: (error: string | null) => ({ error }),
-        validateJson: (
-            value: string,
-            monacoEditor: editor.IStandaloneCodeEditor | null,
-            currentDecorations: string[]
-        ) => ({ value, monacoEditor, currentDecorations }),
+        validateJson: (value: string, editor: editor.IStandaloneCodeEditor, decorations: string[]) =>
+            ({ value, editor, decorations } as CodeEditorValidation),
         setDecorationIds: (decorationIds: string[]) => ({ decorationIds }),
     }),
     reducers({
@@ -162,20 +165,19 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
             }
         },
 
-        validateJson: ({ value, monacoEditor, currentDecorations }) => {
-            if (!monacoEditor?.getModel()) {
+        validateJson: ({ value, editor, decorations }: CodeEditorValidation) => {
+            if (!editor?.getModel()) {
                 return
             }
 
-            const model = monacoEditor.getModel()!
+            const model = editor.getModel()!
 
             try {
                 // Try parsing the JSON
                 JSON.parse(value)
                 // If valid, ensure everything is cleared
                 actions.setJsonError(null)
-                monacoEditor.deltaDecorations(model, 'owner', [])
-                monacoEditor.deltaDecorations(currentDecorations, [])
+                editor.removeDecorations(decorations)
             } catch (err: any) {
                 actions.setJsonError(err.message)
 
@@ -188,25 +190,13 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 const pos = model.getPositionAt(position)
 
                 // Set single error marker
-                monacoEditor.deltaDecorations(model, 'owner', [
-                    {
-                        startLineNumber: pos.lineNumber,
-                        startColumn: pos.column,
-                        endLineNumber: pos.lineNumber,
-                        endColumn: pos.column + 1,
-                        message: err.message,
-                        severity: MarkerSeverity.Error,
-                    },
-                ])
-
-                // Set single error decoration
-                monacoEditor.deltaDecorations(currentDecorations, [
+                editor.createDecorationsCollection([
                     {
                         range: {
                             startLineNumber: pos.lineNumber,
-                            startColumn: 1,
+                            startColumn: pos.column,
                             endLineNumber: pos.lineNumber,
-                            endColumn: model.getLineLength(pos.lineNumber) + 1,
+                            endColumn: pos.column + 1,
                         },
                         options: {
                             isWholeLine: true,
@@ -216,9 +206,8 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                         },
                     },
                 ])
-
                 // Scroll to error
-                monacoEditor.revealLineInCenter(pos.lineNumber)
+                editor.revealLineInCenter(pos.lineNumber)
             }
         },
     })),
