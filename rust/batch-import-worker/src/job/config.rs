@@ -1,6 +1,7 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::Error;
+use aws_config::{BehaviorVersion, Region};
 use base64::{prelude::BASE64_URL_SAFE, Engine};
 use fernet::MultiFernet;
 use serde::{Deserialize, Serialize};
@@ -10,7 +11,7 @@ use crate::{
     context::AppContext,
     emit::{kafka::KafkaEmitter, Emitter, FileEmitter, NoOpEmitter, StdoutEmitter},
     parse::format::FormatConfig,
-    source::{folder::FolderSource, url_list::UrlList, DataSource},
+    source::{folder::FolderSource, s3::S3Source, url_list::UrlList, DataSource},
 };
 
 use super::model::JobModel;
@@ -29,6 +30,7 @@ pub struct JobConfig {
 pub enum SourceConfig {
     Folder(FolderSourceConfig),
     UrlList(UrlListConfig),
+    S3(S3SourceConfig),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,6 +46,15 @@ pub struct UrlListConfig {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct FolderSourceConfig {
     pub path: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct S3SourceConfig {
+    access_key_id_key: String,
+    secret_access_key_key: String,
+    bucket: String,
+    prefix: String,
+    region: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,6 +122,7 @@ impl SourceConfig {
         match self {
             SourceConfig::Folder(config) => Ok(Box::new(config.create_source().await?)),
             SourceConfig::UrlList(config) => Ok(Box::new(config.create_source(secrets).await?)),
+            SourceConfig::S3(config) => Ok(Box::new(config.create_source(secrets).await?)),
         }
     }
 }
@@ -167,5 +179,56 @@ impl UrlListConfig {
 
     fn default_timeout_seconds() -> u64 {
         30
+    }
+}
+
+impl S3SourceConfig {
+    pub async fn create_source(&self, secrets: &JobSecrets) -> Result<S3Source, Error> {
+        let access_key_id = secrets
+            .secrets
+            .get(&self.access_key_id_key)
+            .ok_or(Error::msg(format!(
+                "Missing access key id as key {}",
+                self.access_key_id_key
+            )))?
+            .as_str()
+            .ok_or(Error::msg(format!(
+                "Access key id as key {} is not a string",
+                self.access_key_id_key
+            )))?;
+
+        let secret_access_key = secrets
+            .secrets
+            .get(&self.secret_access_key_key)
+            .ok_or(Error::msg(format!(
+                "Missing secret access key as key {}",
+                self.secret_access_key_key
+            )))?
+            .as_str()
+            .ok_or(Error::msg(format!(
+                "Secret access key as key {} is not a string",
+                self.secret_access_key_key
+            )))?;
+
+        let aws_credentials = aws_sdk_s3::config::Credentials::new(
+            access_key_id,
+            secret_access_key,
+            None,
+            None,
+            "job_config",
+        );
+
+        let aws_conf = aws_sdk_s3::config::Builder::new()
+            .region(Region::new(self.region.clone()))
+            .credentials_provider(aws_credentials)
+            .behavior_version(BehaviorVersion::latest())
+            .build();
+        let client = aws_sdk_s3::Client::from_conf(aws_conf);
+
+        Ok(S3Source::new(
+            client,
+            self.bucket.clone(),
+            self.prefix.clone(),
+        ))
     }
 }
