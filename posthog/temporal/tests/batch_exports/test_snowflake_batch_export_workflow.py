@@ -424,7 +424,7 @@ async def test_snowflake_export_workflow_exports_events(
     It should update the batch export run status to completed, as well as updating the record
     count.
     """
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     data_interval_end_str = data_interval_end.strftime("%Y-%m-%d_%H-%M-%S")
     data_interval_start = data_interval_end - snowflake_batch_export.interval_time_delta
 

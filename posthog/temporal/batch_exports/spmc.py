@@ -516,15 +516,24 @@ def is_5_min_batch_export(full_range: tuple[dt.datetime | None, dt.datetime]) ->
     return False
 
 
-def use_distributed_events_recent_table(is_backfill: bool, backfill_details: BackfillDetails | None) -> bool:
+def use_distributed_events_recent_table(
+    is_backfill: bool, backfill_details: BackfillDetails | None, data_interval_start: dt.datetime | None
+) -> bool:
     """We should use the distributed_events_recent table if it's not a backfill (backfill_details is None) or the
     backfill is within the last 6 days.
+
+    We also check the data_interval_start to make sure it's also within the last 6 days (should always be the case for
+    realtime batch exports but for tests it may not be the case)
 
     The events_recent table, and by extension, the distributed_events_recent table, only have event data from the last 7
     days (we use 6 days to give some buffer).
     """
 
-    if not is_backfill:
+    if (
+        not is_backfill
+        and data_interval_start
+        and data_interval_start > (dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=6))
+    ):
         return True
 
     backfill_start_at = None
@@ -532,6 +541,7 @@ def use_distributed_events_recent_table(is_backfill: bool, backfill_details: Bac
         backfill_start_at = dt.datetime.fromisoformat(backfill_details.start_at)
     if backfill_start_at and backfill_start_at > (dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=6)):
         return True
+
     return False
 
 
@@ -618,7 +628,9 @@ class Producer:
                 query_template = SELECT_FROM_EVENTS_VIEW_RECENT
             # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
             # which is a distributed table that sits in front of the `events_recent` table
-            elif use_distributed_events_recent_table(is_backfill=is_backfill, backfill_details=backfill_details):
+            elif use_distributed_events_recent_table(
+                is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=full_range[0]
+            ):
                 self.logger.info("Using distributed_events_recent table for batch export")
                 query_template = SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
             elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:

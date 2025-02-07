@@ -316,7 +316,9 @@ async def iter_records_from_model_view(
             query_template = SELECT_FROM_EVENTS_VIEW_RECENT
         # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
         # which is a distributed table that sits in front of the `events_recent` table
-        elif use_distributed_events_recent_table(is_backfill=is_backfill, backfill_details=backfill_details):
+        elif use_distributed_events_recent_table(
+            is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=start_at
+        ):
             query_template = SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
         elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
             query_template = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
@@ -510,7 +512,9 @@ def iter_records(
         query = SELECT_FROM_EVENTS_VIEW_RECENT
     # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
     # which is a distributed table that sits in front of the `events_recent` table
-    elif use_distributed_events_recent_table(is_backfill=is_backfill, backfill_details=backfill_details):
+    elif use_distributed_events_recent_table(
+        is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=start_at
+    ):
         query = SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
     elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
         query = SELECT_FROM_EVENTS_VIEW_UNBOUNDED

@@ -205,6 +205,7 @@ async def test_iter_records_ignores_timestamp_predicates(clickhouse_client):
         duplicate=True,
         person_properties={"$browser": "Chrome", "$os": "Mac OS X"},
         inserted_at=inserted_at,
+        table="sharded_events",
     )
 
     records = [
