@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+import gc
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.conf import SparkConf
 from delta import configure_spark_with_delta_pip
@@ -47,6 +48,16 @@ def _get_spark_session_singleton() -> SparkSession:
     spark_conf.set("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
     spark_conf.set("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
     spark_conf.set("spark.sql.execution.arrow.pyspark.enabled", "true")
+
+    spark_conf.set("spark.driver.memory", "8g")
+    spark_conf.set("spark.driver.memoryOverhead", "1g")
+    spark_conf.set("spark.executor.memoryOverhead", "1g")
+    spark_conf.set("spark.kubernetes.memoryOverheadFactor", "0.1")
+
+    spark_conf.set("spark.memory.fraction", "0.6")
+    spark_conf.set("spark.memory.storageFraction", "0.3")
+    spark_conf.set("spark.sql.shuffle.partitions", "100")
+
     spark_conf.set(
         "spark.hadoop.fs.s3a.aws.credentials.provider", "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"
     )
@@ -138,7 +149,13 @@ class DeltaTableHelper:
     def write_to_deltalake(
         self, data: pa.Table, is_incremental: bool, chunk_index: int, primary_keys: Sequence[Any] | None
     ) -> DeltaTable:
+        table_size_mb = data.nbytes / (1024 * 1024)
+        repartitions = int(table_size_mb / 10)
+
+        self._logger.debug(f"PySpark: table_size_mb = {table_size_mb}. repartitions = {repartitions}")
+
         data_frame = self._spark.createDataFrame(data.to_pandas(), schema=arrow_to_spark_schema(data))
+        data_frame = data_frame.repartition(repartitions)
 
         delta_table = self.get_delta_table()
 
@@ -162,6 +179,10 @@ class DeltaTableHelper:
                 mode = "overwrite"
 
             data_frame.write.format("delta").mode(mode).option("mergeSchema", "true").save(self._get_delta_table_uri())
+
+        # Remove the data frame from memory once its written
+        data_frame.unpersist(blocking=True)
+        gc.collect()
 
         delta_table = self.get_delta_table()
         assert delta_table is not None
