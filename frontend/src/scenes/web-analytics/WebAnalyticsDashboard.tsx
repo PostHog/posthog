@@ -440,7 +440,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                 <WebAnalyticsModal />
                 <VersionCheckerBanner />
                 <div className="WebAnalyticsDashboard w-full flex flex-col">
-                    <div className="flex flex-row space-between justify-center">
+                    <div className="flex flex-row">
                         {featureFlags[FEATURE_FLAGS.WEB_VITALS] && (
                             <div className="flex-1">
                                 <LemonTabs<ProductTab>
