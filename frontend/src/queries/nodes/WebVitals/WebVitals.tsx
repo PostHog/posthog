@@ -59,7 +59,7 @@ export function WebVitals(props: {
     )
 
     return (
-        <div className="border rounded bg-surface-secondary flex-1 flex flex-col">
+        <div className="border rounded bg-surface-tertiary flex-1 flex flex-col">
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 cursor-pointer border-b divide-y sm:divide-y-2 xl:divide-y-0 divide-x-0 sm:divide-x xl:divide-x-2">
                 <WebVitalsTab
                     metric="INP"
@@ -94,7 +94,6 @@ export function WebVitals(props: {
 
                     <div className="flex w-full justify-end">
                         <LemonButton
-                            key="open-insight-button"
                             to={urls.insightNew({ query: webVitalsMetricQuery })}
                             icon={<IconOpenInNew />}
                             size="small"
