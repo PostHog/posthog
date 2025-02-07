@@ -116,6 +116,7 @@ async fn handle_common(
         now: state.timesource.current_time(),
         client_ip: ip.to_string(),
         historical_migration,
+        user_agent: Some(user_agent.to_string()),
     };
 
     let billing_limited = state
@@ -223,10 +224,6 @@ pub async fn recording(
     path: MatchedPath,
     body: Bytes,
 ) -> Result<Json<CaptureResponse>, CaptureError> {
-    let user_agent = headers
-        .get("user-agent")
-        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
-
     match handle_common(&state, &ip, &meta, &headers, &method, &path, body).await {
         Err(CaptureError::BillingLimit) => Ok(Json(CaptureResponse {
             status: CaptureResponseCode::Ok,
@@ -235,9 +232,7 @@ pub async fn recording(
         Err(err) => Err(err),
         Ok((context, events)) => {
             let count = events.len() as u64;
-            if let Err(err) =
-                process_replay_events(state.sink.clone(), events, user_agent, &context).await
-            {
+            if let Err(err) = process_replay_events(state.sink.clone(), events, &context).await {
                 let cause = match err {
                     CaptureError::MissingDistinctId => "missing_distinct_id",
                     CaptureError::MissingSessionId => "missing_session_id",
@@ -348,7 +343,6 @@ pub async fn process_events<'a>(
 pub async fn process_replay_events<'a>(
     sink: Arc<dyn sinks::Event + Send + Sync>,
     mut events: Vec<RawEvent>,
-    user_agent: &str,
     context: &'a ProcessingContext,
 ) -> Result<(), CaptureError> {
     // Grab metadata about the whole batch from the first event before
@@ -377,7 +371,7 @@ pub async fn process_replay_events<'a>(
         .remove("$lib")
         // missing lib could be one of multiple libraries, so we try to fall back to user agent
         .unwrap_or(Value::String(
-            snapshot_library_fallback_from(user_agent.to_string())
+            snapshot_library_fallback_from(context.user_agent.as_ref())
                 .unwrap_or(String::from("unknown")),
         ));
 
@@ -434,15 +428,11 @@ pub async fn process_replay_events<'a>(
     sink.send(ProcessedEvent { metadata, event }).await
 }
 
-fn snapshot_library_fallback_from(user_agent: String) -> Option<String> {
-    if user_agent.is_empty() {
-        return None;
-    }
-
-    if user_agent.contains("posthog") && user_agent.contains('/') {
-        // Mobile SDKs send e.g. posthog-android/1.0.0
-        Some(user_agent.split('/').next()?.to_string())
-    } else {
-        Some("web".to_string())
-    }
+fn snapshot_library_fallback_from(user_agent: Option<&String>) -> Option<String> {
+    user_agent?
+        .split('/')
+        .next()
+        .map(|s| s.to_string())
+        .filter(|s| s.contains("posthog"))
+        .or(Some("web".to_string()))
 }
