@@ -46,7 +46,19 @@ export function Transformations(): JSX.Element {
                 actionElementOverride={<NewButton stage={PipelineStage.Transformation} />}
                 isEmpty={shouldShowEmptyState}
             />
-            {sortedEnabledTransformations.length > 1 && ( // Only show rearranging if there's more then 1 sortable app
+
+            <FlaggedFeature flag="hog-transformations">
+                <Destinations types={TRANSFORMATION_TYPES} />
+            </FlaggedFeature>
+
+            <FlaggedFeature flag="hog-transformations">
+                <div className="mt-8">
+                    <h2>Legacy Transformations</h2>
+                    <p className="text-muted mt-2 mb-4">These transformations are deprecated.</p>
+                </div>
+            </FlaggedFeature>
+
+            {sortedEnabledTransformations.length > 1 && (
                 <>
                     <ReorderModal />
                     <div className="flex items-center gap-2">
@@ -66,11 +78,6 @@ export function Transformations(): JSX.Element {
             )}
 
             <TransformationsTable />
-
-            <FlaggedFeature flag="hog-transformations">
-                <h2 className="mt-4">Experimental transformations</h2>
-                <Destinations types={TRANSFORMATION_TYPES} />
-            </FlaggedFeature>
         </>
     )
 }
