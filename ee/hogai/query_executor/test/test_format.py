@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import Any
 
+from freezegun import freeze_time
+
 from posthog.schema import (
     AssistantFunnelsEventsNode,
     AssistantFunnelsFilter,
@@ -329,15 +331,16 @@ class TestCompression(BaseTest):
             ],
         ]
 
-        self.assertEqual(
-            FunnelResultsFormatter(
-                AssistantFunnelsQuery(series=[]),
-                results,
-                self.team,
-                datetime.now(),
-            ).format(),
-            'Date range: 2025-01-31 00:00:00 to 2025-02-07 23:59:59\n\n---au\nMetric|$pageview|signup\nTotal person count|5|2\nConversion rate|100%|40%\nDropoff rate|0%|60%\nAverage conversion time|-|10s\nMedian conversion time|-|11s\n\n---us\nMetric|$pageview|signup\nTotal person count|5|2\nConversion rate|100%|40%\nDropoff rate|0%|60%\nAverage conversion time|-|10s\nMedian conversion time|-|11s\n\nConversion and drop-off rates are calculated in overall. For example, "Conversion rate: 9%" means that 9% of users from the first step completed the funnel.',
-        )
+        with freeze_time("2025-02-07T15:00:00"):
+            self.assertEqual(
+                FunnelResultsFormatter(
+                    AssistantFunnelsQuery(series=[]),
+                    results,
+                    self.team,
+                    datetime.now(),
+                ).format(),
+                'Date range: 2025-01-31 00:00:00 to 2025-02-07 23:59:59\n\n---au\nMetric|$pageview|signup\nTotal person count|5|2\nConversion rate|100%|40%\nDropoff rate|0%|60%\nAverage conversion time|-|10s\nMedian conversion time|-|11s\n\n---us\nMetric|$pageview|signup\nTotal person count|5|2\nConversion rate|100%|40%\nDropoff rate|0%|60%\nAverage conversion time|-|10s\nMedian conversion time|-|11s\n\nConversion and drop-off rates are calculated in overall. For example, "Conversion rate: 9%" means that 9% of users from the first step completed the funnel.',
+            )
 
     def test_format_date(self):
         self.assertEqual(_strip_datetime_seconds("2025-01-20"), "2025-01-20")

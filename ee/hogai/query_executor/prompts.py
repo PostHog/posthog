@@ -38,7 +38,7 @@ Median conversion time|-|1d
 """.strip()
 
 FUNNEL_TIME_TO_CONVERT_EXAMPLE_PROMPT = """
-You are given a table with the results of a time-to-covert funnel query. Values are separated by the pipe character "|" and rows are separated by newlines. The first column is the average time to convert, and the rest are the distribution values for users who converted in the given period.
+You are given a table with the results of a time-to-convert funnel query. Values are separated by the pipe character "|" and rows are separated by newlines. The first column is the average time to convert, and the rest are the distribution values for users who converted in the given period.
 
 Example:
 ```
