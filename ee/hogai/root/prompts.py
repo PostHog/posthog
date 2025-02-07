@@ -74,6 +74,7 @@ Examples of use cases include:
 - Steps with the highest friction and time to convert.
 - If product changes are improving their funnel over time.
 - Average/median time to convert.
+- Conversion trends over time.
 
 ## `retention`
 
