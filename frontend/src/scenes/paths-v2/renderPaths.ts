@@ -19,6 +19,10 @@ const FALLBACK_CANVAS_HEIGHT = 0
 const NODE_BORDER_RADIUS = 6
 const NODE_WIDTH = 48
 
+export const PATH_NODE_CARD_WIDTH = 240
+export const PATH_NODE_CARD_TOP_OFFSET = 0
+export const PATH_NODE_CARD_LEFT_OFFSET = 0 - NODE_BORDER_RADIUS
+
 const createCanvas = (canvasRef: RefObject<HTMLDivElement>, width: number, height: number): D3Selector => {
     return d3
         .select(canvasRef.current)
@@ -30,9 +34,22 @@ const createCanvas = (canvasRef: RefObject<HTMLDivElement>, width: number, heigh
 }
 
 const createSankeyGenerator = (width: number, height: number): Sankey.SankeyLayout<any, any, any> => {
+    /** **Left canvas margin**
+     * - Expanded by the border radius to make sure the nodes are not cut off.
+     */
     const marginLeft = 0 + NODE_BORDER_RADIUS
+
+    /** **Top canvas margin** */
     const marginTop = 0
-    const marginRight = 0 + NODE_BORDER_RADIUS
+
+    /** **Right canvas margin**
+     * - Expanded by the border radius to make sure the nodes are not cut off.
+     * - Expanded by the width of the node label, minus the already existing
+     * node width to make sure the node label fits into the canvas.
+     */
+    const marginRight = 0 + NODE_BORDER_RADIUS + PATH_NODE_CARD_WIDTH - NODE_WIDTH
+
+    /** **Bottom canvas margin** */
     const marginBottom = 0
 
     // @ts-expect-error - d3 sankey typing things

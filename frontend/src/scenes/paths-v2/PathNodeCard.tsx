@@ -4,11 +4,11 @@ import { useActions, useValues } from 'kea'
 import { FunnelPathsFilter } from '~/queries/schema'
 import { InsightLogicProps } from '~/types'
 
-import { PATH_NODE_CARD_LEFT_OFFSET, PATH_NODE_CARD_TOP_OFFSET, PATH_NODE_CARD_WIDTH } from './constants'
 import { PathNodeCardButton } from './PathNodeCardButton'
 import { PathNodeCardMenu } from './PathNodeCardMenu'
 import { pathsDataLogic } from './pathsDataLogic'
 import { isSelectedPathStartOrEnd, pageUrl, PathNodeData } from './pathUtils'
+import { PATH_NODE_CARD_LEFT_OFFSET, PATH_NODE_CARD_TOP_OFFSET, PATH_NODE_CARD_WIDTH } from './renderPaths'
 
 export type PathNodeCardProps = {
     insightProps: InsightLogicProps
@@ -57,13 +57,8 @@ export function PathNodeCard({ insightProps, node }: PathNodeCardProps): JSX.Ele
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         width: PATH_NODE_CARD_WIDTH,
-                        left: !isPathEnd
-                            ? node.x0 + PATH_NODE_CARD_LEFT_OFFSET
-                            : node.x0 + PATH_NODE_CARD_LEFT_OFFSET - PATH_NODE_CARD_WIDTH,
-                        top: !isPathEnd
-                            ? node.y0 + PATH_NODE_CARD_TOP_OFFSET
-                            : // use middle for end nodes
-                              node.y0 + (node.y1 - node.y0) / 2,
+                        left: node.x0 + PATH_NODE_CARD_LEFT_OFFSET,
+                        top: node.y0 + PATH_NODE_CARD_TOP_OFFSET,
                         border: `1px solid ${
                             isSelectedPathStartOrEnd(pathsFilter, funnelPathsFilter, node) ? 'purple' : 'var(--border)'
                         }`,
