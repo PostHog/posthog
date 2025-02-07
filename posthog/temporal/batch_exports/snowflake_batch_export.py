@@ -771,11 +771,10 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
             extra_query_parameters=extra_query_parameters,
             use_latest_schema=True,
         )
-        records_completed = 0
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:
-            return records_completed
+            return details.records_completed
 
         record_batch_schema = pa.schema(
             # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
@@ -854,7 +853,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                     snowflake_table=snow_stage_table if requires_merge else snow_table,
                     snowflake_table_stage_prefix=data_interval_end_str,
                 )
-                records_completed = await run_consumer(
+                _ = await run_consumer(
                     consumer=consumer,
                     queue=queue,
                     producer_task=producer_task,
@@ -877,7 +876,7 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                         update_key=update_key,
                     )
 
-        return records_completed
+        return details.records_completed
 
 
 @workflow.defn(name="snowflake-export", failure_exception_types=[workflow.NondeterminismError])
