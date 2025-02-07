@@ -11,9 +11,9 @@ import { AiConsentPopover } from '../AiConsentPopover'
 import { aiRegexHelperLogic } from './aiRegexHelperLogic'
 
 export function AiRegexHelper(): JSX.Element {
-    const filterLogic = aiRegexHelperLogic()
-    const { isOpen, input, generatedRegex, error, isLoading } = useValues(filterLogic)
-    const { setInput, handleGenerateRegex, handleApplyRegex, onClose } = useActions(filterLogic)
+    const logic = aiRegexHelperLogic()
+    const { isOpen, input, generatedRegex, error, isLoading } = useValues(logic)
+    const { setInput, handleGenerateRegex, handleApplyRegex, onClose } = useActions(logic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
     return (
@@ -41,8 +41,8 @@ export function AiRegexHelper(): JSX.Element {
                 </div>
                 {generatedRegex && (
                     <div className="mt-2">
-                        Your regex is:
-                        <div className="flex flex-row justify-between gap-2 items-center">
+                        <h3 className="text-sm font-bold">Your regex is:</h3>
+                        <div className="flex mt-1 flex-row justify-between gap-2 items-center">
                             <LemonBanner
                                 type="info"
                                 className="w-full flex flex-row justify-between gap-2 items-center"

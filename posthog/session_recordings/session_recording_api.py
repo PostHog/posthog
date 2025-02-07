@@ -58,6 +58,7 @@ from posthog.session_recordings.ai_data.ai_filter_schema import AiFilterSchema
 from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
 from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
 from posthog.session_recordings.ai_data.ai_filter_prompts import AI_FILTER_INITIAL_PROMPT, AI_FILTER_PROPERTIES_PROMPT
+from posthog.settings.session_replay import SESSION_REPLAY_AI_MODEL
 from openai.types.chat import (
     ChatCompletionMessageParam,
     ChatCompletionSystemMessageParam,
@@ -851,7 +852,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         else:
             raise exceptions.ValidationError(f"Invalid version: {version}")
 
-    @extend_schema(description="Generate session recording filters using AI")
+    @extend_schema(
+        description="Generate session recording filters using AI. This is in development and likely to change, you should not depend on this API."
+    )
     @action(methods=["POST"], detail=False, url_path="ai/filters")
     def ai_filters(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         if not request.user.is_authenticated:
@@ -885,7 +888,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         client = _get_openai_client()
 
         completion = client.beta.chat.completions.parse(
-            model="gpt-4o-mini",
+            model=SESSION_REPLAY_AI_MODEL,
             messages=messages,
             response_format=AiFilterSchema,
         )
@@ -901,7 +904,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         return Response(response_data)
 
     @extend_schema(
-        description="Generate regex patterns using AI",
+        description="Generate regex patterns using AI. This is in development and likely to change, you should not depend on this API."
     )
     @action(methods=["POST"], detail=False, url_path="ai/regex")
     def ai_regex(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -919,7 +922,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         client = _get_openai_client()
 
         completion = client.beta.chat.completions.parse(
-            model="gpt-4o-mini",
+            model=SESSION_REPLAY_AI_MODEL,
             messages=messages,
             response_format=AiRegexSchema,
         )

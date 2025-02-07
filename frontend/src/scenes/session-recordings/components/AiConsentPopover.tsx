@@ -20,7 +20,7 @@ export const AiConsentPopover = (): JSX.Element => {
                     overlay={
                         <div className="m-1.5 max-w-80">
                             <p className="font-medium text-pretty mb-1.5">
-                                Hi! This feature uses OpenAI to analyze your data,helping you gain insights faster. If
+                                Hi! This feature uses OpenAI to analyze your data, helping you gain insights faster. If
                                 your data includes personal information, it may be processed.
                                 <br />
                                 Your data won't be used for AI training.

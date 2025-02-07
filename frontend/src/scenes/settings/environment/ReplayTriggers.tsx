@@ -3,7 +3,9 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -37,7 +39,9 @@ function UrlConfigForm({
             enableFormOnSubmit
             className="w-full flex flex-col border rounded items-center p-2 pl-4 bg-bg-light gap-2"
         >
-            <AiRegexHelper />
+            <FlaggedFeature flag={FEATURE_FLAGS.RECORDINGS_AI_FILTER}>
+                <AiRegexHelper />
+            </FlaggedFeature>
             <div className="flex flex-col gap-2 w-full">
                 <LemonBanner type="info" className="text-sm">
                     We always wrap the URL regex with anchors to avoid unexpected behavior (if you do not). This is
@@ -53,16 +57,18 @@ function UrlConfigForm({
             </div>
             <div className="flex justify-between gap-2 w-full">
                 <div>
-                    <LemonButton
-                        type="tertiary"
-                        icon={<IconAI />}
-                        onClick={() => {
-                            setIsOpen(true)
-                            posthog.capture('ai_regex_helper_open')
-                        }}
-                    >
-                        Help me with Regex
-                    </LemonButton>
+                    <FlaggedFeature flag={FEATURE_FLAGS.RECORDINGS_AI_FILTER}>
+                        <LemonButton
+                            type="tertiary"
+                            icon={<IconAI />}
+                            onClick={() => {
+                                setIsOpen(true)
+                                posthog.capture('ai_regex_helper_open')
+                            }}
+                        >
+                            Help me with Regex
+                        </LemonButton>
+                    </FlaggedFeature>
                 </div>
                 <div className="flex gap-2">
                     <LemonButton type="secondary" onClick={onCancel}>
