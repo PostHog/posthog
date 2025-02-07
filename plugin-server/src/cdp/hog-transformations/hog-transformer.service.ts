@@ -8,7 +8,7 @@ import {
     HogFunctionType,
     HogFunctionTypeType,
 } from '../../cdp/types'
-import { createInvocation, fixLogDeduplication, isLegacyPluginHogFunction } from '../../cdp/utils'
+import { CDP_TEST_ID, createInvocation, fixLogDeduplication, isLegacyPluginHogFunction } from '../../cdp/utils'
 import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../config/kafka-topics'
 import { runInstrumentedFunction } from '../../main/utils'
 import { AppMetric2Type, Hub, TimestampFormat } from '../../types'
@@ -158,11 +158,14 @@ export class HogTransformerService {
         return promises
     }
 
-    public transformEventAndProduceMessages(event: PluginEvent): Promise<TransformationResult> {
+    public transformEventAndProduceMessages(
+        event: PluginEvent,
+        runTestFunctions: boolean = false
+    ): Promise<TransformationResult> {
         return runInstrumentedFunction({
             statsKey: `hogTransformer.transformEventAndProduceMessages`,
             func: async () => {
-                const transformationResult = await this.transformEvent(event)
+                const transformationResult = await this.transformEvent(event, runTestFunctions)
                 const messagePromises: Promise<void>[] = []
 
                 transformationResult.invocationResults.forEach((result) => {
@@ -177,7 +180,7 @@ export class HogTransformerService {
         })
     }
 
-    public transformEvent(event: PluginEvent): Promise<TransformationResultPure> {
+    public transformEvent(event: PluginEvent, runTestFunctions: boolean = false): Promise<TransformationResultPure> {
         return runInstrumentedFunction({
             statsKey: `hogTransformer.transformEvent`,
 
@@ -189,6 +192,10 @@ export class HogTransformerService {
 
                 // For now, execute each transformation function in sequence
                 for (const hogFunction of teamHogFunctions) {
+                    if (hogFunction.name.includes(CDP_TEST_ID) && !runTestFunctions) {
+                        // Skip test functions if we're not running in test mode
+                        continue
+                    }
                     const transformationIdentifier = `${hogFunction.name} (${hogFunction.id})`
                     const result = await this.executeHogFunction(hogFunction, this.createInvocationGlobals(event))
 
