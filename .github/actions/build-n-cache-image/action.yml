@@ -13,11 +13,11 @@ inputs:
         default: false
         description: Whether to push the built image - requires aws-access-key and aws-access-secret
     aws-access-key:
-        required: false
-        description: AWS key to log into ECR
+        required: ${{ inputs.push-image == 'true' }}
+        description: AWS key to log into ECR (required when push-image is true)
     aws-access-secret:
-        required: false
-        description: AWS secret to log into ECR
+        required: ${{ inputs.push-image == 'true' }}
+        description: AWS secret to log into ECR (required when push-image is true)
     dockerhub-username:
         required: false
         description: Dockerhub username for pushing image
