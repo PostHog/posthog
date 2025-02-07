@@ -4,7 +4,7 @@ import { forms } from 'kea-forms'
 import api from 'lib/api'
 import { tryJsonParse } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { editor as monacoEditor, MarkerSeverity } from 'monaco-editor'
+import { editor, MarkerSeverity } from 'monaco-editor'
 
 import { groupsModel } from '~/models/groupsModel'
 import { HogFunctionInvocationGlobals, HogFunctionTestInvocationResult } from '~/types'
@@ -89,7 +89,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         setJsonError: (error: string | null) => ({ error }),
         validateJson: (
             value: string,
-            monacoEditor: monacoEditor.IStandaloneCodeEditor | null,
+            monacoEditor: editor.IStandaloneCodeEditor | null,
             currentDecorations: string[]
         ) => ({ value, monacoEditor, currentDecorations }),
         setDecorationIds: (decorationIds: string[]) => ({ decorationIds }),
