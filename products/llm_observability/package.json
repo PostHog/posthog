@@ -11,13 +11,18 @@
         "eslint-plugin-posthog": "workspace:*"
     },
     "peerDependencies": {
+        "@posthog/icons": "*",
+        "classnames": "*",
+        "clsx": "*",
+        "eslint": "*",
+        "eslint-plugin-posthog": "*",
         "jest": "*",
         "kea": "*",
+        "kea-loaders": "*",
         "kea-router": "*",
-        "eslint": "*",
-        "stylelint": "*",
-        "typescript": "*",
         "prettier": "*",
-        "eslint-plugin-posthog": "*"
+        "react": "*",
+        "stylelint": "*",
+        "typescript": "*"
     }
 }
