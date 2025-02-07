@@ -65,6 +65,7 @@ from openai.types.chat import (
     ChatCompletionUserMessageParam,
     ChatCompletionAssistantMessageParam,
 )
+from posthog.session_recordings.utils import clean_prompt_whitespace
 
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",
@@ -867,10 +868,20 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         # Create system prompt by combining the initial and properties prompts
         system_message = ChatCompletionSystemMessageParam(
-            role="system", content=AI_FILTER_INITIAL_PROMPT + AI_FILTER_PROPERTIES_PROMPT
+            role="system", content=clean_prompt_whitespace(AI_FILTER_INITIAL_PROMPT + AI_FILTER_PROPERTIES_PROMPT)
         )
+
         # Convert messages to OpenAI format and combine with system message
-        messages = [system_message] + [msg.to_openai_message() for msg in request_data.messages]
+        messages: list[ChatCompletionMessageParam] = [system_message]
+        for msg in request_data.messages:
+            if msg.role == "user":
+                messages.append(
+                    ChatCompletionUserMessageParam(role="user", content=clean_prompt_whitespace(msg.content))
+                )
+            else:
+                messages.append(
+                    ChatCompletionAssistantMessageParam(role="assistant", content=clean_prompt_whitespace(msg.content))
+                )
 
         client = _get_openai_client()
 
@@ -901,7 +912,16 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         if "regex" not in request.data:
             raise exceptions.ValidationError("Missing required field: regex")
 
-        messages = create_openai_messages(system_content=str(AI_REGEX_PROMPTS), user_content=str(request.data["regex"]))
+        # Create system prompt by combining the initial and properties prompts
+        system_message = ChatCompletionSystemMessageParam(
+            role="system", content=clean_prompt_whitespace(AI_REGEX_PROMPTS)
+        )
+
+        user_message = ChatCompletionUserMessageParam(
+            role="user", content=clean_prompt_whitespace(request.data["regex"])
+        )
+
+        messages = [system_message, user_message]
 
         client = _get_openai_client()
 
