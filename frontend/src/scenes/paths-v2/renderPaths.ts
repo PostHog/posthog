@@ -13,7 +13,9 @@ const FALLBACK_CANVAS_WIDTH = 1000
 const FALLBACK_CANVAS_HEIGHT = 0
 
 // We want the border radius to overlap the links. For this we subtract the border radius of both
-// sides from the node width, and add it back to the svg element that is moved left by one border radius.
+// sides from the node width, and add it back to the svg element that is moved left by the border radius.
+//
+// We also expand the canvas margin by the border radius on both sides to make sure the nodes are not cut off.
 const NODE_BORDER_RADIUS = 6
 const NODE_WIDTH = 48
 
@@ -28,6 +30,11 @@ const createCanvas = (canvasRef: RefObject<HTMLDivElement>, width: number, heigh
 }
 
 const createSankeyGenerator = (width: number, height: number): Sankey.SankeyLayout<any, any, any> => {
+    const marginLeft = 0 + NODE_BORDER_RADIUS
+    const marginTop = 0
+    const marginRight = 0 + NODE_BORDER_RADIUS
+    const marginBottom = 0
+
     // @ts-expect-error - d3 sankey typing things
     return new Sankey.sankey()
         .nodeId((d: PathNodeData) => d.name)
@@ -35,6 +42,10 @@ const createSankeyGenerator = (width: number, height: number): Sankey.SankeyLayo
         .nodeSort(null)
         .nodeWidth(NODE_WIDTH - 2 * NODE_BORDER_RADIUS)
         .size([width, height])
+        .extent([
+            [marginLeft, marginTop], // top-left coordinates
+            [width - marginRight, height - marginBottom], // bottom-right coordinates
+        ])
 }
 
 const appendPathNodes = (
