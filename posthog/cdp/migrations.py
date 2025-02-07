@@ -162,7 +162,7 @@ def migrate_legacy_plugins(
             # Order by order asc but with nulls last
         )
         .filter(enabled=True)
-        .order_by("order", "team_id")
+        .order_by("team_id")
     )
 
     if kind == "destination":
