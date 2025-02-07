@@ -663,7 +663,7 @@ async def test_postgres_export_workflow_without_events(
     "data_interval_start",
     # This is hardcoded relative to the `data_interval_end` used in all or most tests, since that's also
     # passed to `generate_test_data` to determine the timestamp for the generated data.
-    [dt.datetime(2023, 4, 24, 15, 0, 0, tzinfo=dt.UTC)],
+    [dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0) - dt.timedelta(hours=24)],
     indirect=True,
 )
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
@@ -687,6 +687,12 @@ async def test_postgres_export_workflow_backfill_earliest_persons(
     We expect persons outside the batch interval to also be backfilled (i.e. persons that were updated
     more than an hour ago) when setting `is_earliest_backfill=True`.
     """
+    backfill_details = BackfillDetails(
+        backfill_id=str(uuid.uuid4()),
+        is_earliest_backfill=True,
+        start_at=None,
+        end_at=data_interval_end.isoformat(),
+    )
     workflow_id = str(uuid.uuid4())
     inputs = PostgresBatchExportInputs(
         team_id=ateam.pk,
@@ -694,12 +700,7 @@ async def test_postgres_export_workflow_backfill_earliest_persons(
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
         batch_export_model=model,
-        backfill_details=BackfillDetails(
-            backfill_id=str(uuid.uuid4()),
-            is_earliest_backfill=True,
-            start_at=None,
-            end_at=data_interval_end.isoformat(),
-        ),
+        backfill_details=backfill_details,
         **postgres_batch_export.destination.config,
     )
     _, persons = generate_test_data
@@ -748,6 +749,7 @@ async def test_postgres_export_workflow_backfill_earliest_persons(
         batch_export_model=model,
         exclude_events=exclude_events,
         sort_key="person_id",
+        backfill_details=backfill_details,
     )
 
 

@@ -62,6 +62,7 @@ from posthog.temporal.tests.utils.s3 import read_parquet_from_s3, read_s3_data_a
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
+TEST_DATA_INTERVAL_END = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 TEST_ROOT_BUCKET = "test-batch-exports"
 SESSION = aioboto3.Session()
 create_test_client = functools.partial(SESSION.client, endpoint_url=settings.OBJECT_STORAGE_ENDPOINT)
@@ -979,7 +980,7 @@ async def test_s3_export_workflow_with_minio_bucket(
     "data_interval_start",
     # This is hardcoded relative to the `data_interval_end` used in all or most tests, since that's also
     # passed to `generate_test_data` to determine the timestamp for the generated data.
-    [dt.datetime(2023, 4, 24, 15, 0, 0, tzinfo=dt.UTC)],
+    [dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0) - dt.timedelta(hours=24)],
     indirect=True,
 )
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
@@ -1006,18 +1007,19 @@ async def test_s3_export_workflow_backfill_earliest_persons_with_minio_bucket(
     more than an hour ago) when setting `is_earliest_backfill=True`.
     """
     workflow_id = str(uuid.uuid4())
+    backfill_details = BackfillDetails(
+        backfill_id=str(uuid.uuid4()),
+        is_earliest_backfill=True,
+        start_at=None,
+        end_at=data_interval_end.isoformat(),
+    )
     inputs = S3BatchExportInputs(
         team_id=ateam.pk,
         batch_export_id=str(s3_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
         batch_export_model=model,
-        backfill_details=BackfillDetails(
-            backfill_id=str(uuid.uuid4()),
-            is_earliest_backfill=True,
-            start_at=None,
-            end_at=data_interval_end.isoformat(),
-        ),
+        backfill_details=backfill_details,
         **s3_batch_export.destination.config,
     )
     _, persons = generate_test_data
@@ -1067,6 +1069,7 @@ async def test_s3_export_workflow_backfill_earliest_persons_with_minio_bucket(
         exclude_events=exclude_events,
         compression=compression,
         file_format=file_format,
+        backfill_details=backfill_details,
     )
 
 
@@ -1749,7 +1752,7 @@ async def test_insert_into_s3_activity_heartbeats(
 
     We use a function that runs on_heartbeat to check and track the heartbeat contents.
     """
-    data_interval_end = dt.datetime.fromisoformat("2023-04-20T14:30:00.000000+00:00")
+    data_interval_end = TEST_DATA_INTERVAL_END
     data_interval_start = data_interval_end - s3_batch_export.interval_time_delta
 
     n_expected_parts = 3
@@ -1828,7 +1831,7 @@ async def test_insert_into_s3_activity_resumes_from_heartbeat(
     We mock the upload_part method to raise a `RequestTimeout` error after the first part has been uploaded.
     We then resume from the heartbeat and expect the activity to resume from where it left off.
     """
-    data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    data_interval_end = TEST_DATA_INTERVAL_END
     data_interval_start = data_interval_end - s3_batch_export.interval_time_delta
 
     n_expected_parts = 3
@@ -2169,9 +2172,7 @@ async def test_s3_export_workflow_with_request_timeouts(
 )
 @pytest.mark.parametrize("is_backfill", [False, True])
 @pytest.mark.parametrize("backfill_within_last_6_days", [False, True])
-@pytest.mark.parametrize(
-    "data_interval_end", [dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=dt.UTC)]
-)
+@pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
 async def test_insert_into_s3_activity_executes_the_expected_query_for_events_model(
     clickhouse_client,
     bucket_name,
