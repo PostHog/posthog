@@ -108,6 +108,14 @@ class BatchExportRun(UUIDModel):
     records_total_count = models.IntegerField(
         null=True, help_text="The total count of records that should be exported in this BatchExportRun."
     )
+    backfill = models.ForeignKey(
+        "BatchExportBackfill",
+        on_delete=models.CASCADE,
+        help_text="The backfill this run belongs to.",
+        null=True,
+        related_name="runs",
+        related_query_name="run",
+    )
 
     @property
     def workflow_id(self) -> str:
