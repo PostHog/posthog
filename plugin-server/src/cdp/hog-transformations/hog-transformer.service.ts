@@ -8,7 +8,7 @@ import {
     HogFunctionType,
     HogFunctionTypeType,
 } from '../../cdp/types'
-import { createInvocation, fixLogDeduplication, isLegacyPluginHogFunction } from '../../cdp/utils'
+import { CDP_TEST_ID, createInvocation, fixLogDeduplication, isLegacyPluginHogFunction } from '../../cdp/utils'
 import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../config/kafka-topics'
 import { runInstrumentedFunction } from '../../main/utils'
 import { AppMetric2Type, Hub, TimestampFormat } from '../../types'
@@ -202,7 +202,7 @@ export class HogTransformerService {
 
                 // For now, execute each transformation function in sequence
                 for (const hogFunction of teamHogFunctions) {
-                    if (runTestFunctions && !hogFunction.name.includes('CDP-TEST-HIDDEN')) {
+                    if (runTestFunctions && !hogFunction.name.includes(CDP_TEST_ID)) {
                         continue
                     }
                     const transformationIdentifier = `${hogFunction.name} (${hogFunction.id})`

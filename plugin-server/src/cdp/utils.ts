@@ -25,6 +25,8 @@ import {
     HogFunctionType,
 } from './types'
 
+export const CDP_TEST_ID = '[CDP-TEST-HIDDEN]'
+
 export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     'email',
     'Email',
