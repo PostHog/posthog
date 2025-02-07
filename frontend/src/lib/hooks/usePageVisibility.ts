@@ -40,8 +40,8 @@ export function usePageVisibilityCb(callback: (pageIsVisible: boolean) => void):
     }, [callback])
 }
 
-export function usePageVisibility(): { isVisible: boolean | null } {
-    const [isVisible, setIsVisible] = useState<boolean | null>(null)
+export function usePageVisibility(): { isVisible: boolean } {
+    const [isVisible, setIsVisible] = useState<boolean>(!document.hidden)
 
     usePageVisibilityCb((pageIsVisible) => {
         setIsVisible(pageIsVisible)

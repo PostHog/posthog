@@ -114,9 +114,7 @@ function InsightCardInternal(
      * insight cards that aren't visible. See also https://wiki.whatwg.org/wiki/Canvas_Context_Loss_and_Restoration.
      */
     const isVisible =
-        featureFlags[FEATURE_FLAGS.EXPERIMENTAL_DASHBOARD_ITEM_RENDERING] === true
-            ? inView && isPageVisible !== false
-            : true
+        featureFlags[FEATURE_FLAGS.EXPERIMENTAL_DASHBOARD_ITEM_RENDERING] === true ? inView && isPageVisible : true
 
     const mergedRefs = useMergeRefs([ref, inViewRef])
 
