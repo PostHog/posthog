@@ -1,4 +1,4 @@
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonDialog } from '@posthog/lemon-ui/LemonDialog'
 
 import { Billing } from './Billing'
 

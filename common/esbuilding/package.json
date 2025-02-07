@@ -1,0 +1,5 @@
+{
+    "name": "@posthog/esbuilding",
+    "version": "0.0.0",
+    "main": "utils.mjs"
+}

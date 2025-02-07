@@ -1,6 +1,6 @@
 import { IconLetter } from '@posthog/icons'
 import { LemonSelectOptions } from '@posthog/lemon-ui'
-import { IconSlack } from 'lib/lemon-ui/icons'
+import { IconSlack } from '@posthog/lemon-ui/icons'
 import { range } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
@@ -54,14 +54,14 @@ export const frequencyOptionsPlural: LemonSelectOptions<'daily' | 'weekly' | 'mo
 export const weekdayOptions: LemonSelectOptions<
     'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday'
 > = [
-    { value: 'monday', label: 'Monday' },
-    { value: 'tuesday', label: 'Tuesday' },
-    { value: 'wednesday', label: 'Wednesday' },
-    { value: 'thursday', label: 'Thursday' },
-    { value: 'friday', label: 'Friday' },
-    { value: 'saturday', label: 'Saturday' },
-    { value: 'sunday', label: 'Sunday' },
-]
+        { value: 'monday', label: 'Monday' },
+        { value: 'tuesday', label: 'Tuesday' },
+        { value: 'wednesday', label: 'Wednesday' },
+        { value: 'thursday', label: 'Thursday' },
+        { value: 'friday', label: 'Friday' },
+        { value: 'saturday', label: 'Saturday' },
+        { value: 'sunday', label: 'Sunday' },
+    ]
 
 export const monthlyWeekdayOptions: LemonSelectOptions<
     'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday' | 'day'

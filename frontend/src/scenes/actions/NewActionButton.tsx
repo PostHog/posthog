@@ -3,7 +3,7 @@ import { LemonModal } from '@posthog/lemon-ui'
 import { router } from 'kea-router'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
 import { useState } from 'react'
 import { urls } from 'scenes/urls'
 

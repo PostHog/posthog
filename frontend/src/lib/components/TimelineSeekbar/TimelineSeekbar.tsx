@@ -3,8 +3,8 @@ import './TimelineSeekbar.scss'
 import { LemonBadge } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { Dayjs } from 'lib/dayjs'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { Spinner } from '@posthog/lemon-ui/Spinner'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 import { humanFriendlyDetailedTime, pluralize } from 'lib/utils'
 
 export interface TimelinePoint {
@@ -117,19 +117,17 @@ export function TimelineSeekbar({
                                         // eslint-disable-next-line react/forbid-dom-props
                                         style={
                                             {
-                                                '--timeline-seekbar-section-progress-current': `${
-                                                    (timestamp.diff(dateRange[0], 'ms') /
-                                                        dateRange[1].diff(dateRange[0], 'ms')) *
+                                                '--timeline-seekbar-section-progress-current': `${(timestamp.diff(dateRange[0], 'ms') /
+                                                    dateRange[1].diff(dateRange[0], 'ms')) *
                                                     100
-                                                }%`,
-                                                '--timeline-seekbar-section-progress-next': `${
-                                                    ((points[index + 1]?.timestamp || dateRange[1]).diff(
-                                                        timestamp,
-                                                        'ms'
-                                                    ) /
-                                                        dateRange[1].diff(dateRange[0], 'ms')) *
+                                                    }%`,
+                                                '--timeline-seekbar-section-progress-next': `${((points[index + 1]?.timestamp || dateRange[1]).diff(
+                                                    timestamp,
+                                                    'ms'
+                                                ) /
+                                                    dateRange[1].diff(dateRange[0], 'ms')) *
                                                     100
-                                                }%`,
+                                                    }%`,
                                             } as React.CSSProperties
                                         }
                                         /** Simulate slider-like behavior with mousedown and mouseenter. */

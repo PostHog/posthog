@@ -1,8 +1,8 @@
 import { LemonButton, LemonFileInput, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { IconUploadFile } from 'lib/lemon-ui/icons'
-import { LemonField } from 'lib/lemon-ui/LemonField'
+import { IconUploadFile } from '@posthog/lemon-ui/icons'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
 
 import { errorTrackingSymbolSetLogic } from './errorTrackingSymbolSetLogic'
 
@@ -59,8 +59,8 @@ export const SymbolSetUploadModal = (): JSX.Element => {
                             uploadSymbolSet.minified.length < 1
                                 ? 'Upload a minified source'
                                 : uploadSymbolSet.sourceMap.length < 1
-                                ? 'Upload a source map'
-                                : undefined
+                                    ? 'Upload a source map'
+                                    : undefined
                         }
                         type="primary"
                         status="alt"

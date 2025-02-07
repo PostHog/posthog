@@ -1,7 +1,7 @@
 import { IconTrash } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { LemonTag } from '@posthog/lemon-ui/LemonTag'
 
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 
@@ -25,11 +25,10 @@ export function WebExperimentVariantHeader({ variant }: WebExperimentVariantHead
             <div className="flex items-center gap-2">
                 <LemonTag className="px-1 py-0.5 font-semibold" size="small" type="muted">
                     <span>
-                        {`Rollout: ${
-                            experimentForm.variants && experimentForm.variants[variant]
+                        {`Rollout: ${experimentForm.variants && experimentForm.variants[variant]
                                 ? experimentForm.variants[variant].rollout_percentage ?? 0
                                 : 0
-                        } %`}
+                            } %`}
                     </span>
                 </LemonTag>
                 {removeVariantAvailable && (

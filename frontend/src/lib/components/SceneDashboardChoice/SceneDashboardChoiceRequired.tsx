@@ -3,7 +3,7 @@ import {
     sceneDescription,
 } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { SceneIcon } from 'lib/components/SceneDashboardChoice/SceneIcon'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
 import { Scene } from 'scenes/sceneTypes'
 
 export function SceneDashboardChoiceRequired(props: {

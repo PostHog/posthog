@@ -3,7 +3,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonBanner } from '@posthog/lemon-ui/LemonBanner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { Playlist, PlaylistSection } from 'scenes/session-recordings/playlist/Playlist'
@@ -145,11 +145,11 @@ export function SessionRecordingsPlaylist({
                                 setPinned={
                                     props.onPinnedChange
                                         ? (pinned) => {
-                                              if (!activeItem.id) {
-                                                  return
-                                              }
-                                              props.onPinnedChange?.(activeItem, pinned)
-                                          }
+                                            if (!activeItem.id) {
+                                                return
+                                            }
+                                            props.onPinnedChange?.(activeItem, pinned)
+                                        }
                                         : undefined
                                 }
                             />

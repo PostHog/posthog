@@ -11,7 +11,7 @@ import {
 import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { IconOpenInApp } from 'lib/lemon-ui/icons'
+import { IconOpenInApp } from '@posthog/lemon-ui/icons'
 import { featureFlagLogic, FeatureFlagLogicProps } from 'scenes/feature-flags/featureFlagLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -223,11 +223,11 @@ export function DistributionTable(): JSX.Element {
 
     const holdoutData = experiment.holdout
         ? [
-              {
-                  key: `holdout-${experiment.holdout.id}`,
-                  rollout_percentage: experiment.holdout.filters[0].rollout_percentage,
-              } as MultivariateFlagVariant,
-          ]
+            {
+                key: `holdout-${experiment.holdout.id}`,
+                rollout_percentage: experiment.holdout.filters[0].rollout_percentage,
+            } as MultivariateFlagVariant,
+        ]
         : []
 
     const variantData = (experiment.feature_flag?.filters.multivariate?.variants || []).map((variant) => ({

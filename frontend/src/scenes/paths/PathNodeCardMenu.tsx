@@ -1,6 +1,6 @@
 import { IconClock } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
+import { IconTrendingFlat, IconTrendingFlatDown } from '@posthog/lemon-ui/icons'
 import { humanFriendlyDuration } from 'lib/utils'
 import { MouseEventHandler } from 'react'
 

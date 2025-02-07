@@ -1,7 +1,7 @@
 import { LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { LemonLabel } from '@posthog/lemon-ui/LemonLabel'
 
 import { InspectorListItemConsole } from '../playerInspectorLogic'
 

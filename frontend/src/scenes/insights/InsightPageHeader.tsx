@@ -15,13 +15,13 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { More } from '@posthog/lemon-ui/LemonButton'
+import { LemonDialog } from '@posthog/lemon-ui/LemonDialog'
+import { LemonDivider } from '@posthog/lemon-ui/LemonDivider'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
+import { LemonInput } from '@posthog/lemon-ui/LemonInput'
+import { LemonSwitch } from '@posthog/lemon-ui/LemonSwitch'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { useState } from 'react'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
@@ -241,7 +241,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     />
 
                                     {hasDashboardItemId &&
-                                    (user?.is_staff || user?.is_impersonated || !preflight?.cloud) ? (
+                                        (user?.is_staff || user?.is_impersonated || !preflight?.cloud) ? (
                                         <LemonSwitch
                                             data-attr="toggle-debug-panel"
                                             className="px-2 py-1"

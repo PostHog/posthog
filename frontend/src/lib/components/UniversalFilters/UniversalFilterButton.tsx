@@ -5,7 +5,7 @@ import { LemonButton, PopoverReferenceContext } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
-import { IconWithCount } from 'lib/lemon-ui/icons'
+import { IconWithCount } from '@posthog/lemon-ui/icons'
 import { midEllipsis } from 'lib/utils'
 import React from 'react'
 

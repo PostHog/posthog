@@ -6,7 +6,7 @@ import { FeedbackNotice } from 'lib/components/FeedbackNotice'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { LemonTableLink } from '@posthog/lemon-ui/LemonTable'
 import { humanFriendlyLargeNumber } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -107,10 +107,10 @@ const VolumeColumn: QueryContextColumnComponent = (props) => {
         sparklineSelectedPeriod === '24h'
             ? [record.volumeDay, sparklineLabelsDay]
             : sparklineSelectedPeriod === '1m'
-            ? [record.volumeMonth, sparklineLabelsMonth]
-            : customSparklineConfig
-            ? [record.customVolume, sparklineLabels(customSparklineConfig)]
-            : [null, null]
+                ? [record.volumeMonth, sparklineLabelsMonth]
+                : customSparklineConfig
+                    ? [record.customVolume, sparklineLabels(customSparklineConfig)]
+                    : [null, null]
 
     return data ? <Sparkline className="h-8" data={data} labels={labels} /> : null
 }

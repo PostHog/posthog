@@ -15,10 +15,10 @@ import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
 import { TZLabel } from 'lib/components/TZLabel'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { dayjs } from 'lib/dayjs'
-import { IconChevronLeft } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { IconChevronLeft } from '@posthog/lemon-ui/icons'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
+import { LemonModal } from '@posthog/lemon-ui/LemonModal'
 import { alphabet, formatDate } from 'lib/utils'
 import { useCallback } from 'react'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
@@ -157,7 +157,7 @@ export function EditAlertModal({
                                         at={alert.created_at}
                                         by={alert.created_by}
                                         prefix="Created"
-                                        // className="mb-4"
+                                    // className="mb-4"
                                     />
                                 ) : null}
                             </div>
@@ -183,10 +183,9 @@ export function EditAlertModal({
                                                             label: isBreakdownValid
                                                                 ? 'any breakdown value'
                                                                 : formula
-                                                                ? `Formula (${formula})`
-                                                                : `${alphabet[index]} - ${
-                                                                      custom_name ?? name ?? event
-                                                                  }`,
+                                                                    ? `Formula (${formula})`
+                                                                    : `${alphabet[index]} - ${custom_name ?? name ?? event
+                                                                    }`,
                                                             value: isBreakdownValid || formula ? 0 : index,
                                                         })
                                                     )}
@@ -240,7 +239,7 @@ export function EditAlertModal({
                                                 value={
                                                     alertForm.threshold.configuration.type ===
                                                         InsightThresholdType.PERCENTAGE &&
-                                                    alertForm.threshold.configuration.bounds?.lower
+                                                        alertForm.threshold.configuration.bounds?.lower
                                                         ? alertForm.threshold.configuration.bounds?.lower * 100
                                                         : alertForm.threshold.configuration.bounds?.lower
                                                 }
@@ -252,7 +251,7 @@ export function EditAlertModal({
                                                                 ...alertForm.threshold.configuration.bounds,
                                                                 lower:
                                                                     value &&
-                                                                    alertForm.threshold.configuration.type ===
+                                                                        alertForm.threshold.configuration.type ===
                                                                         InsightThresholdType.PERCENTAGE
                                                                         ? value / 100
                                                                         : value,
@@ -271,7 +270,7 @@ export function EditAlertModal({
                                                 value={
                                                     alertForm.threshold.configuration.type ===
                                                         InsightThresholdType.PERCENTAGE &&
-                                                    alertForm.threshold.configuration.bounds?.upper
+                                                        alertForm.threshold.configuration.bounds?.upper
                                                         ? alertForm.threshold.configuration.bounds?.upper * 100
                                                         : alertForm.threshold.configuration.bounds?.upper
                                                 }
@@ -283,7 +282,7 @@ export function EditAlertModal({
                                                                 ...alertForm.threshold.configuration.bounds,
                                                                 upper:
                                                                     value &&
-                                                                    alertForm.threshold.configuration.type ===
+                                                                        alertForm.threshold.configuration.type ===
                                                                         InsightThresholdType.PERCENTAGE
                                                                         ? value / 100
                                                                         : value,

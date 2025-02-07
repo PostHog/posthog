@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LemonTab, LemonTabs } from '@posthog/lemon-ui/LemonTabs'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { groupsModel } from '~/models/groupsModel'

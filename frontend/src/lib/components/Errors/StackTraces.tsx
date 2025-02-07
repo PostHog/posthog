@@ -3,7 +3,7 @@ import './StackTraces.scss'
 import { LemonCollapse, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { LemonTag } from '@posthog/lemon-ui/LemonTag'
 import { useEffect } from 'react'
 
 import { CodeLine, getLanguage, Language } from '../CodeSnippet/CodeSnippet'

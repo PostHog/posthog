@@ -3,7 +3,7 @@ import './YearInHogButton.scss'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { HeartHog } from 'lib/components/hedgehogs'
-import { IconXmasTree } from 'lib/lemon-ui/icons'
+import { IconXmasTree } from '@posthog/lemon-ui/icons'
 import { useState } from 'react'
 
 export function YearInHogButton({ url }: { url: string | null }): JSX.Element | null {

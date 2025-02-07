@@ -1,6 +1,6 @@
 import { LemonSwitch, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconBranch, IconClipboardEdit, IconLink, IconTextSize } from 'lib/lemon-ui/icons'
+import { IconBranch, IconClipboardEdit, IconLink, IconTextSize } from '@posthog/lemon-ui/icons'
 
 import { actionsTabLogic } from './actionsTabLogic'
 import { ActionStepPropertyKey } from './ActionStep'

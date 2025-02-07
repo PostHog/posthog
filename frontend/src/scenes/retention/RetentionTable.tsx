@@ -3,7 +3,7 @@ import './RetentionTable.scss'
 import clsx from 'clsx'
 import { mean } from 'd3'
 import { useActions, useValues } from 'kea'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 import { gradateColor, range } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 

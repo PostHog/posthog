@@ -2,7 +2,7 @@ import { IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonLabel, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
 
 import { ChartDisplayType } from '~/types'
 

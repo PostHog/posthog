@@ -1,7 +1,7 @@
 import { IconGlobe, IconGraph, IconPieChart, IconTrends } from '@posthog/icons'
 import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { Icon123, IconAreaChart, IconCumulativeChart, IconTableChart } from 'lib/lemon-ui/icons'
+import { Icon123, IconAreaChart, IconCumulativeChart, IconTableChart } from '@posthog/lemon-ui/icons'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -88,10 +88,10 @@ export function ChartFilter(): JSX.Element {
                         (formula
                             ? "This type isn't available, because it doesn't support formulas."
                             : !!breakdownFilter?.breakdown &&
-                              breakdownFilter.breakdown !== '$geoip_country_code' &&
-                              breakdownFilter.breakdown !== '$geoip_country_name'
-                            ? "This type isn't available, because there's a breakdown other than by Country Code or Country Name properties."
-                            : undefined),
+                                breakdownFilter.breakdown !== '$geoip_country_code' &&
+                                breakdownFilter.breakdown !== '$geoip_country_name'
+                                ? "This type isn't available, because there's a breakdown other than by Country Code or Country Name properties."
+                                : undefined),
                 },
             ],
         },

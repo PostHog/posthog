@@ -1,11 +1,11 @@
 import { IconInfo } from '@posthog/icons'
 import { useValues } from 'kea'
 import { HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
-import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { LemonLabel } from '@posthog/lemon-ui/LemonLabel'
+import { LemonSegmentedButton } from '@posthog/lemon-ui/LemonSegmentedButton'
+import { LemonSelect } from '@posthog/lemon-ui/LemonSelect'
+import { LemonSlider } from '@posthog/lemon-ui/LemonSlider'
 import React, { useState } from 'react'
 
 import { HEATMAP_COLOR_PALETTE_OPTIONS, heatmapLogic } from '~/toolbar/elements/heatmapLogic'
@@ -184,9 +184,8 @@ export const HeatmapsSettings = ({
                         onChange={(value) => patchHeatmapFilters({ viewportAccuracy: value })}
                     />
                     <code className="w-[12rem] text-right text-xs whitsepace-nowrap">
-                        {`${Math.round((heatmapFilters.viewportAccuracy ?? 1) * 100)}% (${viewportRange.min}px - ${
-                            viewportRange.max
-                        }px)`}
+                        {`${Math.round((heatmapFilters.viewportAccuracy ?? 1) * 100)}% (${viewportRange.min}px - ${viewportRange.max
+                            }px)`}
                     </code>
                 </div>
             </SectionSetting>

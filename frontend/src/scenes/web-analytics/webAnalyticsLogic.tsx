@@ -5,8 +5,8 @@ import { actionToUrl, urlToAction } from 'kea-router'
 import { windowValues } from 'kea-window-values'
 import api from 'lib/api'
 import { FEATURE_FLAGS, RETENTION_FIRST_TIME } from 'lib/constants'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { Link, PostHogComDocsURL } from '@posthog/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval, isNotNil, objectsEqual, updateDatesWithInterval } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
@@ -674,27 +674,27 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 const uniqueConversionsSeries: ActionsNode | EventsNode | undefined = !conversionGoal
                     ? undefined
                     : 'actionId' in conversionGoal
-                    ? {
-                          kind: NodeKind.ActionsNode,
-                          id: conversionGoal.actionId,
-                          math: BaseMathType.UniqueUsers,
-                          name: 'Unique conversions',
-                          custom_name: 'Unique conversions',
-                      }
-                    : {
-                          kind: NodeKind.EventsNode,
-                          event: conversionGoal.customEventName,
-                          math: BaseMathType.UniqueUsers,
-                          name: 'Unique conversions',
-                          custom_name: 'Unique conversions',
-                      }
+                        ? {
+                            kind: NodeKind.ActionsNode,
+                            id: conversionGoal.actionId,
+                            math: BaseMathType.UniqueUsers,
+                            name: 'Unique conversions',
+                            custom_name: 'Unique conversions',
+                        }
+                        : {
+                            kind: NodeKind.EventsNode,
+                            event: conversionGoal.customEventName,
+                            math: BaseMathType.UniqueUsers,
+                            name: 'Unique conversions',
+                            custom_name: 'Unique conversions',
+                        }
                 const totalConversionSeries = uniqueConversionsSeries
                     ? {
-                          ...uniqueConversionsSeries,
-                          math: BaseMathType.TotalCount,
-                          name: 'Total conversions',
-                          custom_name: 'Total conversions',
-                      }
+                        ...uniqueConversionsSeries,
+                        math: BaseMathType.TotalCount,
+                        name: 'Total conversions',
+                        custom_name: 'Total conversions',
+                    }
                     : undefined
 
                 // the queries don't currently include revenue when the conversion goal is an action
@@ -705,13 +705,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 const revenueEventsSeries: EventsNode[] =
                     includeRevenue && currentTeam?.revenue_tracking_config
                         ? currentTeam.revenue_tracking_config.events.map((e) => ({
-                              math: PropertyMathType.Sum,
-                              name: e.eventName,
-                              event: e.eventName,
-                              kind: NodeKind.EventsNode,
-                              custom_name: e.eventName,
-                              math_property: e.revenueProperty,
-                          }))
+                            math: PropertyMathType.Sum,
+                            name: e.eventName,
+                            event: e.eventName,
+                            kind: NodeKind.EventsNode,
+                            custom_name: e.eventName,
+                            math_property: e.revenueProperty,
+                        }))
                         : []
 
                 const conversionRevenueSeries =
@@ -917,66 +917,66 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 ]),
                                 !conversionGoal
                                     ? createGraphsTrendsTab(GraphsTab.PAGE_VIEWS, 'Page views', 'Views', [
-                                          pageViewsSeries,
-                                      ])
+                                        pageViewsSeries,
+                                    ])
                                     : null,
                                 !conversionGoal
                                     ? createGraphsTrendsTab(GraphsTab.NUM_SESSION, 'Unique sessions', 'Sessions', [
-                                          sessionsSeries,
-                                      ])
+                                        sessionsSeries,
+                                    ])
                                     : null,
                                 !conversionGoal && revenueEventsSeries?.length
                                     ? createGraphsTrendsTab(
-                                          GraphsTab.REVENUE_EVENTS,
-                                          'Revenue',
-                                          'Revenue',
-                                          revenueEventsSeries,
-                                          {
-                                              display:
-                                                  revenueEventsSeries.length > 1
-                                                      ? ChartDisplayType.ActionsAreaGraph
-                                                      : ChartDisplayType.ActionsLineGraph,
-                                          },
-                                          {
-                                              compareFilter: revenueEventsSeries.length > 1 ? undefined : compareFilter,
-                                          }
-                                      )
+                                        GraphsTab.REVENUE_EVENTS,
+                                        'Revenue',
+                                        'Revenue',
+                                        revenueEventsSeries,
+                                        {
+                                            display:
+                                                revenueEventsSeries.length > 1
+                                                    ? ChartDisplayType.ActionsAreaGraph
+                                                    : ChartDisplayType.ActionsLineGraph,
+                                        },
+                                        {
+                                            compareFilter: revenueEventsSeries.length > 1 ? undefined : compareFilter,
+                                        }
+                                    )
                                     : null,
                                 conversionGoal && uniqueConversionsSeries
                                     ? createGraphsTrendsTab(
-                                          GraphsTab.UNIQUE_CONVERSIONS,
-                                          'Unique conversions',
-                                          'Unique conversions',
-                                          [uniqueConversionsSeries]
-                                      )
+                                        GraphsTab.UNIQUE_CONVERSIONS,
+                                        'Unique conversions',
+                                        'Unique conversions',
+                                        [uniqueConversionsSeries]
+                                    )
                                     : null,
                                 conversionGoal && totalConversionSeries
                                     ? createGraphsTrendsTab(
-                                          GraphsTab.TOTAL_CONVERSIONS,
-                                          'Total conversions',
-                                          'Total conversions',
-                                          [totalConversionSeries]
-                                      )
+                                        GraphsTab.TOTAL_CONVERSIONS,
+                                        'Total conversions',
+                                        'Total conversions',
+                                        [totalConversionSeries]
+                                    )
                                     : null,
                                 conversionGoal && uniqueUserSeries && uniqueConversionsSeries
                                     ? createGraphsTrendsTab(
-                                          GraphsTab.CONVERSION_RATE,
-                                          'Conversion rate',
-                                          'Conversion rate',
-                                          [uniqueConversionsSeries, uniqueUserSeries],
-                                          {
-                                              formula: 'A / B',
-                                              aggregationAxisFormat: 'percentage_scaled',
-                                          }
-                                      )
+                                        GraphsTab.CONVERSION_RATE,
+                                        'Conversion rate',
+                                        'Conversion rate',
+                                        [uniqueConversionsSeries, uniqueUserSeries],
+                                        {
+                                            formula: 'A / B',
+                                            aggregationAxisFormat: 'percentage_scaled',
+                                        }
+                                    )
                                     : null,
                                 conversionGoal && conversionRevenueSeries.length
                                     ? createGraphsTrendsTab(
-                                          GraphsTab.CONVERSION_REVENUE,
-                                          'Conversion revenue',
-                                          'Conversion revenue',
-                                          conversionRevenueSeries
-                                      )
+                                        GraphsTab.CONVERSION_REVENUE,
+                                        'Conversion revenue',
+                                        'Conversion revenue',
+                                        conversionRevenueSeries
+                                    )
                                     : null,
                             ] as (TabsTileTab | null)[]
                         ).filter(isNotNil),
@@ -992,154 +992,154 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         setTabId: actions.setPathTab,
                         tabs: featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOR_MOBILE]
                             ? [
-                                  createTableTab(
-                                      TileId.PATHS,
-                                      PathTab.SCREEN_NAME,
-                                      'Screens',
-                                      'Screen',
-                                      WebStatsBreakdown.ScreenName,
-                                      {},
-                                      {}
-                                  ),
-                              ]
+                                createTableTab(
+                                    TileId.PATHS,
+                                    PathTab.SCREEN_NAME,
+                                    'Screens',
+                                    'Screen',
+                                    WebStatsBreakdown.ScreenName,
+                                    {},
+                                    {}
+                                ),
+                            ]
                             : (
-                                  [
-                                      createTableTab(
-                                          TileId.PATHS,
-                                          PathTab.PATH,
-                                          'Paths',
-                                          'Path',
-                                          WebStatsBreakdown.Page,
-                                          {
-                                              includeScrollDepth: false, // TODO needs some perf work before it can be enabled
-                                              includeBounceRate: true,
-                                              doPathCleaning: isPathCleaningEnabled,
-                                          },
-                                          {
-                                              docs: {
-                                                  url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
-                                                  title: 'Paths',
-                                                  description: (
-                                                      <div>
-                                                          <p>
-                                                              In this view you can validate all of the paths that were
-                                                              accessed in your application, regardless of when they were
-                                                              accessed through the lifetime of a user session.
-                                                          </p>
-                                                          {conversionGoal ? (
-                                                              <p>
-                                                                  The conversion rate is the percentage of users who
-                                                                  completed the conversion goal in this specific path.
-                                                              </p>
-                                                          ) : (
-                                                              <p>
-                                                                  The{' '}
-                                                                  <Link to="https://posthog.com/docs/web-analytics/dashboard#bounce-rate">
-                                                                      bounce rate
-                                                                  </Link>{' '}
-                                                                  indicates the percentage of users who left your page
-                                                                  immediately after visiting without capturing any
-                                                                  event.
-                                                              </p>
-                                                          )}
-                                                      </div>
-                                                  ),
-                                              },
-                                          }
-                                      ),
-                                      createTableTab(
-                                          TileId.PATHS,
-                                          PathTab.INITIAL_PATH,
-                                          'Entry paths',
-                                          'Entry path',
-                                          WebStatsBreakdown.InitialPage,
-                                          {
-                                              includeBounceRate: true,
-                                              includeScrollDepth: false,
-                                              doPathCleaning: isPathCleaningEnabled,
-                                          },
-                                          {
-                                              docs: {
-                                                  url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
-                                                  title: 'Entry Path',
-                                                  description: (
-                                                      <div>
-                                                          <p>
-                                                              Entry paths are the paths a user session started, i.e. the
-                                                              first path they saw when they opened your website.
-                                                          </p>
-                                                          {conversionGoal && (
-                                                              <p>
-                                                                  The conversion rate is the percentage of users who
-                                                                  completed the conversion goal after the first path in
-                                                                  their session being this path.
-                                                              </p>
-                                                          )}
-                                                      </div>
-                                                  ),
-                                              },
-                                          }
-                                      ),
-                                      createTableTab(
-                                          TileId.PATHS,
-                                          PathTab.END_PATH,
-                                          'End paths',
-                                          'End path',
-                                          WebStatsBreakdown.ExitPage,
-                                          {
-                                              includeBounceRate: false,
-                                              includeScrollDepth: false,
-                                              doPathCleaning: isPathCleaningEnabled,
-                                          },
-                                          {
-                                              docs: {
-                                                  url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
-                                                  title: 'End Path',
-                                                  description: (
-                                                      <div>
-                                                          End paths are the last path a user visited before their
-                                                          session ended, i.e. the last path they saw before leaving your
-                                                          website/closing the browser/turning their computer off.
-                                                      </div>
-                                                  ),
-                                              },
-                                          }
-                                      ),
-                                      {
-                                          id: PathTab.EXIT_CLICK,
-                                          title: 'Outbound link clicks',
-                                          linkText: 'Outbound clicks',
-                                          query: {
-                                              full: true,
-                                              kind: NodeKind.DataTableNode,
-                                              source: {
-                                                  kind: NodeKind.WebExternalClicksTableQuery,
-                                                  properties: webAnalyticsFilters,
-                                                  dateRange,
-                                                  compareFilter,
-                                                  sampling,
-                                                  limit: 10,
-                                                  filterTestAccounts,
-                                                  conversionGoal,
-                                                  stripQueryParams: shouldStripQueryParams,
-                                              },
-                                              embedded: false,
-                                              columns: ['url', 'visitors', 'clicks', 'replay_url'],
-                                          },
-                                          insightProps: createInsightProps(TileId.PATHS, PathTab.END_PATH),
-                                          canOpenModal: true,
-                                          docs: {
-                                              title: 'Outbound Clicks',
-                                              description: (
-                                                  <div>
-                                                      You'll be able to verify when someone leaves your website by
-                                                      clicking an outbound link (to a separate domain)
-                                                  </div>
-                                              ),
-                                          },
-                                      },
-                                  ] as (TabsTileTab | undefined)[]
-                              ).filter(isNotNil),
+                                [
+                                    createTableTab(
+                                        TileId.PATHS,
+                                        PathTab.PATH,
+                                        'Paths',
+                                        'Path',
+                                        WebStatsBreakdown.Page,
+                                        {
+                                            includeScrollDepth: false, // TODO needs some perf work before it can be enabled
+                                            includeBounceRate: true,
+                                            doPathCleaning: isPathCleaningEnabled,
+                                        },
+                                        {
+                                            docs: {
+                                                url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
+                                                title: 'Paths',
+                                                description: (
+                                                    <div>
+                                                        <p>
+                                                            In this view you can validate all of the paths that were
+                                                            accessed in your application, regardless of when they were
+                                                            accessed through the lifetime of a user session.
+                                                        </p>
+                                                        {conversionGoal ? (
+                                                            <p>
+                                                                The conversion rate is the percentage of users who
+                                                                completed the conversion goal in this specific path.
+                                                            </p>
+                                                        ) : (
+                                                            <p>
+                                                                The{' '}
+                                                                <Link to="https://posthog.com/docs/web-analytics/dashboard#bounce-rate">
+                                                                    bounce rate
+                                                                </Link>{' '}
+                                                                indicates the percentage of users who left your page
+                                                                immediately after visiting without capturing any
+                                                                event.
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                ),
+                                            },
+                                        }
+                                    ),
+                                    createTableTab(
+                                        TileId.PATHS,
+                                        PathTab.INITIAL_PATH,
+                                        'Entry paths',
+                                        'Entry path',
+                                        WebStatsBreakdown.InitialPage,
+                                        {
+                                            includeBounceRate: true,
+                                            includeScrollDepth: false,
+                                            doPathCleaning: isPathCleaningEnabled,
+                                        },
+                                        {
+                                            docs: {
+                                                url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
+                                                title: 'Entry Path',
+                                                description: (
+                                                    <div>
+                                                        <p>
+                                                            Entry paths are the paths a user session started, i.e. the
+                                                            first path they saw when they opened your website.
+                                                        </p>
+                                                        {conversionGoal && (
+                                                            <p>
+                                                                The conversion rate is the percentage of users who
+                                                                completed the conversion goal after the first path in
+                                                                their session being this path.
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                ),
+                                            },
+                                        }
+                                    ),
+                                    createTableTab(
+                                        TileId.PATHS,
+                                        PathTab.END_PATH,
+                                        'End paths',
+                                        'End path',
+                                        WebStatsBreakdown.ExitPage,
+                                        {
+                                            includeBounceRate: false,
+                                            includeScrollDepth: false,
+                                            doPathCleaning: isPathCleaningEnabled,
+                                        },
+                                        {
+                                            docs: {
+                                                url: 'https://posthog.com/docs/web-analytics/dashboard#paths',
+                                                title: 'End Path',
+                                                description: (
+                                                    <div>
+                                                        End paths are the last path a user visited before their
+                                                        session ended, i.e. the last path they saw before leaving your
+                                                        website/closing the browser/turning their computer off.
+                                                    </div>
+                                                ),
+                                            },
+                                        }
+                                    ),
+                                    {
+                                        id: PathTab.EXIT_CLICK,
+                                        title: 'Outbound link clicks',
+                                        linkText: 'Outbound clicks',
+                                        query: {
+                                            full: true,
+                                            kind: NodeKind.DataTableNode,
+                                            source: {
+                                                kind: NodeKind.WebExternalClicksTableQuery,
+                                                properties: webAnalyticsFilters,
+                                                dateRange,
+                                                compareFilter,
+                                                sampling,
+                                                limit: 10,
+                                                filterTestAccounts,
+                                                conversionGoal,
+                                                stripQueryParams: shouldStripQueryParams,
+                                            },
+                                            embedded: false,
+                                            columns: ['url', 'visitors', 'clicks', 'replay_url'],
+                                        },
+                                        insightProps: createInsightProps(TileId.PATHS, PathTab.END_PATH),
+                                        canOpenModal: true,
+                                        docs: {
+                                            title: 'Outbound Clicks',
+                                            description: (
+                                                <div>
+                                                    You'll be able to verify when someone leaves your website by
+                                                    clicking an outbound link (to a separate domain)
+                                                </div>
+                                            ),
+                                        },
+                                    },
+                                ] as (TabsTileTab | undefined)[]
+                            ).filter(isNotNil),
                     },
                     {
                         kind: 'tabs',
@@ -1376,242 +1376,242 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                     shouldShowGeographyTile
                         ? {
-                              kind: 'tabs',
-                              tileId: TileId.GEOGRAPHY,
-                              layout: {
-                                  colSpanClassName: 'md:col-span-full',
-                              },
-                              activeTabId: geographyTab || GeographyTab.MAP,
-                              setTabId: actions.setGeographyTab,
-                              tabs: [
-                                  {
-                                      id: GeographyTab.MAP,
-                                      title: 'World map',
-                                      linkText: 'Map',
-                                      query: {
-                                          kind: NodeKind.InsightVizNode,
-                                          source: {
-                                              kind: NodeKind.TrendsQuery,
-                                              breakdownFilter: {
-                                                  // use the event level country code rather than person, to work better with personless users
-                                                  breakdown: '$geoip_country_code',
-                                                  breakdown_type: 'event',
-                                              },
-                                              dateRange,
-                                              series: [
-                                                  {
-                                                      event: '$pageview',
-                                                      name: 'Pageview',
-                                                      kind: NodeKind.EventsNode,
-                                                      math: BaseMathType.UniqueUsers,
-                                                  },
-                                              ],
-                                              trendsFilter: {
-                                                  display: ChartDisplayType.WorldMap,
-                                              },
-                                              conversionGoal,
-                                              filterTestAccounts,
-                                              properties: webAnalyticsFilters,
-                                          },
-                                          hidePersonsModal: true,
-                                          embedded: true,
-                                      },
-                                      insightProps: createInsightProps(TileId.GEOGRAPHY, GeographyTab.MAP),
-                                      canOpenInsight: true,
-                                  },
-                                  createTableTab(
-                                      TileId.GEOGRAPHY,
-                                      GeographyTab.COUNTRIES,
-                                      'Countries',
-                                      'Countries',
-                                      WebStatsBreakdown.Country
-                                  ),
-                                  createTableTab(
-                                      TileId.GEOGRAPHY,
-                                      GeographyTab.REGIONS,
-                                      'Regions',
-                                      'Regions',
-                                      WebStatsBreakdown.Region
-                                  ),
-                                  createTableTab(
-                                      TileId.GEOGRAPHY,
-                                      GeographyTab.CITIES,
-                                      'Cities',
-                                      'Cities',
-                                      WebStatsBreakdown.City
-                                  ),
-                                  createTableTab(
-                                      TileId.GEOGRAPHY,
-                                      GeographyTab.TIMEZONES,
-                                      'Timezones',
-                                      'Timezones',
-                                      WebStatsBreakdown.Timezone
-                                  ),
-                                  createTableTab(
-                                      TileId.GEOGRAPHY,
-                                      GeographyTab.LANGUAGES,
-                                      'Languages',
-                                      'Languages',
-                                      WebStatsBreakdown.Language
-                                  ),
-                              ],
-                          }
+                            kind: 'tabs',
+                            tileId: TileId.GEOGRAPHY,
+                            layout: {
+                                colSpanClassName: 'md:col-span-full',
+                            },
+                            activeTabId: geographyTab || GeographyTab.MAP,
+                            setTabId: actions.setGeographyTab,
+                            tabs: [
+                                {
+                                    id: GeographyTab.MAP,
+                                    title: 'World map',
+                                    linkText: 'Map',
+                                    query: {
+                                        kind: NodeKind.InsightVizNode,
+                                        source: {
+                                            kind: NodeKind.TrendsQuery,
+                                            breakdownFilter: {
+                                                // use the event level country code rather than person, to work better with personless users
+                                                breakdown: '$geoip_country_code',
+                                                breakdown_type: 'event',
+                                            },
+                                            dateRange,
+                                            series: [
+                                                {
+                                                    event: '$pageview',
+                                                    name: 'Pageview',
+                                                    kind: NodeKind.EventsNode,
+                                                    math: BaseMathType.UniqueUsers,
+                                                },
+                                            ],
+                                            trendsFilter: {
+                                                display: ChartDisplayType.WorldMap,
+                                            },
+                                            conversionGoal,
+                                            filterTestAccounts,
+                                            properties: webAnalyticsFilters,
+                                        },
+                                        hidePersonsModal: true,
+                                        embedded: true,
+                                    },
+                                    insightProps: createInsightProps(TileId.GEOGRAPHY, GeographyTab.MAP),
+                                    canOpenInsight: true,
+                                },
+                                createTableTab(
+                                    TileId.GEOGRAPHY,
+                                    GeographyTab.COUNTRIES,
+                                    'Countries',
+                                    'Countries',
+                                    WebStatsBreakdown.Country
+                                ),
+                                createTableTab(
+                                    TileId.GEOGRAPHY,
+                                    GeographyTab.REGIONS,
+                                    'Regions',
+                                    'Regions',
+                                    WebStatsBreakdown.Region
+                                ),
+                                createTableTab(
+                                    TileId.GEOGRAPHY,
+                                    GeographyTab.CITIES,
+                                    'Cities',
+                                    'Cities',
+                                    WebStatsBreakdown.City
+                                ),
+                                createTableTab(
+                                    TileId.GEOGRAPHY,
+                                    GeographyTab.TIMEZONES,
+                                    'Timezones',
+                                    'Timezones',
+                                    WebStatsBreakdown.Timezone
+                                ),
+                                createTableTab(
+                                    TileId.GEOGRAPHY,
+                                    GeographyTab.LANGUAGES,
+                                    'Languages',
+                                    'Languages',
+                                    WebStatsBreakdown.Language
+                                ),
+                            ],
+                        }
                         : null,
                     !conversionGoal
                         ? {
-                              kind: 'query',
-                              tileId: TileId.RETENTION,
-                              title: 'Retention',
-                              layout: {
-                                  colSpanClassName: 'md:col-span-2',
-                              },
-                              query: {
-                                  kind: NodeKind.InsightVizNode,
-                                  source: {
-                                      kind: NodeKind.RetentionQuery,
-                                      properties: webAnalyticsFilters,
-                                      dateRange,
-                                      filterTestAccounts,
-                                      retentionFilter: {
-                                          retentionType: RETENTION_FIRST_TIME,
-                                          retentionReference: 'total',
-                                          totalIntervals: isGreaterThanMd ? 8 : 5,
-                                          period: RetentionPeriod.Week,
-                                      },
-                                  },
-                                  vizSpecificOptions: {
-                                      [InsightType.RETENTION]: {
-                                          hideLineGraph: true,
-                                          hideSizeColumn: !isGreaterThanMd,
-                                          useSmallLayout: !isGreaterThanMd,
-                                      },
-                                  },
-                                  embedded: true,
-                              },
-                              insightProps: createInsightProps(TileId.RETENTION),
-                              canOpenInsight: false,
-                              canOpenModal: true,
-                              docs: {
-                                  url: 'https://posthog.com/docs/web-analytics/dashboard#retention',
-                                  title: 'Retention',
-                                  description: (
-                                      <>
-                                          <div>
-                                              <p>
-                                                  Retention creates a cohort of unique users who performed any event for
-                                                  the first time in the last week. It then tracks the percentage of
-                                                  users who return to perform any event in the following weeks.
-                                              </p>
-                                              <p>
-                                                  You want the numbers to be the highest possible, suggesting that
-                                                  people that come to your page continue coming to your page - and
-                                                  performing an actions. Also, the further down the table the higher the
-                                                  numbers should be (or at least as high), which would indicate that
-                                                  you're either increasing or keeping your retention at the same level.
-                                              </p>
-                                          </div>
-                                      </>
-                                  ),
-                              },
-                          }
+                            kind: 'query',
+                            tileId: TileId.RETENTION,
+                            title: 'Retention',
+                            layout: {
+                                colSpanClassName: 'md:col-span-2',
+                            },
+                            query: {
+                                kind: NodeKind.InsightVizNode,
+                                source: {
+                                    kind: NodeKind.RetentionQuery,
+                                    properties: webAnalyticsFilters,
+                                    dateRange,
+                                    filterTestAccounts,
+                                    retentionFilter: {
+                                        retentionType: RETENTION_FIRST_TIME,
+                                        retentionReference: 'total',
+                                        totalIntervals: isGreaterThanMd ? 8 : 5,
+                                        period: RetentionPeriod.Week,
+                                    },
+                                },
+                                vizSpecificOptions: {
+                                    [InsightType.RETENTION]: {
+                                        hideLineGraph: true,
+                                        hideSizeColumn: !isGreaterThanMd,
+                                        useSmallLayout: !isGreaterThanMd,
+                                    },
+                                },
+                                embedded: true,
+                            },
+                            insightProps: createInsightProps(TileId.RETENTION),
+                            canOpenInsight: false,
+                            canOpenModal: true,
+                            docs: {
+                                url: 'https://posthog.com/docs/web-analytics/dashboard#retention',
+                                title: 'Retention',
+                                description: (
+                                    <>
+                                        <div>
+                                            <p>
+                                                Retention creates a cohort of unique users who performed any event for
+                                                the first time in the last week. It then tracks the percentage of
+                                                users who return to perform any event in the following weeks.
+                                            </p>
+                                            <p>
+                                                You want the numbers to be the highest possible, suggesting that
+                                                people that come to your page continue coming to your page - and
+                                                performing an actions. Also, the further down the table the higher the
+                                                numbers should be (or at least as high), which would indicate that
+                                                you're either increasing or keeping your retention at the same level.
+                                            </p>
+                                        </div>
+                                    </>
+                                ),
+                            },
+                        }
                         : null,
                     // Hiding if conversionGoal is set already because values aren't representative
                     !conversionGoal
                         ? {
-                              kind: 'query',
-                              tileId: TileId.GOALS,
-                              title: 'Goals',
-                              layout: {
-                                  colSpanClassName: 'md:col-span-2',
-                              },
-                              query: {
-                                  full: true,
-                                  kind: NodeKind.DataTableNode,
-                                  source: {
-                                      kind: NodeKind.WebGoalsQuery,
-                                      properties: webAnalyticsFilters,
-                                      dateRange,
-                                      compareFilter,
-                                      sampling,
-                                      limit: 10,
-                                      filterTestAccounts,
-                                  },
-                                  embedded: true,
-                                  columns: ['breakdown_value', 'visitors', 'views', 'replay_url'],
-                              },
-                              insightProps: createInsightProps(TileId.GOALS),
-                              canOpenInsight: false,
-                              docs: {
-                                  url: 'https://posthog.com/docs/web-analytics/dashboard#goals',
-                                  title: 'Goals',
-                                  description: (
-                                      <>
-                                          <div>
-                                              <p>
-                                                  Goals shows your pinned or most recently created actions and the
-                                                  number of conversions they've had. You can set a custom event or
-                                                  action as a{' '}
-                                                  <Link to="https://posthog.com/docs/web-analytics/conversion-goals">
-                                                      conversion goal
-                                                  </Link>{' '}
-                                                  at the top of the dashboard for more specific metrics.
-                                              </p>
-                                          </div>
-                                      </>
-                                  ),
-                              },
-                          }
+                            kind: 'query',
+                            tileId: TileId.GOALS,
+                            title: 'Goals',
+                            layout: {
+                                colSpanClassName: 'md:col-span-2',
+                            },
+                            query: {
+                                full: true,
+                                kind: NodeKind.DataTableNode,
+                                source: {
+                                    kind: NodeKind.WebGoalsQuery,
+                                    properties: webAnalyticsFilters,
+                                    dateRange,
+                                    compareFilter,
+                                    sampling,
+                                    limit: 10,
+                                    filterTestAccounts,
+                                },
+                                embedded: true,
+                                columns: ['breakdown_value', 'visitors', 'views', 'replay_url'],
+                            },
+                            insightProps: createInsightProps(TileId.GOALS),
+                            canOpenInsight: false,
+                            docs: {
+                                url: 'https://posthog.com/docs/web-analytics/dashboard#goals',
+                                title: 'Goals',
+                                description: (
+                                    <>
+                                        <div>
+                                            <p>
+                                                Goals shows your pinned or most recently created actions and the
+                                                number of conversions they've had. You can set a custom event or
+                                                action as a{' '}
+                                                <Link to="https://posthog.com/docs/web-analytics/conversion-goals">
+                                                    conversion goal
+                                                </Link>{' '}
+                                                at the top of the dashboard for more specific metrics.
+                                            </p>
+                                        </div>
+                                    </>
+                                ),
+                            },
+                        }
                         : null,
                     !conversionGoal
                         ? {
-                              kind: 'replay',
-                              tileId: TileId.REPLAY,
-                              layout: {
-                                  colSpanClassName: conversionGoal ? 'md:col-span-full' : 'md:col-span-1',
-                              },
-                              docs: {
-                                  url: 'https://posthog.com/docs/session-replay',
-                                  title: 'Session Replay',
-                                  description:
-                                      'Play back sessions to diagnose UI issues, improve support, and get context for nuanced user behavior.',
-                              },
-                          }
+                            kind: 'replay',
+                            tileId: TileId.REPLAY,
+                            layout: {
+                                colSpanClassName: conversionGoal ? 'md:col-span-full' : 'md:col-span-1',
+                            },
+                            docs: {
+                                url: 'https://posthog.com/docs/session-replay',
+                                title: 'Session Replay',
+                                description:
+                                    'Play back sessions to diagnose UI issues, improve support, and get context for nuanced user behavior.',
+                            },
+                        }
                         : null,
                     !conversionGoal && featureFlags[FEATURE_FLAGS.ERROR_TRACKING]
                         ? {
-                              kind: 'error_tracking',
-                              tileId: TileId.ERROR_TRACKING,
-                              layout: {
-                                  colSpanClassName: 'md:col-span-1',
-                              },
-                              query: errorTrackingQuery({
-                                  orderBy: 'users',
-                                  dateRange: dateRange,
-                                  filterTestAccounts: filterTestAccounts,
-                                  filterGroup: replayFilters.filter_group,
-                                  columns: ['error', 'users', 'occurrences'],
-                                  limit: 4,
-                              }),
-                              docs: {
-                                  url: 'https://posthog.com/docs/error-tracking',
-                                  title: 'Error Tracking',
-                                  description: (
-                                      <>
-                                          <div>
-                                              <p>
-                                                  Error tracking allows you to track, investigate, and resolve
-                                                  exceptions your customers face.
-                                              </p>
-                                              <p>
-                                                  Errors are captured as <code>$exception</code> events which means that
-                                                  you can create insights, filter recordings and trigger surveys based
-                                                  on them exactly the same way you can for any other type of event.
-                                              </p>
-                                          </div>
-                                      </>
-                                  ),
-                              },
-                          }
+                            kind: 'error_tracking',
+                            tileId: TileId.ERROR_TRACKING,
+                            layout: {
+                                colSpanClassName: 'md:col-span-1',
+                            },
+                            query: errorTrackingQuery({
+                                orderBy: 'users',
+                                dateRange: dateRange,
+                                filterTestAccounts: filterTestAccounts,
+                                filterGroup: replayFilters.filter_group,
+                                columns: ['error', 'users', 'occurrences'],
+                                limit: 4,
+                            }),
+                            docs: {
+                                url: 'https://posthog.com/docs/error-tracking',
+                                title: 'Error Tracking',
+                                description: (
+                                    <>
+                                        <div>
+                                            <p>
+                                                Error tracking allows you to track, investigate, and resolve
+                                                exceptions your customers face.
+                                            </p>
+                                            <p>
+                                                Errors are captured as <code>$exception</code> events which means that
+                                                you can create insights, filter recordings and trigger surveys based
+                                                on them exactly the same way you can for any other type of event.
+                                            </p>
+                                        </div>
+                                    </>
+                                ),
+                            },
+                        }
                         : null,
                 ]
                 return allTiles.filter(isNotNil)

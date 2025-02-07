@@ -1,14 +1,14 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
-import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
-import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
-import { Link } from 'lib/lemon-ui/Link'
-import { Spinner } from 'lib/lemon-ui/Spinner'
+import { IconOpenInNew } from '@posthog/lemon-ui/icons'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { LemonInput } from '@posthog/lemon-ui/LemonInput'
+import { LemonRadio } from '@posthog/lemon-ui/LemonRadio'
+import { LemonSwitch } from '@posthog/lemon-ui/LemonSwitch'
+import { LemonTextArea } from '@posthog/lemon-ui/LemonTextArea'
+import { Link } from '@posthog/lemon-ui/Link'
+import { Spinner } from '@posthog/lemon-ui/Spinner'
 import { debounce } from 'lib/utils'
 import { useEffect, useMemo } from 'react'
 import { urls } from 'scenes/urls'
@@ -68,11 +68,10 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                                         <div className="flex-1 truncate">
                                             <Link
                                                 className="font-medium"
-                                                to={`${apiURL}${
-                                                    feature_flag.id
+                                                to={`${apiURL}${feature_flag.id
                                                         ? urls.featureFlag(feature_flag.id)
                                                         : urls.featureFlags()
-                                                }`}
+                                                    }`}
                                                 subtle
                                                 target="_blank"
                                             >
@@ -87,7 +86,7 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                                                 const newValue =
                                                     hasVariants && checked
                                                         ? (feature_flag.filters?.multivariate?.variants[0]
-                                                              ?.key as string)
+                                                            ?.key as string)
                                                         : checked
                                                 if (newValue === value && hasOverride) {
                                                     deleteOverriddenUserFlag(feature_flag.key)

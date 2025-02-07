@@ -7,9 +7,9 @@ import { activityLogLogic, ActivityLogLogicProps } from 'lib/components/Activity
 import { HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { LemonSkeleton } from '@posthog/lemon-ui/LemonSkeleton'
+import { PaginationControl, usePagination } from '@posthog/lemon-ui/PaginationControl'
+import { ProfilePicture } from '@posthog/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 

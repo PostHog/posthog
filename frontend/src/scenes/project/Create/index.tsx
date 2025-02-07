@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonBanner } from '@posthog/lemon-ui/LemonBanner'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'

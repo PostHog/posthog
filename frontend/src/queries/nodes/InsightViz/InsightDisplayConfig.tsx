@@ -7,7 +7,7 @@ import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
 import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
 import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
-import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
+import { LemonMenu, LemonMenuItems } from '@posthog/lemon-ui/LemonMenu'
 import { DEFAULT_DECIMAL_PLACES } from 'lib/utils'
 import posthog from 'posthog-js'
 import { ReactNode } from 'react'
@@ -83,67 +83,67 @@ export function InsightDisplayConfig(): JSX.Element {
     const advancedOptions: LemonMenuItems = [
         ...(supportsValueOnSeries || supportsPercentStackView || hasLegend || supportsResultCustomizationBy
             ? [
-                  {
-                      title: 'Display',
-                      items: [
-                          ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
-                          ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
-                          ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
-                          { label: () => <ShowAlertThresholdLinesFilter /> },
-                          { label: () => <ShowMultipleYAxesFilter /> },
-                      ],
-                  },
-              ]
+                {
+                    title: 'Display',
+                    items: [
+                        ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
+                        ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
+                        ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
+                        { label: () => <ShowAlertThresholdLinesFilter /> },
+                        { label: () => <ShowMultipleYAxesFilter /> },
+                    ],
+                },
+            ]
             : []),
         ...(supportsResultCustomizationBy && hasInsightColors
             ? [
-                  {
-                      title: (
-                          <>
-                              <h5 className="mx-2 my-1">
-                                  Color customization by{' '}
-                                  <Tooltip title="You can customize the appearance of individual results in your insights. This can be done based on the result's name (e.g., customize the breakdown value 'pizza' for the first series) or based on the result's rank (e.g., customize the first dataset in the results).">
-                                      <IconInfo className="relative top-0.5 text-lg text-secondary" />
-                                  </Tooltip>
-                              </h5>
-                          </>
-                      ),
-                      items: [{ label: () => <ResultCustomizationByPicker /> }],
-                  },
-              ]
+                {
+                    title: (
+                        <>
+                            <h5 className="mx-2 my-1">
+                                Color customization by{' '}
+                                <Tooltip title="You can customize the appearance of individual results in your insights. This can be done based on the result's name (e.g., customize the breakdown value 'pizza' for the first series) or based on the result's rank (e.g., customize the first dataset in the results).">
+                                    <IconInfo className="relative top-0.5 text-lg text-secondary" />
+                                </Tooltip>
+                            </h5>
+                        </>
+                    ),
+                    items: [{ label: () => <ResultCustomizationByPicker /> }],
+                },
+            ]
             : []),
         ...(!showPercentStackView && isTrends
             ? [
-                  {
-                      title: axisLabel(display || ChartDisplayType.ActionsLineGraph),
-                      items: [{ label: () => <UnitPicker /> }],
-                  },
-              ]
+                {
+                    title: axisLabel(display || ChartDisplayType.ActionsLineGraph),
+                    items: [{ label: () => <UnitPicker /> }],
+                },
+            ]
             : []),
         ...(!isNonTimeSeriesDisplay && isTrends
             ? [
-                  {
-                      title: 'Y-axis scale',
-                      items: [{ label: () => <ScalePicker /> }],
-                  },
-              ]
+                {
+                    title: 'Y-axis scale',
+                    items: [{ label: () => <ScalePicker /> }],
+                },
+            ]
             : []),
         ...(mightContainFractionalNumbers && isTrends
             ? [
-                  {
-                      title: 'Decimal places',
-                      items: [{ label: () => <DecimalPrecisionInput /> }],
-                  },
-              ]
+                {
+                    title: 'Decimal places',
+                    items: [{ label: () => <DecimalPrecisionInput /> }],
+                },
+            ]
             : []),
     ]
     const advancedOptionsCount: number =
         (supportsValueOnSeries && showValuesOnSeries ? 1 : 0) +
         (showPercentStackView ? 1 : 0) +
         (!showPercentStackView &&
-        isTrends &&
-        trendsFilter?.aggregationAxisFormat &&
-        trendsFilter.aggregationAxisFormat !== 'numeric'
+            isTrends &&
+            trendsFilter?.aggregationAxisFormat &&
+            trendsFilter.aggregationAxisFormat !== 'numeric'
             ? 1
             : 0) +
         (hasLegend && showLegend ? 1 : 0) +

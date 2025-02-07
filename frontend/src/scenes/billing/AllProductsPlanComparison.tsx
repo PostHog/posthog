@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { FEATURE_FLAGS, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React, { useState } from 'react'
@@ -37,8 +37,7 @@ export function PlanIcon({
                 <>
                     <IconWarning className={clsx('text-warning mx-4 shrink-0', className)} />
                     {feature.limit &&
-                        `${convertLargeNumberToWords(feature.limit, null)} ${feature.unit && feature.unit}${
-                            timeDenominator ? `/${timeDenominator}` : ''
+                        `${convertLargeNumberToWords(feature.limit, null)} ${feature.unit && feature.unit}${timeDenominator ? `/${timeDenominator}` : ''
                         }`}
                     {feature.note}
                 </>
@@ -170,12 +169,12 @@ export const AllProductsPlanComparison = ({
                         plan.contact_support
                             ? 'mailto:sales@posthog.com?subject=Enterprise%20plan%20request'
                             : i < currentPlanIndex
-                            ? undefined // Downgrade action handled in onClick
-                            : getUpgradeProductLink({
-                                  product,
-                                  redirectPath,
-                                  includeAddons,
-                              })
+                                ? undefined // Downgrade action handled in onClick
+                                : getUpgradeProductLink({
+                                    product,
+                                    redirectPath,
+                                    includeAddons,
+                                })
                     }
                     type={plan.current_plan || i < currentPlanIndex ? 'secondary' : 'primary'}
                     status={
@@ -192,8 +191,8 @@ export const AllProductsPlanComparison = ({
                                 ? 'Unsubscribe from all products to remove'
                                 : null
                             : plan.current_plan
-                            ? 'Current plan'
-                            : undefined
+                                ? 'Current plan'
+                                : undefined
                     }
                     onClick={() => {
                         if (!plan.current_plan) {
@@ -213,16 +212,16 @@ export const AllProductsPlanComparison = ({
                     {plan.current_plan
                         ? 'Current plan'
                         : i < currentPlanIndex
-                        ? 'Downgrade'
-                        : plan.contact_support
-                        ? 'Get in touch'
-                        : plan.included_if == 'has_subscription' &&
-                          i >= currentPlanIndex &&
-                          !billing?.has_active_subscription
-                        ? 'Upgrade'
-                        : plan.free_allocation && !plan.tiers
-                        ? 'Select' // Free plan
-                        : 'Upgrade'}
+                            ? 'Downgrade'
+                            : plan.contact_support
+                                ? 'Get in touch'
+                                : plan.included_if == 'has_subscription' &&
+                                    i >= currentPlanIndex &&
+                                    !billing?.has_active_subscription
+                                    ? 'Upgrade'
+                                    : plan.free_allocation && !plan.tiers
+                                        ? 'Select' // Free plan
+                                        : 'Upgrade'}
                 </BillingUpgradeCTA>
             </td>
         )
@@ -376,7 +375,7 @@ export const AllProductsPlanComparison = ({
                                                     i ==
                                                         currentProduct.plans[currentProduct.plans.length - 1]?.features
                                                             ?.length -
-                                                            1 && !billing?.has_active_subscription
+                                                        1 && !billing?.has_active_subscription
                                                         ? ''
                                                         : 'border-b'
                                                 )}

@@ -4,8 +4,8 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { DashboardPrivilegeLevel, FEATURE_FLAGS } from 'lib/constants'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
+import { lemonToast } from '@posthog/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
@@ -207,12 +207,12 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 shortId === state.short_id
                     ? state
                     : {
-                          // blank slate if switched to a new insight
-                          short_id: shortId,
-                          tags: [],
-                          result: null,
-                          query: null,
-                      },
+                        // blank slate if switched to a new insight
+                        short_id: shortId,
+                        tags: [],
+                        result: null,
+                        query: null,
+                    },
             setInsight: (_state, { insight }) => ({
                 ...insight,
             }),

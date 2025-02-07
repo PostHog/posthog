@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LemonTabs } from '@posthog/lemon-ui/LemonTabs'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 

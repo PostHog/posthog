@@ -1,8 +1,8 @@
 import { LemonBanner, LemonButton, LemonLabel, LemonModal, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { IconOpenInNew } from '@posthog/lemon-ui/icons'
+import { LemonTable } from '@posthog/lemon-ui/LemonTable'
 import { useState } from 'react'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -132,9 +132,8 @@ export function SharedMetricModal({
                         <>
                             {experiment.saved_metrics.length > 0 && (
                                 <LemonBanner type="info">
-                                    {`Hiding ${experiment.saved_metrics.length} shared ${
-                                        experiment.saved_metrics.length > 1 ? 'metrics' : 'metric'
-                                    } already in use with this experiment.`}
+                                    {`Hiding ${experiment.saved_metrics.length} shared ${experiment.saved_metrics.length > 1 ? 'metrics' : 'metric'
+                                        } already in use with this experiment.`}
                                 </LemonBanner>
                             )}
                             {hasAvailableFeature(AvailableFeature.TAGGING) && availableTags.length > 0 && (
@@ -192,15 +191,15 @@ export function SharedMetricModal({
                                     },
                                     ...(hasAvailableFeature(AvailableFeature.TAGGING)
                                         ? [
-                                              {
-                                                  title: 'Tags',
-                                                  dataIndex: 'tags' as keyof SharedMetric,
-                                                  key: 'tags',
-                                                  render: (_: any, metric: SharedMetric) => (
-                                                      <ObjectTags tags={metric.tags || []} staticOnly />
-                                                  ),
-                                              },
-                                          ]
+                                            {
+                                                title: 'Tags',
+                                                dataIndex: 'tags' as keyof SharedMetric,
+                                                key: 'tags',
+                                                render: (_: any, metric: SharedMetric) => (
+                                                    <ObjectTags tags={metric.tags || []} staticOnly />
+                                                ),
+                                            },
+                                        ]
                                         : []),
                                     {
                                         title: 'Type',

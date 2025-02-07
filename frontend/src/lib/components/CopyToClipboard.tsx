@@ -1,7 +1,7 @@
 import { IconCopy } from '@posthog/icons'
 import clsx from 'clsx'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import React from 'react'
 

@@ -16,7 +16,7 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
-import { IconWithCount } from 'lib/lemon-ui/icons'
+import { IconWithCount } from '@posthog/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useRef } from 'react'
 import { userLogic } from 'scenes/userLogic'
@@ -144,19 +144,19 @@ export const SidePanelActivity = (): JSX.Element => {
                                 },
                                 ...(featureFlags[FEATURE_FLAGS.METALYTICS]
                                     ? [
-                                          {
-                                              key: SidePanelActivityTab.Metalytics,
-                                              label: 'Analytics',
-                                          },
-                                      ]
+                                        {
+                                            key: SidePanelActivityTab.Metalytics,
+                                            label: 'Analytics',
+                                        },
+                                    ]
                                     : []),
                                 ...(featureFlags[FEATURE_FLAGS.CDP_ACTIVITY_LOG_NOTIFICATIONS]
                                     ? [
-                                          {
-                                              key: SidePanelActivityTab.Subscriptions,
-                                              label: 'Subscriptions',
-                                          },
-                                      ]
+                                        {
+                                            key: SidePanelActivityTab.Subscriptions,
+                                            label: 'Subscriptions',
+                                        },
+                                    ]
                                     : []),
                             ]}
                         />

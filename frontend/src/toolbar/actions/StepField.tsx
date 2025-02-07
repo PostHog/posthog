@@ -1,9 +1,9 @@
 import clsx from 'clsx'
 import { Field } from 'kea-forms'
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
-import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
+import { LemonCheckbox } from '@posthog/lemon-ui/LemonCheckbox'
+import { LemonInput } from '@posthog/lemon-ui/LemonInput'
+import { LemonSegmentedButton } from '@posthog/lemon-ui/LemonSegmentedButton'
+import { LemonTextArea } from '@posthog/lemon-ui/LemonTextArea'
 import { cssEscape } from 'lib/utils/cssEscape'
 import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
 

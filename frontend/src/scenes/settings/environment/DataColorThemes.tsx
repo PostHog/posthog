@@ -2,7 +2,7 @@ import { IconBadge } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonLabel, LemonSelect, LemonTable, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { LemonTableLink } from '@posthog/lemon-ui/LemonTable'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AvailableFeature } from '~/types'

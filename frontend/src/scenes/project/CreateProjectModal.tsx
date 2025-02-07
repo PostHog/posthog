@@ -1,6 +1,6 @@
 import { LemonButton, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useEffect, useState } from 'react'
 import { projectLogic } from 'scenes/projectLogic'
@@ -77,10 +77,10 @@ export function CreateProjectModal({
                     {currentOrganization?.projects?.some(
                         (project) => project.name.toLowerCase() === 'default project'
                     ) && (
-                        <p>
-                            <strong>Bonus tip:</strong> You can always rename your "Default project".
-                        </p>
-                    )}
+                            <p>
+                                <strong>Bonus tip:</strong> You can always rename your "Default project".
+                            </p>
+                        )}
                 </>
             }
             footer={

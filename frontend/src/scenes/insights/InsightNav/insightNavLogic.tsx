@@ -1,6 +1,6 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { LemonTag } from '@posthog/lemon-ui/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman } from 'lib/utils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -61,19 +61,19 @@ type OmitConflictingProperties<T> = Omit<T, 'resultCustomizations'>
 
 export interface CommonInsightFilter
     extends Partial<OmitConflictingProperties<TrendsFilter>>,
-        Partial<OmitConflictingProperties<FunnelsFilter>>,
-        Partial<RetentionFilter>,
-        Partial<PathsFilter>,
-        Partial<StickinessFilter>,
-        Partial<LifecycleFilter> {}
+    Partial<OmitConflictingProperties<FunnelsFilter>>,
+    Partial<RetentionFilter>,
+    Partial<PathsFilter>,
+    Partial<StickinessFilter>,
+    Partial<LifecycleFilter> { }
 
 export interface QueryPropertyCache
     extends Omit<Partial<TrendsQuery>, 'kind' | 'response'>,
-        Omit<Partial<FunnelsQuery>, 'kind' | 'response'>,
-        Omit<Partial<RetentionQuery>, 'kind' | 'response'>,
-        Omit<Partial<PathsQuery>, 'kind' | 'response'>,
-        Omit<Partial<StickinessQuery>, 'kind' | 'response'>,
-        Omit<Partial<LifecycleQuery>, 'kind' | 'response'> {
+    Omit<Partial<FunnelsQuery>, 'kind' | 'response'>,
+    Omit<Partial<RetentionQuery>, 'kind' | 'response'>,
+    Omit<Partial<PathsQuery>, 'kind' | 'response'>,
+    Omit<Partial<StickinessQuery>, 'kind' | 'response'>,
+    Omit<Partial<LifecycleQuery>, 'kind' | 'response'> {
     commonFilter: CommonInsightFilter
 }
 
@@ -304,8 +304,8 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
                 const mathAvailability = isTrendsQuery(mergedQuery)
                     ? MathAvailability.All
                     : isStickinessQuery(mergedQuery)
-                    ? MathAvailability.ActorsOnly
-                    : MathAvailability.None
+                        ? MathAvailability.ActorsOnly
+                        : MathAvailability.None
                 mergedQuery.series = cleanSeriesMath(cache.series, mathAvailability)
             }
         }

@@ -9,10 +9,10 @@ import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { LemonBanner } from '@posthog/lemon-ui/LemonBanner'
+import { LemonTabs } from '@posthog/lemon-ui/LemonTabs'
+import { SpinnerOverlay } from '@posthog/lemon-ui/Spinner'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
@@ -135,8 +135,8 @@ export function PersonScene(): JSX.Element | null {
                 notebookProps={
                     url
                         ? {
-                              href: url,
-                          }
+                            href: url,
+                        }
                         : undefined
                 }
                 buttons={
@@ -183,10 +183,10 @@ export function PersonScene(): JSX.Element | null {
                 tabs={[
                     feedEnabled
                         ? {
-                              key: PersonsTabType.FEED,
-                              label: <span data-attr="persons-feed-tab">Feed</span>,
-                              content: <PersonFeedCanvas person={person} />,
-                          }
+                            key: PersonsTabType.FEED,
+                            label: <span data-attr="persons-feed-tab">Feed</span>,
+                            content: <PersonFeedCanvas person={person} />,
+                        }
                         : false,
                     {
                         key: PersonsTabType.PROPERTIES,
@@ -255,67 +255,67 @@ export function PersonScene(): JSX.Element | null {
                     },
                     groupsEnabled && person.uuid
                         ? {
-                              key: PersonsTabType.RELATED,
-                              label: (
-                                  <span className="flex items-center" data-attr="persons-related-tab">
-                                      Related groups
-                                      <Tooltip title="People and groups that have shared events with this person in the last 90 days.">
-                                          <IconInfo className="ml-1 text-base shrink-0" />
-                                      </Tooltip>
-                                  </span>
-                              ),
-                              content: <RelatedGroups id={person.uuid} groupTypeIndex={null} />,
-                          }
+                            key: PersonsTabType.RELATED,
+                            label: (
+                                <span className="flex items-center" data-attr="persons-related-tab">
+                                    Related groups
+                                    <Tooltip title="People and groups that have shared events with this person in the last 90 days.">
+                                        <IconInfo className="ml-1 text-base shrink-0" />
+                                    </Tooltip>
+                                </span>
+                            ),
+                            content: <RelatedGroups id={person.uuid} groupTypeIndex={null} />,
+                        }
                         : false,
                     person.uuid
                         ? {
-                              key: PersonsTabType.FEATURE_FLAGS,
-                              tooltip: `Only shows feature flags with targeting conditions based on person properties.`,
-                              label: <span data-attr="persons-related-flags-tab">Feature flags</span>,
-                              content: (
-                                  <>
-                                      <div className="flex space-x-2 items-center mb-2">
-                                          <div className="flex items-center">
-                                              Choose ID:
-                                              <Tooltip
-                                                  title={
-                                                      <div className="space-y-2">
-                                                          <div>
-                                                              Feature flags values can depend on a person's distinct ID.
-                                                          </div>
-                                                          <div>
-                                                              If you want your flag values to stay consistent for each
-                                                              user, you can enable flag persistence in the feature flag
-                                                              settings.
-                                                          </div>
-                                                          <div>
-                                                              This option may depend on your specific setup and isn't
-                                                              always suitable. Read more in the{' '}
-                                                              <Link to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps">
-                                                                  documentation.
-                                                              </Link>
-                                                          </div>
-                                                      </div>
-                                                  }
-                                              >
-                                                  <IconInfo className="ml-1 text-base" />
-                                              </Tooltip>
-                                          </div>
-                                          <LemonSelect
-                                              value={distinctId || primaryDistinctId}
-                                              onChange={(value) => value && setDistinctId(value)}
-                                              options={person.distinct_ids.map((distinct_id) => ({
-                                                  label: distinct_id,
-                                                  value: distinct_id,
-                                              }))}
-                                              data-attr="person-feature-flags-select"
-                                          />
-                                      </div>
-                                      <LemonDivider className="mb-4" />
-                                      <RelatedFeatureFlags distinctId={distinctId || person.distinct_ids[0]} />
-                                  </>
-                              ),
-                          }
+                            key: PersonsTabType.FEATURE_FLAGS,
+                            tooltip: `Only shows feature flags with targeting conditions based on person properties.`,
+                            label: <span data-attr="persons-related-flags-tab">Feature flags</span>,
+                            content: (
+                                <>
+                                    <div className="flex space-x-2 items-center mb-2">
+                                        <div className="flex items-center">
+                                            Choose ID:
+                                            <Tooltip
+                                                title={
+                                                    <div className="space-y-2">
+                                                        <div>
+                                                            Feature flags values can depend on a person's distinct ID.
+                                                        </div>
+                                                        <div>
+                                                            If you want your flag values to stay consistent for each
+                                                            user, you can enable flag persistence in the feature flag
+                                                            settings.
+                                                        </div>
+                                                        <div>
+                                                            This option may depend on your specific setup and isn't
+                                                            always suitable. Read more in the{' '}
+                                                            <Link to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps">
+                                                                documentation.
+                                                            </Link>
+                                                        </div>
+                                                    </div>
+                                                }
+                                            >
+                                                <IconInfo className="ml-1 text-base" />
+                                            </Tooltip>
+                                        </div>
+                                        <LemonSelect
+                                            value={distinctId || primaryDistinctId}
+                                            onChange={(value) => value && setDistinctId(value)}
+                                            options={person.distinct_ids.map((distinct_id) => ({
+                                                label: distinct_id,
+                                                value: distinct_id,
+                                            }))}
+                                            data-attr="person-feature-flags-select"
+                                        />
+                                    </div>
+                                    <LemonDivider className="mb-4" />
+                                    <RelatedFeatureFlags distinctId={distinctId || person.distinct_ids[0]} />
+                                </>
+                            ),
+                        }
                         : false,
                     {
                         key: PersonsTabType.HISTORY,
@@ -335,10 +335,10 @@ export function PersonScene(): JSX.Element | null {
                     },
                     showCustomerSuccessDashboards
                         ? {
-                              key: PersonsTabType.DASHBOARD,
-                              label: 'Dashboard',
-                              content: <PersonDashboard person={person} />,
-                          }
+                            key: PersonsTabType.DASHBOARD,
+                            label: 'Dashboard',
+                            content: <PersonDashboard person={person} />,
+                        }
                         : false,
                 ]}
             />

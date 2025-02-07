@@ -6,12 +6,12 @@ import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconBranch, IconOpenInNew } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect/LemonSegmentedSelect'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
-import { Popover } from 'lib/lemon-ui/Popover'
+import { IconBranch, IconOpenInNew } from '@posthog/lemon-ui/icons'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { LemonSegmentedSelect } from '@posthog/lemon-ui/LemonSegmentedSelect'
+import { LemonTabs } from '@posthog/lemon-ui/LemonTabs'
+import { Link, PostHogComDocsURL } from '@posthog/lemon-ui/Link'
+import { Popover } from '@posthog/lemon-ui/Popover'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
@@ -305,12 +305,12 @@ export const WebTabs = ({
         canOpenInsight: boolean
         query: QuerySchema
         docs:
-            | {
-                  url?: PostHogComDocsURL
-                  title: string
-                  description: string | JSX.Element
-              }
-            | undefined
+        | {
+            url?: PostHogComDocsURL
+            title: string
+            description: string | JSX.Element
+        }
+        | undefined
     }[]
     setActiveTabId: (id: string) => void
     openModal: (tileId: TileId, tabId: string) => void

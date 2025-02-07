@@ -6,8 +6,8 @@ import {
     LemonWidget,
     PaginationControl,
     ProfilePicture,
-    usePagination,
 } from '@posthog/lemon-ui'
+import { usePagination } from '@posthog/lemon-ui/PaginationControl'
 import { JSONContent } from '@tiptap/core'
 import { useActions, useValues } from 'kea'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'

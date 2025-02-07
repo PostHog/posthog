@@ -1,8 +1,8 @@
 import { router } from 'kea-router'
 import { CLICK_TARGETS, elementToSelector, matchesDataAttribute } from 'lib/actionUtils'
 import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { Link } from 'lib/lemon-ui/Link'
+import { lemonToast } from '@posthog/lemon-ui/LemonToast'
+import { Link } from '@posthog/lemon-ui/Link'
 import { autoCaptureEventToDescription } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
@@ -56,9 +56,9 @@ export async function createActionFromEvent(
                 event: event.event,
                 ...(event.event === '$pageview' || event.event === '$autocapture'
                     ? {
-                          url: event.properties.$current_url,
-                          url_matching: 'exact',
-                      }
+                        url: event.properties.$current_url,
+                        url_matching: 'exact',
+                    }
                     : {}),
                 ...(event.elements?.length > 0 ? elementsToAction(event.elements) : {}),
             },

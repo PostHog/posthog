@@ -9,9 +9,9 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { More } from '@posthog/lemon-ui/LemonButton'
+import { LemonSkeleton } from '@posthog/lemon-ui/LemonSkeleton'
+import { LemonTabs } from '@posthog/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { useEffect, useState } from 'react'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
@@ -266,14 +266,14 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                         tabs={[
                             survey.start_date
                                 ? {
-                                      content: (
-                                          <div>
-                                              <SurveyResult />
-                                          </div>
-                                      ),
-                                      key: 'results',
-                                      label: 'Results',
-                                  }
+                                    content: (
+                                        <div>
+                                            <SurveyResult />
+                                        </div>
+                                    ),
+                                    key: 'results',
+                                    label: 'Results',
+                                }
                                 : null,
                             {
                                 content: (
@@ -324,9 +324,9 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                             </div>
                                             <div className="flex flex-row gap-8">
                                                 {survey.iteration_count &&
-                                                survey.iteration_frequency_days &&
-                                                survey.iteration_count > 0 &&
-                                                survey.iteration_frequency_days > 0 ? (
+                                                    survey.iteration_frequency_days &&
+                                                    survey.iteration_count > 0 &&
+                                                    survey.iteration_frequency_days > 0 ? (
                                                     <div className="flex flex-col">
                                                         <span className="mt-4 card-secondary">Schedule</span>
                                                         <span>
@@ -409,35 +409,35 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                             },
                             showLinkedHogFunctions
                                 ? {
-                                      key: 'notifications',
-                                      label: 'Notifications',
-                                      content: (
-                                          <div>
-                                              <p>Get notified whenever a survey result is submitted</p>
-                                              <LinkedHogFunctions
-                                                  type="destination"
-                                                  subTemplateId="survey-response"
-                                                  filters={{
-                                                      events: [
-                                                          {
-                                                              id: 'survey sent',
-                                                              type: 'events',
-                                                              order: 0,
-                                                              properties: [
-                                                                  {
-                                                                      key: '$survey_id',
-                                                                      type: PropertyFilterType.Event,
-                                                                      value: id,
-                                                                      operator: PropertyOperator.Exact,
-                                                                  },
-                                                              ],
-                                                          },
-                                                      ],
-                                                  }}
-                                              />
-                                          </div>
-                                      ),
-                                  }
+                                    key: 'notifications',
+                                    label: 'Notifications',
+                                    content: (
+                                        <div>
+                                            <p>Get notified whenever a survey result is submitted</p>
+                                            <LinkedHogFunctions
+                                                type="destination"
+                                                subTemplateId="survey-response"
+                                                filters={{
+                                                    events: [
+                                                        {
+                                                            id: 'survey sent',
+                                                            type: 'events',
+                                                            order: 0,
+                                                            properties: [
+                                                                {
+                                                                    key: '$survey_id',
+                                                                    type: PropertyFilterType.Event,
+                                                                    value: id,
+                                                                    operator: PropertyOperator.Exact,
+                                                                },
+                                                            ],
+                                                        },
+                                                    ],
+                                                }}
+                                            />
+                                        </div>
+                                    ),
+                                }
                                 : null,
                             {
                                 label: 'History',

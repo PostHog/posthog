@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { LemonSkeleton } from '@posthog/lemon-ui/LemonSkeleton'
 import { useMemo, useState } from 'react'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 

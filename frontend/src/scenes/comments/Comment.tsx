@@ -3,7 +3,7 @@ import { LemonButton, LemonMenu, LemonTextAreaMarkdown, ProfilePicture } from '@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LemonMarkdown } from '@posthog/lemon-ui/LemonMarkdown'
 import { useEffect, useRef } from 'react'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'

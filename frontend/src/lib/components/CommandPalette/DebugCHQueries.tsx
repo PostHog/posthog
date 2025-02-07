@@ -7,13 +7,13 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { Chart, ChartItem } from 'lib/Chart'
 import { dayjs } from 'lib/dayjs'
-import { IconRefresh } from 'lib/lemon-ui/icons'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { Link } from 'lib/lemon-ui/Link'
+import { IconRefresh } from '@posthog/lemon-ui/icons'
+import { LemonBanner } from '@posthog/lemon-ui/LemonBanner'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { LemonDialog } from '@posthog/lemon-ui/LemonDialog'
+import { LemonTable } from '@posthog/lemon-ui/LemonTable'
+import { LemonTag } from '@posthog/lemon-ui/LemonTag'
+import { Link } from '@posthog/lemon-ui/Link'
 import { humanizeBytes } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useEffect, useRef, useState } from 'react'
@@ -101,13 +101,13 @@ const debugCHQueriesLogic = kea<debugCHQueriesLogicType>([
             (debugResponse: DebugResponse): [string, number][] | null => {
                 return debugResponse.queries
                     ? Object.entries(
-                          debugResponse.queries
-                              .map((result) => result.path)
-                              .reduce((acc: { [path: string]: number }, val: string) => {
-                                  acc[val] = acc[val] === undefined ? 1 : (acc[val] += 1)
-                                  return acc
-                              }, {})
-                      ).sort((a: any, b: any) => b[1] - a[1])
+                        debugResponse.queries
+                            .map((result) => result.path)
+                            .reduce((acc: { [path: string]: number }, val: string) => {
+                                acc[val] = acc[val] === undefined ? 1 : (acc[val] += 1)
+                                return acc
+                            }, {})
+                    ).sort((a: any, b: any) => b[1] - a[1])
                     : null
             },
         ],
@@ -239,15 +239,15 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                 <div className="flex flex-wrap gap-2">
                     {!debugResponse.stats
                         ? paths?.map(([path, count]) => (
-                              <LemonButton
-                                  key={path}
-                                  type={pathFilter === path ? 'primary' : 'tertiary'}
-                                  size="small"
-                                  onClick={() => (pathFilter === path ? setPathFilter(null) : setPathFilter(path))}
-                              >
-                                  {path} <span className="ml-0.5 text-secondary ligatures-none">({count})</span>
-                              </LemonButton>
-                          ))
+                            <LemonButton
+                                key={path}
+                                type={pathFilter === path ? 'primary' : 'tertiary'}
+                                size="small"
+                                onClick={() => (pathFilter === path ? setPathFilter(null) : setPathFilter(path))}
+                            >
+                                {path} <span className="ml-0.5 text-secondary ligatures-none">({count})</span>
+                            </LemonButton>
+                        ))
                         : null}
                     {!debugResponseLoading && !!debugResponse.stats ? (
                         <div className="flex flex-row space-x-4 p-4 border rounded bg-surface-primary">
@@ -384,9 +384,8 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                                                 <LemonButton
                                                     type="secondary"
                                                     size="xsmall"
-                                                    to={`https://sentry.io/issues/?query=is%3Aunresolved+trace%3A${
-                                                        item.logComment.sentry_trace.split('-')[0]
-                                                    }&statsPeriod=7d`}
+                                                    to={`https://sentry.io/issues/?query=is%3Aunresolved+trace%3A${item.logComment.sentry_trace.split('-')[0]
+                                                        }&statsPeriod=7d`}
                                                     targetBlank
                                                     className="mt-4 mb-1"
                                                 >
@@ -481,7 +480,7 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                                                         `${Math.round(
                                                             ((event['OSReadChars'] - event['OSReadBytes']) /
                                                                 event['OSReadChars']) *
-                                                                100
+                                                            100
                                                         )}%`
                                                     ) : (
                                                         <i>unknown</i>

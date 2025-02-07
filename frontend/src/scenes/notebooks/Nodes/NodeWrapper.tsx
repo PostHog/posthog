@@ -8,10 +8,10 @@ import {
 } from '@tiptap/react'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { IconDragHandle, IconLink } from 'lib/lemon-ui/icons'
+import { IconDragHandle, IconLink } from '@posthog/lemon-ui/icons'
 import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 import './NodeWrapper.scss'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { LemonSkeleton } from '@posthog/lemon-ui/LemonSkeleton'
 import { BindLogic, BuiltLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { useInView } from 'react-intersection-observer'
@@ -151,20 +151,20 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         },
         isEditable && isResizeable
             ? {
-                  label: 'Reset height to default',
-                  onClick: () => {
-                      updateAttributes({
-                          height: null,
-                      } as any)
-                  },
-              }
+                label: 'Reset height to default',
+                onClick: () => {
+                    updateAttributes({
+                        height: null,
+                    } as any)
+                },
+            }
             : null,
         isEditable && parsedHref
             ? {
-                  label: 'Convert to inline link',
-                  onClick: () => convertToBacklink(parsedHref),
-                  sideIcon: <IconLink />,
-              }
+                label: 'Convert to inline link',
+                onClick: () => convertToBacklink(parsedHref),
+                sideIcon: <IconLink />,
+            }
             : null,
         isEditable ? { label: 'Edit title', onClick: () => toggleEditingTitle(true) } : null,
         isEditable && hasDiscussions
@@ -440,12 +440,12 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
         addPasteRules() {
             return pasteOptions
                 ? [
-                      posthogNodePasteRule({
-                          editor: this.editor,
-                          type: this.type,
-                          ...pasteOptions,
-                      }),
-                  ]
+                    posthogNodePasteRule({
+                        editor: this.editor,
+                        type: this.type,
+                        ...pasteOptions,
+                    }),
+                ]
                 : []
         },
     })

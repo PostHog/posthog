@@ -3,7 +3,7 @@ import { LemonButton, LemonDialog, LemonInput, LemonMenu, lemonToast } from '@po
 import { useActions, useValues } from 'kea'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
-import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import Papa from 'papaparse'
 import { asDisplay } from 'scenes/persons/person-utils'

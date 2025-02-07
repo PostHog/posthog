@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { LemonTableLink } from '@posthog/lemon-ui/LemonTable/LemonTableLink'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -76,8 +76,8 @@ export function EarlyAccessFeatures(): JSX.Element {
                                             stage === 'beta'
                                                 ? 'warning'
                                                 : stage === 'general-availability'
-                                                ? 'success'
-                                                : 'default'
+                                                    ? 'success'
+                                                    : 'default'
                                         }
                                         className="uppercase cursor-default"
                                     >

@@ -3,7 +3,7 @@ import { LemonButton, LemonDivider, LemonModal, Link, Tooltip } from '@posthog/l
 import { useActions, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
-import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { LemonProgress } from '@posthog/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils'
 
 import { Experiment, InsightType } from '~/types'
@@ -75,9 +75,8 @@ export function DataCollection(): JSX.Element {
             </div>
             <div className="flex">
                 <div className="w-3/5 pr-4">
-                    <div className="mt-2 mb-1 font-semibold">{`${
-                        experimentProgressPercent > 100 ? 100 : experimentProgressPercent.toFixed(2)
-                    }% complete`}</div>
+                    <div className="mt-2 mb-1 font-semibold">{`${experimentProgressPercent > 100 ? 100 : experimentProgressPercent.toFixed(2)
+                        }% complete`}</div>
                     <LemonProgress
                         className="w-full border"
                         bgColor="var(--bg-table)"

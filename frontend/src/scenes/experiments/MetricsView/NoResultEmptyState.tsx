@@ -2,7 +2,7 @@ import { IconCheck, IconX } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { combineUrl } from 'kea-router/lib/utils'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconOpenInNew } from '@posthog/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import { NodeKind } from '~/queries/schema'
@@ -63,20 +63,20 @@ export function NoResultEmptyState({ error, metric }: { error: any; metric: any 
                         value: hasMissingExposure
                             ? variants.map((variant) => variant.key)
                             : errorCode === ResultErrorCode.NO_CONTROL_VARIANT
-                            ? ['control']
-                            : variants.slice(1).map((variant) => variant.key),
+                                ? ['control']
+                                : variants.slice(1).map((variant) => variant.key),
                         operator: 'exact',
                         type: 'event',
                     },
                     ...(hasMissingExposure
                         ? [
-                              {
-                                  key: '$feature_flag',
-                                  value: [experiment.feature_flag?.key],
-                                  operator: 'exact',
-                                  type: 'event',
-                              },
-                          ]
+                            {
+                                key: '$feature_flag',
+                                value: [experiment.feature_flag?.key],
+                                operator: 'exact',
+                                type: 'event',
+                            },
+                        ]
                         : []),
                 ],
                 filterTestAccounts: metric.count_query?.filter_test_accounts,

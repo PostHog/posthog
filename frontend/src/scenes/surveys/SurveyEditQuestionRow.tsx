@@ -6,7 +6,7 @@ import { IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
-import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
 import { getSurveyStatus } from 'scenes/surveys/surveysLogic'
 
 import { ProgressStatus, Survey, SurveyQuestionType, SurveyType } from '~/types'
@@ -241,9 +241,9 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                         },
                                         ...(question.display === 'number'
                                             ? [
-                                                  { label: '1 - 7 (7 Point Likert Scale)', value: 7 },
-                                                  { label: '0 - 10 (Net Promoter Score)', value: 10 },
-                                              ]
+                                                { label: '1 - 7 (7 Point Likert Scale)', value: 7 },
+                                                { label: '0 - 10 (Net Promoter Score)', value: 10 },
+                                            ]
                                             : []),
                                     ]}
                                     onChange={(val) => {
@@ -268,109 +268,109 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                 )}
                 {(question.type === SurveyQuestionType.SingleChoice ||
                     question.type === SurveyQuestionType.MultipleChoice) && (
-                    <div className="flex flex-col gap-2">
-                        <LemonField name="hasOpenChoice">
-                            {({ value: hasOpenChoice, onChange: toggleHasOpenChoice }) => (
-                                <LemonField name="choices" label="Choices">
-                                    {({ value, onChange }) => (
-                                        <div className="flex flex-col gap-2">
-                                            {(value || []).map((choice: string, index: number) => {
-                                                const isOpenChoice = hasOpenChoice && index === value?.length - 1
-                                                return (
-                                                    <div className="flex flex-row gap-2 relative" key={index}>
-                                                        <LemonInput
-                                                            value={choice}
-                                                            fullWidth
-                                                            onChange={(val) => {
-                                                                const newChoices = [...value]
-                                                                newChoices[index] = val
-                                                                onChange(newChoices)
-                                                            }}
-                                                        />
-                                                        {isOpenChoice && (
-                                                            <span className="question-choice-open-ended-footer">
-                                                                open-ended
-                                                            </span>
-                                                        )}
-                                                        <LemonButton
-                                                            icon={<IconTrash />}
-                                                            size="small"
-                                                            noPadding
-                                                            onClick={() => {
-                                                                const newChoices = [...value]
-                                                                newChoices.splice(index, 1)
-                                                                onChange(newChoices)
-                                                                if (isOpenChoice) {
-                                                                    toggleHasOpenChoice(false)
-                                                                }
-                                                            }}
-                                                        />
-                                                    </div>
-                                                )
-                                            })}
-                                            <div className="w-fit flex flex-row flex-wrap gap-2">
-                                                {((value || []).length < 6 || survey.type != SurveyType.Popover) && (
-                                                    <>
-                                                        <LemonButton
-                                                            icon={<IconPlusSmall />}
-                                                            type="secondary"
-                                                            fullWidth={false}
-                                                            onClick={() => {
-                                                                if (!value) {
-                                                                    onChange([''])
-                                                                } else if (hasOpenChoice) {
-                                                                    const newChoices = value.slice(0, -1)
-                                                                    newChoices.push('')
-                                                                    newChoices.push(value[value.length - 1])
+                        <div className="flex flex-col gap-2">
+                            <LemonField name="hasOpenChoice">
+                                {({ value: hasOpenChoice, onChange: toggleHasOpenChoice }) => (
+                                    <LemonField name="choices" label="Choices">
+                                        {({ value, onChange }) => (
+                                            <div className="flex flex-col gap-2">
+                                                {(value || []).map((choice: string, index: number) => {
+                                                    const isOpenChoice = hasOpenChoice && index === value?.length - 1
+                                                    return (
+                                                        <div className="flex flex-row gap-2 relative" key={index}>
+                                                            <LemonInput
+                                                                value={choice}
+                                                                fullWidth
+                                                                onChange={(val) => {
+                                                                    const newChoices = [...value]
+                                                                    newChoices[index] = val
                                                                     onChange(newChoices)
-                                                                } else {
-                                                                    onChange([...value, ''])
-                                                                }
-                                                            }}
-                                                        >
-                                                            Add choice
-                                                        </LemonButton>
-                                                        {!hasOpenChoice && (
+                                                                }}
+                                                            />
+                                                            {isOpenChoice && (
+                                                                <span className="question-choice-open-ended-footer">
+                                                                    open-ended
+                                                                </span>
+                                                            )}
+                                                            <LemonButton
+                                                                icon={<IconTrash />}
+                                                                size="small"
+                                                                noPadding
+                                                                onClick={() => {
+                                                                    const newChoices = [...value]
+                                                                    newChoices.splice(index, 1)
+                                                                    onChange(newChoices)
+                                                                    if (isOpenChoice) {
+                                                                        toggleHasOpenChoice(false)
+                                                                    }
+                                                                }}
+                                                            />
+                                                        </div>
+                                                    )
+                                                })}
+                                                <div className="w-fit flex flex-row flex-wrap gap-2">
+                                                    {((value || []).length < 6 || survey.type != SurveyType.Popover) && (
+                                                        <>
                                                             <LemonButton
                                                                 icon={<IconPlusSmall />}
                                                                 type="secondary"
                                                                 fullWidth={false}
                                                                 onClick={() => {
                                                                     if (!value) {
-                                                                        onChange(['Other'])
+                                                                        onChange([''])
+                                                                    } else if (hasOpenChoice) {
+                                                                        const newChoices = value.slice(0, -1)
+                                                                        newChoices.push('')
+                                                                        newChoices.push(value[value.length - 1])
+                                                                        onChange(newChoices)
                                                                     } else {
-                                                                        onChange([...value, 'Other'])
+                                                                        onChange([...value, ''])
                                                                     }
-                                                                    toggleHasOpenChoice(true)
                                                                 }}
                                                             >
-                                                                Add open-ended choice
+                                                                Add choice
                                                             </LemonButton>
-                                                        )}
-                                                        <LemonField name="shuffleOptions" className="mt-2">
-                                                            {({
-                                                                value: shuffleOptions,
-                                                                onChange: toggleShuffleOptions,
-                                                            }) => (
-                                                                <LemonCheckbox
-                                                                    checked={!!shuffleOptions}
-                                                                    label="Shuffle options"
-                                                                    onChange={(checked) =>
-                                                                        toggleShuffleOptions(checked)
-                                                                    }
-                                                                />
+                                                            {!hasOpenChoice && (
+                                                                <LemonButton
+                                                                    icon={<IconPlusSmall />}
+                                                                    type="secondary"
+                                                                    fullWidth={false}
+                                                                    onClick={() => {
+                                                                        if (!value) {
+                                                                            onChange(['Other'])
+                                                                        } else {
+                                                                            onChange([...value, 'Other'])
+                                                                        }
+                                                                        toggleHasOpenChoice(true)
+                                                                    }}
+                                                                >
+                                                                    Add open-ended choice
+                                                                </LemonButton>
                                                             )}
-                                                        </LemonField>
-                                                    </>
-                                                )}
+                                                            <LemonField name="shuffleOptions" className="mt-2">
+                                                                {({
+                                                                    value: shuffleOptions,
+                                                                    onChange: toggleShuffleOptions,
+                                                                }) => (
+                                                                    <LemonCheckbox
+                                                                        checked={!!shuffleOptions}
+                                                                        label="Shuffle options"
+                                                                        onChange={(checked) =>
+                                                                            toggleShuffleOptions(checked)
+                                                                        }
+                                                                    />
+                                                                )}
+                                                            </LemonField>
+                                                        </>
+                                                    )}
+                                                </div>
                                             </div>
-                                        </div>
-                                    )}
-                                </LemonField>
-                            )}
-                        </LemonField>
-                    </div>
-                )}
+                                        )}
+                                    </LemonField>
+                                )}
+                            </LemonField>
+                        </div>
+                    )}
                 <LemonField name="buttonText" label="Button text">
                     <LemonInput
                         value={

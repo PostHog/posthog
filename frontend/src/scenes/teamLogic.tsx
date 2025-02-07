@@ -2,8 +2,8 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 import api, { ApiConfig } from 'lib/api'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
-import { IconSwapHoriz } from 'lib/lemon-ui/icons'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { IconSwapHoriz } from '@posthog/lemon-ui/icons'
+import { lemonToast } from '@posthog/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -120,8 +120,8 @@ export const teamLogic = kea<teamLogicType>([
                     if (updatedAttribute === 'slack_incoming_webhook') {
                         message = payload.slack_incoming_webhook
                             ? `Webhook integration enabled – you should be seeing a message on ${resolveWebhookService(
-                                  payload.slack_incoming_webhook
-                              )}`
+                                payload.slack_incoming_webhook
+                            )}`
                             : 'Webhook integration disabled'
                     } else if (
                         updatedAttribute === 'completed_snippet_onboarding' ||

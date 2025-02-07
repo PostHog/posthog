@@ -3,9 +3,9 @@ import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { getColorVar } from 'lib/colors'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconTrendingDown, IconTrendingFlat } from '@posthog/lemon-ui/icons'
+import { LemonBanner } from '@posthog/lemon-ui/LemonBanner'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 import { humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil, range } from 'lib/utils'
 import { useState } from 'react'
 import { urls } from 'scenes/urls'
@@ -63,8 +63,8 @@ export function WebOverview(props: {
                 {responseLoading
                     ? range(numSkeletons).map((i) => <WebOverviewItemCellSkeleton key={i} />)
                     : webOverviewQueryResponse?.results?.map((item) => (
-                          <WebOverviewItemCell key={item.key} item={item} />
-                      )) || []}
+                        <WebOverviewItemCell key={item.key} item={item} />
+                    )) || []}
             </EvenlyDistributedRows>
             {samplingRate && !(samplingRate.numerator === 1 && (samplingRate.denominator ?? 1) === 1) ? (
                 <LemonBanner type="info" className="my-4">
@@ -93,14 +93,14 @@ const WebOverviewItemCell = ({ item }: { item: WebOverviewItem }): JSX.Element =
         ? item.changeFromPreviousPct === 0
             ? { Icon: IconTrendingFlat, color: getColorVar('muted') }
             : item.changeFromPreviousPct > 0
-            ? {
-                  Icon: IconTrending,
-                  color: !item.isIncreaseBad ? getColorVar('success') : getColorVar('danger'),
-              }
-            : {
-                  Icon: IconTrendingDown,
-                  color: !item.isIncreaseBad ? getColorVar('danger') : getColorVar('success'),
-              }
+                ? {
+                    Icon: IconTrending,
+                    color: !item.isIncreaseBad ? getColorVar('success') : getColorVar('danger'),
+                }
+                : {
+                    Icon: IconTrendingDown,
+                    color: !item.isIncreaseBad ? getColorVar('danger') : getColorVar('success'),
+                }
         : undefined
 
     const docsUrl = settingsLinkFromKey(item.key)
@@ -109,16 +109,16 @@ const WebOverviewItemCell = ({ item }: { item: WebOverviewItem }): JSX.Element =
     const tooltip =
         isNotNil(item.value) && isNotNil(item.previous) && isNotNil(item.changeFromPreviousPct)
             ? `${label}: ${item.value >= item.previous ? 'increased' : 'decreased'} by ${formatPercentage(
-                  Math.abs(item.changeFromPreviousPct),
-                  { precise: true }
-              )}, to ${formatItem(item.value, item.kind, { precise: true })} from ${formatItem(
-                  item.previous,
-                  item.kind,
-                  { precise: true }
-              )}`
+                Math.abs(item.changeFromPreviousPct),
+                { precise: true }
+            )}, to ${formatItem(item.value, item.kind, { precise: true })} from ${formatItem(
+                item.previous,
+                item.kind,
+                { precise: true }
+            )}`
             : isNotNil(item.value)
-            ? `${label}: ${formatItem(item.value, item.kind, { precise: true })}`
-            : 'No data'
+                ? `${label}: ${formatItem(item.value, item.kind, { precise: true })}`
+                : 'No data'
 
     return (
         <Tooltip title={tooltip}>
@@ -188,9 +188,8 @@ const formatItem = (
         return humanFriendlyDuration(value, { secondsPrecision: 3 })
     } else if (kind === 'currency') {
         const { symbol, isPrefix } = getCurrencySymbol(options?.currency ?? 'USD')
-        return `${isPrefix ? symbol : ''}${formatUnit(value, { precise: options?.precise })}${
-            isPrefix ? '' : ' ' + symbol
-        }`
+        return `${isPrefix ? symbol : ''}${formatUnit(value, { precise: options?.precise })}${isPrefix ? '' : ' ' + symbol
+            }`
     }
     return formatUnit(value, options)
 }

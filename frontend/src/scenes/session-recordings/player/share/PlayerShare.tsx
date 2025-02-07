@@ -4,8 +4,8 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { SharingModalContent } from 'lib/components/Sharing/SharingModal'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonDialog } from '@posthog/lemon-ui/LemonDialog'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import posthog from 'posthog-js'
 
@@ -158,8 +158,8 @@ export function openPlayerShareDialog(props: PlayerShareLogicProps): void {
             props.shareType === 'private'
                 ? 'Share private link'
                 : props.shareType === 'public'
-                ? 'Share public link'
-                : 'Share to Linear',
+                    ? 'Share public link'
+                    : 'Share to Linear',
         content: <PlayerShareRecording {...props} />,
         width: 600,
         zIndex: '1062',

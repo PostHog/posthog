@@ -5,8 +5,8 @@ import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { Popover } from 'lib/lemon-ui/Popover'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { Popover } from '@posthog/lemon-ui/Popover'
+import { ProfilePicture } from '@posthog/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useRef } from 'react'
 import { Scene } from 'scenes/sceneTypes'
@@ -57,15 +57,15 @@ export function Navbar(): JSX.Element {
                                             onClick={
                                                 'logic' in item
                                                     ? () => {
-                                                          if (
-                                                              activeNavbarItemId === item.identifier &&
-                                                              !isSidebarShown
-                                                          ) {
-                                                              hideSidebar()
-                                                          } else {
-                                                              showSidebar(item.identifier)
-                                                          }
-                                                      }
+                                                        if (
+                                                            activeNavbarItemId === item.identifier &&
+                                                            !isSidebarShown
+                                                        ) {
+                                                            hideSidebar()
+                                                        } else {
+                                                            showSidebar(item.identifier)
+                                                        }
+                                                    }
                                                     : undefined
                                             }
                                             active={activeNavbarItemId === item.identifier && isSidebarShown}

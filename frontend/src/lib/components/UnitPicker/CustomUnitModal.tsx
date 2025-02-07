@@ -1,8 +1,8 @@
 import { HandleUnitChange } from 'lib/components/UnitPicker/UnitPicker'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
+import { LemonInput } from '@posthog/lemon-ui/LemonInput'
+import { LemonModal } from '@posthog/lemon-ui/LemonModal'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { RefCallback, useEffect, useState } from 'react'
 

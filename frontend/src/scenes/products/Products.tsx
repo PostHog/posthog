@@ -4,7 +4,7 @@ import { LemonButton, LemonLabel, LemonSelect, Link, Tooltip } from '@posthog/le
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
+import { LemonCard } from '@posthog/lemon-ui/LemonCard'
 import { availableOnboardingProducts, getProductUri, onboardingLogic } from 'scenes/onboarding/onboardingLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'

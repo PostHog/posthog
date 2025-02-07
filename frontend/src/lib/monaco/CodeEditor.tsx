@@ -2,7 +2,7 @@ import './CodeEditor.scss'
 
 import MonacoEditor, { DiffEditor as MonacoDiffEditor, type EditorProps, loader, Monaco } from '@monaco-editor/react'
 import { BuiltLogic, useMountedLogic, useValues } from 'kea'
-import { Spinner } from 'lib/lemon-ui/Spinner'
+import { Spinner } from '@posthog/lemon-ui/Spinner'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { codeEditorLogicType } from 'lib/monaco/codeEditorLogicType'
 import { findNextFocusableElement, findPreviousFocusableElement } from 'lib/monaco/domUtils'
@@ -41,7 +41,7 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
 let codeEditorIndex = 0
 
 export function initModel(model: editor.ITextModel, builtCodeEditorLogic: BuiltLogic<codeEditorLogicType>): void {
-    ;(model as any).codeEditorLogic = builtCodeEditorLogic
+    ; (model as any).codeEditorLogic = builtCodeEditorLogic
 }
 
 function initEditor(
@@ -187,12 +187,12 @@ export function CodeEditor({
             validate: true,
             schemas: schema
                 ? [
-                      {
-                          uri: 'http://internal/node-schema.json',
-                          fileMatch: ['*'],
-                          schema: schema,
-                      },
-                  ]
+                    {
+                        uri: 'http://internal/node-schema.json',
+                        fileMatch: ['*'],
+                        schema: schema,
+                    },
+                ]
                 : [],
         })
     }, [monaco, schema])

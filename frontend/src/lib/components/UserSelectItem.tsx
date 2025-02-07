@@ -1,5 +1,5 @@
-import { LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { LemonInputSelectOption } from '@posthog/lemon-ui/LemonInputSelect'
+import { ProfilePicture } from '@posthog/lemon-ui/ProfilePicture'
 
 import { UserBasicType, UserType } from '~/types'
 

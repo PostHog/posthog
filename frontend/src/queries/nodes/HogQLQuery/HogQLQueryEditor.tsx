@@ -6,8 +6,8 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonBanner } from '@posthog/lemon-ui/LemonBanner'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 import {
     activeModelStateKey,
@@ -142,8 +142,8 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                 !aiAvailable
                                     ? 'Environment variable OPENAI_API_KEY is unset for this instance of PostHog'
                                     : !prompt
-                                    ? 'Provide a prompt first'
-                                    : null
+                                        ? 'Provide a prompt first'
+                                        : null
                             }
                             tooltipPlacement="left"
                             loading={promptLoading}
@@ -272,8 +272,8 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                         !props.setQuery
                                             ? 'No permission to update'
                                             : hasErrors
-                                            ? error ?? 'Query has errors'
-                                            : undefined
+                                                ? error ?? 'Query has errors'
+                                                : undefined
                                     }
                                     center
                                     fullWidth
@@ -292,8 +292,8 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                         hasErrors
                                             ? error ?? 'Query has errors'
                                             : !isValidView
-                                            ? 'Some fields may need an alias'
-                                            : ''
+                                                ? 'Some fields may need an alias'
+                                                : ''
                                     }
                                     data-attr="hogql-query-editor-update-view"
                                 >
@@ -309,8 +309,8 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                         hasErrors
                                             ? error ?? 'Query has errors'
                                             : !isValidView
-                                            ? 'Some fields may need an alias'
-                                            : ''
+                                                ? 'Some fields may need an alias'
+                                                : ''
                                     }
                                     data-attr="hogql-query-editor-save-as-view"
                                     tooltip={

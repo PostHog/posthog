@@ -6,9 +6,9 @@ import { router, urlToAction } from 'kea-router'
 import api, { getJSONOrNull } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
-import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
-import { LemonButtonPropsBase } from 'lib/lemon-ui/LemonButton'
+import { LemonBannerAction } from '@posthog/lemon-ui/LemonBanner'
+import { lemonBannerLogic } from '@posthog/lemon-ui/LemonBanner'
+import { LemonButtonPropsBase } from '@posthog/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -315,11 +315,9 @@ export const billingLogic = kea<billingLogicType>([
                             }
                             return {
                                 status: 'warning',
-                                message: `You have ${numOpenInvoices} open invoice${
-                                    numOpenInvoices > 1 ? 's' : ''
-                                }. Please pay ${
-                                    numOpenInvoices > 1 ? 'them' : 'it'
-                                } before adding items to your subscription.`,
+                                message: `You have ${numOpenInvoices} open invoice${numOpenInvoices > 1 ? 's' : ''
+                                    }. Please pay ${numOpenInvoices > 1 ? 'them' : 'it'
+                                    } before adding items to your subscription.`,
                                 action: viewInvoicesButton,
                             }
                         }
@@ -510,8 +508,8 @@ export const billingLogic = kea<billingLogicType>([
                     ? 'Please enter the amount of credits you want to purchase'
                     : // This value is used because 3333 - 10% = 3000
                     +creditInput < 3333
-                    ? 'Please enter a credit amount of at least $3,333'
-                    : undefined,
+                        ? 'Please enter a credit amount of at least $3,333'
+                        : undefined,
                 collectionMethod: !collectionMethod ? 'Please select a collection method' : undefined,
             }),
         },
@@ -586,9 +584,8 @@ export const billingLogic = kea<billingLogicType>([
 
                 actions.setBillingAlert({
                     status: 'info',
-                    title: `Your free trial will end in ${
-                        remainingHours < 24 ? pluralize(remainingHours, 'hour') : pluralize(remainingDays, 'day')
-                    }.`,
+                    title: `Your free trial will end in ${remainingHours < 24 ? pluralize(remainingHours, 'hour') : pluralize(remainingDays, 'day')
+                        }.`,
                     message: `Setup billing now to ensure you don't lose access to premium features.`,
                 })
                 return
@@ -614,10 +611,9 @@ export const billingLogic = kea<billingLogicType>([
                     title: 'Usage limit exceeded',
                     message: `You have exceeded the usage limit for ${productOverLimit.name}. Please 
                         ${productOverLimit.subscribed ? 'increase your billing limit' : 'upgrade your plan'}
-                        or ${
-                            productOverLimit.name === 'Data warehouse'
-                                ? 'data will not be synced'
-                                : 'data loss may occur'
+                        or ${productOverLimit.name === 'Data warehouse'
+                            ? 'data will not be synced'
+                            : 'data loss may occur'
                         }.`,
                     dismissKey: 'usage-limit-exceeded',
                 })
@@ -636,9 +632,8 @@ export const billingLogic = kea<billingLogicType>([
                     title: 'You will soon hit your usage limit',
                     message: `You have currently used ${parseFloat(
                         (productApproachingLimit.percentage_usage * 100).toFixed(2)
-                    )}% of your ${
-                        productApproachingLimit.usage_key && productApproachingLimit.usage_key.toLowerCase()
-                    } allocation.`,
+                    )}% of your ${productApproachingLimit.usage_key && productApproachingLimit.usage_key.toLowerCase()
+                        } allocation.`,
                     dismissKey: 'usage-limit-approaching',
                 })
                 return

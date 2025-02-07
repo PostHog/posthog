@@ -5,7 +5,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { dayjs } from 'lib/dayjs'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { SpinnerOverlay } from '@posthog/lemon-ui/Spinner'
 import { capitalizeFirstLetter, isGroupType, percentage } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
@@ -37,9 +37,9 @@ export function RetentionModal(): JSX.Element | null {
     const backgroundColor = theme?.['preset-1'] || '#000000' // Default to black if no color found
     const dataTableNodeQuery: DataTableNode | undefined = actorsQuery
         ? {
-              kind: NodeKind.DataTableNode,
-              source: actorsQuery,
-          }
+            kind: NodeKind.DataTableNode,
+            source: actorsQuery,
+        }
         : undefined
 
     if (!results || selectedInterval === null) {

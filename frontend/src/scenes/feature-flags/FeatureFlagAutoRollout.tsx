@@ -3,8 +3,8 @@ import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTag, Link } fr
 import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
+import { Spinner } from '@posthog/lemon-ui/Spinner'
 import { capitalizeFirstLetter, genericOperatorMap, humanFriendlyNumber } from 'lib/utils'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
@@ -44,7 +44,7 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                     <>
                         {index > 0 && <div className="condition-set-separator">OR</div>}
                         {rollback_condition.threshold_type === 'insight' &&
-                        rollback_condition.threshold_metric?.events?.[0]?.name ? (
+                            rollback_condition.threshold_metric?.events?.[0]?.name ? (
                             <div className="mb-4 border rounded p-4 bg-surface-primary">
                                 <b>{`${capitalizeFirstLetter(rollback_condition.threshold_type)} based rollback`}</b>
                                 <LemonDivider className="my-3" />
@@ -205,10 +205,10 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                                                         {humanFriendlyNumber(
                                                             Math.round(
                                                                 sentryErrorCount *
-                                                                    (1 +
-                                                                        (featureFlag.rollback_conditions[index]
-                                                                            .threshold || 0) /
-                                                                            100)
+                                                                (1 +
+                                                                    (featureFlag.rollback_conditions[index]
+                                                                        .threshold || 0) /
+                                                                    100)
                                                             )
                                                         )}
                                                     </b>

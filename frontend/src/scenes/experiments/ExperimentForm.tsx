@@ -6,11 +6,11 @@ import { Form, Group } from 'kea-forms'
 import { ExperimentVariantNumber } from 'lib/components/SeriesGlyph'
 import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { IconOpenInNew } from '@posthog/lemon-ui/icons'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
+import { LemonRadio } from '@posthog/lemon-ui/LemonRadio'
+import { LemonSelect } from '@posthog/lemon-ui/LemonSelect'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useState } from 'react'
@@ -286,16 +286,16 @@ const ExperimentFormFields = (): JSX.Element => {
                                     </div>
                                     {(experiment.parameters.feature_flag_variants.length ?? 0) <
                                         MAX_EXPERIMENT_VARIANTS && (
-                                        <LemonButton
-                                            className="ml-9 mt-2"
-                                            type="secondary"
-                                            onClick={() => addVariant()}
-                                            icon={<IconPlusSmall />}
-                                            data-attr="add-test-variant"
-                                        >
-                                            Add test variant
-                                        </LemonButton>
-                                    )}
+                                            <LemonButton
+                                                className="ml-9 mt-2"
+                                                type="secondary"
+                                                onClick={() => addVariant()}
+                                                icon={<IconPlusSmall />}
+                                                data-attr="add-test-variant"
+                                            >
+                                                Add test variant
+                                            </LemonButton>
+                                        )}
                                 </div>
                             </div>
                         </div>

@@ -6,14 +6,14 @@ import { MemberSelect } from 'lib/components/MemberSelect'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { dayjs } from 'lib/dayjs'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { Link } from 'lib/lemon-ui/Link'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { More } from '@posthog/lemon-ui/LemonButton'
+import { LemonDivider } from '@posthog/lemon-ui/LemonDivider'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui/LemonTable'
+import { atColumn, createdAtColumn, createdByColumn } from '@posthog/lemon-ui/LemonTable'
+import { LemonTableLink } from '@posthog/lemon-ui/LemonTable'
+import { LemonTabs } from '@posthog/lemon-ui/LemonTabs'
+import { Link } from '@posthog/lemon-ui/Link'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -43,8 +43,8 @@ export function Experiments(): JSX.Element {
         return experiment.end_date
             ? dayjs(experiment.end_date).diff(dayjs(experiment.start_date), 'day')
             : experiment.start_date
-            ? dayjs().diff(dayjs(experiment.start_date), 'day')
-            : undefined
+                ? dayjs().diff(dayjs(experiment.start_date), 'day')
+                : undefined
     }
 
     const columns: LemonTableColumns<Experiment> = [

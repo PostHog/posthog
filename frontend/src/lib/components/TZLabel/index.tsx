@@ -5,7 +5,7 @@ import { LemonButton, LemonDivider, LemonDropdown, LemonDropdownProps } from '@p
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
-import { IconWeb } from 'lib/lemon-ui/icons'
+import { IconWeb } from '@posthog/lemon-ui/icons'
 import { humanFriendlyDetailedTime, shortTimeZone } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'

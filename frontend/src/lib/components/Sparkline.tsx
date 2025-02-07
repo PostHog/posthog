@@ -1,12 +1,12 @@
 import clsx from 'clsx'
 import { Chart, ChartItem } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { Popover } from '@posthog/lemon-ui/Popover'
 import { humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 
-import { LemonSkeleton } from '../lemon-ui/LemonSkeleton'
+import { LemonSkeleton } from '@posthog/lemon-ui/LemonSkeleton'
 
 export interface SparklineTimeSeries {
     name: string

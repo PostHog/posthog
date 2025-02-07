@@ -7,11 +7,11 @@ import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
 import { isEventFilter } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { Link } from 'lib/lemon-ui/Link'
-import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { LemonBanner } from '@posthog/lemon-ui/LemonBanner'
+import { LemonTabs } from '@posthog/lemon-ui/LemonTabs'
+import { lemonToast } from '@posthog/lemon-ui/LemonToast'
+import { Link } from '@posthog/lemon-ui/Link'
+import { Spinner, SpinnerOverlay } from '@posthog/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { GroupDashboard } from 'scenes/groups/GroupDashboard'
 import { groupLogic, GroupLogicProps } from 'scenes/groups/groupLogic'
@@ -237,10 +237,10 @@ export function Group(): JSX.Element {
                     },
                     showCustomerSuccessDashboards
                         ? {
-                              key: PersonsTabType.DASHBOARD,
-                              label: 'Dashboard',
-                              content: <GroupDashboard groupData={groupData} />,
-                          }
+                            key: PersonsTabType.DASHBOARD,
+                            label: 'Dashboard',
+                            content: <GroupDashboard groupData={groupData} />,
+                        }
                         : null,
                 ]}
             />

@@ -1,10 +1,10 @@
 import { IconBadge, IconBolt, IconCursor, IconEye, IconLeave, IconList, IconLogomark } from '@posthog/icons'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { IconSelectAll } from 'lib/lemon-ui/icons'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { LinkProps } from 'lib/lemon-ui/Link'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconSelectAll } from '@posthog/lemon-ui/icons'
+import { LemonTableLink } from '@posthog/lemon-ui/LemonTable'
+import { LinkProps } from '@posthog/lemon-ui/Link'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, getCoreFilterDefinition } from 'lib/taxonomy'
 
 import { EventDefinition, PropertyDefinition } from '~/types'
@@ -105,9 +105,8 @@ export function DefinitionHeader({
                     {definition.verified && (
                         <>
                             <Tooltip
-                                title={`${
-                                    CORE_FILTER_DEFINITIONS_BY_GROUP.events[definition.name] ? 'PostHog' : 'Verified'
-                                } event`}
+                                title={`${CORE_FILTER_DEFINITIONS_BY_GROUP.events[definition.name] ? 'PostHog' : 'Verified'
+                                    } event`}
                             >
                                 <IconBadge className=" text-success text-xl" />
                             </Tooltip>

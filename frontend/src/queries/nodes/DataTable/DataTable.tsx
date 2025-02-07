@@ -4,9 +4,9 @@ import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { LemonDivider } from '@posthog/lemon-ui/LemonDivider'
+import { LemonTable, LemonTableColumn } from '@posthog/lemon-ui/LemonTable'
 import { useCallback, useState } from 'react'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
@@ -370,21 +370,21 @@ export function DataTable({
         })),
         ...(eventActionsColumnShown
             ? [
-                  {
-                      dataIndex: '__more' as any,
-                      title: '',
-                      render: function RenderMore(_: any, { label, result }: DataTableRow) {
-                          if (label) {
-                              return { props: { colSpan: 0 } }
-                          }
-                          if (result && columnsInResponse?.includes('*')) {
-                              return <EventRowActions event={result[columnsInResponse.indexOf('*')]} />
-                          }
-                          return null
-                      },
-                      width: 0,
-                  },
-              ]
+                {
+                    dataIndex: '__more' as any,
+                    title: '',
+                    render: function RenderMore(_: any, { label, result }: DataTableRow) {
+                        if (label) {
+                            return { props: { colSpan: 0 } }
+                        }
+                        if (result && columnsInResponse?.includes('*')) {
+                            return <EventRowActions event={result[columnsInResponse.indexOf('*')]} />
+                        }
+                        return null
+                    },
+                    width: 0,
+                },
+            ]
             : []),
     ].filter((column) => !query.hiddenColumns?.includes(column.dataIndex) && column.dataIndex !== '*')
 
@@ -462,7 +462,7 @@ export function DataTable({
 
     const secondRowRight = [
         (showColumnConfigurator || showPersistentColumnConfigurator) &&
-        sourceFeatures.has(QueryFeature.columnConfigurator) ? (
+            sourceFeatures.has(QueryFeature.columnConfigurator) ? (
             <ColumnConfigurator key="column-configurator" query={query} setQuery={setQuery} />
         ) : null,
         showExport ? <DataTableExport key="data-table-export" query={query} setQuery={setQuery} /> : null,
@@ -542,8 +542,8 @@ export function DataTable({
                                                 queryCancelled
                                                     ? 'The query was cancelled'
                                                     : response && 'error' in response
-                                                    ? (response as any).error
-                                                    : responseError
+                                                        ? (response as any).error
+                                                        : responseError
                                             }
                                         />
                                     ) : (
@@ -559,21 +559,21 @@ export function DataTable({
                             expandable={
                                 expandable && columnsInResponse?.includes('*')
                                     ? {
-                                          expandedRowRender: function renderExpand({ result }) {
-                                              if (isEventsQuery(query.source) && Array.isArray(result)) {
-                                                  return (
-                                                      <EventDetails
-                                                          event={result[columnsInResponse.indexOf('*')] ?? {}}
-                                                      />
-                                                  )
-                                              }
-                                              if (result && !Array.isArray(result)) {
-                                                  return <EventDetails event={result as EventType} />
-                                              }
-                                          },
-                                          rowExpandable: ({ result }) => !!result,
-                                          noIndent: true,
-                                      }
+                                        expandedRowRender: function renderExpand({ result }) {
+                                            if (isEventsQuery(query.source) && Array.isArray(result)) {
+                                                return (
+                                                    <EventDetails
+                                                        event={result[columnsInResponse.indexOf('*')] ?? {}}
+                                                    />
+                                                )
+                                            }
+                                            if (result && !Array.isArray(result)) {
+                                                return <EventDetails event={result as EventType} />
+                                            }
+                                        },
+                                        rowExpandable: ({ result }) => !!result,
+                                        noIndent: true,
+                                    }
                                     : undefined
                             }
                             rowClassName={({ result, label }) =>
@@ -589,7 +589,7 @@ export function DataTable({
                             }
                             footer={
                                 (dataTableRows ?? []).length > 0 &&
-                                !sourceFeatures.has(QueryFeature.hideLoadNextButton) ? (
+                                    !sourceFeatures.has(QueryFeature.hideLoadNextButton) ? (
                                     <LoadNext query={query.source} />
                                 ) : null
                             }

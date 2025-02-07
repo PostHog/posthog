@@ -1,8 +1,8 @@
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { LemonDivider } from '@posthog/lemon-ui/LemonDivider'
+import { LemonTabs } from '@posthog/lemon-ui/LemonTabs'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 import type { IDisposable } from 'monaco-editor'
 import { useEffect, useRef, useState } from 'react'
@@ -164,8 +164,8 @@ export function HogDebug({ query, setQuery, queryKey, debug }: HogDebugProps): J
                                 value={
                                     response?.coloredBytecode && Array.isArray(response?.coloredBytecode)
                                         ? response?.coloredBytecode
-                                              .map((a) => (a.startsWith('op.') ? a : `    ${a}`))
-                                              .join('\n')
+                                            .map((a) => (a.startsWith('op.') ? a : `    ${a}`))
+                                            .join('\n')
                                         : 'No bytecode returned with response'
                                 }
                                 height={500}

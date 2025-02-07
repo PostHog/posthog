@@ -2,7 +2,7 @@ import { actions, kea, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { lemonToast } from '@posthog/lemon-ui/LemonToast'
 
 import type { confirmOrganizationLogicType } from './confirmOrganizationLogicType'
 

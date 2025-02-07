@@ -1,7 +1,7 @@
 import { actions, kea, key, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { lemonToast } from '@posthog/lemon-ui/LemonToast'
 
 import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
 import { QueryBasedInsightModel } from '~/types'

@@ -1,6 +1,6 @@
 import { LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import GenericNode from 'scenes/data-model/Node'
 import { NodeCanvas } from 'scenes/data-model/NodeCanvas'
@@ -36,7 +36,7 @@ export function LineageTab(): JSX.Element {
                             type={
                                 (dataWarehouseSavedQueryMapById[node.savedQueryId]?.status &&
                                     StatusTagSetting[
-                                        dataWarehouseSavedQueryMapById[node.savedQueryId].status as string
+                                    dataWarehouseSavedQueryMapById[node.savedQueryId].status as string
                                     ]) ||
                                 'default'
                             }

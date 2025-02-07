@@ -10,14 +10,14 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { More } from '@posthog/lemon-ui/LemonButton'
+import { LemonDivider } from '@posthog/lemon-ui/LemonDivider'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui/LemonTable'
+import { createdAtColumn, createdByColumn } from '@posthog/lemon-ui/LemonTable'
+import { LemonTableLink } from '@posthog/lemon-ui/LemonTable'
+import { LemonTabs } from '@posthog/lemon-ui/LemonTabs'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -123,14 +123,14 @@ export function OverViewTab({
         },
         ...(hasAvailableFeature(AvailableFeature.TAGGING)
             ? [
-                  {
-                      title: 'Tags',
-                      dataIndex: 'tags' as keyof FeatureFlagType,
-                      render: function Render(tags: FeatureFlagType['tags']) {
-                          return tags ? <ObjectTags tags={tags} staticOnly /> : null
-                      },
-                  } as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
-              ]
+                {
+                    title: 'Tags',
+                    dataIndex: 'tags' as keyof FeatureFlagType,
+                    render: function Render(tags: FeatureFlagType['tags']) {
+                        return tags ? <ObjectTags tags={tags} staticOnly /> : null
+                    },
+                } as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
+            ]
             : []),
         createdByColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
         createdAtColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
@@ -196,18 +196,17 @@ export function OverViewTab({
                                         const newValue = !featureFlag.active
                                         LemonDialog.open({
                                             title: `${newValue === true ? 'Enable' : 'Disable'} this flag?`,
-                                            description: `This flag will be immediately ${
-                                                newValue === true ? 'rolled out to' : 'rolled back from'
-                                            } the users matching the release conditions.`,
+                                            description: `This flag will be immediately ${newValue === true ? 'rolled out to' : 'rolled back from'
+                                                } the users matching the release conditions.`,
                                             primaryButton: {
                                                 children: 'Confirm',
                                                 type: 'primary',
                                                 onClick: () => {
                                                     featureFlag.id
                                                         ? updateFeatureFlag({
-                                                              id: featureFlag.id,
-                                                              payload: { active: newValue },
-                                                          })
+                                                            id: featureFlag.id,
+                                                            payload: { active: newValue },
+                                                        })
                                                         : null
                                                 },
                                                 size: 'small',
@@ -265,10 +264,10 @@ export function OverViewTab({
                                             !featureFlag.can_edit
                                                 ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
                                                 : (featureFlag.features?.length || 0) > 0
-                                                ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
-                                                : (featureFlag.experiment_set?.length || 0) > 0
-                                                ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
-                                                : null
+                                                    ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
+                                                    : (featureFlag.experiment_set?.length || 0) > 0
+                                                        ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
+                                                        : null
                                         }
                                         fullWidth
                                     >
@@ -392,9 +391,8 @@ export function OverViewTab({
             <div className="mb-4">
                 <span className="text-secondary ">
                     {count
-                        ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} flag${
-                              count === 1 ? '' : 's'
-                          }`
+                        ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} flag${count === 1 ? '' : 's'
+                        }`
                         : null}
                 </span>
             </div>

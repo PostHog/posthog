@@ -9,7 +9,7 @@ import {
     IconPHP,
     IconPython,
     IconRuby,
-} from 'lib/lemon-ui/icons'
+} from '@posthog/lemon-ui/icons'
 import { useState } from 'react'
 
 import { Experiment, MultivariateFlagVariant, SDKKey } from '~/types'

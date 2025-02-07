@@ -12,7 +12,7 @@ import {
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
-import { More } from 'lib/lemon-ui/LemonButton/More'
+import { More } from '@posthog/lemon-ui/LemonButton'
 import { useEffect } from 'react'
 import { defaultQuery } from 'scenes/data-warehouse/utils'
 import { urls } from 'scenes/urls'

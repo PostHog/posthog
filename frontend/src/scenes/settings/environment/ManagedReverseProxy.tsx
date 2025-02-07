@@ -18,8 +18,8 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
+import { LemonMarkdown } from '@posthog/lemon-ui/LemonMarkdown'
 
 import { AvailableFeature } from '~/types'
 
@@ -65,8 +65,8 @@ export function ManagedReverseProxy(): JSX.Element {
                             status === 'valid'
                                 ? 'text-success'
                                 : status == 'erroring'
-                                ? 'text-danger'
-                                : 'text-warning-dark'
+                                    ? 'text-danger'
+                                    : 'text-warning-dark'
                         )}
                     >
                         {status === 'issuing' && <Spinner />}

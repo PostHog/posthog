@@ -4,7 +4,7 @@ import { IconPlay } from '@posthog/icons'
 import clsx from 'clsx'
 import { BuiltLogic, useActions, useValues } from 'kea'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 import { useEffect, useRef, useState } from 'react'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'

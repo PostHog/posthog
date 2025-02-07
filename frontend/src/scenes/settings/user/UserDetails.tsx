@@ -1,9 +1,9 @@
 import { LemonTag } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
+import { LemonInput } from '@posthog/lemon-ui/LemonInput'
 import { userLogic } from 'scenes/userLogic'
 
 export function UserDetails(): JSX.Element {

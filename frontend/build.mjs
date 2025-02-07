@@ -10,7 +10,7 @@ import {
     gatherProductManifests,
     isDev,
     startDevServer,
-} from './utils.mjs'
+} from '@posthog/esbuilding'
 
 export const __dirname = path.dirname(fileURLToPath(import.meta.url))
 

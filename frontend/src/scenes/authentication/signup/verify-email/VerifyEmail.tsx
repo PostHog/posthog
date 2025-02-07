@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { HeartHog, MailHog, SurprisedHog } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { Spinner } from '@posthog/lemon-ui/Spinner'
 import { useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 

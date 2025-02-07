@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { SpinnerOverlay } from '@posthog/lemon-ui/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { unsubscribeLogic } from './unsubscribeLogic'

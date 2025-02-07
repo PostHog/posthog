@@ -2,10 +2,10 @@ import { IconFlag } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { LemonRow } from 'lib/lemon-ui/LemonRow'
-import { LemonTable, LemonTableColumn, LemonTableColumnGroup } from 'lib/lemon-ui/LemonTable'
-import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
+import { LemonCheckbox } from '@posthog/lemon-ui/LemonCheckbox'
+import { LemonRow } from '@posthog/lemon-ui/LemonRow'
+import { LemonTable, LemonTableColumn, LemonTableColumnGroup } from '@posthog/lemon-ui/LemonTable'
+import { Lettermark, LettermarkColor } from '@posthog/lemon-ui/Lettermark'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
@@ -170,35 +170,35 @@ export function FunnelStepsTable(): JSX.Element | null {
                 ...(stepIndex === 0
                     ? []
                     : [
-                          {
-                              title: 'Dropped off',
-                              render: function RenderDropped(
-                                  _: void,
-                                  breakdown: FlattenedFunnelStepByBreakdown
-                              ): JSX.Element | undefined {
-                                  const stepSeries = breakdown.steps?.[stepIndex]
-                                  return (
-                                      stepSeries &&
-                                      (canOpenPersonModal ? (
-                                          <ValueInspectorButton
-                                              onClick={() =>
-                                                  openPersonsModalForSeries({
-                                                      step,
-                                                      series: stepSeries,
-                                                      converted: false,
-                                                  })
-                                              }
-                                          >
-                                              {humanFriendlyNumber(stepSeries.droppedOffFromPrevious ?? 0)}
-                                          </ValueInspectorButton>
-                                      ) : (
-                                          <>{humanFriendlyNumber(stepSeries.droppedOffFromPrevious ?? 0)}</>
-                                      ))
-                                  )
-                              },
-                              align: 'right',
-                          },
-                      ]),
+                        {
+                            title: 'Dropped off',
+                            render: function RenderDropped(
+                                _: void,
+                                breakdown: FlattenedFunnelStepByBreakdown
+                            ): JSX.Element | undefined {
+                                const stepSeries = breakdown.steps?.[stepIndex]
+                                return (
+                                    stepSeries &&
+                                    (canOpenPersonModal ? (
+                                        <ValueInspectorButton
+                                            onClick={() =>
+                                                openPersonsModalForSeries({
+                                                    step,
+                                                    series: stepSeries,
+                                                    converted: false,
+                                                })
+                                            }
+                                        >
+                                            {humanFriendlyNumber(stepSeries.droppedOffFromPrevious ?? 0)}
+                                        </ValueInspectorButton>
+                                    ) : (
+                                        <>{humanFriendlyNumber(stepSeries.droppedOffFromPrevious ?? 0)}</>
+                                    ))
+                                )
+                            },
+                            align: 'right',
+                        },
+                    ]),
                 {
                     title: (
                         <>
@@ -230,80 +230,80 @@ export function FunnelStepsTable(): JSX.Element | null {
                 ...(stepIndex === 0
                     ? []
                     : [
-                          {
-                              title: (
-                                  <>
-                                      Conversion
-                                      <br />
-                                      from&nbsp;previous
-                                  </>
-                              ),
-                              render: function RenderConversionFromPrevious(
-                                  _: void,
-                                  breakdown: FlattenedFunnelStepByBreakdown
-                              ): JSX.Element | string {
-                                  const significance = getSignificanceFromBreakdownStep(breakdown, step.order)
-                                  // Only flag as significant here if not flagged already in "Conversion so far"
-                                  return !significance?.total && significance?.fromPrevious ? (
-                                      <LemonRow
-                                          className="funnel-significance-highlight"
-                                          tooltip="Significantly different from other breakdown values"
-                                          icon={<IconFlag />}
-                                          size="small"
-                                      >
-                                          {percentage(
-                                              breakdown.steps?.[step.order]?.conversionRates.fromPrevious ?? 0,
-                                              2,
-                                              true
-                                          )}
-                                      </LemonRow>
-                                  ) : (
-                                      percentage(
-                                          breakdown.steps?.[step.order]?.conversionRates.fromPrevious ?? 0,
-                                          2,
-                                          true
-                                      )
-                                  )
-                              },
-                              align: 'right',
-                          },
-                          {
-                              title: (
-                                  <>
-                                      Median
-                                      <br />
-                                      time
-                                  </>
-                              ),
-                              render: (_: void, breakdown: FlattenedFunnelStepByBreakdown) =>
-                                  breakdown.steps?.[step.order]?.median_conversion_time != undefined
-                                      ? humanFriendlyDuration(breakdown.steps[step.order].median_conversion_time, {
-                                            maxUnits: 3,
-                                        })
-                                      : '–',
-                              align: 'right',
-                              width: 0,
-                              className: 'whitespace-nowrap',
-                          },
-                          {
-                              title: (
-                                  <>
-                                      Average
-                                      <br />
-                                      time
-                                  </>
-                              ),
-                              render: (_: void, breakdown: FlattenedFunnelStepByBreakdown) =>
-                                  breakdown.steps?.[step.order]?.average_conversion_time != undefined
-                                      ? humanFriendlyDuration(breakdown.steps[step.order].average_conversion_time, {
-                                            maxUnits: 3,
-                                        })
-                                      : '–',
-                              align: 'right',
-                              width: 0,
-                              className: 'whitespace-nowrap',
-                          },
-                      ]),
+                        {
+                            title: (
+                                <>
+                                    Conversion
+                                    <br />
+                                    from&nbsp;previous
+                                </>
+                            ),
+                            render: function RenderConversionFromPrevious(
+                                _: void,
+                                breakdown: FlattenedFunnelStepByBreakdown
+                            ): JSX.Element | string {
+                                const significance = getSignificanceFromBreakdownStep(breakdown, step.order)
+                                // Only flag as significant here if not flagged already in "Conversion so far"
+                                return !significance?.total && significance?.fromPrevious ? (
+                                    <LemonRow
+                                        className="funnel-significance-highlight"
+                                        tooltip="Significantly different from other breakdown values"
+                                        icon={<IconFlag />}
+                                        size="small"
+                                    >
+                                        {percentage(
+                                            breakdown.steps?.[step.order]?.conversionRates.fromPrevious ?? 0,
+                                            2,
+                                            true
+                                        )}
+                                    </LemonRow>
+                                ) : (
+                                    percentage(
+                                        breakdown.steps?.[step.order]?.conversionRates.fromPrevious ?? 0,
+                                        2,
+                                        true
+                                    )
+                                )
+                            },
+                            align: 'right',
+                        },
+                        {
+                            title: (
+                                <>
+                                    Median
+                                    <br />
+                                    time
+                                </>
+                            ),
+                            render: (_: void, breakdown: FlattenedFunnelStepByBreakdown) =>
+                                breakdown.steps?.[step.order]?.median_conversion_time != undefined
+                                    ? humanFriendlyDuration(breakdown.steps[step.order].median_conversion_time, {
+                                        maxUnits: 3,
+                                    })
+                                    : '–',
+                            align: 'right',
+                            width: 0,
+                            className: 'whitespace-nowrap',
+                        },
+                        {
+                            title: (
+                                <>
+                                    Average
+                                    <br />
+                                    time
+                                </>
+                            ),
+                            render: (_: void, breakdown: FlattenedFunnelStepByBreakdown) =>
+                                breakdown.steps?.[step.order]?.average_conversion_time != undefined
+                                    ? humanFriendlyDuration(breakdown.steps[step.order].average_conversion_time, {
+                                        maxUnits: 3,
+                                    })
+                                    : '–',
+                            align: 'right',
+                            width: 0,
+                            className: 'whitespace-nowrap',
+                        },
+                    ]),
             ] as LemonTableColumn<FlattenedFunnelStepByBreakdown, keyof FlattenedFunnelStepByBreakdown>[],
         })),
     ] as LemonTableColumnGroup<FlattenedFunnelStepByBreakdown>[]

@@ -3,9 +3,9 @@ import {
     LemonButton,
     LemonButtonWithoutSideActionProps,
     LemonButtonWithSideActionProps,
-} from 'lib/lemon-ui/LemonButton'
-import { LemonMenu, LemonMenuItem, LemonMenuProps } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+} from '@posthog/lemon-ui/LemonButton'
+import { LemonMenu, LemonMenuItem, LemonMenuProps } from '@posthog/lemon-ui/LemonMenu'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 import { PropsWithChildren } from 'react'
 
 /**

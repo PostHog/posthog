@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonBanner } from '@posthog/lemon-ui/LemonBanner'
 import { urls } from 'scenes/urls'
 
 import { BillingProductV2Type, ProductKey } from '~/types'

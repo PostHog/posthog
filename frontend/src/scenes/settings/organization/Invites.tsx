@@ -5,11 +5,11 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { RestrictionScope } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { LemonDialog } from '@posthog/lemon-ui/LemonDialog'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui/LemonTable'
+import { createdAtColumn, createdByColumn } from '@posthog/lemon-ui/LemonTable'
+import { ProfilePicture } from '@posthog/lemon-ui/ProfilePicture'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { OrganizationInviteType } from '~/types'
@@ -42,17 +42,17 @@ function makeActionsComponent(
                     invite.is_expired
                         ? deleteInvite(invite)
                         : LemonDialog.open({
-                              title: 'Cancel invite',
-                              description: `Do you want to cancel the invite for ${invite.target_email}?`,
-                              primaryButton: {
-                                  children: 'Yes, cancel invite',
-                                  status: 'danger',
-                                  onClick: () => deleteInvite(invite),
-                              },
-                              secondaryButton: {
-                                  children: 'No, keep invite',
-                              },
-                          })
+                            title: 'Cancel invite',
+                            description: `Do you want to cancel the invite for ${invite.target_email}?`,
+                            primaryButton: {
+                                children: 'Yes, cancel invite',
+                                status: 'danger',
+                                onClick: () => deleteInvite(invite),
+                            },
+                            secondaryButton: {
+                                children: 'No, keep invite',
+                            },
+                        })
                 }}
             />
         )

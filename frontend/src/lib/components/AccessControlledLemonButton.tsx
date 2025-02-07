@@ -1,4 +1,4 @@
-import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui/LemonButton'
 
 import { AccessControlResourceType, WithAccessControl } from '../../types'
 import { AccessControlAction } from './AccessControlAction'

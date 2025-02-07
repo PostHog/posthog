@@ -1,7 +1,7 @@
 import { CoreFilterDefinition, PropertyFilterValue } from '~/types'
 
 import { TaxonomicFilterGroupType } from './components/TaxonomicFilter/types'
-import { Link } from './lemon-ui/Link'
+import { Link } from '@posthog/lemon-ui/Link'
 
 /** Same as https://github.com/PostHog/posthog-js/blob/master/src/utils/event-utils.ts */
 // Ideally this would be imported from posthog-js, we just need to start exporting the list there

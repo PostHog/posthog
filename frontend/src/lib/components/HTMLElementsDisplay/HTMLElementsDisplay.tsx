@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { htmlElementsDisplayLogic } from 'lib/components/HTMLElementsDisplay/htmlElementsDisplayLogic'
 import { ParsedCSSSelector } from 'lib/components/HTMLElementsDisplay/preselectWithCSS'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonBanner } from '@posthog/lemon-ui/LemonBanner'
 import { useState } from 'react'
 
 import { ElementType } from '~/types'
@@ -110,20 +110,20 @@ interface HTMLElementsDisplayPropsBase {
 
 type HTMLElementsDisplayProps =
     | (HTMLElementsDisplayPropsBase & {
-          editable: true
-          // if provided the matching elements will be highlighted as a starting state
-          startingSelector?: string
-          checkUniqueness?: boolean
-          onChange?: (selector: string, isUnique?: boolean) => void
-          selectedText?: never
-      })
+        editable: true
+        // if provided the matching elements will be highlighted as a starting state
+        startingSelector?: string
+        checkUniqueness?: boolean
+        onChange?: (selector: string, isUnique?: boolean) => void
+        selectedText?: never
+    })
     | (HTMLElementsDisplayPropsBase & {
-          editable?: false
-          startingSelector?: never
-          checkUniqueness?: never
-          onChange?: never
-          selectedText?: string
-      })
+        editable?: false
+        startingSelector?: never
+        checkUniqueness?: never
+        onChange?: never
+        selectedText?: string
+    })
 
 export function HTMLElementsDisplay({
     startingSelector,
@@ -183,9 +183,8 @@ export function HTMLElementsDisplay({
                                 data-attr="elements-display-show-more-of-chain"
                                 onClick={showAdditionalElements}
                             >
-                                {`Show ${Math.min(3, elementsToShowDepth)} more parent${
-                                    elementsToShowDepth > 1 ? 's' : ''
-                                } (${elementsToShowDepth} hidden)`}
+                                {`Show ${Math.min(3, elementsToShowDepth)} more parent${elementsToShowDepth > 1 ? 's' : ''
+                                    } (${elementsToShowDepth} hidden)`}
                             </pre>
                         ) : null}
                         <Tags

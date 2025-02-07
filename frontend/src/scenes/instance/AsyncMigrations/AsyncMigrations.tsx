@@ -1,16 +1,16 @@
 import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { IconPlayCircle, IconRefresh, IconReplay } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
-import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconPlayCircle, IconRefresh, IconReplay } from '@posthog/lemon-ui/icons'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { More } from '@posthog/lemon-ui/LemonButton'
+import { LemonProgress } from '@posthog/lemon-ui/LemonProgress'
+import { LemonTable, LemonTableColumn } from '@posthog/lemon-ui/LemonTable'
+import { LemonTableLink } from '@posthog/lemon-ui/LemonTable'
+import { LemonTabs } from '@posthog/lemon-ui/LemonTabs'
+import { LemonTag, LemonTagType } from '@posthog/lemon-ui/LemonTag'
+import { Spinner } from '@posthog/lemon-ui/Spinner'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { useEffect } from 'react'
 import { AsyncMigrationParametersModal } from 'scenes/instance/AsyncMigrations/AsyncMigrationParametersModal'
@@ -94,12 +94,12 @@ export function AsyncMigrations(): JSX.Element {
                 status === AsyncMigrationStatus.Running
                     ? 'success'
                     : status === AsyncMigrationStatus.Errored || status === AsyncMigrationStatus.FailedAtStartup
-                    ? 'danger'
-                    : status === AsyncMigrationStatus.Starting
-                    ? 'warning'
-                    : status === AsyncMigrationStatus.RolledBack
-                    ? 'warning'
-                    : 'default'
+                        ? 'danger'
+                        : status === AsyncMigrationStatus.Starting
+                            ? 'warning'
+                            : status === AsyncMigrationStatus.RolledBack
+                                ? 'warning'
+                                : 'default'
             return (
                 <LemonTag type={type} className="uppercase">
                     {migrationStatusNumberToMessage[status]}

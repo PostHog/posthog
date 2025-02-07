@@ -4,7 +4,7 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { LemonProgress } from '@posthog/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils'
 import posthog from 'posthog-js'
 import { urls } from 'scenes/urls'
@@ -163,9 +163,8 @@ export function SummaryTable({
                 const delta = ((variantMean - controlMean) / controlMean) * 100
 
                 return (
-                    <div className={`font-semibold ${delta > 0 ? 'text-success' : delta < 0 ? 'text-danger' : ''}`}>{`${
-                        delta > 0 ? '+' : ''
-                    }${delta.toFixed(2)}%`}</div>
+                    <div className={`font-semibold ${delta > 0 ? 'text-success' : delta < 0 ? 'text-danger' : ''}`}>{`${delta > 0 ? '+' : ''
+                        }${delta.toFixed(2)}%`}</div>
                 )
             },
         })
@@ -192,9 +191,8 @@ export function SummaryTable({
                 const [lowerBound, upperBound] = credibleInterval
 
                 return (
-                    <div className="font-semibold">{`[${lowerBound > 0 ? '+' : ''}${lowerBound.toFixed(2)}%, ${
-                        upperBound > 0 ? '+' : ''
-                    }${upperBound.toFixed(2)}%]`}</div>
+                    <div className="font-semibold">{`[${lowerBound > 0 ? '+' : ''}${lowerBound.toFixed(2)}%, ${upperBound > 0 ? '+' : ''
+                        }${upperBound.toFixed(2)}%]`}</div>
                 )
             },
         })
@@ -266,9 +264,8 @@ export function SummaryTable({
                     const [lowerBound, upperBound] = credibleInterval
 
                     return (
-                        <div className="font-semibold">{`[${lowerBound > 0 ? '+' : ''}${lowerBound.toFixed(2)}%, ${
-                            upperBound > 0 ? '+' : ''
-                        }${upperBound.toFixed(2)}%]`}</div>
+                        <div className="font-semibold">{`[${lowerBound > 0 ? '+' : ''}${lowerBound.toFixed(2)}%, ${upperBound > 0 ? '+' : ''
+                            }${upperBound.toFixed(2)}%]`}</div>
                     )
                 },
             })

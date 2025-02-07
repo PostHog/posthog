@@ -3,10 +3,10 @@ import './CardMeta.scss'
 import { IconPieChart } from '@posthog/icons'
 import clsx from 'clsx'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { IconRefresh, IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconRefresh, IconSubtitles, IconSubtitlesOff } from '@posthog/lemon-ui/icons'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { More } from '@posthog/lemon-ui/LemonButton/More'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 import React from 'react'
 import { Transition } from 'react-transition-group'
 
@@ -59,7 +59,7 @@ export function CardMeta({
             <div className="CardMeta__primary" ref={primaryRef}>
                 {ribbonColor &&
                     ribbonColor !==
-                        InsightColor.White /* White has historically meant no color synonymously to null */ && (
+                    InsightColor.White /* White has historically meant no color synonymously to null */ && (
                         <div className={clsx('CardMeta__ribbon', ribbonColor)} />
                     )}
                 <div className="CardMeta__main">

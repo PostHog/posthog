@@ -5,8 +5,8 @@ import {
     HumanizedChange,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
-import { Link } from 'lib/lemon-ui/Link'
+import { LemonDropdown } from '@posthog/lemon-ui/LemonDropdown'
+import { Link } from '@posthog/lemon-ui/Link'
 import { initHogLanguage } from 'lib/monaco/languages/hog'
 
 import { hogFunctionUrl } from './urls'
@@ -170,8 +170,8 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
                             {change.field === 'hog'
                                 ? 'source code'
                                 : change.field === 'inputs_schema'
-                                ? 'inputs schema'
-                                : change.field}
+                                    ? 'inputs schema'
+                                    : change.field}
                         </DiffLink>
                     )
                     changes.push({ inline: <>updated {code} for</>, inlist: <>updated {code}</> })

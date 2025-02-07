@@ -4,11 +4,11 @@ import { IconPencil, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { Chart } from 'chart.js'
 import { BindLogic, useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
-import { LemonBadge } from 'lib/lemon-ui/LemonBadge/LemonBadge'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { LemonBadge } from '@posthog/lemon-ui/LemonBadge'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { LemonModal } from '@posthog/lemon-ui/LemonModal'
+import { Popover } from '@posthog/lemon-ui/Popover'
+import { ProfilePicture } from '@posthog/lemon-ui/ProfilePicture'
 import { humanFriendlyDetailedTime, pluralize, shortTimeZone } from 'lib/utils'
 import React, { useRef, useState } from 'react'
 import { AnnotationModal } from 'scenes/annotations/AnnotationModal'
@@ -156,8 +156,8 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({ index, date }
                 !isDateLocked
                     ? lockDate
                     : active
-                    ? unlockDate
-                    : () => activateDate(date, buttonRef.current as HTMLButtonElement)
+                        ? unlockDate
+                        : () => activateDate(date, buttonRef.current as HTMLButtonElement)
             }
         >
             {annotations.length ? (

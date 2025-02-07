@@ -1,6 +1,6 @@
 import { IconInfo } from '@posthog/icons'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { LemonInput } from '@posthog/lemon-ui/LemonInput'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 
 import { useDebouncedQuery } from '~/queries/hooks/useDebouncedQuery'
 import { ActorsQuery, PersonsNode } from '~/queries/schema'

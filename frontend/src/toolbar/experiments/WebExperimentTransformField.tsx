@@ -1,9 +1,9 @@
 import { IconCode, IconMessage, IconPencil } from '@posthog/icons'
 import { LemonDivider, LemonInput, LemonLabel } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
-import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { LemonSegmentedButton } from '@posthog/lemon-ui/LemonSegmentedButton'
+import { LemonTextArea } from '@posthog/lemon-ui/LemonTextArea'
 import { useState } from 'react'
 
 import {
@@ -48,8 +48,8 @@ export function WebExperimentTransformField({
                                                 fullWidth
                                                 type={
                                                     inspectingElement === transformIndex &&
-                                                    selectedVariant === variant &&
-                                                    selectedElementType === key
+                                                        selectedVariant === variant &&
+                                                        selectedElementType === key
                                                         ? 'primary'
                                                         : 'tertiary'
                                                 }

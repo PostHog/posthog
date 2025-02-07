@@ -7,9 +7,9 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySensor'
-import { IconSelectProperties, IconTrendingDown } from 'lib/lemon-ui/icons'
-import { Link } from 'lib/lemon-ui/Link'
-import { Popover } from 'lib/lemon-ui/Popover'
+import { IconSelectProperties, IconTrendingDown } from '@posthog/lemon-ui/icons'
+import { Link } from '@posthog/lemon-ui/Link'
+import { Popover } from '@posthog/lemon-ui/Popover'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useEffect } from 'react'
 import { useState } from 'react'
@@ -223,9 +223,8 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                         },
                         {
                             title: 'Completed',
-                            tooltip: `${capitalizeFirstLetter(aggregationTargetLabel.plural)} ${
-                                querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'
-                            } have this property and completed the entire funnel.`,
+                            tooltip: `${capitalizeFirstLetter(aggregationTargetLabel.plural)} ${querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'
+                                } have this property and completed the entire funnel.`,
                             key: 'success_count',
                             render: (_, record) => renderSuccessCount(record),
                             width: 90,
@@ -233,9 +232,8 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                         },
                         {
                             title: 'Dropped off',
-                            tooltip: `${capitalizeFirstLetter(aggregationTargetLabel.plural)} ${
-                                querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'
-                            } have this property and did not complete the entire funnel.`,
+                            tooltip: `${capitalizeFirstLetter(aggregationTargetLabel.plural)} ${querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'
+                                } have this property and did not complete the entire funnel.`,
                             key: 'failure_count',
                             render: (_, record) => renderFailureCount(record),
                             width: 120,

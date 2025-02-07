@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { WithinPageHeaderContext } from 'lib/lemon-ui/LemonButton/LemonButton'
+import { WithinPageHeaderContext } from '@posthog/lemon-ui/LemonButton'
 import { createPortal } from 'react-dom'
 import { DraggableToNotebookProps } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 

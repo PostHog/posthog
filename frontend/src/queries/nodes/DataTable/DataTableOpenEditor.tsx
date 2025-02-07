@@ -1,7 +1,7 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { IconTableChart } from 'lib/lemon-ui/icons'
-import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { IconTableChart } from '@posthog/lemon-ui/icons'
+import { LemonMenuOverlay } from '@posthog/lemon-ui/LemonMenu'
 import { urls } from 'scenes/urls'
 
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
@@ -18,10 +18,10 @@ export function DataTableOpenEditor({ query }: DataTableOpenEditorProps): JSX.El
 
     const tableInsightQuery: DataTableNode | null = response?.hogql
         ? {
-              kind: NodeKind.DataTableNode,
-              full: true,
-              source: { kind: NodeKind.HogQLQuery, query: response.hogql },
-          }
+            kind: NodeKind.DataTableNode,
+            full: true,
+            source: { kind: NodeKind.HogQLQuery, query: response.hogql },
+        }
         : null
 
     return (
@@ -32,20 +32,20 @@ export function DataTableOpenEditor({ query }: DataTableOpenEditorProps): JSX.El
             sideAction={
                 response?.hogql
                     ? {
-                          dropdown: {
-                              overlay: (
-                                  <LemonMenuOverlay
-                                      items={[
-                                          {
-                                              label: 'Open as direct SQL insight',
-                                              to: urls.insightNew(undefined, undefined, tableInsightQuery!),
-                                              'data-attr': 'open-sql-editor-button',
-                                          },
-                                      ]}
-                                  />
-                              ),
-                          },
-                      }
+                        dropdown: {
+                            overlay: (
+                                <LemonMenuOverlay
+                                    items={[
+                                        {
+                                            label: 'Open as direct SQL insight',
+                                            to: urls.insightNew(undefined, undefined, tableInsightQuery!),
+                                            'data-attr': 'open-sql-editor-button',
+                                        },
+                                    ]}
+                                />
+                            ),
+                        },
+                    }
                     : undefined
             }
             data-attr="open-json-editor-button"

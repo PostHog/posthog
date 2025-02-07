@@ -4,14 +4,14 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { More } from '@posthog/lemon-ui/LemonButton'
+import { LemonDialog } from '@posthog/lemon-ui/LemonDialog'
+import { LemonDivider } from '@posthog/lemon-ui/LemonDivider'
+import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui/LemonTable'
+import { LemonTag } from '@posthog/lemon-ui/LemonTag'
+import { ProfilePicture } from '@posthog/lemon-ui/ProfilePicture'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, fullName } from 'lib/utils'
 import {
     getReasonForAccessLevelChangeProhibition,
@@ -110,11 +110,10 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
                                         throw Error
                                     }
                                     LemonDialog.open({
-                                        title: `${
-                                            member.user.uuid == user.uuid
-                                                ? 'Leave'
-                                                : `Remove ${fullName(member.user)} from`
-                                        } organization ${user.organization?.name}?`,
+                                        title: `${member.user.uuid == user.uuid
+                                            ? 'Leave'
+                                            : `Remove ${fullName(member.user)} from`
+                                            } organization ${user.organization?.name}?`,
                                         primaryButton: {
                                             children: member.user.uuid == user.uuid ? 'Leave' : 'Remove',
                                             status: 'danger',

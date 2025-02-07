@@ -1,5 +1,5 @@
 import { Meta, StoryFn } from '@storybook/react'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonDivider } from '@posthog/lemon-ui/LemonDivider'
 import { CapturedNetworkRequest } from 'posthog-js'
 import { mapRRWebNetworkRequest } from 'scenes/session-recordings/apm/performance-event-utils'
 import {

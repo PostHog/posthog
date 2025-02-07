@@ -10,7 +10,7 @@ import {
     IconPython,
     IconReact,
     IconRuby,
-} from 'lib/lemon-ui/icons'
+} from '@posthog/lemon-ui/icons'
 
 import { SDKKey } from '~/types'
 

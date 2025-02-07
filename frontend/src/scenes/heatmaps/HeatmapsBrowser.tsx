@@ -9,7 +9,7 @@ import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
 import { DetectiveHog } from 'lib/components/hedgehogs'
 import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { IconChevronRight, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconChevronRight, IconOpenInNew } from '@posthog/lemon-ui/icons'
 import React, { useEffect, useRef } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -50,8 +50,8 @@ function UrlSearchHeader(): JSX.Element {
                 to={
                     browserUrl
                         ? appEditorUrl(browserUrl, {
-                              userIntent: 'heatmaps',
-                          })
+                            userIntent: 'heatmaps',
+                        })
                         : undefined
                 }
                 targetBlank

@@ -1,6 +1,6 @@
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { SimpleOption, TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { Popover } from '@posthog/lemon-ui/Popover'
 import { useState } from 'react'
 
 interface PathItemSelectorProps {
@@ -39,7 +39,7 @@ export function PathItemSelector({
                 />
             }
         >
-            <div onClick={disabled ? () => {} : () => setVisible(!visible)}>{children}</div>
+            <div onClick={disabled ? () => { } : () => setVisible(!visible)}>{children}</div>
         </Popover>
     )
 }

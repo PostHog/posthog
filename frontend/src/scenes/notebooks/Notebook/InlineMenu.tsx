@@ -4,7 +4,7 @@ import { Editor, isTextSelection } from '@tiptap/core'
 import { BubbleMenu } from '@tiptap/react'
 import { useActions } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconBold, IconComment, IconItalic, IconLink, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconBold, IconComment, IconItalic, IconLink, IconOpenInNew } from '@posthog/lemon-ui/icons'
 import { isURL, uuid } from 'lib/utils'
 import { useRef } from 'react'
 

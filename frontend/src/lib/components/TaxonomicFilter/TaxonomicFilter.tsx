@@ -8,8 +8,8 @@ import {
     TaxonomicFilterLogicProps,
     TaxonomicFilterProps,
 } from 'lib/components/TaxonomicFilter/types'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { LemonInput } from '@posthog/lemon-ui/LemonInput'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 import { useEffect, useMemo, useRef } from 'react'
 
 import { InfiniteSelectResults } from './InfiniteSelectResults'

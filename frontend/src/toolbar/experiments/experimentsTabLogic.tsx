@@ -3,7 +3,7 @@ import { forms } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
 import { EXPERIMENT_TARGET_SELECTOR } from 'lib/actionUtils'
 import api, { ApiError } from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { lemonToast } from '@posthog/lemon-ui/LemonToast'
 import { urls } from 'scenes/urls'
 
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
@@ -325,9 +325,9 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                             transforms: currentVariant.transforms.map((t, i) =>
                                 i === index
                                     ? {
-                                          selector,
-                                          text: element.textContent || t.text,
-                                      }
+                                        selector,
+                                        text: element.textContent || t.text,
+                                    }
                                     : t
                             ),
                         },

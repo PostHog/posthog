@@ -2,11 +2,11 @@ import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from '~/types'
 import { BindLogic, useActions, useValues } from 'kea'
 import { featureFlagLogic, FeatureFlagLogicProps } from 'scenes/feature-flags/featureFlagLogic'
-import { IconRecording, IconSurveys } from 'lib/lemon-ui/icons'
+import { IconRecording, IconSurveys } from '@posthog/lemon-ui/icons'
 import clsx from 'clsx'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { LemonSkeleton } from '@posthog/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { JSONContent, NotebookNodeProps } from '../Notebook/utils'
 import { buildPlaylistContent } from './NotebookNodePlaylist'
@@ -78,21 +78,21 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagAttributes>
             },
             canCreateEarlyAccessFeature
                 ? {
-                      text: `${hasEarlyAccessFeatures ? 'View' : 'Create'} early access feature`,
-                      icon: <IconRocket />,
-                      onClick: () => {
-                          if (!hasEarlyAccessFeatures) {
-                              createEarlyAccessFeature()
-                          } else {
-                              if ((featureFlag?.features?.length || 0) <= 0) {
-                                  return
-                              }
-                              if (!shouldDisableInsertEarlyAccessFeature(nextNode) && featureFlag.features) {
-                                  insertAfter(buildEarlyAccessFeatureContent(featureFlag.features[0].id))
-                              }
-                          }
-                      },
-                  }
+                    text: `${hasEarlyAccessFeatures ? 'View' : 'Create'} early access feature`,
+                    icon: <IconRocket />,
+                    onClick: () => {
+                        if (!hasEarlyAccessFeatures) {
+                            createEarlyAccessFeature()
+                        } else {
+                            if ((featureFlag?.features?.length || 0) <= 0) {
+                                return
+                            }
+                            if (!shouldDisableInsertEarlyAccessFeature(nextNode) && featureFlag.features) {
+                                insertAfter(buildEarlyAccessFeatureContent(featureFlag.features[0].id))
+                            }
+                        }
+                    },
+                }
                 : undefined,
         ])
     }, [featureFlag])

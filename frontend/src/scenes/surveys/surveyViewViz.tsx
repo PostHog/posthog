@@ -13,9 +13,9 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { LemonDivider } from '@posthog/lemon-ui/LemonDivider'
+import { LemonMarkdown } from '@posthog/lemon-ui/LemonMarkdown'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 import { humanFriendlyNumber } from 'lib/utils'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
@@ -218,15 +218,14 @@ export function RatingQuestionBarChart({
                 <></>
             ) : (
                 <div className="mb-8">
-                    <div className="font-semibold text-secondary">{`${
-                        question.scale === 10
+                    <div className="font-semibold text-secondary">{`${question.scale === 10
                             ? '0 - 10'
                             : question.scale === 7
-                            ? '1 - 7'
-                            : question.scale === 5
-                            ? '1 - 5'
-                            : '1 - 3'
-                    } rating`}</div>
+                                ? '1 - 7'
+                                : question.scale === 5
+                                    ? '1 - 5'
+                                    : '1 - 3'
+                        } rating`}</div>
                     <div className="text-xl font-bold mb-2">{question.question}</div>
                     <div className=" h-50 border rounded pt-8">
                         <div className="relative h-full w-full">
@@ -260,10 +259,10 @@ export function RatingQuestionBarChart({
                                         question.scale === 10
                                             ? ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10']
                                             : question.scale === 7
-                                            ? ['1', '2', '3', '4', '5', '6', '7']
-                                            : question.scale === 5
-                                            ? ['1', '2', '3', '4', '5']
-                                            : ['1', '2', '3']
+                                                ? ['1', '2', '3', '4', '5', '6', '7']
+                                                : question.scale === 5
+                                                    ? ['1', '2', '3', '4', '5']
+                                                    : ['1', '2', '3']
                                     }
                                 />
                             </BindLogic>
@@ -313,9 +312,8 @@ export function NPSSurveyResultsBarChart({
                 <></>
             ) : (
                 <div className="mb-8">
-                    <div className="font-semibold text-secondary">{`${
-                        question.scale === 10 ? '0 - 10' : '1 - 5'
-                    } rating`}</div>
+                    <div className="font-semibold text-secondary">{`${question.scale === 10 ? '0 - 10' : '1 - 5'
+                        } rating`}</div>
                     <div className="text-xl font-bold mb-2">NPS Scores over time for "{question.question}"</div>
                     <div className=" h-50 border rounded pt-8">
                         <div className="relative h-full w-full">
@@ -660,10 +658,10 @@ function ResponseSummariesButton({ questionIndex }: { questionIndex: number | un
                 surveyDataProcessingRefused
                     ? 'OpenAI processing refused'
                     : responseSummaryLoading
-                    ? 'Let me think...'
-                    : responseSummary
-                    ? 'Already summarized'
-                    : undefined
+                        ? 'Let me think...'
+                        : responseSummary
+                            ? 'Already summarized'
+                            : undefined
             }
             icon={<IconSparkles />}
         >

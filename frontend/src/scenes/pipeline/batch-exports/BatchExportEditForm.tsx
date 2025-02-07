@@ -8,7 +8,7 @@ import {
     LemonTextArea,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
 
 import { BatchExportConfigurationForm } from './types'
 

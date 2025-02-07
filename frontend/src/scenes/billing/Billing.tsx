@@ -10,9 +10,9 @@ import { supportLogic } from 'lib/components/Support/supportLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { LemonBanner } from '@posthog/lemon-ui/LemonBanner'
+import { LemonLabel } from '@posthog/lemon-ui/LemonLabel'
+import { SpinnerOverlay } from '@posthog/lemon-ui/Spinner'
 import { humanFriendlyCurrency, toSentenceCase } from 'lib/utils'
 import { useEffect } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -178,24 +178,23 @@ export function Billing(): JSX.Element {
                                                     <div className="font-bold text-6xl">
                                                         {billing.discount_percent
                                                             ? // if they have a discount percent, we want to show the amount they are due - so the total after discount
-                                                              humanFriendlyCurrency(
-                                                                  billing.current_total_amount_usd_after_discount
-                                                              )
+                                                            humanFriendlyCurrency(
+                                                                billing.current_total_amount_usd_after_discount
+                                                            )
                                                             : // but if they have credits, we want to show the amount they are due before credits,
-                                                              // so they know what their total deduction will be
-                                                              // We don't let people have credits and discounts at the same time
-                                                              humanFriendlyCurrency(billing.current_total_amount_usd)}
+                                                            // so they know what their total deduction will be
+                                                            // We don't let people have credits and discounts at the same time
+                                                            humanFriendlyCurrency(billing.current_total_amount_usd)}
                                                     </div>
                                                 </div>
                                                 {billing?.discount_amount_usd && (
                                                     <div>
                                                         <LemonLabel
-                                                            info={`The total credits remaining in your account. ${
-                                                                billing?.amount_off_expires_at
-                                                                    ? 'Your credits expire on ' +
-                                                                      billing?.amount_off_expires_at?.format('LL')
-                                                                    : null
-                                                            }`}
+                                                            info={`The total credits remaining in your account. ${billing?.amount_off_expires_at
+                                                                ? 'Your credits expire on ' +
+                                                                billing?.amount_off_expires_at?.format('LL')
+                                                                : null
+                                                                }`}
                                                             className="text-secondary"
                                                         >
                                                             Available credits

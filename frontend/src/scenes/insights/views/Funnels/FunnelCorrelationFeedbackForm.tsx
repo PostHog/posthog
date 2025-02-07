@@ -1,7 +1,7 @@
 import { IconX } from '@posthog/icons'
 import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconComment } from 'lib/lemon-ui/icons'
+import { IconComment } from '@posthog/lemon-ui/icons'
 import { useRef } from 'react'
 import { funnelCorrelationFeedbackLogic } from 'scenes/funnels/funnelCorrelationFeedbackLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'

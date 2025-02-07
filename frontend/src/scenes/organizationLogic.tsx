@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api, { ApiConfig } from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { lemonToast } from '@posthog/lemon-ui/LemonToast'
 import { isUserLoggedIn } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 
@@ -94,7 +94,7 @@ export const organizationLogic = kea<organizationLogicType>([
             (s) => [s.currentOrganization],
             (currentOrganization): string | null =>
                 !currentOrganization?.membership_level ||
-                currentOrganization.membership_level < OrganizationMembershipLevel.Admin
+                    currentOrganization.membership_level < OrganizationMembershipLevel.Admin
                     ? 'You need to be an organization admin or above to create new projects.'
                     : null,
         ],

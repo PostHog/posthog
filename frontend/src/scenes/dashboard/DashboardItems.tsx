@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { useRef, useState } from 'react'
 import { Responsive as ReactGridLayout } from 'react-grid-layout'
@@ -155,7 +155,7 @@ export function DashboardItems(): JSX.Element {
                                     loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
                                     variablesOverride={temporaryVariables}
                                     {...commonTileProps}
-                                    // NOTE: ReactGridLayout additionally injects its resize handles as `children`!
+                                // NOTE: ReactGridLayout additionally injects its resize handles as `children`!
                                 />
                             )
                         }

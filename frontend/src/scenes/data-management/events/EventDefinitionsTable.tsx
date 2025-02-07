@@ -4,10 +4,10 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { EVENT_DEFINITIONS_PER_PAGE } from 'lib/constants'
-import { IconPlayCircle } from 'lib/lemon-ui/icons'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { IconPlayCircle } from '@posthog/lemon-ui/icons'
+import { LemonBanner } from '@posthog/lemon-ui/LemonBanner'
+import { More } from '@posthog/lemon-ui/LemonButton'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui/LemonTable'
 import { DefinitionHeader, getEventDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
@@ -68,14 +68,14 @@ export function EventDefinitionsTable(): JSX.Element {
         },
         ...(hasTagging
             ? [
-                  {
-                      title: 'Tags',
-                      key: 'tags',
-                      render: function Render(_, definition: EventDefinition) {
-                          return <ObjectTags tags={definition.tags ?? []} staticOnly />
-                      },
-                  } as LemonTableColumn<EventDefinition, keyof EventDefinition | undefined>,
-              ]
+                {
+                    title: 'Tags',
+                    key: 'tags',
+                    render: function Render(_, definition: EventDefinition) {
+                        return <ObjectTags tags={definition.tags ?? []} staticOnly />
+                    },
+                } as LemonTableColumn<EventDefinition, keyof EventDefinition | undefined>,
+            ]
             : []),
         {
             key: 'actions',
@@ -126,21 +126,21 @@ export function EventDefinitionsTable(): JSX.Element {
                 {filters.event_type === 'event_custom'
                     ? 'custom '
                     : filters.event_type === 'event_posthog'
-                    ? 'PostHog '
-                    : ''}
+                        ? 'PostHog '
+                        : ''}
                 event usage statistics?{' '}
                 <Link
                     to={urls.insightNewHogQL(
                         'SELECT event, count()\n' +
-                            'FROM events\n' +
-                            'WHERE {filters}\n' +
-                            (filters.event_type === 'event_custom'
-                                ? "AND event NOT LIKE '$%'\n"
-                                : filters.event_type === 'event_posthog'
+                        'FROM events\n' +
+                        'WHERE {filters}\n' +
+                        (filters.event_type === 'event_custom'
+                            ? "AND event NOT LIKE '$%'\n"
+                            : filters.event_type === 'event_posthog'
                                 ? "AND event LIKE '$%'\n"
                                 : '') +
-                            'GROUP BY event\n' +
-                            'ORDER BY count() DESC',
+                        'GROUP BY event\n' +
+                        'ORDER BY count() DESC',
                         { dateRange: { date_from: '-24h' } }
                     )}
                 >
@@ -181,13 +181,13 @@ export function EventDefinitionsTable(): JSX.Element {
                     pageSize: EVENT_DEFINITIONS_PER_PAGE,
                     onForward: eventDefinitions.next
                         ? () => {
-                              loadEventDefinitions(eventDefinitions.next)
-                          }
+                            loadEventDefinitions(eventDefinitions.next)
+                        }
                         : undefined,
                     onBackward: eventDefinitions.previous
                         ? () => {
-                              loadEventDefinitions(eventDefinitions.previous)
-                          }
+                            loadEventDefinitions(eventDefinitions.previous)
+                        }
                         : undefined,
                 }}
                 onSort={(newSorting) =>

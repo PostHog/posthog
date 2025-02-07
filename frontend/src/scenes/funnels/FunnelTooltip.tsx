@@ -1,9 +1,9 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonRow } from 'lib/lemon-ui/LemonRow'
-import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
+import { LemonDivider } from '@posthog/lemon-ui/LemonDivider'
+import { LemonRow } from '@posthog/lemon-ui/LemonRow'
+import { Lettermark, LettermarkColor } from '@posthog/lemon-ui/Lettermark'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
 import { useEffect, useRef } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -138,7 +138,7 @@ export function useFunnelTooltip(showPersonsModal: boolean): React.RefObject<HTM
                 svgRect &&
                 tooltipRect &&
                 tooltipOrigin[0] + tooltipOrigin[2] + tooltipRect.width + FUNNEL_TOOLTIP_OFFSET_PX >
-                    svgRect.x + svgRect.width
+                svgRect.x + svgRect.width
             ) {
                 xOffset = -tooltipRect.width - FUNNEL_TOOLTIP_OFFSET_PX
             } else {

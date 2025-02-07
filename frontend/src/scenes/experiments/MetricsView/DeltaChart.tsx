@@ -12,7 +12,7 @@ import { LemonBanner, LemonButton, LemonModal, LemonTag, LemonTagType, Tooltip }
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { LemonProgress } from '@posthog/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 
@@ -480,9 +480,8 @@ export function DeltaChart({
                                                 <>
                                                     <defs>
                                                         <linearGradient
-                                                            id={`gradient-${metricIndex}-${variant.key}-${
-                                                                isSecondary ? 'secondary' : 'primary'
-                                                            }`}
+                                                            id={`gradient-${metricIndex}-${variant.key}-${isSecondary ? 'secondary' : 'primary'
+                                                                }`}
                                                             x1="0"
                                                             x2="1"
                                                             y1="0"
@@ -518,9 +517,8 @@ export function DeltaChart({
                                                     </defs>
                                                     <path
                                                         d={generateViolinPath(x1, x2, y, BAR_HEIGHT)}
-                                                        fill={`url(#gradient-${metricIndex}-${variant.key}-${
-                                                            isSecondary ? 'secondary' : 'primary'
-                                                        })`}
+                                                        fill={`url(#gradient-${metricIndex}-${variant.key}-${isSecondary ? 'secondary' : 'primary'
+                                                            })`}
                                                     />
                                                 </>
                                             )}
@@ -681,7 +679,7 @@ export function DeltaChart({
                                     <div className="flex justify-between items-center">
                                         <span className="text-secondary font-semibold">
                                             {metricType === InsightType.TRENDS &&
-                                            result.exposure_query?.series?.[0]?.math
+                                                result.exposure_query?.series?.[0]?.math
                                                 ? 'Total'
                                                 : 'Count'}
                                             :
@@ -793,9 +791,8 @@ export function DeltaChart({
                                         const [lower, upper] = interval
                                             ? [interval[0] / 100, interval[1] / 100]
                                             : [0, 0]
-                                        return `[${lower > 0 ? '+' : ''}${(lower * 100).toFixed(2)}%, ${
-                                            upper > 0 ? '+' : ''
-                                        }${(upper * 100).toFixed(2)}%]`
+                                        return `[${lower > 0 ? '+' : ''}${(lower * 100).toFixed(2)}%, ${upper > 0 ? '+' : ''
+                                            }${(upper * 100).toFixed(2)}%]`
                                     })()}
                                 </span>
                             </div>

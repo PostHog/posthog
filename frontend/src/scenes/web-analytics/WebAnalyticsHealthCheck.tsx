@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { Link } from 'lib/lemon-ui/Link'
+import { LemonBanner } from '@posthog/lemon-ui/LemonBanner'
+import { Link } from '@posthog/lemon-ui/Link'
 import { ConversionGoalWarning, ProductTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 export const WebAnalyticsHealthCheck = (): JSX.Element | null => {

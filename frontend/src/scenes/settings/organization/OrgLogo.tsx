@@ -4,8 +4,8 @@ import { useActions, useValues } from 'kea'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
-import { IconUploadFile } from 'lib/lemon-ui/icons'
-import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
+import { IconUploadFile } from '@posthog/lemon-ui/icons'
+import { UploadedLogo } from '@posthog/lemon-ui/UploadedLogo'
 import { useState } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
 
@@ -80,10 +80,10 @@ export function OrganizationLogo(): JSX.Element {
                     restrictionReason
                         ? restrictionReason
                         : !currentOrganization
-                        ? 'Organization not loaded'
-                        : logoMediaId === currentOrganization.logo_media_id
-                        ? 'Logo unchanged'
-                        : undefined
+                            ? 'Organization not loaded'
+                            : logoMediaId === currentOrganization.logo_media_id
+                                ? 'Logo unchanged'
+                                : undefined
                 }
                 loading={currentOrganizationLoading || uploading}
             >

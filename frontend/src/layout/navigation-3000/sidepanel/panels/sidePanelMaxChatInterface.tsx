@@ -2,14 +2,14 @@ import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LemonMarkdown } from '@posthog/lemon-ui/LemonMarkdown'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { LemonCollapse } from '@posthog/lemon-ui/LemonCollapse'
+import { LemonDivider } from '@posthog/lemon-ui/LemonDivider'
+import { LemonTextArea } from '@posthog/lemon-ui/LemonTextArea'
+import { Spinner } from '@posthog/lemon-ui/Spinner'
 import { memo, useEffect, useRef, useState } from 'react'
 
-import { LemonButton } from '~/lib/lemon-ui/LemonButton'
-import { LemonCollapse } from '~/lib/lemon-ui/LemonCollapse'
-import { LemonDivider } from '~/lib/lemon-ui/LemonDivider'
-import { LemonTextArea } from '~/lib/lemon-ui/LemonTextArea'
-import { Spinner } from '~/lib/lemon-ui/Spinner'
 
 import { sidePanelMaxAILogic } from './sidePanelMaxAILogic'
 import { ChatMessage } from './sidePanelMaxAILogic'
@@ -164,9 +164,8 @@ function MaxChatInterfaceContent(): JSX.Element {
                             (message: ChatMessage, idx: number): JSX.Element => (
                                 <div
                                     key={`${message.timestamp}-${idx}`}
-                                    className={`flex w-full ${
-                                        message.role === 'user' ? 'justify-end' : 'justify-start'
-                                    }`}
+                                    className={`flex w-full ${message.role === 'user' ? 'justify-end' : 'justify-start'
+                                        }`}
                                 >
                                     {message.role === 'user' && (
                                         <div className="text-sm text-secondary mr-2 mt-2">You</div>
@@ -179,100 +178,99 @@ function MaxChatInterfaceContent(): JSX.Element {
                                             <div className="text-sm text-secondary mb-1">Max</div>
                                         )}
                                         <div
-                                            className={`p-2 rounded-lg min-w-[90%] whitespace-pre-wrap ${
-                                                message.role === 'assistant'
-                                                    ? 'bg-surface-primary dark:bg-depth text-default'
-                                                    : 'bg-surface-primary dark:bg-side text-default'
-                                            }`}
+                                            className={`p-2 rounded-lg min-w-[90%] whitespace-pre-wrap ${message.role === 'assistant'
+                                                ? 'bg-surface-primary dark:bg-depth text-default'
+                                                : 'bg-surface-primary dark:bg-side text-default'
+                                                }`}
                                         >
                                             {message.role === 'assistant'
                                                 ? typeof message.content === 'string' &&
-                                                  (message.content.includes('<search_state>started</search_state>') ? (
-                                                      <div className="flex items-center gap-2">
-                                                          <span>Max is searching...</span>
-                                                          <Spinner className="text-lg" />
-                                                      </div>
-                                                  ) : message.content.includes(
-                                                        '<search_state>completed</search_state>'
-                                                    ) ? (
-                                                      <div>Max searched</div>
-                                                  ) : (
-                                                      <>
-                                                          <MemoizedMessageContent content={message.content} />
+                                                (message.content.includes('<search_state>started</search_state>') ? (
+                                                    <div className="flex items-center gap-2">
+                                                        <span>Max is searching...</span>
+                                                        <Spinner className="text-lg" />
+                                                    </div>
+                                                ) : message.content.includes(
+                                                    '<search_state>completed</search_state>'
+                                                ) ? (
+                                                    <div>Max searched</div>
+                                                ) : (
+                                                    <>
+                                                        <MemoizedMessageContent content={message.content} />
 
-                                                          {/* Only show analysis for non-greeting messages */}
-                                                          {idx === 0
-                                                              ? null
-                                                              : (extractThinkingBlock(message.content).length > 0 ||
-                                                                    extractSearchReflection(message.content).length >
-                                                                        0 ||
-                                                                    extractSearchQualityScore(message.content)
-                                                                        .hasQualityScore ||
-                                                                    extractInfoValidation(message.content)
-                                                                        .hasQualityScore ||
-                                                                    extractURLValidation(message.content)
-                                                                        .hasQualityScore) && (
-                                                                    <LemonCollapse
-                                                                        key={`analysis-${message.timestamp}`}
-                                                                        className="mt-4 text-sm"
-                                                                        panels={[
-                                                                            {
-                                                                                key: 'analysis',
-                                                                                header: (
-                                                                                    <span className="text-secondary">
-                                                                                        What was Max thinking?
-                                                                                    </span>
-                                                                                ),
-                                                                                content: (
-                                                                                    <div className="space-y-3 p-1">
-                                                                                        {/* Thinking blocks */}
-                                                                                        {extractThinkingBlock(
-                                                                                            message.content
-                                                                                        ).map((content, index) => (
-                                                                                            <LemonCollapse
-                                                                                                key={`thinking-${index}-${message.timestamp}`}
-                                                                                                panels={[
-                                                                                                    {
-                                                                                                        key: 'thinking',
-                                                                                                        header: 'Thinking',
-                                                                                                        content: (
-                                                                                                            <div>
-                                                                                                                {
-                                                                                                                    content
-                                                                                                                }
-                                                                                                            </div>
-                                                                                                        ),
-                                                                                                    },
-                                                                                                ]}
-                                                                                            />
-                                                                                        ))}
+                                                        {/* Only show analysis for non-greeting messages */}
+                                                        {idx === 0
+                                                            ? null
+                                                            : (extractThinkingBlock(message.content).length > 0 ||
+                                                                extractSearchReflection(message.content).length >
+                                                                0 ||
+                                                                extractSearchQualityScore(message.content)
+                                                                    .hasQualityScore ||
+                                                                extractInfoValidation(message.content)
+                                                                    .hasQualityScore ||
+                                                                extractURLValidation(message.content)
+                                                                    .hasQualityScore) && (
+                                                                <LemonCollapse
+                                                                    key={`analysis-${message.timestamp}`}
+                                                                    className="mt-4 text-sm"
+                                                                    panels={[
+                                                                        {
+                                                                            key: 'analysis',
+                                                                            header: (
+                                                                                <span className="text-secondary">
+                                                                                    What was Max thinking?
+                                                                                </span>
+                                                                            ),
+                                                                            content: (
+                                                                                <div className="space-y-3 p-1">
+                                                                                    {/* Thinking blocks */}
+                                                                                    {extractThinkingBlock(
+                                                                                        message.content
+                                                                                    ).map((content, index) => (
+                                                                                        <LemonCollapse
+                                                                                            key={`thinking-${index}-${message.timestamp}`}
+                                                                                            panels={[
+                                                                                                {
+                                                                                                    key: 'thinking',
+                                                                                                    header: 'Thinking',
+                                                                                                    content: (
+                                                                                                        <div>
+                                                                                                            {
+                                                                                                                content
+                                                                                                            }
+                                                                                                        </div>
+                                                                                                    ),
+                                                                                                },
+                                                                                            ]}
+                                                                                        />
+                                                                                    ))}
 
-                                                                                        {/* Search Reflection blocks */}
-                                                                                        {extractSearchReflection(
-                                                                                            message.content
-                                                                                        ).map((content, index) => (
-                                                                                            <LemonCollapse
-                                                                                                key={`reflection-${index}-${message.timestamp}`}
-                                                                                                panels={[
-                                                                                                    {
-                                                                                                        key: 'reflection',
-                                                                                                        header: 'Search Reflection',
-                                                                                                        content: (
-                                                                                                            <div>
-                                                                                                                {
-                                                                                                                    content
-                                                                                                                }
-                                                                                                            </div>
-                                                                                                        ),
-                                                                                                    },
-                                                                                                ]}
-                                                                                            />
-                                                                                        ))}
+                                                                                    {/* Search Reflection blocks */}
+                                                                                    {extractSearchReflection(
+                                                                                        message.content
+                                                                                    ).map((content, index) => (
+                                                                                        <LemonCollapse
+                                                                                            key={`reflection-${index}-${message.timestamp}`}
+                                                                                            panels={[
+                                                                                                {
+                                                                                                    key: 'reflection',
+                                                                                                    header: 'Search Reflection',
+                                                                                                    content: (
+                                                                                                        <div>
+                                                                                                            {
+                                                                                                                content
+                                                                                                            }
+                                                                                                        </div>
+                                                                                                    ),
+                                                                                                },
+                                                                                            ]}
+                                                                                        />
+                                                                                    ))}
 
-                                                                                        {/* Search Quality Score */}
-                                                                                        {extractSearchQualityScore(
-                                                                                            message.content
-                                                                                        ).hasQualityScore && (
+                                                                                    {/* Search Quality Score */}
+                                                                                    {extractSearchQualityScore(
+                                                                                        message.content
+                                                                                    ).hasQualityScore && (
                                                                                             <LemonCollapse
                                                                                                 panels={[
                                                                                                     {
@@ -293,10 +291,10 @@ function MaxChatInterfaceContent(): JSX.Element {
                                                                                             />
                                                                                         )}
 
-                                                                                        {/* Info Validation */}
-                                                                                        {extractInfoValidation(
-                                                                                            message.content
-                                                                                        ).hasQualityScore && (
+                                                                                    {/* Info Validation */}
+                                                                                    {extractInfoValidation(
+                                                                                        message.content
+                                                                                    ).hasQualityScore && (
                                                                                             <LemonCollapse
                                                                                                 panels={[
                                                                                                     {
@@ -317,10 +315,10 @@ function MaxChatInterfaceContent(): JSX.Element {
                                                                                             />
                                                                                         )}
 
-                                                                                        {/* URL Validation */}
-                                                                                        {extractURLValidation(
-                                                                                            message.content
-                                                                                        ).hasQualityScore && (
+                                                                                    {/* URL Validation */}
+                                                                                    {extractURLValidation(
+                                                                                        message.content
+                                                                                    ).hasQualityScore && (
                                                                                             <LemonCollapse
                                                                                                 panels={[
                                                                                                     {
@@ -340,14 +338,14 @@ function MaxChatInterfaceContent(): JSX.Element {
                                                                                                 ]}
                                                                                             />
                                                                                         )}
-                                                                                    </div>
-                                                                                ),
-                                                                            },
-                                                                        ]}
-                                                                    />
-                                                                )}
-                                                      </>
-                                                  ))
+                                                                                </div>
+                                                                            ),
+                                                                        },
+                                                                    ]}
+                                                                />
+                                                            )}
+                                                    </>
+                                                ))
                                                 : message.content}
                                         </div>
                                     </div>
@@ -366,8 +364,8 @@ function MaxChatInterfaceContent(): JSX.Element {
                                                     {hasServerError
                                                         ? "🫣 Uh-oh. I wasn't able to connect to the Anthropic API (my brain!) Please try sending your message again in about 1 minute?"
                                                         : isRateLimited
-                                                        ? "🫣 Uh-oh, I'm really popular today, we've been rate-limited. I just need to catch my breath. Hang on, I'll resume searching in less than a minute..."
-                                                        : 'Searching and thinking...'}
+                                                            ? "🫣 Uh-oh, I'm really popular today, we've been rate-limited. I just need to catch my breath. Hang on, I'll resume searching in less than a minute..."
+                                                            : 'Searching and thinking...'}
                                                 </span>
                                                 <Spinner className="text-lg" />
                                             </div>

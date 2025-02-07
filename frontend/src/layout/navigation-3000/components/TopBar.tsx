@@ -8,9 +8,9 @@ import { router } from 'kea-router'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { MetalyticsSummary } from 'lib/components/Metalytics/MetalyticsSummary'
-import { IconMenu } from 'lib/lemon-ui/icons'
-import { Link } from 'lib/lemon-ui/Link'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { IconMenu } from '@posthog/lemon-ui/icons'
+import { Link } from '@posthog/lemon-ui/Link'
+import { Popover } from '@posthog/lemon-ui/Popover'
 import React, { useLayoutEffect, useState } from 'react'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
@@ -242,12 +242,12 @@ function Here({ breadcrumb, isOnboarding }: HereProps): JSX.Element {
                     onModeToggle={
                         !breadcrumb.forceEditMode
                             ? (newMode) => {
-                                  if (newMode === 'edit') {
-                                      tentativelyRename(joinedKey, hereName)
-                                  } else {
-                                      finishRenaming()
-                                  }
-                              }
+                                if (newMode === 'edit') {
+                                    tentativelyRename(joinedKey, hereName)
+                                } else {
+                                    finishRenaming()
+                                }
+                            }
                             : undefined
                     }
                     placeholder="Unnamed"

@@ -1,5 +1,5 @@
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { Spinner } from '@posthog/lemon-ui/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 
 export const scene: SceneExport = {

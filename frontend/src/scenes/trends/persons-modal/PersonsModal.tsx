@@ -18,11 +18,11 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { PropertiesTimeline } from 'lib/components/PropertiesTimeline'
-import { IconPlayCircle } from 'lib/lemon-ui/icons'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconPlayCircle } from '@posthog/lemon-ui/icons'
+import { LemonTabs } from '@posthog/lemon-ui/LemonTabs'
+import { ProfilePicture } from '@posthog/lemon-ui/ProfilePicture'
+import { Spinner } from '@posthog/lemon-ui/Spinner'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, isGroupType, midEllipsis, pluralize } from 'lib/utils'
 import React, { useCallback, useState } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -164,33 +164,33 @@ export function PersonsModal({
                         cleanedInsightActorsQueryOptions(insightActorsQueryOptions, query).map(([key, options]) =>
                             key === 'breakdowns'
                                 ? options.map(({ values }, index) => (
-                                      <div key={`${key}_${index}`}>
-                                          <LemonSelect
-                                              fullWidth
-                                              className="mb-2"
-                                              value={query?.breakdown?.[index] ?? null}
-                                              onChange={(v) => {
-                                                  const breakdown = Array.isArray(query.breakdown)
-                                                      ? [...query.breakdown]
-                                                      : []
-                                                  breakdown[index] = v
-                                                  updateActorsQuery({ breakdown })
-                                              }}
-                                              options={values}
-                                          />
-                                      </div>
-                                  ))
+                                    <div key={`${key}_${index}`}>
+                                        <LemonSelect
+                                            fullWidth
+                                            className="mb-2"
+                                            value={query?.breakdown?.[index] ?? null}
+                                            onChange={(v) => {
+                                                const breakdown = Array.isArray(query.breakdown)
+                                                    ? [...query.breakdown]
+                                                    : []
+                                                breakdown[index] = v
+                                                updateActorsQuery({ breakdown })
+                                            }}
+                                            options={values}
+                                        />
+                                    </div>
+                                ))
                                 : options.length > 1 && (
-                                      <div key={key}>
-                                          <LemonSelect
-                                              fullWidth
-                                              className="mb-2"
-                                              value={query?.[key] ?? null}
-                                              onChange={(v) => updateActorsQuery({ [key]: v })}
-                                              options={options}
-                                          />
-                                      </div>
-                                  )
+                                    <div key={key}>
+                                        <LemonSelect
+                                            fullWidth
+                                            className="mb-2"
+                                            value={query?.[key] ?? null}
+                                            onChange={(v) => updateActorsQuery({ [key]: v })}
+                                            options={options}
+                                        />
+                                    </div>
+                                )
                         )}
 
                     <div className="flex items-center gap-2 text-secondary">
@@ -266,14 +266,14 @@ export function PersonsModal({
                                             export_format: ExporterFormat.CSV,
                                             export_context: query
                                                 ? {
-                                                      source: {
-                                                          ...actorsQuery,
-                                                          select: actorsQuery!.select?.filter(
-                                                              (c) => c !== 'matched_recordings'
-                                                          ),
-                                                          source: { ...actorsQuery!.source, includeRecordings: false },
-                                                      },
-                                                  }
+                                                    source: {
+                                                        ...actorsQuery,
+                                                        select: actorsQuery!.select?.filter(
+                                                            (c) => c !== 'matched_recordings'
+                                                        ),
+                                                        source: { ...actorsQuery!.source, includeRecordings: false },
+                                                    },
+                                                }
                                                 : { path: originalUrl },
                                         })
                                     }}
@@ -429,32 +429,32 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
                                         <ul className="space-y-px">
                                             {matchedRecordings?.length
                                                 ? matchedRecordings.map((recording, i) => (
-                                                      <React.Fragment key={i}>
-                                                          <LemonDivider className="my-0" />
-                                                          <li>
-                                                              <LemonButton
-                                                                  fullWidth
-                                                                  onClick={() => {
-                                                                      recording.session_id &&
-                                                                          onOpenRecording({
-                                                                              id: recording.session_id,
-                                                                              matching_events: [
-                                                                                  {
-                                                                                      events: recording.events,
-                                                                                      session_id: recording.session_id,
-                                                                                  },
-                                                                              ],
-                                                                          })
-                                                                  }}
-                                                              >
-                                                                  <div className="flex flex-1 justify-between gap-2 items-center">
-                                                                      <span>View recording {i + 1}</span>
-                                                                      <IconPlayCircle className="text-xl text-secondary" />
-                                                                  </div>
-                                                              </LemonButton>
-                                                          </li>
-                                                      </React.Fragment>
-                                                  ))
+                                                    <React.Fragment key={i}>
+                                                        <LemonDivider className="my-0" />
+                                                        <li>
+                                                            <LemonButton
+                                                                fullWidth
+                                                                onClick={() => {
+                                                                    recording.session_id &&
+                                                                        onOpenRecording({
+                                                                            id: recording.session_id,
+                                                                            matching_events: [
+                                                                                {
+                                                                                    events: recording.events,
+                                                                                    session_id: recording.session_id,
+                                                                                },
+                                                                            ],
+                                                                        })
+                                                                }}
+                                                            >
+                                                                <div className="flex flex-1 justify-between gap-2 items-center">
+                                                                    <span>View recording {i + 1}</span>
+                                                                    <IconPlayCircle className="text-xl text-secondary" />
+                                                                </div>
+                                                            </LemonButton>
+                                                        </li>
+                                                    </React.Fragment>
+                                                ))
                                                 : null}
                                         </ul>
                                     </div>

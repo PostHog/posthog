@@ -2,9 +2,9 @@ import { LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { statusColumn, updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { More } from '@posthog/lemon-ui/LemonButton'
+import { LemonMenuOverlay } from '@posthog/lemon-ui/LemonMenu'
+import { statusColumn, updatedAtColumn } from '@posthog/lemon-ui/LemonTable'
 
 import { PipelineStage, ProductKey } from '~/types'
 

@@ -6,7 +6,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { FEATURE_FLAGS, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React, { useState } from 'react'
@@ -39,8 +39,7 @@ export function PlanIcon({
                 <>
                     <IconWarning className={clsx('text-warning mx-4 shrink-0', className)} />
                     {feature.limit &&
-                        `${convertLargeNumberToWords(feature.limit, null)} ${feature.unit && feature.unit}${
-                            timeDenominator ? `/${timeDenominator}` : ''
+                        `${convertLargeNumberToWords(feature.limit, null)} ${feature.unit && feature.unit}${timeDenominator ? `/${timeDenominator}` : ''
                         }`}
                     {feature.note}
                 </>
@@ -141,12 +140,12 @@ export const PlanComparison = ({
                         plan.contact_support
                             ? 'mailto:sales@posthog.com?subject=Enterprise%20plan%20request'
                             : i < currentPlanIndex
-                            ? undefined // Downgrade action handled in onClick
-                            : getUpgradeProductLink({
-                                  product,
-                                  redirectPath,
-                                  includeAddons,
-                              })
+                                ? undefined // Downgrade action handled in onClick
+                                : getUpgradeProductLink({
+                                    product,
+                                    redirectPath,
+                                    includeAddons,
+                                })
                     }
                     type={plan.current_plan || i < currentPlanIndex ? 'secondary' : 'primary'}
                     status={
@@ -163,8 +162,8 @@ export const PlanComparison = ({
                                 ? 'Unsubscribe from all products to remove'
                                 : null
                             : plan.current_plan
-                            ? 'Current plan'
-                            : undefined
+                                ? 'Current plan'
+                                : undefined
                     }
                     onClick={() => {
                         if (!plan.current_plan) {
@@ -184,16 +183,16 @@ export const PlanComparison = ({
                     {plan.current_plan
                         ? 'Current plan'
                         : i < currentPlanIndex
-                        ? 'Downgrade'
-                        : plan.contact_support
-                        ? 'Get in touch'
-                        : plan.included_if == 'has_subscription' &&
-                          i >= currentPlanIndex &&
-                          !billing?.has_active_subscription
-                        ? ctaAction
-                        : plan.free_allocation && !plan.tiers
-                        ? 'Select' // Free plan
-                        : ctaAction}
+                            ? 'Downgrade'
+                            : plan.contact_support
+                                ? 'Get in touch'
+                                : plan.included_if == 'has_subscription' &&
+                                    i >= currentPlanIndex &&
+                                    !billing?.has_active_subscription
+                                    ? ctaAction
+                                    : plan.free_allocation && !plan.tiers
+                                        ? 'Select' // Free plan
+                                        : ctaAction}
                 </BillingUpgradeCTA>
                 {!plan.current_plan && !plan.free_allocation && includeAddons && product.addons?.length > 0 && (
                     <p className="text-center ml-0 mt-2 mb-0">
@@ -237,14 +236,14 @@ export const PlanComparison = ({
                                 {plan.free_allocation && !plan.tiers
                                     ? 'Free forever'
                                     : plan.unit_amount_usd
-                                    ? `$${parseFloat(plan.unit_amount_usd).toFixed(0)} per month`
-                                    : plan.contact_support
-                                    ? 'Custom'
-                                    : plan.included_if == 'has_subscription'
-                                    ? billing?.subscription_level === 'custom'
-                                        ? 'Free, included with any product subscription'
-                                        : 'Usage-based - starting at $0'
-                                    : '$0 per month'}
+                                        ? `$${parseFloat(plan.unit_amount_usd).toFixed(0)} per month`
+                                        : plan.contact_support
+                                            ? 'Custom'
+                                            : plan.included_if == 'has_subscription'
+                                                ? billing?.subscription_level === 'custom'
+                                                    ? 'Free, included with any product subscription'
+                                                    : 'Usage-based - starting at $0'
+                                                : '$0 per month'}
                                 {isProrated && (
                                     <p className="text-xxs text-secondary font-normal italic mt-2">
                                         Pay ~${prorationAmount} today{isProrated && ' (prorated)'} and{' '}
@@ -437,15 +436,15 @@ export const PlanComparison = ({
                                                         className={clsx(
                                                             'text-secondary PlanTable__th__feature',
                                                             width &&
-                                                                width < 600 &&
-                                                                'PlanTable__th__feature--reduced_padding',
+                                                            width < 600 &&
+                                                            'PlanTable__th__feature--reduced_padding',
                                                             // If this is the last feature in the list, add a class to add padding to the bottom of
                                                             // the cell (which makes the whole row have the padding)
                                                             i ==
                                                                 (includedPlans.find(
                                                                     (plan) => plan.included_if == 'has_subscription'
                                                                 )?.features?.length || 0) -
-                                                                    1
+                                                                1
                                                                 ? 'PlanTable__th__last-feature'
                                                                 : ''
                                                         )}

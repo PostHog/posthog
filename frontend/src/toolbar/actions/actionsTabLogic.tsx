@@ -2,7 +2,7 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { forms } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { lemonToast } from '@posthog/lemon-ui/LemonToast'
 import { urls } from 'scenes/urls'
 
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
@@ -27,10 +27,10 @@ function newAction(
         steps: [
             element
                 ? actionStepToActionStepFormItem(
-                      elementToActionStep(element, dataAttributes),
-                      true,
-                      includedPropertyKeys
-                  )
+                    elementToActionStep(element, dataAttributes),
+                    true,
+                    includedPropertyKeys
+                )
                 : {},
         ],
         pinned_at: null,
@@ -46,21 +46,21 @@ function toElementsChain(element: HTMLElement): ElementType[] {
     }
     return chain.map(
         (element, index) =>
-            ({
-                attr_class: element.getAttribute('class')?.split(' '),
-                attr_id: element.getAttribute('id') || undefined,
-                attributes: Array.from(element.attributes).reduce((acc, attr) => {
-                    if (!acc[attr.name]) {
-                        acc[attr.name] = attr.value
-                    } else {
-                        acc[attr.name] += ` ${attr.value}`
-                    }
-                    return acc
-                }, {} as Record<string, string>),
-                href: element.getAttribute('href') || undefined,
-                tag_name: element.tagName.toLowerCase(),
-                text: index === 0 ? element.innerText : undefined,
-            } as ElementType)
+        ({
+            attr_class: element.getAttribute('class')?.split(' '),
+            attr_id: element.getAttribute('id') || undefined,
+            attributes: Array.from(element.attributes).reduce((acc, attr) => {
+                if (!acc[attr.name]) {
+                    acc[attr.name] = attr.value
+                } else {
+                    acc[attr.name] += ` ${attr.value}`
+                }
+                return acc
+            }, {} as Record<string, string>),
+            href: element.getAttribute('href') || undefined,
+            tag_name: element.tagName.toLowerCase(),
+            text: index === 0 ? element.innerText : undefined,
+        } as ElementType)
     )
 }
 
@@ -105,9 +105,9 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                     index === null
                         ? []
                         : {
-                              ...state,
-                              [index]: toElementsChain(element),
-                          },
+                            ...state,
+                            [index]: toElementsChain(element),
+                        },
                 newAction: (_, { element }) => ({
                     0: element ? toElementsChain(element) : [],
                 }),

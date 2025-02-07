@@ -2,7 +2,7 @@ import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { EarlyAccessFeatureStage, EarlyAccessFeatureType, NotebookNodeType } from '~/types'
 import { BindLogic, useActions, useValues } from 'kea'
 import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { LemonSkeleton } from '@posthog/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { JSONContent, NotebookNodeProps } from '../Notebook/utils'
 
@@ -32,12 +32,12 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEarlyAccessAttr
         setActions(
             flagId
                 ? [
-                      {
-                          text: 'View feature flag',
-                          icon: <IconFlag />,
-                          onClick: () => insertAfter(buildFlagContent(flagId)),
-                      },
-                  ]
+                    {
+                        text: 'View feature flag',
+                        icon: <IconFlag />,
+                        onClick: () => insertAfter(buildFlagContent(flagId)),
+                    },
+                ]
                 : []
         )
     }, [earlyAccessFeature])
@@ -67,8 +67,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEarlyAccessAttr
                                     earlyAccessFeature.stage === EarlyAccessFeatureStage.Beta
                                         ? 'warning'
                                         : earlyAccessFeature.stage === EarlyAccessFeatureStage.GeneralAvailability
-                                        ? 'success'
-                                        : 'default'
+                                            ? 'success'
+                                            : 'default'
                                 }
                                 className="uppercase"
                             >

@@ -2,13 +2,13 @@ import { IconCopy, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { IconOpenInApp, IconRefresh } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconOpenInApp, IconRefresh } from '@posthog/lemon-ui/icons'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { LemonDialog } from '@posthog/lemon-ui/LemonDialog'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
+import { LemonInput } from '@posthog/lemon-ui/LemonInput'
+import { LemonTag } from '@posthog/lemon-ui/LemonTag'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 import { useMemo } from 'react'
 
 import { ExperimentIdType } from '~/types'
@@ -274,7 +274,7 @@ export function AuthorizedUrlList({
                                                 type === AuthorizedUrlListType.TOOLBAR_URLS
                                                     ? launchUrl(keyedURL.url)
                                                     : // other urls are simply opened directly
-                                                      `${keyedURL.url}${query ?? ''}`
+                                                    `${keyedURL.url}${query ?? ''}`
                                             }
                                             targetBlank
                                             tooltip={
@@ -337,9 +337,8 @@ export function AuthorizedUrlList({
                                             onClick={() => {
                                                 LemonDialog.open({
                                                     title: <>Remove {keyedURL.url} ?</>,
-                                                    description: `Are you sure you want to remove this authorized ${
-                                                        onlyAllowDomains ? 'domain' : 'URL'
-                                                    }?`,
+                                                    description: `Are you sure you want to remove this authorized ${onlyAllowDomains ? 'domain' : 'URL'
+                                                        }?`,
                                                     primaryButton: {
                                                         status: 'danger',
                                                         children: 'Remove',

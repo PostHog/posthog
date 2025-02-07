@@ -12,8 +12,8 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { IconOpenInNew } from '@posthog/lemon-ui/icons'
+import { LemonMarkdown } from '@posthog/lemon-ui/LemonMarkdown'
 import posthog from 'posthog-js'
 import React, { useMemo, useState } from 'react'
 import { urls } from 'scenes/urls'
@@ -270,30 +270,30 @@ function VisualizationAnswer({
     return status !== 'completed'
         ? null
         : query && (
-              <>
-                  <MessageTemplate type="ai" className="w-full" boxClassName="w-full">
-                      <div className="min-h-80 flex">
-                          <Query query={query} readOnly embedded />
-                      </div>
-                      <div className="relative mb-1">
-                          <LemonButton
-                              to={urls.insightNew(undefined, undefined, query)}
-                              sideIcon={<IconOpenInNew />}
-                              size="xsmall"
-                              targetBlank
-                              className="absolute right-0 -top-px"
-                          >
-                              Open as new insight
-                          </LemonButton>
-                          <SeriesSummary query={query.source} heading={<TopHeading query={query} />} />
-                          <div className="flex flex-wrap gap-4 mt-1 *:grow">
-                              <PropertiesSummary properties={query.source.properties} />
-                              <BreakdownSummary query={query.source} />
-                          </div>
-                      </div>
-                  </MessageTemplate>
-              </>
-          )
+            <>
+                <MessageTemplate type="ai" className="w-full" boxClassName="w-full">
+                    <div className="min-h-80 flex">
+                        <Query query={query} readOnly embedded />
+                    </div>
+                    <div className="relative mb-1">
+                        <LemonButton
+                            to={urls.insightNew(undefined, undefined, query)}
+                            sideIcon={<IconOpenInNew />}
+                            size="xsmall"
+                            targetBlank
+                            className="absolute right-0 -top-px"
+                        >
+                            Open as new insight
+                        </LemonButton>
+                        <SeriesSummary query={query.source} heading={<TopHeading query={query} />} />
+                        <div className="flex flex-wrap gap-4 mt-1 *:grow">
+                            <PropertiesSummary properties={query.source.properties} />
+                            <BreakdownSummary query={query.source} />
+                        </div>
+                    </div>
+                </MessageTemplate>
+            </>
+        )
 }
 
 function RetriableFailureActions(): JSX.Element {

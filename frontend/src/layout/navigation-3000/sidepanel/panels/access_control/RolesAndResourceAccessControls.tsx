@@ -8,15 +8,14 @@ import {
     LemonSelect,
     LemonTable,
     LemonTableColumns,
-    ProfileBubbles,
-    ProfilePicture,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter, Form } from 'kea-forms'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
+import { LemonTableLink } from '@posthog/lemon-ui/LemonTable'
+import { ProfileBubbles, ProfilePicture } from '@posthog/lemon-ui/ProfilePicture'
 import { fullName } from 'lib/utils'
 import { useMemo, useState } from 'react'
 import { userLogic } from 'scenes/userLogic'
@@ -45,35 +44,35 @@ export function RolesAndResourceAccessControls({ noAccessControls }: RolesAndRes
     const roleColumns = noAccessControls
         ? []
         : resources.map((resource) => ({
-              title: resource.replace(/_/g, ' ') + 's',
-              key: resource,
-              width: 0,
-              render: (_: any, { accessControlByResource, role }: RoleWithResourceAccessControls) => {
-                  const ac = accessControlByResource[resource]
+            title: resource.replace(/_/g, ' ') + 's',
+            key: resource,
+            width: 0,
+            render: (_: any, { accessControlByResource, role }: RoleWithResourceAccessControls) => {
+                const ac = accessControlByResource[resource]
 
-                  return (
-                      <LemonSelect
-                          size="small"
-                          placeholder="No override"
-                          className="my-1 whitespace-nowrap"
-                          value={role ? ac?.access_level : ac?.access_level ?? defaultAccessLevel}
-                          onChange={(newValue) =>
-                              updateRoleBasedAccessControls([
-                                  {
-                                      resource,
-                                      role: role?.id ?? null,
-                                      access_level: newValue,
-                                  },
-                              ])
-                          }
-                          options={availableLevels.map((level) => ({
-                              value: level,
-                              label: capitalizeFirstLetter(level ?? ''),
-                          }))}
-                      />
-                  )
-              },
-          }))
+                return (
+                    <LemonSelect
+                        size="small"
+                        placeholder="No override"
+                        className="my-1 whitespace-nowrap"
+                        value={role ? ac?.access_level : ac?.access_level ?? defaultAccessLevel}
+                        onChange={(newValue) =>
+                            updateRoleBasedAccessControls([
+                                {
+                                    resource,
+                                    role: role?.id ?? null,
+                                    access_level: newValue,
+                                },
+                            ])
+                        }
+                        options={availableLevels.map((level) => ({
+                            value: level,
+                            label: capitalizeFirstLetter(level ?? ''),
+                        }))}
+                    />
+                )
+            },
+        }))
 
     const columns: LemonTableColumns<RoleWithResourceAccessControls> = [
         {
@@ -158,9 +157,9 @@ function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
 
     const onSubmit = membersToAdd.length
         ? () => {
-              role && addMembersToRole(role, membersToAdd)
-              setMembersToAdd([])
-          }
+            role && addMembersToRole(role, membersToAdd)
+            setMembersToAdd([])
+        }
         : undefined
 
     const membersNotInRole = useMemo(() => {
@@ -198,8 +197,8 @@ function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
                             !canEditRoleBasedAccessControls
                                 ? 'You cannot edit this'
                                 : !onSubmit
-                                ? 'Please select members to add'
-                                : undefined
+                                    ? 'Please select members to add'
+                                    : undefined
                         }
                     >
                         Add members

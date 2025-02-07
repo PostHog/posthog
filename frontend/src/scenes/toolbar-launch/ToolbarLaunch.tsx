@@ -5,9 +5,9 @@ import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUr
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconGroupedEvents, IconHeatmap } from 'lib/lemon-ui/icons'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { Link } from 'lib/lemon-ui/Link'
+import { IconGroupedEvents, IconHeatmap } from '@posthog/lemon-ui/icons'
+import { LemonDivider } from '@posthog/lemon-ui/LemonDivider'
+import { Link } from '@posthog/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -43,21 +43,21 @@ export function ToolbarLaunch(): JSX.Element {
         },
         ...(isExperimentsEnabled
             ? [
-                  {
-                      title: 'Experiments',
-                      caption: 'Run experiments and A/B test your website.',
-                      icon: <IconTestTube />,
-                  },
-              ]
+                {
+                    title: 'Experiments',
+                    caption: 'Run experiments and A/B test your website.',
+                    icon: <IconTestTube />,
+                },
+            ]
             : []),
         ...(isWebVitalsEnabled && isWebVitalsToolbarEnabled
             ? [
-                  {
-                      title: 'Web Vitals',
-                      caption: "Measure your website's performance.",
-                      icon: <IconPieChart />,
-                  },
-              ]
+                {
+                    title: 'Web Vitals',
+                    caption: "Measure your website's performance.",
+                    icon: <IconPieChart />,
+                },
+            ]
             : []),
     ]
 

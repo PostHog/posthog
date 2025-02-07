@@ -3,7 +3,7 @@ import './NotebookPanel.scss'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconOpenInNew } from '@posthog/lemon-ui/icons'
 import { useMemo } from 'react'
 import { urls } from 'scenes/urls'
 

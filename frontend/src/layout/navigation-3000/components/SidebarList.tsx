@@ -5,10 +5,10 @@ import clsx from 'clsx'
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { isDayjs } from 'lib/dayjs'
-import { IconChevronRight } from 'lib/lemon-ui/icons/icons'
-import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { Link } from 'lib/lemon-ui/Link'
+import { IconChevronRight } from '@posthog/lemon-ui/icons'
+import { LemonMenu } from '@posthog/lemon-ui/LemonMenu'
+import { LemonSkeleton } from '@posthog/lemon-ui/LemonSkeleton'
+import { Link } from '@posthog/lemon-ui/Link'
 import { capitalizeFirstLetter } from 'lib/utils'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
@@ -72,9 +72,9 @@ export function SidebarList({ category }: { category: SidebarCategory | ListItem
                     depth: depth,
                     key: parentKey
                         ? [
-                              Array.isArray(parentKey) ? parentKey.join(ITEM_KEY_PART_SEPARATOR) : parentKey,
-                              item.key,
-                          ].join(ITEM_KEY_PART_SEPARATOR)
+                            Array.isArray(parentKey) ? parentKey.join(ITEM_KEY_PART_SEPARATOR) : parentKey,
+                            item.key,
+                        ].join(ITEM_KEY_PART_SEPARATOR)
                         : item.key.toString(),
                 })
                 if (isListItemAccordion(item)) {
@@ -253,31 +253,31 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
     }
     const save = isItemTentative(item)
         ? async (name: string): Promise<void> => {
-              if (!validate(name)) {
-                  return
-              }
-              await item.onSave(name)
-          }
+            if (!validate(name)) {
+                return
+            }
+            await item.onSave(name)
+        }
         : !isListItemAccordion(item) && item.onRename
-        ? async (newName: string): Promise<void> => {
-              if (!newName || newName === item.name) {
-                  return cancel() // No change to be saved
-              }
-              if (!validate(newName)) {
-                  return
-              }
-              setIsSavingName(true)
-              try {
-                  await item.onRename?.(newName)
-              } catch (error) {
-                  captureException(error)
-                  lemonToast.error('Could not rename item')
-              } finally {
-                  setIsSavingName(false)
-                  cancel()
-              }
-          }
-        : null
+            ? async (newName: string): Promise<void> => {
+                if (!newName || newName === item.name) {
+                    return cancel() // No change to be saved
+                }
+                if (!validate(newName)) {
+                    return
+                }
+                setIsSavingName(true)
+                try {
+                    await item.onRename?.(newName)
+                } catch (error) {
+                    captureException(error)
+                    lemonToast.error('Could not rename item')
+                } finally {
+                    setIsSavingName(false)
+                    cancel()
+                }
+            }
+            : null
 
     useEffect(() => {
         // Add double-click handler for renaming
@@ -340,7 +340,7 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
                 onKeyDown={(e) => {
                     if (e.key === 'ArrowDown') {
                         if (e.metaKey || e.ctrlKey) {
-                            ;(e.target as HTMLElement).click()
+                            ; (e.target as HTMLElement).click()
                         } else {
                             navigation3000Logic.actions.focusNextItem()
                             e.preventDefault()
@@ -371,8 +371,8 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
                             <div className="flex-1 overflow-hidden text-ellipsis">
                                 {item.searchMatch?.matchingFields
                                     ? `Matching fields: ${item.searchMatch.matchingFields
-                                          .map((field) => field.replace(/_/g, ' '))
-                                          .join(', ')}`
+                                        .map((field) => field.replace(/_/g, ' '))
+                                        .join(', ')}`
                                     : item.summary}
                             </div>
                             <div>
@@ -416,7 +416,7 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
                             navigation3000Logic.actions.setLastFocusedItemByKey(
                                 Array.isArray(item.key) ? item.key[0] : item.key
                             )
-                            ;(e.target as HTMLInputElement).select()
+                                ; (e.target as HTMLInputElement).select()
                         }}
                         onBlur={(e) => {
                             if (e.relatedTarget?.ariaLabel === 'Save name') {

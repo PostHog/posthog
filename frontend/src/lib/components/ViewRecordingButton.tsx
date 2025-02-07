@@ -1,7 +1,7 @@
 import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { IconPlayCircle } from 'lib/lemon-ui/icons'
+import { IconPlayCircle } from '@posthog/lemon-ui/icons'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { urls } from 'scenes/urls'
 
@@ -26,9 +26,9 @@ export default function ViewRecordingButton({
             onClick={
                 inModal
                     ? () => {
-                          const fiveSecondsBeforeEvent = timestamp ? dayjs(timestamp).valueOf() - 5000 : 0
-                          openSessionPlayer({ id: sessionId }, Math.max(fiveSecondsBeforeEvent, 0))
-                      }
+                        const fiveSecondsBeforeEvent = timestamp ? dayjs(timestamp).valueOf() - 5000 : 0
+                        openSessionPlayer({ id: sessionId }, Math.max(fiveSecondsBeforeEvent, 0))
+                    }
                     : undefined
             }
             sideIcon={<IconPlayCircle />}

@@ -2,7 +2,7 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { Form } from 'kea-forms'
 import PasswordStrength from 'lib/components/PasswordStrength'
-import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
 
 import { changePasswordLogic } from './changePasswordLogic'
 

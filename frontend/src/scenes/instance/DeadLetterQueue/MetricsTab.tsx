@@ -1,9 +1,9 @@
 import { LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconRefresh } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { IconRefresh } from '@posthog/lemon-ui/icons'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { LemonTable } from '@posthog/lemon-ui/LemonTable'
+import { Spinner } from '@posthog/lemon-ui/Spinner'
 import { userLogic } from 'scenes/userLogic'
 
 import { deadLetterQueueLogic } from './deadLetterQueueLogic'

@@ -3,7 +3,7 @@ import { LemonDivider } from '@posthog/lemon-ui'
 import { Properties } from '@posthog/plugin-scaffold'
 import { useActions, useValues } from 'kea'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 import { humanList } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -31,9 +31,9 @@ export function PropertiesTimeline({ actor, filter }: PropertiesTimelineProps): 
                 points={
                     crucialPropertyKeys.length > 0 && points
                         ? points.map(({ timestamp, relevantEventCount }) => ({
-                              timestamp,
-                              count: relevantEventCount,
-                          }))
+                            timestamp,
+                            count: relevantEventCount,
+                        }))
                         : []
                 }
                 note={
@@ -49,17 +49,13 @@ export function PropertiesTimeline({ actor, filter }: PropertiesTimelineProps): 
                             <Tooltip
                                 title={
                                     crucialPropertyKeys.length > 0
-                                        ? `Person ${
-                                              crucialPropertyKeys.length === 1 ? 'property' : 'properties'
-                                          } ${humanList(crucialPropertyKeys.map((key) => `\`${key}\``))} ${
-                                              crucialPropertyKeys.length === 1 ? 'is' : 'are'
-                                          } relevant to this insight's results, because ${
-                                              crucialPropertyKeys.length === 1 ? "it's" : "they're"
-                                          } used in its query definition. This timeline higlights how ${
-                                              crucialPropertyKeys.length === 1
-                                                  ? 'that key property has'
-                                                  : 'those key properties have'
-                                          } been changing within this data point's timeframe.`
+                                        ? `Person ${crucialPropertyKeys.length === 1 ? 'property' : 'properties'
+                                        } ${humanList(crucialPropertyKeys.map((key) => `\`${key}\``))} ${crucialPropertyKeys.length === 1 ? 'is' : 'are'
+                                        } relevant to this insight's results, because ${crucialPropertyKeys.length === 1 ? "it's" : "they're"
+                                        } used in its query definition. This timeline higlights how ${crucialPropertyKeys.length === 1
+                                            ? 'that key property has'
+                                            : 'those key properties have'
+                                        } been changing within this data point's timeframe.`
                                         : "This insight doesn't rely on any person properties in its query definition. If it did, a timeline showing the values of those key properties would be shown here."
                                 }
                             >

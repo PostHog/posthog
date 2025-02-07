@@ -17,7 +17,7 @@ import {
     IconTablet,
     IconWeb,
     IconWindows,
-} from 'lib/lemon-ui/icons'
+} from '@posthog/lemon-ui/icons'
 import { forwardRef, HTMLAttributes, Ref } from 'react'
 import { countryCodeToFlag } from 'scenes/insights/views/WorldMap'
 

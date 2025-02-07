@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { getSeriesBackgroundColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { LemonCheckbox } from '@posthog/lemon-ui/LemonCheckbox'
 import { useEffect, useRef } from 'react'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -34,8 +34,8 @@ export function InsightLegendRow({ rowIndex, item }: InsightLegendRowProps): JSX
     const highlighted = shouldHighlightThisRow(rowIndex, highlightedSeries, hiddenLegendIndexes)
     const highlightStyle: Record<string, any> = highlighted
         ? {
-              style: { backgroundColor: getSeriesBackgroundColor(item.seriesIndex) },
-          }
+            style: { backgroundColor: getSeriesBackgroundColor(item.seriesIndex) },
+        }
         : {}
 
     const rowRef = useRef<HTMLDivElement>(null)

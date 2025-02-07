@@ -1,7 +1,7 @@
 import { IconMinus } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { LemonMenu, LemonMenuItem, LemonMenuProps } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { LemonMenu, LemonMenuItem, LemonMenuProps } from '@posthog/lemon-ui/LemonMenu'
 import { useState } from 'react'
 
 type PanelContainerProps = {

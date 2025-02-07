@@ -6,14 +6,14 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { DashboardPrivilegeLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
-import { Link } from 'lib/lemon-ui/Link'
-import { Spinner } from 'lib/lemon-ui/Spinner'
-import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { LemonButton, LemonButtonWithDropdown } from '@posthog/lemon-ui/LemonButton'
+import { LemonDivider } from '@posthog/lemon-ui/LemonDivider'
+import { LemonMarkdown } from '@posthog/lemon-ui/LemonMarkdown'
+import { LemonTableLoader } from '@posthog/lemon-ui/LemonTable'
+import { Link } from '@posthog/lemon-ui/Link'
+import { Spinner } from '@posthog/lemon-ui/Spinner'
+import { Splotch, SplotchColor } from '@posthog/lemon-ui/Splotch'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 import { capitalizeFirstLetter } from 'lib/utils'
 import React from 'react'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -88,8 +88,8 @@ export function InsightMeta({
         nextAllowedClientRefresh && dayjs(nextAllowedClientRefresh).isAfter(dayjs())
             ? 'You are viewing the most recent calculated results.'
             : loading || !refreshEnabled
-            ? 'Refreshing...'
-            : undefined
+                ? 'Refreshing...'
+                : undefined
 
     return (
         <CardMeta

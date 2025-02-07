@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { Link } from 'lib/lemon-ui/Link'
+import { Link } from '@posthog/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
@@ -32,11 +32,10 @@ import { PostHogProvider } from 'posthog-js/react'
 if (typeof window !== 'undefined') { // checks that we are client-side
   posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY, {
     api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST || '${apiHostOrigin()}',
-    ${
-        isPersonProfilesDisabled
-            ? ``
-            : `person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users as well`
-    }
+    ${isPersonProfilesDisabled
+                    ? ``
+                    : `person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users as well`
+                }
     loaded: (posthog) => {
       if (process.env.NODE_ENV === 'development') posthog.debug() // debug mode in development
     },
@@ -71,11 +70,10 @@ import { PostHogProvider } from 'posthog-js/react'
 if (typeof window !== 'undefined') {
   posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY, {
     api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
-    ${
-        isPersonProfilesDisabled
-            ? ``
-            : `person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users as well`
-    }
+    ${isPersonProfilesDisabled
+                    ? ``
+                    : `person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users as well`
+                }
   })
 }
 export function CSPostHogProvider({ children }) {

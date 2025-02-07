@@ -1,9 +1,9 @@
 import { IconGear } from '@posthog/icons'
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { LemonButton } from '~/lib/lemon-ui/LemonButton'
-import { LemonLabel } from '~/lib/lemon-ui/LemonLabel'
-import { Popover } from '~/lib/lemon-ui/Popover'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { LemonLabel } from '@posthog/lemon-ui/LemonLabel'
+import { Popover } from '@posthog/lemon-ui/Popover'
 import { BreakdownFilter } from '~/queries/schema'
 import { ChartDisplayType, InsightLogicProps } from '~/types'
 

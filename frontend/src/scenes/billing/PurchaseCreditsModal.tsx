@@ -3,8 +3,8 @@ import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonTable, Link } f
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
+import { LemonRadio } from '@posthog/lemon-ui/LemonRadio'
 
 import { BillingGauge } from './BillingGauge'
 import { billingLogic } from './billingLogic'
@@ -37,12 +37,12 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                         Buy{' '}
                         {creditForm.creditInput
                             ? `$${Math.round(creditInputValue - creditInputValue * creditDiscount).toLocaleString(
-                                  'en-US',
-                                  {
-                                      minimumFractionDigits: 0,
-                                      maximumFractionDigits: 0,
-                                  }
-                              )}`
+                                'en-US',
+                                {
+                                    minimumFractionDigits: 0,
+                                    maximumFractionDigits: 0,
+                                }
+                            )}`
                             : ''}{' '}
                         credits
                     </LemonButton>

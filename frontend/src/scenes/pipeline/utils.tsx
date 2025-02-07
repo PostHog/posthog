@@ -1,9 +1,9 @@
 import { LemonMenuItem, LemonSkeleton, LemonTableColumn, lemonToast } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import api from 'lib/api'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { Link } from 'lib/lemon-ui/Link'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { LemonTableLink } from '@posthog/lemon-ui/LemonTable'
+import { Link } from '@posthog/lemon-ui/Link'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import posthog from 'posthog-js'
 import IconHTTP from 'public/hedgehog/running-hog.png'
@@ -318,24 +318,24 @@ export function pipelinePluginBackedNodeMenuCommonItems(
         ...pipelineNodeMenuCommonItems(node),
         ...(!inOverview
             ? [
-                  {
-                      label: 'Delete app',
-                      status: 'danger' as const, // for typechecker happiness
-                      onClick: () => {
-                          void deleteWithUndo({
-                              endpoint: `plugin_config`,
-                              object: {
-                                  id: node.id,
-                                  name: node.name,
-                              },
-                              callback: loadPluginConfigs,
-                          }).catch((e) => {
-                              lemonToast.error(`Failed to delete plugin: ${e.detail}`)
-                          })
-                      },
-                      disabledReason: canConfigurePlugins ? undefined : 'You do not have permission to delete.',
-                  },
-              ]
+                {
+                    label: 'Delete app',
+                    status: 'danger' as const, // for typechecker happiness
+                    onClick: () => {
+                        void deleteWithUndo({
+                            endpoint: `plugin_config`,
+                            object: {
+                                id: node.id,
+                                name: node.name,
+                            },
+                            callback: loadPluginConfigs,
+                        }).catch((e) => {
+                            lemonToast.error(`Failed to delete plugin: ${e.detail}`)
+                        })
+                    },
+                    disabledReason: canConfigurePlugins ? undefined : 'You do not have permission to delete.',
+                },
+            ]
             : []),
     ]
 }

@@ -5,12 +5,12 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel, privilegeLevelToName } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
-import { LemonSelect, LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { LemonBanner } from '@posthog/lemon-ui/LemonBanner'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { LemonInputSelect } from '@posthog/lemon-ui/LemonInputSelect'
+import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui/LemonSelect'
+import { ProfilePicture } from '@posthog/lemon-ui/ProfilePicture'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { urls } from 'scenes/urls'
 
@@ -147,11 +147,10 @@ function CollaboratorRow({
             <Tooltip
                 title={
                     !wasInvited
-                        ? `${user.first_name || 'This person'} ${
-                              level === DashboardPrivilegeLevel._Owner
-                                  ? 'created the dashboard'
-                                  : 'is a project administrator'
-                          }`
+                        ? `${user.first_name || 'This person'} ${level === DashboardPrivilegeLevel._Owner
+                            ? 'created the dashboard'
+                            : 'is a project administrator'
+                        }`
                         : null
                 }
                 placement="left"

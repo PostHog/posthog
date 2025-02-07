@@ -12,7 +12,7 @@ import {
 import { useValues } from 'kea'
 import { Group } from 'kea-forms'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
 import { memo, useEffect, useState } from 'react'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
@@ -195,10 +195,10 @@ export function HogFunctionMappings(): JSX.Element | null {
 
                         const inputs = mapping.inputs_schema
                             ? Object.fromEntries(
-                                  mapping.inputs_schema
-                                      .filter((m) => m.default !== undefined)
-                                      .map((m) => [m.key, { value: structuredClone(m.default) }])
-                              )
+                                mapping.inputs_schema
+                                    .filter((m) => m.default !== undefined)
+                                    .map((m) => [m.key, { value: structuredClone(m.default) }])
+                            )
                             : {}
                         onChange([...value, { ...mapping, name, inputs }])
                         setActiveKeys([...activeKeys, value.length])

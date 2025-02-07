@@ -1,4 +1,4 @@
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
 
 export function InsightSaveButton({
     saveAs,

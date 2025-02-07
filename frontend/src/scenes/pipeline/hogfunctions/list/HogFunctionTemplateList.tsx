@@ -2,7 +2,7 @@ import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { LemonTableLink } from '@posthog/lemon-ui/LemonTable'
 import { useEffect } from 'react'
 import { DestinationTag } from 'scenes/pipeline/destinations/DestinationTag'
 

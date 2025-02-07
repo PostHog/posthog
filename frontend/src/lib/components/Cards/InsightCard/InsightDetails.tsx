@@ -9,11 +9,11 @@ import {
 } from 'lib/components/PropertyFilters/utils'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { IconCalculate } from 'lib/lemon-ui/icons'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonRow } from 'lib/lemon-ui/LemonRow'
-import { Link } from 'lib/lemon-ui/Link'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { IconCalculate } from '@posthog/lemon-ui/icons'
+import { LemonDivider } from '@posthog/lemon-ui/LemonDivider'
+import { LemonRow } from '@posthog/lemon-ui/LemonRow'
+import { Link } from '@posthog/lemon-ui/Link'
+import { ProfilePicture } from '@posthog/lemon-ui/ProfilePicture'
 import { allOperatorsMapping, capitalizeFirstLetter } from 'lib/utils'
 import React from 'react'
 import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
@@ -90,8 +90,8 @@ function CompactPropertyFiltersDisplay({
                                             ? 'where '
                                             : null
                                         : subType === FilterLogicalOperator.Or
-                                        ? 'or '
-                                        : 'and '}
+                                            ? 'or '
+                                            : 'and '}
                                     {isCohortPropertyFilter(leafFilter) ? (
                                         <>
                                             {isFirstFilterOverall && !embedded ? 'Person' : 'person'} belongs to cohort
@@ -117,7 +117,7 @@ function CompactPropertyFiltersDisplay({
                                                         value={leafFilter.key}
                                                         type={
                                                             PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[
-                                                                leafFilter.type
+                                                            leafFilter.type
                                                             ]
                                                         }
                                                     />
@@ -125,8 +125,8 @@ function CompactPropertyFiltersDisplay({
                                             </span>
                                             {
                                                 allOperatorsMapping[
-                                                    (isPropertyFilterWithOperator(leafFilter) && leafFilter.operator) ||
-                                                        'exact'
+                                                (isPropertyFilterWithOperator(leafFilter) && leafFilter.operator) ||
+                                                'exact'
                                                 ]
                                             }{' '}
                                             <b>
@@ -186,8 +186,8 @@ function SeriesDisplay({
         isLifecycleQuery(query)
             ? 'dau'
             : series.math
-            ? apiValueToMathType(series.math, series.math_group_type_index)
-            : 'total'
+                ? apiValueToMathType(series.math, series.math_group_type_index)
+                : 'total'
     ] as MathDefinition | undefined
 
     return (
@@ -275,15 +275,15 @@ function RetentionSummary({ query }: { query: RetentionQuery }): JSX.Element {
                 entity={
                     query.retentionFilter.targetEntity?.type === 'actions'
                         ? {
-                              kind: NodeKind.ActionsNode,
-                              name: query.retentionFilter.targetEntity.name,
-                              id: query.retentionFilter.targetEntity.id as number,
-                          }
+                            kind: NodeKind.ActionsNode,
+                            name: query.retentionFilter.targetEntity.name,
+                            id: query.retentionFilter.targetEntity.id as number,
+                        }
                         : {
-                              kind: NodeKind.EventsNode,
-                              name: query.retentionFilter.targetEntity?.name,
-                              event: query.retentionFilter.targetEntity?.id as string,
-                          }
+                            kind: NodeKind.EventsNode,
+                            name: query.retentionFilter.targetEntity?.name,
+                            event: query.retentionFilter.targetEntity?.id as string,
+                        }
                 }
             />
             <strong>
@@ -378,14 +378,14 @@ export function BreakdownSummary({ query }: { query: InsightQueryNode }): JSX.El
             <div>
                 {Array.isArray(breakdowns)
                     ? breakdowns.map((b) => (
-                          <BreakdownTag key={`${b.type}-${b.property}`} breakdown={b.property} breakdownType={b.type} />
-                      ))
+                        <BreakdownTag key={`${b.type}-${b.property}`} breakdown={b.property} breakdownType={b.type} />
+                    ))
                     : breakdown &&
-                      (Array.isArray(breakdown)
-                          ? breakdown
-                          : [breakdown].map((b) => (
-                                <BreakdownTag key={b} breakdown={b} breakdownType={breakdown_type} />
-                            )))}
+                    (Array.isArray(breakdown)
+                        ? breakdown
+                        : [breakdown].map((b) => (
+                            <BreakdownTag key={b} breakdown={b} breakdownType={breakdown_type} />
+                        )))}
             </div>
         </section>
     )

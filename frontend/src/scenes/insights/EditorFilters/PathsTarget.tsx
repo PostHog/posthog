@@ -2,8 +2,8 @@ import { IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { combineUrl, encodeParams, router } from 'kea-router'
 import { PathItemSelector } from 'lib/components/PropertyFilters/components/PathItemSelector'
-import { IconFunnelVertical } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconFunnelVertical } from '@posthog/lemon-ui/icons'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
@@ -53,9 +53,8 @@ function PathsTarget({ position, insightProps }: PathTargetProps): JSX.Element {
             return (
                 <div className="flex items-center gap-2">
                     <IconFunnelVertical className="text-2xl" />
-                    <span className="label">{`${
-                        index > 0 ? 'Funnel step ' + (index + shift) : 'Funnel dropoff ' + index * -1
-                    }: ${_getStepNameAtIndex(funnelSource, index > 0 ? index + shift : index * -1)}`}</span>
+                    <span className="label">{`${index > 0 ? 'Funnel step ' + (index + shift) : 'Funnel dropoff ' + index * -1
+                        }: ${_getStepNameAtIndex(funnelSource, index > 0 ? index + shift : index * -1)}`}</span>
                 </div>
             )
         }
@@ -131,25 +130,25 @@ function PathsTarget({ position, insightProps }: PathTargetProps): JSX.Element {
                 onClick={
                     positionOptions.funnelFilterLink
                         ? () => {
-                              router.actions.push(
-                                  combineUrl(
-                                      '/insights',
-                                      encodeParams(queryNodeToFilter(funnelSource as FunnelsQuery), '?')
-                                  ).url
-                              )
-                          }
-                        : () => {}
+                            router.actions.push(
+                                combineUrl(
+                                    '/insights',
+                                    encodeParams(queryNodeToFilter(funnelSource as FunnelsQuery), '?')
+                                ).url
+                            )
+                        }
+                        : () => { }
                 }
                 sideAction={
                     positionOptions.closeButtonEnabled
                         ? {
-                              icon: <IconX />,
-                              type: 'tertiary',
-                              onClick: (e) => {
-                                  onReset()
-                                  e.stopPropagation()
-                              },
-                          }
+                            icon: <IconX />,
+                            type: 'tertiary',
+                            onClick: (e) => {
+                                onReset()
+                                e.stopPropagation()
+                            },
+                        }
                         : null
                 }
             >

@@ -4,7 +4,7 @@ import { ErrorBoundary as SentryErrorBoundary, getCurrentHub } from '@sentry/rea
 import type { Primitive } from '@sentry/types'
 import { useActions, useValues } from 'kea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
 import { teamLogic } from 'scenes/teamLogic'
 
 interface ErrorBoundaryProps {

@@ -1,5 +1,5 @@
 import { IconCheckCircle, IconWarning } from '@posthog/icons'
-import { IconExclamation } from 'lib/lemon-ui/icons'
+import { IconExclamation } from '@posthog/lemon-ui/icons'
 import { WebVitalsPercentile } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { WebVitalsItem, WebVitalsMetric, WebVitalsMetricBand } from '~/queries/schema'

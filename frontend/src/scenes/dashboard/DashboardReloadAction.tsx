@@ -4,10 +4,10 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
-import { IconRefresh } from 'lib/lemon-ui/icons'
-import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
-import { Spinner } from 'lib/lemon-ui/Spinner'
+import { IconRefresh } from '@posthog/lemon-ui/icons'
+import { LemonMenuOverlay } from '@posthog/lemon-ui/LemonMenu'
+import { LemonRadio } from '@posthog/lemon-ui/LemonRadio'
+import { Spinner } from '@posthog/lemon-ui/Spinner'
 import { humanFriendlyDuration } from 'lib/utils'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
@@ -55,8 +55,8 @@ export function DashboardReloadAction(): JSX.Element {
                     blockRefresh
                         ? `Next bulk refresh possible ${dayjs(oldestClientRefreshAllowed).fromNow()}`
                         : itemsLoading
-                        ? 'Refreshing...'
-                        : ''
+                            ? 'Refreshing...'
+                            : ''
                 }
                 sideAction={{
                     'data-attr': 'dashboard-items-action-refresh-dropdown',

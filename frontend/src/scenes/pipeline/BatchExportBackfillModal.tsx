@@ -3,12 +3,12 @@ import { Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { NotFound } from 'lib/components/NotFound'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { LemonCalendarSelectInput } from '@posthog/lemon-ui/LemonCalendar'
+import { LemonCheckbox } from '@posthog/lemon-ui/LemonCheckbox'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
+import { LemonInput } from '@posthog/lemon-ui/LemonInput'
+import { LemonModal } from '@posthog/lemon-ui/LemonModal'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { batchExportBackfillModalLogic, BatchExportBackfillModalLogicProps } from './batchExportBackfillModalLogic'
@@ -104,8 +104,8 @@ export function BatchExportBackfillModal({ id }: BatchExportBackfillModalLogicPr
                                         ? batchExportConfig.interval === 'hour'
                                             ? 'hour'
                                             : batchExportConfig.interval.endsWith('minutes')
-                                            ? 'minute'
-                                            : 'day'
+                                                ? 'minute'
+                                                : 'day'
                                         : 'day'
                                 }
                             />
@@ -172,8 +172,8 @@ export function BatchExportBackfillModal({ id }: BatchExportBackfillModalLogicPr
                                     ? batchExportConfig.interval === 'hour'
                                         ? 'hour'
                                         : batchExportConfig.interval.endsWith('minutes')
-                                        ? 'minute'
-                                        : 'day'
+                                            ? 'minute'
+                                            : 'day'
                                     : 'day'
                             }
                         />

@@ -6,7 +6,7 @@ import { useActions, useValues } from 'kea'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonBanner } from '@posthog/lemon-ui/LemonBanner'
 import { useState } from 'react'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
@@ -143,11 +143,10 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                             <>
                                 <div className="flex gap-4 mb-4">
                                     <LemonButton
-                                        className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${
-                                            !currentMetric.exposure_query
+                                        className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${!currentMetric.exposure_query
                                                 ? 'border-accent-primary bg-accent-primary-highlight'
                                                 : 'border-border'
-                                        }`}
+                                            }`}
                                         onClick={() => {
                                             const metricsField = isSecondary ? 'metrics_secondary' : 'metrics'
                                             setExperiment({
@@ -174,11 +173,10 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                         </div>
                                     </LemonButton>
                                     <LemonButton
-                                        className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${
-                                            currentMetric.exposure_query
+                                        className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${currentMetric.exposure_query
                                                 ? 'border-accent-primary bg-accent-primary-highlight'
                                                 : 'border-border'
-                                        }`}
+                                            }`}
                                         disabledReason={
                                             isDataWarehouseMetric
                                                 ? 'Custom exposure events are not supported for data warehouse metrics. Please contact support if you need this feature.'
@@ -191,33 +189,33 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                                 [metricsField]: metrics.map((metric, idx) =>
                                                     idx === metricIdx
                                                         ? {
-                                                              ...metric,
-                                                              exposure_query: {
-                                                                  kind: NodeKind.TrendsQuery,
-                                                                  series: [
-                                                                      {
-                                                                          kind: NodeKind.EventsNode,
-                                                                          name: '$feature_flag_called',
-                                                                          event: '$feature_flag_called',
-                                                                          math: BaseMathType.UniqueUsers,
-                                                                      },
-                                                                  ],
-                                                                  interval: 'day',
-                                                                  dateRange: {
-                                                                      date_from: dayjs()
-                                                                          .subtract(EXPERIMENT_DEFAULT_DURATION, 'day')
-                                                                          .format('YYYY-MM-DDTHH:mm'),
-                                                                      date_to: dayjs()
-                                                                          .endOf('d')
-                                                                          .format('YYYY-MM-DDTHH:mm'),
-                                                                      explicitDate: true,
-                                                                  },
-                                                                  trendsFilter: {
-                                                                      display: ChartDisplayType.ActionsLineGraph,
-                                                                  },
-                                                                  filterTestAccounts: true,
-                                                              },
-                                                          }
+                                                            ...metric,
+                                                            exposure_query: {
+                                                                kind: NodeKind.TrendsQuery,
+                                                                series: [
+                                                                    {
+                                                                        kind: NodeKind.EventsNode,
+                                                                        name: '$feature_flag_called',
+                                                                        event: '$feature_flag_called',
+                                                                        math: BaseMathType.UniqueUsers,
+                                                                    },
+                                                                ],
+                                                                interval: 'day',
+                                                                dateRange: {
+                                                                    date_from: dayjs()
+                                                                        .subtract(EXPERIMENT_DEFAULT_DURATION, 'day')
+                                                                        .format('YYYY-MM-DDTHH:mm'),
+                                                                    date_to: dayjs()
+                                                                        .endOf('d')
+                                                                        .format('YYYY-MM-DDTHH:mm'),
+                                                                    explicitDate: true,
+                                                                },
+                                                                trendsFilter: {
+                                                                    display: ChartDisplayType.ActionsLineGraph,
+                                                                },
+                                                                filterTestAccounts: true,
+                                                            },
+                                                        }
                                                         : metric
                                                 ),
                                             })

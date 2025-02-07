@@ -4,15 +4,15 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { RestrictionScope } from 'lib/components/RestrictedArea'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { IconExclamation, IconOffline } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { Link } from 'lib/lemon-ui/Link'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconExclamation, IconOffline } from '@posthog/lemon-ui/icons'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { More } from '@posthog/lemon-ui/LemonButton'
+import { LemonDialog } from '@posthog/lemon-ui/LemonDialog'
+import { LemonSwitch } from '@posthog/lemon-ui/LemonSwitch'
+import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui/LemonTable'
+import { LemonTag } from '@posthog/lemon-ui/LemonTag'
+import { Link } from '@posthog/lemon-ui/Link'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
@@ -84,33 +84,33 @@ function VerifiedDomainsTable(): JSX.Element {
         },
         ...(preflight?.cloud
             ? ([
-                  {
-                      key: 'is_verified',
-                      title: (
-                          <div className="flex items-center space-x-1">
-                              <span>Verification</span>
-                              <Tooltip title="Verification (through DNS) is required to use domains for authentication (e.g. SAML or enforce SSO).">
-                                  <IconInfo />
-                              </Tooltip>
-                          </div>
-                      ),
-                      render: function Verified(_, { is_verified, verified_at }) {
-                          return is_verified ? (
-                              <div className="flex items-center text-success">
-                                  <IconCheckCircle style={iconStyle} /> Verified
-                              </div>
-                          ) : verified_at ? (
-                              <div className="flex items-center text-danger">
-                                  <IconExclamation style={iconStyle} /> Verification expired
-                              </div>
-                          ) : (
-                              <div className="flex items-center text-warning">
-                                  <IconWarning style={iconStyle} /> Pending verification
-                              </div>
-                          )
-                      },
-                  },
-              ] as LemonTableColumns<OrganizationDomainType>)
+                {
+                    key: 'is_verified',
+                    title: (
+                        <div className="flex items-center space-x-1">
+                            <span>Verification</span>
+                            <Tooltip title="Verification (through DNS) is required to use domains for authentication (e.g. SAML or enforce SSO).">
+                                <IconInfo />
+                            </Tooltip>
+                        </div>
+                    ),
+                    render: function Verified(_, { is_verified, verified_at }) {
+                        return is_verified ? (
+                            <div className="flex items-center text-success">
+                                <IconCheckCircle style={iconStyle} /> Verified
+                            </div>
+                        ) : verified_at ? (
+                            <div className="flex items-center text-danger">
+                                <IconExclamation style={iconStyle} /> Verification expired
+                            </div>
+                        ) : (
+                            <div className="flex items-center text-warning">
+                                <IconWarning style={iconStyle} /> Pending verification
+                            </div>
+                        )
+                    },
+                },
+            ] as LemonTableColumns<OrganizationDomainType>)
             : []),
         {
             key: 'jit_provisioning_enabled',
@@ -118,9 +118,8 @@ function VerifiedDomainsTable(): JSX.Element {
                 <div className="flex items-center space-x-1">
                     <span>Automatic provisioning</span>
                     <Tooltip
-                        title={`Enables just-in-time provisioning. If a user logs in with SSO with an email address on this domain an account will be created in ${
-                            currentOrganization?.name || 'this organization'
-                        } if it does not exist.`}
+                        title={`Enables just-in-time provisioning. If a user logs in with SSO with an email address on this domain an account will be created in ${currentOrganization?.name || 'this organization'
+                            } if it does not exist.`}
                     >
                         <IconInfo />
                     </Tooltip>

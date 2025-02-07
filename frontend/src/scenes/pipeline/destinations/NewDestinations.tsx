@@ -3,7 +3,7 @@ import { LemonButton, LemonTable, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { LemonTableLink } from '@posthog/lemon-ui/LemonTable'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, HogFunctionTypeType, PipelineStage } from '~/types'

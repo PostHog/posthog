@@ -4,8 +4,8 @@ import { useValues } from 'kea'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { LemonSkeleton } from '@posthog/lemon-ui/LemonSkeleton'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { colonDelimitedDuration } from 'lib/utils'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
@@ -162,8 +162,8 @@ function durationToShow(recording: SessionRecordingType, order: RecordingsQuery[
     return order === 'active_seconds'
         ? recording.active_seconds
         : order === 'inactive_seconds'
-        ? recording.inactive_seconds
-        : recording.recording_duration
+            ? recording.inactive_seconds
+            : recording.recording_duration
 }
 
 export function SessionRecordingPreview({

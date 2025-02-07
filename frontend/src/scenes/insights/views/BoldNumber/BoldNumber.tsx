@@ -4,7 +4,7 @@ import { IconTrending } from '@posthog/icons'
 import { LemonRow, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { IconFlare, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
+import { IconFlare, IconTrendingDown, IconTrendingFlat } from '@posthog/lemon-ui/icons'
 import { percentage } from 'lib/utils'
 import { useLayoutEffect, useRef, useState } from 'react'
 import { useEffect } from 'react'
@@ -75,9 +75,8 @@ function useBoldNumberTooltip({
     useEffect(() => {
         const tooltipRect = tooltipEl.getBoundingClientRect()
         if (divRect) {
-            tooltipEl.style.top = `${
-                window.scrollY + divRect.top - tooltipRect.height - BOLD_NUMBER_TOOLTIP_OFFSET_PX
-            }px`
+            tooltipEl.style.top = `${window.scrollY + divRect.top - tooltipRect.height - BOLD_NUMBER_TOOLTIP_OFFSET_PX
+                }px`
             tooltipEl.style.left = `${divRect.left + divRect.width / 2 - tooltipRect.width / 2}px`
         }
     })
@@ -105,22 +104,22 @@ export function BoldNumber({ showPersonsModal = true, context }: ChartParams): J
                     context?.onDataPointClick
                         ? () => context?.onDataPointClick?.({ compare: 'current' }, resultSeries)
                         : showPersonsModal && resultSeries.aggregated_value != null && !isDataWarehouseSeries // != is intentional to catch undefined too
-                        ? () => {
-                              openPersonsModal({
-                                  title: resultSeries.label,
-                                  query: {
-                                      kind: NodeKind.InsightActorsQuery,
-                                      source: querySource!,
-                                      includeRecordings: true,
-                                  },
-                                  additionalSelect: {
-                                      value_at_data_point: 'event_count',
-                                      matched_recordings: 'matched_recordings',
-                                  },
-                                  orderBy: ['event_count DESC, actor_id DESC'],
-                              })
-                          }
-                        : undefined
+                            ? () => {
+                                openPersonsModal({
+                                    title: resultSeries.label,
+                                    query: {
+                                        kind: NodeKind.InsightActorsQuery,
+                                        source: querySource!,
+                                        includeRecordings: true,
+                                    },
+                                    additionalSelect: {
+                                        value_at_data_point: 'event_count',
+                                        matched_recordings: 'matched_recordings',
+                                    },
+                                    orderBy: ['event_count DESC, actor_id DESC'],
+                                })
+                            }
+                            : undefined
                 }
                 onMouseLeave={() => setIsTooltipShown(false)}
                 ref={valueRef}
@@ -162,10 +161,10 @@ function BoldNumberComparison({
         percentageDiff === null
             ? 'No data for comparison in the'
             : percentageDiff > 0
-            ? `Up ${percentage(percentageDiff)} from`
-            : percentageDiff < 0
-            ? `Down ${percentage(-percentageDiff)} from`
-            : 'No change from'
+                ? `Up ${percentage(percentageDiff)} from`
+                : percentageDiff < 0
+                    ? `Down ${percentage(-percentageDiff)} from`
+                    : 'No change from'
 
     return (
         <LemonRow

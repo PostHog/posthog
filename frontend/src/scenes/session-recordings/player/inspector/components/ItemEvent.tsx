@@ -7,8 +7,8 @@ import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElem
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TitledSnack } from 'lib/components/TitledSnack'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { Spinner } from 'lib/lemon-ui/Spinner'
+import { IconOpenInNew } from '@posthog/lemon-ui/icons'
+import { Spinner } from '@posthog/lemon-ui/Spinner'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, POSTHOG_EVENT_PROMOTED_PROPERTIES } from 'lib/taxonomy'
 import { autoCaptureEventToDescription, capitalizeFirstLetter, isString } from 'lib/utils'
 import { AutocaptureImageTab, AutocapturePreviewImage, autocaptureToImage } from 'lib/utils/event-property-utls'
@@ -161,23 +161,23 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                                 },
                                 item.data.elements && item.data.elements.length > 0
                                     ? {
-                                          key: 'elements',
-                                          label: 'Elements',
-                                          content: (
-                                              <HTMLElementsDisplay
-                                                  size="xsmall"
-                                                  elements={item.data.elements}
-                                                  selectedText={item.data.properties['$selected_content']}
-                                              />
-                                          ),
-                                      }
+                                        key: 'elements',
+                                        label: 'Elements',
+                                        content: (
+                                            <HTMLElementsDisplay
+                                                size="xsmall"
+                                                elements={item.data.elements}
+                                                selectedText={item.data.properties['$selected_content']}
+                                            />
+                                        ),
+                                    }
                                     : null,
                                 autocaptureToImage(item.data.elements)
                                     ? {
-                                          key: 'image',
-                                          label: 'Image',
-                                          content: <AutocaptureImageTab elements={item.data.elements} />,
-                                      }
+                                        key: 'image',
+                                        label: 'Image',
+                                        content: <AutocaptureImageTab elements={item.data.elements} />,
+                                    }
                                     : null,
                                 {
                                     key: 'raw',

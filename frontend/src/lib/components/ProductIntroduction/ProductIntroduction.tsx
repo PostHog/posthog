@@ -1,6 +1,6 @@
 import { IconOpenSidebar, IconPlus, IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductKey } from '~/types'
@@ -90,10 +90,10 @@ export const ProductIntroduction = ({
                         {!isEmpty
                             ? `Welcome to ${productName}!`
                             : actionable
-                            ? titleOverride
                                 ? titleOverride
-                                : `Create your first ${thingName}`
-                            : `No ${thingName}s yet`}
+                                    ? titleOverride
+                                    : `Create your first ${thingName}`
+                                : `No ${thingName}s yet`}
                     </h2>
                     <p className="ml-0">{description}</p>
                     {!isEmpty && (

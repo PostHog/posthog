@@ -1,7 +1,7 @@
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { Spinner } from '@posthog/lemon-ui/Spinner'
 import { actionLogic, ActionLogicProps } from 'scenes/actions/actionLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 

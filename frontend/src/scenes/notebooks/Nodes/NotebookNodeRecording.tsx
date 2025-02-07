@@ -21,7 +21,7 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 import { LemonSwitch } from '@posthog/lemon-ui'
 import { JSONContent, NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
 import { asDisplay } from 'scenes/persons/person-utils'
-import { IconComment } from 'lib/lemon-ui/icons'
+import { IconComment } from '@posthog/lemon-ui/icons'
 import { NotFound } from 'lib/components/NotFound'
 import { IconPerson } from '@posthog/icons'
 import { UUID_REGEX_MATCH_GROUPS } from './utils'
@@ -75,17 +75,17 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
             },
             person
                 ? {
-                      text: `View ${asDisplay(person)}`,
-                      icon: <IconPerson />,
-                      onClick: () => {
-                          insertAfter({
-                              type: NotebookNodeType.Person,
-                              attrs: {
-                                  id: String(person.distinct_ids[0]),
-                              },
-                          })
-                      },
-                  }
+                    text: `View ${asDisplay(person)}`,
+                    icon: <IconPerson />,
+                    onClick: () => {
+                        insertAfter({
+                            type: NotebookNodeType.Person,
+                            attrs: {
+                                id: String(person.distinct_ids[0]),
+                            },
+                        })
+                    },
+                }
                 : undefined,
         ])
     }, [sessionPlayerMetaData?.person?.id])

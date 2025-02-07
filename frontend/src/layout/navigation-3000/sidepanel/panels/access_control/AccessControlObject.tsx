@@ -13,9 +13,9 @@ import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { UserSelectItem } from 'lib/components/UserSelectItem'
-import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { ProfileBubbles, ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { LemonTableColumns } from '@posthog/lemon-ui/LemonTable'
+import { LemonTableLink } from '@posthog/lemon-ui/LemonTable'
+import { ProfileBubbles, ProfilePicture } from '@posthog/lemon-ui/ProfilePicture'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useEffect, useState } from 'react'
 import { urls } from 'scenes/urls'
@@ -390,10 +390,10 @@ function AddItemsControlsModal(props: {
     const onSubmit =
         items.length && level
             ? (): void =>
-                  void props.onAdd(items, level).then(() => {
-                      setItems([])
-                      setLevel(availableLevels[0] ?? null)
-                  })
+                void props.onAdd(items, level).then(() => {
+                    setItems([])
+                    setLevel(availableLevels[0] ?? null)
+                })
             : undefined
 
     return (
@@ -415,8 +415,8 @@ function AddItemsControlsModal(props: {
                             !canEditAccessControls
                                 ? 'You cannot edit this'
                                 : !onSubmit
-                                ? 'Please choose what you want to add and at what level'
-                                : undefined
+                                    ? 'Please choose what you want to add and at what level'
+                                    : undefined
                         }
                     >
                         Add

@@ -1,7 +1,7 @@
 import { IconInfo, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonDivider, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconAreaChart } from 'lib/lemon-ui/icons'
+import { IconAreaChart } from '@posthog/lemon-ui/icons'
 
 import { experimentLogic } from '../experimentLogic'
 import { MAX_PRIMARY_METRICS, MAX_SECONDARY_METRICS } from './const'
@@ -228,15 +228,14 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
                             return (
                                 <div
                                     key={metricIndex}
-                                    className={`w-full border border-border bg-light ${
-                                        metrics.length === 1
+                                    className={`w-full border border-border bg-light ${metrics.length === 1
                                             ? 'rounded'
                                             : isFirstMetric
-                                            ? 'rounded-t'
-                                            : metricIndex === metrics.length - 1
-                                            ? 'rounded-b'
-                                            : ''
-                                    }`}
+                                                ? 'rounded-t'
+                                                : metricIndex === metrics.length - 1
+                                                    ? 'rounded-b'
+                                                    : ''
+                                        }`}
                                 >
                                     <DeltaChart
                                         isSecondary={!!isSecondary}

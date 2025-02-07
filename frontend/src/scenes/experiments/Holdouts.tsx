@@ -11,7 +11,7 @@ import {
     LemonTableColumns,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
+import { LemonSlider } from '@posthog/lemon-ui/LemonSlider'
 import { useState } from 'react'
 
 import { Holdout, holdoutsLogic, NEW_HOLDOUT } from './holdoutsLogic'

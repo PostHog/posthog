@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
 import { useMemo } from 'react'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -21,25 +21,22 @@ export function LoadNext({ query }: LoadNextProps): JSX.Element {
             // No data limit means the user is controlling the pagination
             if (!dataLimit) {
                 if (numberOfRows && numberOfRows <= DEFAULT_PAGE_SIZE) {
-                    return `Showing ${numberOfRows === 1 ? '' : 'all'} ${numberOfRows === 1 ? 'one' : numberOfRows} ${
-                        numberOfRows === 1 ? 'entry' : 'entries'
-                    }`
+                    return `Showing ${numberOfRows === 1 ? '' : 'all'} ${numberOfRows === 1 ? 'one' : numberOfRows} ${numberOfRows === 1 ? 'entry' : 'entries'
+                        }`
                 }
                 // If the number of rows is greater than the default page size, it's handled by pagination component
                 return ''
             }
             if (numberOfRows && numberOfRows < dataLimit) {
-                return `Showing ${numberOfRows === 1 ? '' : 'all'} ${numberOfRows === 1 ? 'one' : numberOfRows} ${
-                    numberOfRows === 1 ? 'entry' : 'entries'
-                }`
+                return `Showing ${numberOfRows === 1 ? '' : 'all'} ${numberOfRows === 1 ? 'one' : numberOfRows} ${numberOfRows === 1 ? 'entry' : 'entries'
+                    }`
             }
             return `Default limit of ${dataLimit} rows reached`
         } else if (isHogQLQuery(query) && !canLoadNextData && hasMoreData && dataLimit) {
             return `Default limit of ${dataLimit} rows reached. Try adding a LIMIT clause to adjust.`
         }
-        let result = `Showing ${
-            hasMoreData && (numberOfRows ?? 0) > 1 ? 'first ' : canLoadNextData || numberOfRows === 1 ? '' : 'all '
-        }${numberOfRows === 1 ? 'one' : numberOfRows} ${numberOfRows === 1 ? 'entry' : 'entries'}`
+        let result = `Showing ${hasMoreData && (numberOfRows ?? 0) > 1 ? 'first ' : canLoadNextData || numberOfRows === 1 ? '' : 'all '
+            }${numberOfRows === 1 ? 'one' : numberOfRows} ${numberOfRows === 1 ? 'entry' : 'entries'}`
         if (canLoadNextData) {
             result += '. Click to load more.'
         } else if (hasMoreData) {

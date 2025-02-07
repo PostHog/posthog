@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui/LemonTable'
 import { useEffect } from 'react'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -45,14 +45,14 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
         },
         ...(hasTagging
             ? [
-                  {
-                      title: 'Tags',
-                      key: 'tags',
-                      render: function Render(_, _definition: PropertyDefinition) {
-                          return <ObjectTags tags={_definition.tags ?? []} staticOnly />
-                      },
-                  } as LemonTableColumn<PropertyDefinition, keyof PropertyDefinition | undefined>,
-              ]
+                {
+                    title: 'Tags',
+                    key: 'tags',
+                    render: function Render(_, _definition: PropertyDefinition) {
+                        return <ObjectTags tags={_definition.tags ?? []} staticOnly />
+                    },
+                } as LemonTableColumn<PropertyDefinition, keyof PropertyDefinition | undefined>,
+            ]
             : []),
         {
             title: 'Example',
@@ -89,13 +89,13 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
                     entryCount: eventPropertiesCacheMap?.[definition.id]?.count ?? 0,
                     onForward: eventPropertiesCacheMap?.[definition.id]?.next
                         ? () => {
-                              loadPropertiesForEvent(definition, eventPropertiesCacheMap[definition.id].next)
-                          }
+                            loadPropertiesForEvent(definition, eventPropertiesCacheMap[definition.id].next)
+                        }
                         : undefined,
                     onBackward: eventPropertiesCacheMap?.[definition.id]?.previous
                         ? () => {
-                              loadPropertiesForEvent(definition, eventPropertiesCacheMap[definition.id].previous)
-                          }
+                            loadPropertiesForEvent(definition, eventPropertiesCacheMap[definition.id].previous)
+                        }
                         : undefined,
                 }}
                 loading={eventDefinitionPropertiesLoading.includes(definition.id)}

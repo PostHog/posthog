@@ -4,10 +4,10 @@ import { IconInfo } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { CompactList } from 'lib/components/CompactList/CompactList'
-import { IconPlayCircle } from 'lib/lemon-ui/icons'
-import { LemonSnack } from 'lib/lemon-ui/LemonSnack'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconPlayCircle } from '@posthog/lemon-ui/icons'
+import { LemonSnack } from '@posthog/lemon-ui/LemonSnack'
+import { ProfilePicture } from '@posthog/lemon-ui/ProfilePicture'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 import { humanFriendlyDuration } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { asDisplay } from 'scenes/persons/person-utils'
@@ -99,17 +99,17 @@ export function WatchNextList({ sessionRecordings, loading, recordingsOptIn }: W
             emptyMessage={
                 recordingsOptIn
                     ? {
-                          title: 'There are no recordings for this project',
-                          description: 'Make sure you have the javascript snippet setup in your website.',
-                          buttonText: 'Learn more',
-                          buttonTo: 'https://posthog.com/docs/user-guides/recordings',
-                      }
+                        title: 'There are no recordings for this project',
+                        description: 'Make sure you have the javascript snippet setup in your website.',
+                        buttonText: 'Learn more',
+                        buttonTo: 'https://posthog.com/docs/user-guides/recordings',
+                    }
                     : {
-                          title: 'Recordings are not enabled for this project',
-                          description: 'Once recordings are enabled, recordings will display here.',
-                          buttonText: 'Enable recordings',
-                          buttonTo: urls.settings('project-replay'),
-                      }
+                        title: 'Recordings are not enabled for this project',
+                        description: 'Once recordings are enabled, recordings will display here.',
+                        buttonText: 'Enable recordings',
+                        buttonTo: urls.settings('project-replay'),
+                    }
             }
             items={sessionRecordings.slice(0, 5)}
             renderRow={(recording: SessionRecordingType, index) => <RecordingRow key={index} recording={recording} />}

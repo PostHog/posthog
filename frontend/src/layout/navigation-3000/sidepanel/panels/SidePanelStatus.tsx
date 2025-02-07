@@ -2,7 +2,7 @@ import { IconCloud, IconExternal } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { IconWithBadge } from 'lib/lemon-ui/icons'
+import { IconWithBadge } from '@posthog/lemon-ui/icons'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useState } from 'react'
 
@@ -28,8 +28,8 @@ export const SidePanelStatusIcon = (props: { className?: string }): JSX.Element 
                         status.includes('outage')
                             ? 'danger'
                             : status.includes('degraded') || status.includes('monitoring')
-                            ? 'warning'
-                            : 'success'
+                                ? 'warning'
+                                : 'success'
                     }
                 >
                     <IconCloud />

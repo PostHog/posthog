@@ -3,13 +3,13 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { LemonTableColumns } from 'lib/lemon-ui/LemonTable/types'
-import { Link } from 'lib/lemon-ui/Link'
+import { LemonBanner } from '@posthog/lemon-ui/LemonBanner'
+import { LemonDivider } from '@posthog/lemon-ui/LemonDivider'
+import { LemonInput } from '@posthog/lemon-ui/LemonInput'
+import { LemonTable } from '@posthog/lemon-ui/LemonTable'
+import { LemonTableLink } from '@posthog/lemon-ui/LemonTable'
+import { LemonTableColumns } from '@posthog/lemon-ui/LemonTable'
+import { Link } from '@posthog/lemon-ui/Link'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
@@ -94,15 +94,15 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: number }): JSX.Elem
                     controlled: true,
                     onBackward: groups.previous
                         ? () => {
-                              loadGroups(groups.previous)
-                              window.scrollTo(0, 0)
-                          }
+                            loadGroups(groups.previous)
+                            window.scrollTo(0, 0)
+                        }
                         : undefined,
                     onForward: groups.next
                         ? () => {
-                              loadGroups(groups.next)
-                              window.scrollTo(0, 0)
-                          }
+                            loadGroups(groups.next)
+                            window.scrollTo(0, 0)
+                        }
                         : undefined,
                 }}
                 emptyState={

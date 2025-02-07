@@ -1,7 +1,7 @@
 import './InsightsTable.scss'
 
 import { useActions, useValues } from 'kea'
-import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { LemonTable, LemonTableColumn } from '@posthog/lemon-ui/LemonTable'
 import { compare as compareFn } from 'natural-orderby'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -287,13 +287,13 @@ export function InsightsTable({
             rowRibbonColor={
                 isLegend
                     ? (item) => {
-                          const isPrevious = !!item.compare && item.compare_label === 'previous'
+                        const isPrevious = !!item.compare && item.compare_label === 'previous'
 
-                          const themeColor = getTrendsColor(item)
-                          const mainColor = isPrevious ? `${themeColor}80` : themeColor
+                        const themeColor = getTrendsColor(item)
+                        const mainColor = isPrevious ? `${themeColor}80` : themeColor
 
-                          return mainColor
-                      }
+                        return mainColor
+                    }
                     : undefined
             }
             firstColumnSticky

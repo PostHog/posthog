@@ -2,10 +2,10 @@
     "compilerOptions": {
         "baseUrl": "frontend/",
         "paths": {
+            "lib/lemon-ui": ["@posthog/lemon-ui"],
+            "lib/lemon-ui/*": ["@posthog/lemon-ui/*"],
             "lib/*": ["src/lib/*"],
             "scenes/*": ["src/scenes/*"],
-            "@posthog/lemon-ui": ["@posthog/lemon-ui/src/index"],
-            "@posthog/lemon-ui/*": ["@posthog/lemon-ui/src/*"],
             "storybook/*": ["../.storybook/*"],
             "@posthog/ee/exports": ["../ee/exports", "@posthog/ee/exports"],
             "~/*": ["src/*"],
@@ -20,7 +20,7 @@
         "strict": true, // Enable all strict type checking options
         "forceConsistentCasingInFileNames": true, // Disallow inconsistently-cased references to the same file.
         "module": "esnext", // Specify module code generation
-        "moduleResolution": "node", // Resolve modules using Node.js style
+        "moduleResolution": "node16", // Resolve modules using Node.js style
         "isolatedModules": true,
         "incremental": true,
         "resolveJsonModule": true, // Include modules imported with .json extension
@@ -38,7 +38,14 @@
         "ignoreDeprecations": "5.0",
         "lib": ["dom", "es2021"]
     },
-    "include": ["frontend/**/*", ".storybook/**/*", "playwright/**/*", "ee/frontend/**/*", "products/**/frontend/**/*"],
+    "include": [
+        "frontend/**/*",
+        ".storybook/**/*",
+        "playwright/**/*",
+        "ee/frontend/**/*",
+        "products/**/frontend/**/*",
+        "commomn/**/*"
+    ],
     "exclude": ["frontend/dist/**/*"],
     "ts-node": {
         "compilerOptions": {

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { LemonBanner } from '@posthog/lemon-ui/LemonBanner'
+import { LemonModal } from '@posthog/lemon-ui/LemonModal'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'
 

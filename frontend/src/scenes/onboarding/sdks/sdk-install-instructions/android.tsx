@@ -1,7 +1,7 @@
 import { Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonBanner } from '@posthog/lemon-ui/LemonBanner'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -39,9 +39,8 @@ function AndroidSetupSnippet({ includeReplay }: AndroidSetupProps): JSX.Element 
             apiKey = POSTHOG_API_KEY,
             host = POSTHOG_HOST
         )
-        ${
-            includeReplay
-                ? `
+        ${includeReplay
+                    ? `
         // check https://posthog.com/docs/session-replay/installation?tab=Android
         // for more config and to learn about how we capture sessions on mobile
         // and what to expect
@@ -52,8 +51,8 @@ function AndroidSetupSnippet({ includeReplay }: AndroidSetupProps): JSX.Element 
         // screenshot is disabled by default
         // The screenshot may contain sensitive information, use with caution
         config.sessionReplayConfig.screenshot = true`
-                : ''
-        }
+                    : ''
+                }
 
         // Setup PostHog with the given Context and Config
         PostHogAndroid.setup(this, config)

@@ -1,7 +1,7 @@
 import { IconPlusSmall } from '@posthog/icons'
 import { useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
 import { HogFunctionConfiguration } from 'scenes/pipeline/hogfunctions/HogFunctionConfiguration'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'

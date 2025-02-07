@@ -2,7 +2,7 @@ import { LemonButton, LemonCheckbox, LemonDialog, LemonInput, LemonSelect } from
 import { useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
-import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
 
 import { AvailableFeature, SurveyAppearance as SurveyAppearanceType } from '~/types'
 
@@ -19,7 +19,7 @@ interface CustomizationProps {
     isCustomFontsEnabled?: boolean
 }
 
-interface WidgetCustomizationProps extends Omit<CustomizationProps, 'surveyQuestionItem'> {}
+interface WidgetCustomizationProps extends Omit<CustomizationProps, 'surveyQuestionItem'> { }
 
 export function Customization({
     appearance,

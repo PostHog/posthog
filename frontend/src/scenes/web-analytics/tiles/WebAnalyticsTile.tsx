@@ -6,9 +6,9 @@ import { getColorVar } from 'lib/colors'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from '@posthog/lemon-ui/icons'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { LemonSwitch } from '@posthog/lemon-ui/LemonSwitch'
 import { percentage, UnexpectedNeverError } from 'lib/utils'
 import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
 import { useCallback, useMemo } from 'react'
@@ -81,33 +81,33 @@ const VariationCell = (
             previous === 0 && current === 0 // Special case, render as flatline
                 ? 0
                 : current === null || !compareFilter || compareFilter.compare === false
-                ? null
-                : previous === null || previous === 0
-                ? Infinity
-                : current / previous - 1
+                    ? null
+                    : previous === null || previous === 0
+                        ? Infinity
+                        : current / previous - 1
 
         const trend =
             pctChangeFromPrevious === null
                 ? null
                 : pctChangeFromPrevious === 0
-                ? { Icon: IconTrendingFlat, color: getColorVar('muted') }
-                : pctChangeFromPrevious > 0
-                ? {
-                      Icon: IconTrending,
-                      color: reverseColors ? getColorVar('danger') : getColorVar('success'),
-                  }
-                : {
-                      Icon: IconTrendingDown,
-                      color: reverseColors ? getColorVar('success') : getColorVar('danger'),
-                  }
+                    ? { Icon: IconTrendingFlat, color: getColorVar('muted') }
+                    : pctChangeFromPrevious > 0
+                        ? {
+                            Icon: IconTrending,
+                            color: reverseColors ? getColorVar('danger') : getColorVar('success'),
+                        }
+                        : {
+                            Icon: IconTrendingDown,
+                            color: reverseColors ? getColorVar('success') : getColorVar('danger'),
+                        }
 
         // If current === previous, say "increased by 0%"
         const tooltip =
             pctChangeFromPrevious !== null
                 ? `${current >= previous ? 'Increased' : 'Decreased'} by ${percentage(
-                      Math.abs(pctChangeFromPrevious),
-                      0
-                  )} since last period (from ${formatNumber(previous)} to ${formatNumber(current)})`
+                    Math.abs(pctChangeFromPrevious),
+                    0
+                )} since last period (from ${formatNumber(previous)} to ${formatNumber(current)})`
                 : null
 
         return (

@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
-import { LemonMenuItemList } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { LemonMenuItemList } from '@posthog/lemon-ui/LemonMenu'
 import React, { useState } from 'react'
 import { urls } from 'scenes/urls'
 

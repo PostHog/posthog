@@ -4,12 +4,12 @@ import { IconMinusSmall, IconPlusSmall } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { Spinner } from 'lib/lemon-ui/Spinner'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { LemonDivider } from '@posthog/lemon-ui/LemonDivider'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui/LemonTable'
+import { createdAtColumn, createdByColumn } from '@posthog/lemon-ui/LemonTable'
+import { LemonTableLink } from '@posthog/lemon-ui/LemonTable'
+import { Spinner } from '@posthog/lemon-ui/Spinner'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
@@ -64,24 +64,24 @@ export function AddSavedInsightsToDashboard(): JSX.Element {
         },
         ...(hasTagging
             ? [
-                  {
-                      title: 'Tags',
-                      dataIndex: 'tags' as keyof QueryBasedInsightModel,
-                      key: 'tags',
-                      render: function renderTags(tags: string[]) {
-                          return <ObjectTags tags={tags} staticOnly />
-                      },
-                  },
-              ]
+                {
+                    title: 'Tags',
+                    dataIndex: 'tags' as keyof QueryBasedInsightModel,
+                    key: 'tags',
+                    render: function renderTags(tags: string[]) {
+                        return <ObjectTags tags={tags} staticOnly />
+                    },
+                },
+            ]
             : []),
         ...(tab === SavedInsightsTabs.Yours
             ? []
             : [
-                  createdByColumn() as LemonTableColumn<
-                      QueryBasedInsightModel,
-                      keyof QueryBasedInsightModel | undefined
-                  >,
-              ]),
+                createdByColumn() as LemonTableColumn<
+                    QueryBasedInsightModel,
+                    keyof QueryBasedInsightModel | undefined
+                >,
+            ]),
         createdAtColumn() as LemonTableColumn<QueryBasedInsightModel, keyof QueryBasedInsightModel | undefined>,
         {
             title: 'Last modified',
@@ -134,9 +134,8 @@ export function AddSavedInsightsToDashboard(): JSX.Element {
             <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center">
                 <span className="text-secondary">
                     {count
-                        ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${
-                              count === 1 ? '' : 's'
-                          }`
+                        ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${count === 1 ? '' : 's'
+                        }`
                         : null}
                 </span>
             </div>

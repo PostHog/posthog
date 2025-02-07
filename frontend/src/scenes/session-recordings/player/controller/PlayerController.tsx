@@ -13,8 +13,8 @@ import {
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { IconFullScreen, IconSync } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconFullScreen, IconSync } from '@posthog/lemon-ui/icons'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
 import { humanFriendlyDuration } from 'lib/utils'
 import {
     SettingsBar,

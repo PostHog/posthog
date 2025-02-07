@@ -5,10 +5,10 @@ import { useActions, useValues } from 'kea'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { FEATURE_FLAGS, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { IconChevronRight } from 'lib/lemon-ui/icons'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconChevronRight } from '@posthog/lemon-ui/icons'
+import { LemonBanner } from '@posthog/lemon-ui/LemonBanner'
+import { More } from '@posthog/lemon-ui/LemonButton'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, humanFriendlyCurrency } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -37,8 +37,8 @@ export const getTierDescription = (
     return i === 0
         ? `First ${summarizeUsage(tiers[i].up_to)} ${product.unit}s / ${interval}`
         : tiers[i].up_to
-        ? `${summarizeUsage(tiers?.[i - 1].up_to || null)} - ${summarizeUsage(tiers[i].up_to)}`
-        : `> ${summarizeUsage(tiers?.[i - 1].up_to || null)}`
+            ? `${summarizeUsage(tiers?.[i - 1].up_to || null)} - ${summarizeUsage(tiers[i].up_to)}`
+            : `> ${summarizeUsage(tiers?.[i - 1].up_to || null)}`
 }
 
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
@@ -69,13 +69,13 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
     const { upgradePlan, currentPlan, downgradePlan } = currentAndUpgradePlans
     const additionalFeaturesOnUpgradedPlan = upgradePlan
         ? upgradePlan?.features?.filter(
-              (feature) =>
-                  !currentPlan?.features?.some((currentPlanFeature) => currentPlanFeature.name === feature.name)
-          )
+            (feature) =>
+                !currentPlan?.features?.some((currentPlanFeature) => currentPlanFeature.name === feature.name)
+        )
         : currentPlan?.features?.filter(
-              (feature) =>
-                  !downgradePlan?.features?.some((downgradePlanFeature) => downgradePlanFeature.name === feature.name)
-          ) || []
+            (feature) =>
+                !downgradePlan?.features?.some((downgradePlanFeature) => downgradePlanFeature.name === feature.name)
+        ) || []
 
     const upgradeToPlanKey = upgradePlan?.plan_key
     const currentPlanKey = currentPlan?.plan_key
@@ -252,11 +252,9 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             {product.subscribed ? (
                                                 <div className="flex justify-end gap-8 flex-wrap items-end shrink-0">
                                                     <Tooltip
-                                                        title={`The current ${
-                                                            billing?.discount_percent ? 'discounted ' : ''
-                                                        }amount you have been billed for this ${
-                                                            billing?.billing_period?.interval
-                                                        } so far. This number updates once daily.`}
+                                                        title={`The current ${billing?.discount_percent ? 'discounted ' : ''
+                                                            }amount you have been billed for this ${billing?.billing_period?.interval
+                                                            } so far. This number updates once daily.`}
                                                     >
                                                         <div className="flex flex-col items-center">
                                                             <div className="font-bold text-3xl leading-7">
@@ -264,13 +262,13 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                                     parseFloat(
                                                                         isSessionReplayWithAddons
                                                                             ? product.current_amount_usd_before_addons ||
-                                                                                  '0'
+                                                                            '0'
                                                                             : product.current_amount_usd || '0'
                                                                     ) *
-                                                                        (1 -
-                                                                            (billing?.discount_percent
-                                                                                ? billing.discount_percent / 100
-                                                                                : 0))
+                                                                    (1 -
+                                                                        (billing?.discount_percent
+                                                                            ? billing.discount_percent / 100
+                                                                            : 0))
                                                                 )}
                                                             </div>
                                                             <span className="text-xs text-secondary">
@@ -283,11 +281,10 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                     </Tooltip>
                                                     {product.tiers && (
                                                         <Tooltip
-                                                            title={`This is roughly calculated based on your current bill${
-                                                                billing?.discount_percent
-                                                                    ? ', discounts on your account,'
-                                                                    : ''
-                                                            } and the remaining time left in this billing period. This number updates once daily.`}
+                                                            title={`This is roughly calculated based on your current bill${billing?.discount_percent
+                                                                ? ', discounts on your account,'
+                                                                : ''
+                                                                } and the remaining time left in this billing period. This number updates once daily.`}
                                                         >
                                                             <div className="flex flex-col items-center justify-end">
                                                                 <div className="font-bold text-secondary text-lg leading-5">
@@ -295,10 +292,10 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                                         parseFloat(
                                                                             product.projected_amount_usd || '0'
                                                                         ) *
-                                                                            (1 -
-                                                                                (billing?.discount_percent
-                                                                                    ? billing.discount_percent / 100
-                                                                                    : 0))
+                                                                        (1 -
+                                                                            (billing?.discount_percent
+                                                                                ? billing.discount_percent / 100
+                                                                                : 0))
                                                                     )}
                                                                 </div>
                                                                 <span className="text-xs text-secondary">
@@ -382,9 +379,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                 {showUpgradeCard && (
                     <div
                         data-attr={`upgrade-card-${product.type}`}
-                        className={`border-t border-border p-8 flex justify-between ${
-                            !upgradePlan ? 'bg-success-highlight' : 'bg-warning-highlight'
-                        }`}
+                        className={`border-t border-border p-8 flex justify-between ${!upgradePlan ? 'bg-success-highlight' : 'bg-warning-highlight'
+                            }`}
                     >
                         <div>
                             {currentPlan && (

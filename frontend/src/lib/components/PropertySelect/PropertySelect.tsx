@@ -7,8 +7,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { LemonSnack } from '@posthog/lemon-ui/LemonSnack'
+import { Popover } from '@posthog/lemon-ui/Popover'
 import { useState } from 'react'
 
 export interface PropertySelectProps {

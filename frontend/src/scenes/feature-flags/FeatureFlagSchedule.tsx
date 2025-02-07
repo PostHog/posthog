@@ -13,9 +13,9 @@ import {
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { More } from '@posthog/lemon-ui/LemonButton'
+import { atColumn, createdAtColumn, createdByColumn } from '@posthog/lemon-ui/LemonTable'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 import { hasFormErrors } from 'lib/utils'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -207,8 +207,8 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                     !scheduleDateMarker
                                         ? 'Select the scheduled date and time'
                                         : hasFormErrors(schedulePayloadErrors)
-                                        ? 'Fix release condition errors'
-                                        : undefined
+                                            ? 'Fix release condition errors'
+                                            : undefined
                                 }
                             >
                                 Schedule

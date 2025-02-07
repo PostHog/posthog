@@ -8,9 +8,9 @@ import { FlagSelector } from 'lib/components/FlagSelector'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LemonDialog } from '@posthog/lemon-ui/LemonDialog'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
+import { LemonTabs } from '@posthog/lemon-ui/LemonTabs'
 import { useState } from 'react'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -74,21 +74,21 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
     const destinationFilters: HogFunctionFiltersType | null =
         !isEditingFeature && !isNewEarlyAccessFeature && 'id' in earlyAccessFeature && showLinkedHogFunctions
             ? {
-                  events: [
-                      {
-                          id: '$feature_enrollment_update',
-                          type: 'events',
-                          properties: [
-                              {
-                                  key: '$feature_flag',
-                                  value: [earlyAccessFeature.feature_flag.key],
-                                  operator: PropertyOperator.Exact,
-                                  type: PropertyFilterType.Event,
-                              },
-                          ],
-                      },
-                  ],
-              }
+                events: [
+                    {
+                        id: '$feature_enrollment_update',
+                        type: 'events',
+                        properties: [
+                            {
+                                key: '$feature_flag',
+                                value: [earlyAccessFeature.feature_flag.key],
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
+                            },
+                        ],
+                    },
+                ],
+            }
             : null
 
     return (
@@ -97,7 +97,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                 buttons={
                     !earlyAccessFeatureLoading ? (
                         earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability &&
-                        (isNewEarlyAccessFeature || isEditingFeature) ? (
+                            (isNewEarlyAccessFeature || isEditingFeature) ? (
                             <>
                                 <LemonButton
                                     type="secondary"
@@ -264,9 +264,9 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                             earlyAccessFeature.stage === EarlyAccessFeatureStage.Beta
                                                 ? 'warning'
                                                 : earlyAccessFeature.stage ===
-                                                  EarlyAccessFeatureStage.GeneralAvailability
-                                                ? 'success'
-                                                : 'default'
+                                                    EarlyAccessFeatureStage.GeneralAvailability
+                                                    ? 'success'
+                                                    : 'default'
                                         }
                                         className="mt-2 uppercase"
                                     >

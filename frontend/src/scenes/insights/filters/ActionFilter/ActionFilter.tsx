@@ -8,7 +8,7 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DISPLAY_TYPES_TO_CATEGORIES as DISPLAY_TYPES_TO_CATEGORY } from 'lib/constants'
-import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui/LemonButton'
 import { verticalSortableListCollisionDetection } from 'lib/sortable'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React, { useEffect } from 'react'
@@ -60,13 +60,13 @@ export interface ActionFilterProps {
     entitiesLimit?: number
     /** Custom suffix element to show in each ActionFilterRow */
     customRowSuffix?:
-        | string
-        | JSX.Element
-        | ((props: {
-              filter: ActionFilterType | FunnelExclusionLegacy
-              index: number
-              onClose: () => void
-          }) => JSX.Element)
+    | string
+    | JSX.Element
+    | ((props: {
+        filter: ActionFilterType | FunnelExclusionLegacy
+        index: number
+        onClose: () => void
+    }) => JSX.Element)
     /** Show nested arrows to the left of property filter buttons */
     showNestedArrow?: boolean
     /** Which tabs to show for actions selector */
@@ -244,9 +244,8 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                         >
                             {!reachedLimit
                                 ? buttonCopy || 'Action or event'
-                                : `Reached limit of ${entitiesLimit} ${
-                                      filters.insight === InsightType.FUNNELS ? 'steps' : 'series'
-                                  }`}
+                                : `Reached limit of ${entitiesLimit} ${filters.insight === InsightType.FUNNELS ? 'steps' : 'series'
+                                }`}
                         </LemonButton>
                     )}
                 </div>

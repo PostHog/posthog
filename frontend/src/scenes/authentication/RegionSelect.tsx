@@ -3,7 +3,7 @@ import { LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { CLOUD_HOSTNAMES } from 'lib/constants'
-import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
 import { useState } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 

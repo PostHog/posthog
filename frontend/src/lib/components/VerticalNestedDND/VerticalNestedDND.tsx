@@ -27,14 +27,14 @@ import {
 import type { Transform } from '@dnd-kit/utilities'
 import { CSS } from '@dnd-kit/utilities'
 import { IconTrash } from '@posthog/icons'
-import { IconDragHandle } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { IconDragHandle } from '@posthog/lemon-ui/icons'
+import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui/LemonButton'
 import debounce from 'lodash.debounce'
 import isEqual from 'lodash.isequal'
 import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal, unstable_batchedUpdates } from 'react-dom'
 
-const NOOP = (): void => {}
+const NOOP = (): void => { }
 export interface VDNDChildItem {
     id: UniqueIdentifier
 }
@@ -111,7 +111,7 @@ export function VerticalNestedDND<ChildItem extends VDNDChildItem, Item extends 
             const intersections =
                 pointerIntersections.length > 0
                     ? // If there are droppables intersecting with the pointer, return those
-                      pointerIntersections
+                    pointerIntersections
                     : rectIntersection(args)
             let overId = getFirstCollision(intersections, 'id')
 
@@ -699,9 +699,8 @@ export const Container = forwardRef(function Container_<Item extends VNDNDContai
     return (
         <Component
             {...props}
-            className={`flex flex-col p-4 bg-surface-primary border rounded overflow-hidden space-y-2 ${
-                isDragging ? 'opacity-40' : ''
-            }`}
+            className={`flex flex-col p-4 bg-surface-primary border rounded overflow-hidden space-y-2 ${isDragging ? 'opacity-40' : ''
+                }`}
             style={{
                 transform,
                 transition,
@@ -806,9 +805,8 @@ export const ChildItem = React.memo(
         return (
             <li
                 ref={ref}
-                className={`flex p-[calc(0.5rem-1px)] bg-surface-primary border rounded overflow-hidden ${
-                    isDragging ? 'opacity-40' : ''
-                }`}
+                className={`flex p-[calc(0.5rem-1px)] bg-surface-primary border rounded overflow-hidden ${isDragging ? 'opacity-40' : ''
+                    }`}
             >
                 <div
                     data-cypress="draggable-item"

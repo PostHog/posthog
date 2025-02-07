@@ -1,6 +1,6 @@
 import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { LemonInputSelect } from '@posthog/lemon-ui/LemonInputSelect'
 import { useEffect, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 

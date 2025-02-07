@@ -1,7 +1,7 @@
 import { IconEllipsis } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui/LemonButton'
+import { Popover } from '@posthog/lemon-ui/Popover'
 import { useState } from 'react'
 import { funnelCorrelationDetailsLogic } from 'scenes/funnels/funnelCorrelationDetailsLogic'
 import { funnelCorrelationLogic } from 'scenes/funnels/funnelCorrelationLogic'
@@ -28,11 +28,11 @@ export const EventCorrelationActionsCell = ({ record }: { record: FunnelCorrelat
     const buttons: CorrelationActionsCellComponentButtonProps[] = [
         ...(record.result_type === FunnelCorrelationResultsType.Events
             ? [
-                  {
-                      children: 'View correlation details',
-                      onClick: () => openCorrelationDetailsModal(record),
-                  },
-              ]
+                {
+                    children: 'View correlation details',
+                    onClick: () => openCorrelationDetailsModal(record),
+                },
+            ]
             : []),
         {
             children: 'Exclude event from project',

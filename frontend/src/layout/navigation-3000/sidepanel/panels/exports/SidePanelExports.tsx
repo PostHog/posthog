@@ -3,7 +3,7 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { downloadExportedAsset } from 'lib/components/ExportButton/exporter'
 import { dayjs } from 'lib/dayjs'
-import { IconRefresh, IconWithCount } from 'lib/lemon-ui/icons'
+import { IconRefresh, IconWithCount } from '@posthog/lemon-ui/icons'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 import { sidePanelExportsLogic } from './sidePanelExportsLogic'

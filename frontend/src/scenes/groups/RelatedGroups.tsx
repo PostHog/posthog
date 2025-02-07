@@ -1,6 +1,6 @@
 import { IconPerson } from '@posthog/icons'
 import { useValues } from 'kea'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui/LemonTable'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { relatedGroupsLogic } from 'scenes/groups/relatedGroupsLogic'
 import { GroupActorDisplay } from 'scenes/persons/GroupActorDisplay'

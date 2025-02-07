@@ -13,11 +13,11 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconCancel } from 'lib/lemon-ui/icons'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconCancel } from '@posthog/lemon-ui/icons'
+import { LemonDialog } from '@posthog/lemon-ui/LemonDialog'
+import { LemonTableColumns } from '@posthog/lemon-ui/LemonTable'
+import { ProfilePicture } from '@posthog/lemon-ui/ProfilePicture'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import {
     getReasonForAccessLevelChangeProhibition,
@@ -77,14 +77,14 @@ function LevelComponent(member: FusedTeamMemberType): JSX.Element | null {
             }}
             options={possibleOptions.map(
                 (listLevel) =>
-                    ({
-                        value: listLevel,
-                        disabled: listLevel === member.explicit_team_level,
-                        label:
-                            listLevel > member.level
-                                ? membershipLevelToName.get(listLevel)
-                                : membershipLevelToName.get(listLevel),
-                    } as LemonSelectOption<TeamMembershipLevel>)
+                ({
+                    value: listLevel,
+                    disabled: listLevel === member.explicit_team_level,
+                    label:
+                        listLevel > member.level
+                            ? membershipLevelToName.get(listLevel)
+                            : membershipLevelToName.get(listLevel),
+                } as LemonSelectOption<TeamMembershipLevel>)
             )}
             value={member.explicit_team_level}
         />
@@ -102,11 +102,10 @@ function ActionsComponent(member: FusedTeamMemberType): JSX.Element | null {
 
     function handleClick(): void {
         LemonDialog.open({
-            title: `${
-                member.user.uuid == user?.uuid
+            title: `${member.user.uuid == user?.uuid
                     ? 'Leave'
                     : `Remove ${member.user.first_name} (${member.user.email}) from`
-            } project ${currentTeam?.name}?`,
+                } project ${currentTeam?.name}?`,
             secondaryButton: {
                 children: 'Cancel',
             },
@@ -276,8 +275,8 @@ export function TeamAccessControl(): JSX.Element {
                     // Let them uncheck it if it's already checked, but don't let them check it if they don't have the feature
                     checked
                         ? guardAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS, () =>
-                              updateCurrentTeam({ access_control: checked })
-                          )
+                            updateCurrentTeam({ access_control: checked })
+                        )
                         : updateCurrentTeam({ access_control: checked })
                 }}
                 checked={!!currentTeam?.access_control}
@@ -285,12 +284,12 @@ export function TeamAccessControl(): JSX.Element {
                     !currentOrganization
                         ? 'Organization not loaded'
                         : !currentTeam
-                        ? 'Project not loaded'
-                        : currentOrganizationLoading
-                        ? 'Loading organization…'
-                        : currentTeamLoading
-                        ? 'Loading project…'
-                        : restrictionReason
+                            ? 'Project not loaded'
+                            : currentOrganizationLoading
+                                ? 'Loading organization…'
+                                : currentTeamLoading
+                                    ? 'Loading project…'
+                                    : restrictionReason
                 }
                 bordered
                 label="Make project private"

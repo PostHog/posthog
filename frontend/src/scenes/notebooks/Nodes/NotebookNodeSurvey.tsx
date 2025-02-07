@@ -1,10 +1,10 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { FeatureFlagBasicType, NotebookNodeType, Survey } from '~/types'
 import { BindLogic, useActions, useValues } from 'kea'
-import { IconSurveys } from 'lib/lemon-ui/icons'
+import { IconSurveys } from '@posthog/lemon-ui/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { LemonSkeleton } from '@posthog/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { JSONContent, NotebookNodeProps } from '../Notebook/utils'
 import { buildFlagContent } from './NotebookNodeFlag'
@@ -27,13 +27,13 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSurveyAttribute
         setActions([
             survey.linked_flag
                 ? {
-                      text: 'View linked flag',
-                      onClick: () => {
-                          if (nextNode?.type.name !== NotebookNodeType.FeatureFlag) {
-                              insertAfter(buildFlagContent((survey.linked_flag as FeatureFlagBasicType).id))
-                          }
-                      },
-                  }
+                    text: 'View linked flag',
+                    onClick: () => {
+                        if (nextNode?.type.name !== NotebookNodeType.FeatureFlag) {
+                            insertAfter(buildFlagContent((survey.linked_flag as FeatureFlagBasicType).id))
+                        }
+                    },
+                }
                 : undefined,
         ])
     }, [survey])

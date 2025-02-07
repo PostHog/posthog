@@ -4,7 +4,7 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { lemonToast } from '@posthog/lemon-ui/LemonToast'
 import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { ceilMsToClosestSecond, findLastIndex, humanFriendlyDuration, objectsEqual, percentage } from 'lib/utils'
 import posthog from 'posthog-js'

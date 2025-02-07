@@ -9,7 +9,7 @@ import {
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
 import { shortTimeZone } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
@@ -124,7 +124,7 @@ export function AnnotationModal({
                                         // we can't let them change scope to insight as we don't know which insight to map to
                                         (existingModalAnnotation
                                             ? !existingModalAnnotation?.dashboard_item &&
-                                              'To select this scope, open this annotation on the target insight'
+                                            'To select this scope, open this annotation on the target insight'
                                             : undefined),
                                     sideIcon: existingModalAnnotation?.insight_short_id ? (
                                         <Link
@@ -145,12 +145,12 @@ export function AnnotationModal({
                                             'Already scoped to dashboard') ||
                                         (existingModalAnnotation && existingModalAnnotation?.dashboard_name
                                             ? annotationModal.dashboardId != existingModalAnnotation.dashboard_id &&
-                                              `To select this scope, open this annotation on the ${existingModalAnnotation?.dashboard_name} dashboard`
+                                            `To select this scope, open this annotation on the ${existingModalAnnotation?.dashboard_name} dashboard`
                                             : undefined),
                                     sideIcon:
                                         existingModalAnnotation?.dashboard_id &&
-                                        existingModalAnnotation?.scope !== AnnotationScope.Dashboard &&
-                                        existingModalAnnotation.dashboard_id !== annotationModal.dashboardId ? (
+                                            existingModalAnnotation?.scope !== AnnotationScope.Dashboard &&
+                                            existingModalAnnotation.dashboard_id !== annotationModal.dashboardId ? (
                                             <Link
                                                 to={urls.dashboard(existingModalAnnotation?.dashboard_id)}
                                                 target="_blank"

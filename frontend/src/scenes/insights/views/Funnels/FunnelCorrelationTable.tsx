@@ -5,10 +5,10 @@ import { LemonCheckbox, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySensor'
-import { IconSelectEvents, IconTrendingDown } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { Link } from 'lib/lemon-ui/Link'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { IconSelectEvents, IconTrendingDown } from '@posthog/lemon-ui/icons'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { Link } from '@posthog/lemon-ui/Link'
+import { Spinner } from '@posthog/lemon-ui/Spinner'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useEffect } from 'react'
 import { funnelCorrelationLogic } from 'scenes/funnels/funnelCorrelationLogic'
@@ -247,9 +247,8 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                         },
                         {
                             title: 'Completed',
-                            tooltip: `${capitalizeFirstLetter(aggregationTargetLabel.plural)} ${
-                                querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'
-                            } performed the event and completed the entire funnel.`,
+                            tooltip: `${capitalizeFirstLetter(aggregationTargetLabel.plural)} ${querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'
+                                } performed the event and completed the entire funnel.`,
                             dataIndex: 'success_count',
                             render: (_, record) => renderSuccessCount(record),
                             align: 'center',
@@ -258,9 +257,8 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                         {
                             title: 'Dropped off',
                             dataIndex: 'failure_count',
-                            tooltip: `${capitalizeFirstLetter(aggregationTargetLabel.plural)} ${
-                                querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'
-                            } performed the event and did not complete the entire funnel.`,
+                            tooltip: `${capitalizeFirstLetter(aggregationTargetLabel.plural)} ${querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'
+                                } performed the event and did not complete the entire funnel.`,
                             render: (_, record) => renderFailureCount(record),
                             align: 'center',
                             width: 120,

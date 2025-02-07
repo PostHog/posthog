@@ -9,10 +9,10 @@ import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { More } from '@posthog/lemon-ui/LemonButton'
+import { LemonMenuOverlay } from '@posthog/lemon-ui/LemonMenu'
+import { updatedAtColumn } from '@posthog/lemon-ui/LemonTable'
+import { LemonTableLink } from '@posthog/lemon-ui/LemonTable'
 import { useEffect, useState } from 'react'
 import { urls } from 'scenes/urls'
 
@@ -77,10 +77,10 @@ export function Destinations({ types }: DestinationsProps): JSX.Element {
                 {types.includes('destination')
                     ? 'New destinations'
                     : types.includes('site_app')
-                    ? 'New site app'
-                    : types.includes('transformation')
-                    ? 'New transformation'
-                    : 'New'}
+                        ? 'New site app'
+                        : types.includes('transformation')
+                            ? 'New transformation'
+                            : 'New'}
             </h2>
             <DestinationOptionsTable types={types} />
             {/* Old site-apps until we migrate everyone onto the new ones */}
@@ -113,8 +113,8 @@ export function DestinationsTable({
         types.includes('destination') || types.includes('site_destination')
             ? 'destination'
             : types.includes('site_app')
-            ? 'site app'
-            : 'Hog function'
+                ? 'site app'
+                : 'Hog function'
 
     const enabledTransformations = destinations.filter(
         (d): d is FunctionDestination => d.stage === PipelineStage.Transformation && d.enabled
@@ -153,42 +153,42 @@ export function DestinationsTable({
                 columns={[
                     ...(showPriorityColumn
                         ? [
-                              {
-                                  title: 'Prio',
-                                  key: 'order',
-                                  width: 0,
-                                  align: 'center',
-                                  sorter: (a, b) => {
-                                      if (
-                                          a.backend === PipelineBackend.HogFunction &&
-                                          b.backend === PipelineBackend.HogFunction
-                                      ) {
-                                          const orderA = a.hog_function.execution_order || 0
-                                          const orderB = b.hog_function.execution_order || 0
-                                          return orderA - orderB
-                                      }
-                                      return 0
-                                  },
-                                  render: function RenderOrdering(_, destination) {
-                                      if (destination.backend === PipelineBackend.HogFunction && destination.enabled) {
-                                          const enabledTransformations = filteredDestinations
-                                              .filter(
-                                                  (d): d is FunctionDestination =>
-                                                      d.backend === PipelineBackend.HogFunction && d.enabled
-                                              )
-                                              .sort(
-                                                  (a, b) =>
-                                                      (a.hog_function.execution_order || 0) -
-                                                      (b.hog_function.execution_order || 0)
-                                              )
+                            {
+                                title: 'Prio',
+                                key: 'order',
+                                width: 0,
+                                align: 'center',
+                                sorter: (a, b) => {
+                                    if (
+                                        a.backend === PipelineBackend.HogFunction &&
+                                        b.backend === PipelineBackend.HogFunction
+                                    ) {
+                                        const orderA = a.hog_function.execution_order || 0
+                                        const orderB = b.hog_function.execution_order || 0
+                                        return orderA - orderB
+                                    }
+                                    return 0
+                                },
+                                render: function RenderOrdering(_, destination) {
+                                    if (destination.backend === PipelineBackend.HogFunction && destination.enabled) {
+                                        const enabledTransformations = filteredDestinations
+                                            .filter(
+                                                (d): d is FunctionDestination =>
+                                                    d.backend === PipelineBackend.HogFunction && d.enabled
+                                            )
+                                            .sort(
+                                                (a, b) =>
+                                                    (a.hog_function.execution_order || 0) -
+                                                    (b.hog_function.execution_order || 0)
+                                            )
 
-                                          const index = enabledTransformations.findIndex((t) => t.id === destination.id)
-                                          return <div className="text-center">{index + 1}</div>
-                                      }
-                                      return null
-                                  },
-                              } as LemonTableColumn<Destination | Transformation | SiteApp, any>,
-                          ]
+                                        const index = enabledTransformations.findIndex((t) => t.id === destination.id)
+                                        return <div className="text-center">{index + 1}</div>
+                                    }
+                                    return null
+                                },
+                            } as LemonTableColumn<Destination | Transformation | SiteApp, any>,
+                        ]
                         : []),
                     {
                         title: 'App',
@@ -234,38 +234,38 @@ export function DestinationsTable({
                     },
                     ...(showFrequencyInterval
                         ? [
-                              {
-                                  title: 'Frequency',
-                                  key: 'interval',
-                                  render: function RenderFrequency(_, destination) {
-                                      return 'interval' in destination ? destination.interval : null
-                                  },
-                              } as LemonTableColumn<Destination | Transformation | SiteApp, any>,
-                          ]
+                            {
+                                title: 'Frequency',
+                                key: 'interval',
+                                render: function RenderFrequency(_, destination) {
+                                    return 'interval' in destination ? destination.interval : null
+                                },
+                            } as LemonTableColumn<Destination | Transformation | SiteApp, any>,
+                        ]
                         : []),
                     ...(showMetricsHistory
                         ? [
-                              {
-                                  title: 'Last 7 days',
-                                  render: function RenderSuccessRate(_, destination) {
-                                      return (
-                                          <Link
-                                              to={urls.pipelineNode(
-                                                  hogFunctionTypeToPipelineStage(destination.stage),
-                                                  destination.id,
-                                                  PipelineNodeTab.Metrics
-                                              )}
-                                          >
-                                              {destination.backend === PipelineBackend.HogFunction ? (
-                                                  <AppMetricSparkLineV2 id={destination.hog_function.id} />
-                                              ) : (
-                                                  <AppMetricSparkLine pipelineNode={destination} />
-                                              )}
-                                          </Link>
-                                      )
-                                  },
-                              } as LemonTableColumn<Destination | Transformation | SiteApp, any>,
-                          ]
+                            {
+                                title: 'Last 7 days',
+                                render: function RenderSuccessRate(_, destination) {
+                                    return (
+                                        <Link
+                                            to={urls.pipelineNode(
+                                                hogFunctionTypeToPipelineStage(destination.stage),
+                                                destination.id,
+                                                PipelineNodeTab.Metrics
+                                            )}
+                                        >
+                                            {destination.backend === PipelineBackend.HogFunction ? (
+                                                <AppMetricSparkLineV2 id={destination.hog_function.id} />
+                                            ) : (
+                                                <AppMetricSparkLine pipelineNode={destination} />
+                                            )}
+                                        </Link>
+                                    )
+                                },
+                            } as LemonTableColumn<Destination | Transformation | SiteApp, any>,
+                        ]
                         : []),
                     updatedAtColumn() as LemonTableColumn<Destination | Transformation | SiteApp, any>,
                     {
@@ -304,8 +304,8 @@ export function DestinationsTable({
                                                     disabledReason: !canConfigurePlugins
                                                         ? `You do not have permission to toggle ${simpleName}s.`
                                                         : !canEnableDestination(destination) && !destination.enabled
-                                                        ? `Data pipelines add-on is required for enabling new ${simpleName}s`
-                                                        : undefined,
+                                                            ? `Data pipelines add-on is required for enabling new ${simpleName}s`
+                                                            : undefined,
                                                 },
                                                 ...pipelineNodeMenuCommonItems(destination),
                                                 {

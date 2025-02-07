@@ -4,8 +4,8 @@ import { lemonToast, ProfilePicture } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { Popover } from '@posthog/lemon-ui/Popover'
 import { range, sampleOne, shouldIgnoreInput } from 'lib/utils'
 import { ForwardedRef, useEffect, useMemo, useRef, useState } from 'react'
 import React from 'react'
@@ -168,44 +168,44 @@ export class HedgehogActor {
             keys: string[]
             action: () => void
         }[] = [
-            {
-                keys: ['f', 'f', 'f'],
-                action: () => this.setOnFire(),
-            },
-            {
-                keys: ['f', 'i', 'r', 'e'],
-                action: () => this.setOnFire(),
-            },
-            {
-                keys: ['s', 'p', 'i', 'd', 'e', 'r', 'h', 'o', 'g'],
-                action: () => {
-                    this.hedgehogConfig.skin = 'spiderhog'
+                {
+                    keys: ['f', 'f', 'f'],
+                    action: () => this.setOnFire(),
                 },
-            },
-            {
-                keys: [
-                    'arrowup',
-                    'arrowup',
-                    'arrowdown',
-                    'arrowdown',
-                    'arrowleft',
-                    'arrowright',
-                    'arrowleft',
-                    'arrowright',
-                    'b',
-                    'a',
-                ],
-                action: () => {
-                    this.setOnFire()
-                    this.gravity = -2
+                {
+                    keys: ['f', 'i', 'r', 'e'],
+                    action: () => this.setOnFire(),
+                },
+                {
+                    keys: ['s', 'p', 'i', 'd', 'e', 'r', 'h', 'o', 'g'],
+                    action: () => {
+                        this.hedgehogConfig.skin = 'spiderhog'
+                    },
+                },
+                {
+                    keys: [
+                        'arrowup',
+                        'arrowup',
+                        'arrowdown',
+                        'arrowdown',
+                        'arrowleft',
+                        'arrowright',
+                        'arrowleft',
+                        'arrowright',
+                        'b',
+                        'a',
+                    ],
+                    action: () => {
+                        this.setOnFire()
+                        this.gravity = -2
 
-                    lemonToast.info('I must leave. My people need me!')
-                    setTimeout(() => {
-                        this.gravity = GRAVITY_PIXELS
-                    }, 2000)
+                        lemonToast.info('I must leave. My people need me!')
+                        setTimeout(() => {
+                            this.gravity = GRAVITY_PIXELS
+                        }, 2000)
+                    },
                 },
-            },
-        ]
+            ]
 
         const keyDownListener = (e: KeyboardEvent): void => {
             if (shouldIgnoreInput(e) || !this.hedgehogConfig.controls_enabled) {
@@ -823,9 +823,8 @@ export class HedgehogActor {
                                         this.hedgehogConfig.skin ?? 'default',
                                         this.mainAnimation.spriteInfo.img
                                     )})`,
-                                    backgroundPosition: `-${(this.mainAnimation.frame % X_FRAMES) * SPRITE_SIZE}px -${
-                                        Math.floor(this.mainAnimation.frame / X_FRAMES) * SPRITE_SIZE
-                                    }px`,
+                                    backgroundPosition: `-${(this.mainAnimation.frame % X_FRAMES) * SPRITE_SIZE}px -${Math.floor(this.mainAnimation.frame / X_FRAMES) * SPRITE_SIZE
+                                        }px`,
                                     backgroundSize: (SPRITE_SIZE / SPRITE_SIZE) * X_FRAMES * 100 + '%',
                                     filter: imageFilter as any,
                                     ...(this.mainAnimation.spriteInfo.style ?? {}),
@@ -862,9 +861,8 @@ export class HedgehogActor {
                                     width: SPRITE_SIZE,
                                     height: SPRITE_SIZE,
                                     backgroundImage: `url(${spriteOverlayUrl(this.overlayAnimation.spriteInfo.img)})`,
-                                    backgroundPosition: `-${
-                                        (this.overlayAnimation.frame % X_FRAMES) * SPRITE_SIZE
-                                    }px -${Math.floor(this.overlayAnimation.frame / X_FRAMES) * SPRITE_SIZE}px`,
+                                    backgroundPosition: `-${(this.overlayAnimation.frame % X_FRAMES) * SPRITE_SIZE
+                                        }px -${Math.floor(this.overlayAnimation.frame / X_FRAMES) * SPRITE_SIZE}px`,
                                     ...(this.overlayAnimation.spriteInfo.style ?? {}),
                                 }}
                             />

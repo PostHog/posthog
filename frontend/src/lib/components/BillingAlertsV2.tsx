@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonBanner } from '@posthog/lemon-ui/LemonBanner'
 import { useEffect, useState } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -38,16 +38,16 @@ export function BillingAlertsV2(): JSX.Element | null {
     const buttonProps = billingAlert.action
         ? billingAlert.action
         : billingAlert.contactSupport
-        ? {
-              to: 'mailto:sales@posthog.com',
-              children: billingAlert.buttonCTA || 'Contact support',
-              onClick: () => reportBillingAlertActionClicked(billingAlert),
-          }
-        : {
-              to: urls.organizationBilling(),
-              children: 'Manage billing',
-              onClick: () => reportBillingAlertActionClicked(billingAlert),
-          }
+            ? {
+                to: 'mailto:sales@posthog.com',
+                children: billingAlert.buttonCTA || 'Contact support',
+                onClick: () => reportBillingAlertActionClicked(billingAlert),
+            }
+            : {
+                to: urls.organizationBilling(),
+                children: 'Manage billing',
+                onClick: () => reportBillingAlertActionClicked(billingAlert),
+            }
 
     return (
         <div className={clsx('my-4', requiresHorizontalMargin && 'mx-4')}>
@@ -58,8 +58,8 @@ export function BillingAlertsV2(): JSX.Element | null {
                     billingAlert.status !== 'error'
                         ? () => setAlertHidden(true)
                         : billingAlert.onClose
-                        ? () => billingAlert.onClose?.()
-                        : undefined
+                            ? () => billingAlert.onClose?.()
+                            : undefined
                 }
                 dismissKey={billingAlert.dismissKey}
             >

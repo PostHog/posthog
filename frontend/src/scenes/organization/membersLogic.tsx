@@ -3,7 +3,7 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { lemonToast } from '@posthog/lemon-ui/LemonToast'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -13,7 +13,7 @@ import { OrganizationMemberType } from '~/types'
 
 import type { membersLogicType } from './membersLogicType'
 
-export interface MembersFuse extends Fuse<OrganizationMemberType> {}
+export interface MembersFuse extends Fuse<OrganizationMemberType> { }
 
 const PAGINATION_LIMIT = 200
 

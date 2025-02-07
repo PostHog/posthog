@@ -3,12 +3,12 @@ import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { MicrophoneHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui/LemonTable'
+import { createdAtColumn } from '@posthog/lemon-ui/LemonTable'
+import { LemonTag } from '@posthog/lemon-ui/LemonTag'
+import { ProfilePicture } from '@posthog/lemon-ui/ProfilePicture'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 import { shortTimeZone } from 'lib/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -64,10 +64,10 @@ export function Annotations(): JSX.Element {
                     annotation.scope === AnnotationScope.Insight
                         ? `This annotation only applies to the "${annotation.insight_name}" insight`
                         : annotation.scope === AnnotationScope.Dashboard
-                        ? `This annotation applies to all insights on the ${annotation.dashboard_name} dashboard`
-                        : annotation.scope === AnnotationScope.Project
-                        ? `This annotation applies to all insights in the ${currentTeam?.name} project`
-                        : `This annotation applies to all insights in the ${currentOrganization?.name} organization`
+                            ? `This annotation applies to all insights on the ${annotation.dashboard_name} dashboard`
+                            : annotation.scope === AnnotationScope.Project
+                                ? `This annotation applies to all insights in the ${currentTeam?.name} project`
+                                : `This annotation applies to all insights in the ${currentOrganization?.name} organization`
                 return (
                     <Tooltip title={tooltip} placement="right">
                         <LemonTag className="uppercase">

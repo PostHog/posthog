@@ -1,5 +1,5 @@
 import './InfiniteList.scss'
-import '../../lemon-ui/Popover/Popover.scss'
+import '@posthog/lemon-ui/Popover/Popover.scss'
 
 import { IconArchive } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
@@ -15,8 +15,8 @@ import {
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { LemonSkeleton } from '@posthog/lemon-ui/LemonSkeleton'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { useState } from 'react'
@@ -215,8 +215,8 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
             style: style,
             ref: isHighlighted
                 ? (element) => {
-                      setHighlightedItemElement(element && popupAnchorElement ? popupAnchorElement : element)
-                  }
+                    setHighlightedItemElement(element && popupAnchorElement ? popupAnchorElement : element)
+                }
                 : null,
         }
 
@@ -293,9 +293,9 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                 </AutoSizer>
             )}
             {isActiveTab &&
-            selectedItemHasPopover(selectedItem, listGroupType, group) &&
-            showPopover &&
-            selectedItem ? (
+                selectedItemHasPopover(selectedItem, listGroupType, group) &&
+                showPopover &&
+                selectedItem ? (
                 <BindLogic
                     logic={definitionPopoverLogic}
                     props={{

@@ -48,8 +48,8 @@ import { actions, connect, events, kea, listeners, path, reducers, selectors } f
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconFlare } from 'lib/lemon-ui/icons'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { IconFlare } from '@posthog/lemon-ui/icons'
+import { ProfilePicture } from '@posthog/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isMobile, isURL, uniqueBy } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -301,11 +301,11 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 guaranteedResults = uniqueBy(guaranteedResults, (result) => result.display)
                 const fusedResults = argument
                     ? new Fuse(fusableResults, {
-                          keys: ['display', 'synonyms'],
-                      })
-                          .search(argument)
-                          .slice(0, RESULTS_MAX)
-                          .map((result) => result.item)
+                        keys: ['display', 'synonyms'],
+                    })
+                        .search(argument)
+                        .slice(0, RESULTS_MAX)
+                        .map((result) => result.item)
                     : fusableResults.slice(0, RESULTS_MAX)
                 return guaranteedResults.concat(fusedResults)
             },
@@ -559,14 +559,14 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                     },
                     ...(values.featureFlags[FEATURE_FLAGS.ERROR_TRACKING]
                         ? [
-                              {
-                                  icon: IconWarning,
-                                  display: 'Go to Error tracking',
-                                  executor: () => {
-                                      push(urls.errorTracking())
-                                  },
-                              },
-                          ]
+                            {
+                                icon: IconWarning,
+                                display: 'Go to Error tracking',
+                                executor: () => {
+                                    push(urls.errorTracking())
+                                },
+                            },
+                        ]
                         : []),
                     {
                         display: 'Go to Session replay',
@@ -662,14 +662,14 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                 scope: GLOBAL_COMMAND_SCOPE,
                 resolver:
                     userLogic.values.user?.is_staff ||
-                    userLogic.values.user?.is_impersonated ||
-                    preflightLogic.values.preflight?.is_debug ||
-                    preflightLogic.values.preflight?.instance_preferences?.debug_queries
+                        userLogic.values.user?.is_impersonated ||
+                        preflightLogic.values.preflight?.is_debug ||
+                        preflightLogic.values.preflight?.instance_preferences?.debug_queries
                         ? {
-                              icon: IconDatabase,
-                              display: 'Debug ClickHouse queries',
-                              executor: () => openCHQueriesDebugModal(),
-                          }
+                            icon: IconDatabase,
+                            display: 'Debug ClickHouse queries',
+                            executor: () => openCHQueriesDebugModal(),
+                        }
                         : [],
             }
 
@@ -699,13 +699,13 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         return isNaN(result)
                             ? null
                             : {
-                                  icon: IconCalculator,
-                                  display: `= ${result}`,
-                                  guarantee: true,
-                                  executor: () => {
-                                      void copyToClipboard(result.toString(), 'calculation result')
-                                  },
-                              }
+                                icon: IconCalculator,
+                                display: `= ${result}`,
+                                guarantee: true,
+                                executor: () => {
+                                    void copyToClipboard(result.toString(), 'calculation result')
+                                },
+                            }
                     } catch {
                         return null
                     }
@@ -804,15 +804,15 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                                         executor: !argument?.length
                                             ? undefined
                                             : () => {
-                                                  posthog.capture('palette feedback', { message: argument })
-                                                  return {
-                                                      resolver: {
-                                                          icon: IconCheck,
-                                                          display: 'Message Sent!',
-                                                          executor: true,
-                                                      },
-                                                  }
-                                              },
+                                                posthog.capture('palette feedback', { message: argument })
+                                                return {
+                                                    resolver: {
+                                                        icon: IconCheck,
+                                                        display: 'Message Sent!',
+                                                        executor: true,
+                                                    },
+                                                }
+                                            },
                                     }),
                                 }),
                             },
@@ -922,14 +922,14 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                     }),
                     ...(values.sidePanelOpen
                         ? [
-                              {
-                                  icon: IconX,
-                                  display: 'Close side panel',
-                                  executor: () => {
-                                      actions.closeSidePanel()
-                                  },
-                              },
-                          ]
+                            {
+                                icon: IconX,
+                                display: 'Close side panel',
+                                executor: () => {
+                                    actions.closeSidePanel()
+                                },
+                            },
+                        ]
                         : []),
                 ],
             }

@@ -5,8 +5,8 @@ import { LemonCheckbox, LemonDialog, LemonInput, LemonMenu, LemonTag, Link, Tool
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/LemonTable'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { LemonTable, LemonTableColumns, LemonTableProps } from '@posthog/lemon-ui/LemonTable'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import {
     CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS,
@@ -261,8 +261,8 @@ export function PropertiesTable({
                 const promotedProperties = POSTHOG_EVENT_PROMOTED_PROPERTIES[parent]
                 const promotedItems = promotedProperties?.length
                     ? entries
-                          .filter(([key]) => promotedProperties.includes(key))
-                          .sort((a, b) => promotedProperties.indexOf(a[0]) - promotedProperties.indexOf(b[0]))
+                        .filter(([key]) => promotedProperties.includes(key))
+                        .sort((a, b) => promotedProperties.indexOf(a[0]) - promotedProperties.indexOf(b[0]))
                     : []
                 const nonPromotedItems = promotedProperties?.length
                     ? entries.filter(([key]) => !promotedProperties.includes(key))
@@ -527,8 +527,8 @@ export function PropertiesTable({
                     onRow={(record) =>
                         highlightedKeys?.includes(record[0])
                             ? {
-                                  style: { background: 'var(--mark)' },
-                              }
+                                style: { background: 'var(--mark)' },
+                            }
                             : {}
                     }
                     {...tableProps}

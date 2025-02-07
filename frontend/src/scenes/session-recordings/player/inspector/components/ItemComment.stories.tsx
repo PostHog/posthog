@@ -1,6 +1,6 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { now } from 'lib/dayjs'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonDivider } from '@posthog/lemon-ui/LemonDivider'
 import {
     ItemComment,
     ItemCommentDetail,

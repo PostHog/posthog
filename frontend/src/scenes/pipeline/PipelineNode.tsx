@@ -3,7 +3,7 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs/LemonTabs'
+import { LemonTab, LemonTabs } from '@posthog/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Schemas } from 'scenes/data-warehouse/settings/source/Schemas'
@@ -64,22 +64,22 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
     const tabToContent: Partial<Record<PipelineNodeTab, JSX.Element>> =
         node.backend === PipelineBackend.ManagedSource
             ? {
-                  [PipelineNodeTab.Schemas]: <Schemas id={node.id} />,
-                  [PipelineNodeTab.Syncs]: <Syncs id={node.id} />,
-                  ...(featureFlags[FEATURE_FLAGS.EDIT_DWH_SOURCE_CONFIG]
-                      ? { [PipelineNodeTab.SourceConfiguration]: <SourceConfiguration id={node.id} /> }
-                      : {}),
-              }
+                [PipelineNodeTab.Schemas]: <Schemas id={node.id} />,
+                [PipelineNodeTab.Syncs]: <Syncs id={node.id} />,
+                ...(featureFlags[FEATURE_FLAGS.EDIT_DWH_SOURCE_CONFIG]
+                    ? { [PipelineNodeTab.SourceConfiguration]: <SourceConfiguration id={node.id} /> }
+                    : {}),
+            }
             : {
-                  [PipelineNodeTab.Configuration]: <PipelineNodeConfiguration />,
-                  [PipelineNodeTab.Metrics]:
-                      node.backend === PipelineBackend.HogFunction ? (
-                          <AppMetricsV2 id={node.id} />
-                      ) : (
-                          <PipelineNodeMetrics id={id} />
-                      ),
-                  [PipelineNodeTab.Logs]: <PipelineNodeLogs id={id} stage={stage} />,
-              }
+                [PipelineNodeTab.Configuration]: <PipelineNodeConfiguration />,
+                [PipelineNodeTab.Metrics]:
+                    node.backend === PipelineBackend.HogFunction ? (
+                        <AppMetricsV2 id={node.id} />
+                    ) : (
+                        <PipelineNodeMetrics id={id} />
+                    ),
+                [PipelineNodeTab.Logs]: <PipelineNodeLogs id={id} stage={stage} />,
+            }
 
     if (node.backend === PipelineBackend.BatchExport) {
         tabToContent[PipelineNodeTab.Runs] = <BatchExportRuns id={node.id} />
@@ -111,12 +111,12 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
                 activeKey={currentTab}
                 tabs={Object.entries(tabToContent).map(
                     ([tab, content]) =>
-                        ({
-                            label: capitalizeFirstLetter(tab),
-                            key: tab,
-                            content: content,
-                            link: params.stage ? urls.pipelineNode(stage, id, tab as PipelineNodeTab) : undefined,
-                        } as LemonTab<PipelineNodeTab>)
+                    ({
+                        label: capitalizeFirstLetter(tab),
+                        key: tab,
+                        content: content,
+                        link: params.stage ? urls.pipelineNode(stage, id, tab as PipelineNodeTab) : undefined,
+                    } as LemonTab<PipelineNodeTab>)
                 )}
             />
         </>

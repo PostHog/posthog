@@ -14,18 +14,18 @@ import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
-import { Link } from 'lib/lemon-ui/Link'
+import { LemonBanner } from '@posthog/lemon-ui/LemonBanner'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { More } from '@posthog/lemon-ui/LemonButton'
+import { LemonCheckbox } from '@posthog/lemon-ui/LemonCheckbox'
+import { LemonDivider } from '@posthog/lemon-ui/LemonDivider'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
+import { LemonInput } from '@posthog/lemon-ui/LemonInput'
+import { LemonTab, LemonTabs } from '@posthog/lemon-ui/LemonTabs'
+import { LemonTag } from '@posthog/lemon-ui/LemonTag'
+import { LemonTextArea } from '@posthog/lemon-ui/LemonTextArea'
+import { Lettermark, LettermarkColor } from '@posthog/lemon-ui/Lettermark'
+import { Link } from '@posthog/lemon-ui/Link'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils'
 import posthog from 'posthog-js'
@@ -566,10 +566,10 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                             !featureFlag.can_edit
                                                                 ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
                                                                 : (featureFlag.features?.length || 0) > 0
-                                                                ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
-                                                                : (featureFlag.experiment_set?.length || 0) > 0
-                                                                ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
-                                                                : null
+                                                                    ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
+                                                                    : (featureFlag.experiment_set?.length || 0) > 0
+                                                                        ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
+                                                                        : null
                                                         }
                                                     >
                                                         {featureFlag.deleted ? 'Restore' : 'Delete'} feature flag
@@ -598,8 +598,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 !featureFlag.can_edit
                                                     ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
                                                     : featureFlag.deleted
-                                                    ? 'This feature flag has been deleted. Restore it to edit.'
-                                                    : null
+                                                        ? 'This feature flag has been deleted. Restore it to edit.'
+                                                        : null
                                             }
                                             onClick={() => {
                                                 editFeatureFlag(true)
@@ -808,14 +808,12 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                     <LemonSwitch
                                                         onChange={(newValue) => {
                                                             LemonDialog.open({
-                                                                title: `${
-                                                                    newValue === true ? 'Enable' : 'Disable'
-                                                                } this flag?`,
-                                                                description: `This flag will be immediately ${
-                                                                    newValue === true
-                                                                        ? 'rolled out to'
-                                                                        : 'rolled back from'
-                                                                } the users matching the release conditions.`,
+                                                                title: `${newValue === true ? 'Enable' : 'Disable'
+                                                                    } this flag?`,
+                                                                description: `This flag will be immediately ${newValue === true
+                                                                    ? 'rolled out to'
+                                                                    : 'rolled back from'
+                                                                    } the users matching the release conditions.`,
                                                                 primaryButton: {
                                                                     children: 'Confirm',
                                                                     type: 'primary',
@@ -1177,28 +1175,28 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                     />
                                                     {filterGroups.filter((group) => group.variant === variant.key)
                                                         .length > 0 && (
-                                                        <span className="text-secondary text-xs">
-                                                            Overridden by{' '}
-                                                            <strong>
-                                                                {variantConcatWithPunctuation(
-                                                                    filterGroups
-                                                                        .filter(
-                                                                            (group) =>
-                                                                                group.variant != null &&
-                                                                                group.variant === variant.key
-                                                                        )
-                                                                        .map(
-                                                                            (variant) =>
-                                                                                'Set ' +
-                                                                                (filterGroups.findIndex(
-                                                                                    (group) => group === variant
-                                                                                ) +
-                                                                                    1)
-                                                                        )
-                                                                )}
-                                                            </strong>
-                                                        </span>
-                                                    )}
+                                                            <span className="text-secondary text-xs">
+                                                                Overridden by{' '}
+                                                                <strong>
+                                                                    {variantConcatWithPunctuation(
+                                                                        filterGroups
+                                                                            .filter(
+                                                                                (group) =>
+                                                                                    group.variant != null &&
+                                                                                    group.variant === variant.key
+                                                                            )
+                                                                            .map(
+                                                                                (variant) =>
+                                                                                    'Set ' +
+                                                                                    (filterGroups.findIndex(
+                                                                                        (group) => group === variant
+                                                                                    ) +
+                                                                                        1)
+                                                                            )
+                                                                    )}
+                                                                </strong>
+                                                            </span>
+                                                        )}
                                                 </div>
                                             )}
                                         </LemonField>

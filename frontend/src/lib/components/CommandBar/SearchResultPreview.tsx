@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { ResultDescription, ResultName } from 'lib/components/CommandBar/SearchResult'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 

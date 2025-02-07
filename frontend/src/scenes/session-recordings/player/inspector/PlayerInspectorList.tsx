@@ -2,7 +2,7 @@ import './PlayerInspectorList.scss'
 
 import { range } from 'd3'
 import { useActions, useValues } from 'kea'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { LemonSkeleton } from '@posthog/lemon-ui/LemonSkeleton'
 import { useEffect, useMemo, useRef } from 'react'
 import AutoSizer from 'react-virtualized/dist/es/AutoSizer'
 import { CellMeasurer, CellMeasurerCache } from 'react-virtualized/dist/es/CellMeasurer'
@@ -128,14 +128,14 @@ export function PlayerInspectorList(): JSX.Element {
                     </AutoSizer>
                 </div>
             ) : inspectorDataState[FilterableInspectorListItemTypes.EVENTS] === 'loading' ||
-              inspectorDataState[FilterableInspectorListItemTypes.CONSOLE] === 'loading' ||
-              inspectorDataState[FilterableInspectorListItemTypes.NETWORK] === 'loading' ? (
+                inspectorDataState[FilterableInspectorListItemTypes.CONSOLE] === 'loading' ||
+                inspectorDataState[FilterableInspectorListItemTypes.NETWORK] === 'loading' ? (
                 <div className="p-2">
                     <LemonSkeleton className="my-1 h-8" repeat={20} fade />
                 </div>
             ) : inspectorDataState[FilterableInspectorListItemTypes.EVENTS] === 'ready' ||
-              inspectorDataState[FilterableInspectorListItemTypes.CONSOLE] === 'ready' ||
-              inspectorDataState[FilterableInspectorListItemTypes.NETWORK] === 'ready' ? (
+                inspectorDataState[FilterableInspectorListItemTypes.CONSOLE] === 'ready' ||
+                inspectorDataState[FilterableInspectorListItemTypes.NETWORK] === 'ready' ? (
                 // If we are "ready" but with no results this must mean some results are filtered out
                 <div className="p-16 text-center text-secondary">No results matching your filters.</div>
             ) : null}

@@ -3,9 +3,9 @@ import { LemonBanner, LemonButton, LemonTable, LemonTableColumn, LemonTableColum
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { createdByColumn } from '@posthog/lemon-ui/LemonTable'
+import { createdAtColumn } from '@posthog/lemon-ui/LemonTable'
+import { LemonTableLink } from '@posthog/lemon-ui/LemonTable'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -47,14 +47,14 @@ export function SharedMetrics(): JSX.Element {
         },
         ...(hasAvailableFeature(AvailableFeature.TAGGING)
             ? [
-                  {
-                      title: 'Tags',
-                      dataIndex: 'tags' as keyof SharedMetric,
-                      render: function Render(tags: SharedMetric['tags']) {
-                          return tags ? <ObjectTags tags={tags} staticOnly /> : null
-                      },
-                  } as LemonTableColumn<SharedMetric, keyof SharedMetric | undefined>,
-              ]
+                {
+                    title: 'Tags',
+                    dataIndex: 'tags' as keyof SharedMetric,
+                    render: function Render(tags: SharedMetric['tags']) {
+                        return tags ? <ObjectTags tags={tags} staticOnly /> : null
+                    },
+                } as LemonTableColumn<SharedMetric, keyof SharedMetric | undefined>,
+            ]
             : []),
         {
             title: 'Type',

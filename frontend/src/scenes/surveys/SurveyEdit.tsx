@@ -24,10 +24,10 @@ import { PropertyValue } from 'lib/components/PropertyFilters/components/Propert
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { IconCancel } from 'lib/lemon-ui/icons'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconCancel } from '@posthog/lemon-ui/icons'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
+import { LemonRadio, LemonRadioOption } from '@posthog/lemon-ui/LemonRadio'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { getPropertyKey } from 'lib/taxonomy'
 import { formatDate } from 'lib/utils'
@@ -306,153 +306,153 @@ export default function SurveyEdit(): JSX.Element {
                                                     ),
                                                     ...(survey.appearance?.displayThankYouMessage
                                                         ? [
-                                                              {
-                                                                  key: survey.questions.length,
-                                                                  header: (
-                                                                      <div className="flex flex-row w-full items-center justify-between">
-                                                                          <b>Confirmation message</b>
-                                                                          <LemonButton
-                                                                              icon={<IconTrash />}
-                                                                              data-attr="delete-survey-confirmation"
-                                                                              onClick={(e) => {
-                                                                                  const deleteConfirmationMessage =
-                                                                                      (): void => {
-                                                                                          e.stopPropagation()
-                                                                                          setSelectedPageIndex(
-                                                                                              survey.questions.length -
-                                                                                                  1
-                                                                                          )
-                                                                                          setSurveyValue('appearance', {
-                                                                                              ...survey.appearance,
-                                                                                              displayThankYouMessage:
-                                                                                                  false,
-                                                                                          })
-                                                                                      }
+                                                            {
+                                                                key: survey.questions.length,
+                                                                header: (
+                                                                    <div className="flex flex-row w-full items-center justify-between">
+                                                                        <b>Confirmation message</b>
+                                                                        <LemonButton
+                                                                            icon={<IconTrash />}
+                                                                            data-attr="delete-survey-confirmation"
+                                                                            onClick={(e) => {
+                                                                                const deleteConfirmationMessage =
+                                                                                    (): void => {
+                                                                                        e.stopPropagation()
+                                                                                        setSelectedPageIndex(
+                                                                                            survey.questions.length -
+                                                                                            1
+                                                                                        )
+                                                                                        setSurveyValue('appearance', {
+                                                                                            ...survey.appearance,
+                                                                                            displayThankYouMessage:
+                                                                                                false,
+                                                                                        })
+                                                                                    }
 
-                                                                                  if (hasBranchingLogic) {
-                                                                                      LemonDialog.open({
-                                                                                          title: 'Your survey has active branching logic',
-                                                                                          description: (
-                                                                                              <p className="py-2">
-                                                                                                  Deleting the
-                                                                                                  confirmation message
-                                                                                                  will remove your
-                                                                                                  branching logic. Are
-                                                                                                  you sure you want to
-                                                                                                  continue?
-                                                                                              </p>
-                                                                                          ),
-                                                                                          primaryButton: {
-                                                                                              children: 'Continue',
-                                                                                              status: 'danger',
-                                                                                              onClick: () => {
-                                                                                                  deleteBranchingLogic()
-                                                                                                  deleteConfirmationMessage()
-                                                                                              },
-                                                                                          },
-                                                                                          secondaryButton: {
-                                                                                              children: 'Cancel',
-                                                                                          },
-                                                                                      })
-                                                                                  } else {
-                                                                                      deleteConfirmationMessage()
-                                                                                  }
-                                                                              }}
-                                                                              tooltipPlacement="top-end"
-                                                                          />
-                                                                      </div>
-                                                                  ),
-                                                                  content: (
-                                                                      <>
-                                                                          <LemonField.Pure label="Thank you header">
-                                                                              <LemonInput
-                                                                                  value={
-                                                                                      survey.appearance
-                                                                                          .thankYouMessageHeader
-                                                                                  }
-                                                                                  onChange={(val) =>
-                                                                                      setSurveyValue('appearance', {
-                                                                                          ...survey.appearance,
-                                                                                          thankYouMessageHeader: val,
-                                                                                      })
-                                                                                  }
-                                                                                  placeholder="ex: Thank you for your feedback!"
-                                                                              />
-                                                                          </LemonField.Pure>
-                                                                          <LemonField.Pure
-                                                                              label="Thank you description"
-                                                                              className="mt-3"
-                                                                          >
-                                                                              <HTMLEditor
-                                                                                  value={
-                                                                                      survey.appearance
-                                                                                          .thankYouMessageDescription
-                                                                                  }
-                                                                                  onChange={(val) =>
-                                                                                      setSurveyValue('appearance', {
-                                                                                          ...survey.appearance,
-                                                                                          thankYouMessageDescription:
-                                                                                              val,
-                                                                                          thankYouMessageDescriptionContentType,
-                                                                                      })
-                                                                                  }
-                                                                                  onTabChange={(key) => {
-                                                                                      const updatedAppearance = {
-                                                                                          ...survey.appearance,
-                                                                                          thankYouMessageDescriptionContentType:
-                                                                                              key === 'html'
-                                                                                                  ? 'html'
-                                                                                                  : 'text',
-                                                                                      }
-                                                                                      setSurveyValue(
-                                                                                          'appearance',
-                                                                                          updatedAppearance
-                                                                                      )
-                                                                                  }}
-                                                                                  activeTab={
-                                                                                      thankYouMessageDescriptionContentType ??
-                                                                                      'text'
-                                                                                  }
-                                                                                  textPlaceholder="ex: We really appreciate it."
-                                                                              />
-                                                                          </LemonField.Pure>
-                                                                          <LemonField.Pure
-                                                                              className="mt-2"
-                                                                              label="Button text"
-                                                                          >
-                                                                              <LemonInput
-                                                                                  value={
-                                                                                      survey.appearance
-                                                                                          .thankYouMessageCloseButtonText
-                                                                                  }
-                                                                                  onChange={(val) =>
-                                                                                      setSurveyValue('appearance', {
-                                                                                          ...survey.appearance,
-                                                                                          thankYouMessageCloseButtonText:
-                                                                                              val,
-                                                                                      })
-                                                                                  }
-                                                                                  placeholder="example: Close"
-                                                                              />
-                                                                          </LemonField.Pure>
-                                                                          <LemonField.Pure className="mt-2">
-                                                                              <LemonCheckbox
-                                                                                  checked={
-                                                                                      !!survey.appearance.autoDisappear
-                                                                                  }
-                                                                                  label="Auto disappear"
-                                                                                  onChange={(checked) =>
-                                                                                      setSurveyValue('appearance', {
-                                                                                          ...survey.appearance,
-                                                                                          autoDisappear: checked,
-                                                                                      })
-                                                                                  }
-                                                                              />
-                                                                          </LemonField.Pure>
-                                                                      </>
-                                                                  ),
-                                                              },
-                                                          ]
+                                                                                if (hasBranchingLogic) {
+                                                                                    LemonDialog.open({
+                                                                                        title: 'Your survey has active branching logic',
+                                                                                        description: (
+                                                                                            <p className="py-2">
+                                                                                                Deleting the
+                                                                                                confirmation message
+                                                                                                will remove your
+                                                                                                branching logic. Are
+                                                                                                you sure you want to
+                                                                                                continue?
+                                                                                            </p>
+                                                                                        ),
+                                                                                        primaryButton: {
+                                                                                            children: 'Continue',
+                                                                                            status: 'danger',
+                                                                                            onClick: () => {
+                                                                                                deleteBranchingLogic()
+                                                                                                deleteConfirmationMessage()
+                                                                                            },
+                                                                                        },
+                                                                                        secondaryButton: {
+                                                                                            children: 'Cancel',
+                                                                                        },
+                                                                                    })
+                                                                                } else {
+                                                                                    deleteConfirmationMessage()
+                                                                                }
+                                                                            }}
+                                                                            tooltipPlacement="top-end"
+                                                                        />
+                                                                    </div>
+                                                                ),
+                                                                content: (
+                                                                    <>
+                                                                        <LemonField.Pure label="Thank you header">
+                                                                            <LemonInput
+                                                                                value={
+                                                                                    survey.appearance
+                                                                                        .thankYouMessageHeader
+                                                                                }
+                                                                                onChange={(val) =>
+                                                                                    setSurveyValue('appearance', {
+                                                                                        ...survey.appearance,
+                                                                                        thankYouMessageHeader: val,
+                                                                                    })
+                                                                                }
+                                                                                placeholder="ex: Thank you for your feedback!"
+                                                                            />
+                                                                        </LemonField.Pure>
+                                                                        <LemonField.Pure
+                                                                            label="Thank you description"
+                                                                            className="mt-3"
+                                                                        >
+                                                                            <HTMLEditor
+                                                                                value={
+                                                                                    survey.appearance
+                                                                                        .thankYouMessageDescription
+                                                                                }
+                                                                                onChange={(val) =>
+                                                                                    setSurveyValue('appearance', {
+                                                                                        ...survey.appearance,
+                                                                                        thankYouMessageDescription:
+                                                                                            val,
+                                                                                        thankYouMessageDescriptionContentType,
+                                                                                    })
+                                                                                }
+                                                                                onTabChange={(key) => {
+                                                                                    const updatedAppearance = {
+                                                                                        ...survey.appearance,
+                                                                                        thankYouMessageDescriptionContentType:
+                                                                                            key === 'html'
+                                                                                                ? 'html'
+                                                                                                : 'text',
+                                                                                    }
+                                                                                    setSurveyValue(
+                                                                                        'appearance',
+                                                                                        updatedAppearance
+                                                                                    )
+                                                                                }}
+                                                                                activeTab={
+                                                                                    thankYouMessageDescriptionContentType ??
+                                                                                    'text'
+                                                                                }
+                                                                                textPlaceholder="ex: We really appreciate it."
+                                                                            />
+                                                                        </LemonField.Pure>
+                                                                        <LemonField.Pure
+                                                                            className="mt-2"
+                                                                            label="Button text"
+                                                                        >
+                                                                            <LemonInput
+                                                                                value={
+                                                                                    survey.appearance
+                                                                                        .thankYouMessageCloseButtonText
+                                                                                }
+                                                                                onChange={(val) =>
+                                                                                    setSurveyValue('appearance', {
+                                                                                        ...survey.appearance,
+                                                                                        thankYouMessageCloseButtonText:
+                                                                                            val,
+                                                                                    })
+                                                                                }
+                                                                                placeholder="example: Close"
+                                                                            />
+                                                                        </LemonField.Pure>
+                                                                        <LemonField.Pure className="mt-2">
+                                                                            <LemonCheckbox
+                                                                                checked={
+                                                                                    !!survey.appearance.autoDisappear
+                                                                                }
+                                                                                label="Auto disappear"
+                                                                                onChange={(checked) =>
+                                                                                    setSurveyValue('appearance', {
+                                                                                        ...survey.appearance,
+                                                                                        autoDisappear: checked,
+                                                                                    })
+                                                                                }
+                                                                            />
+                                                                        </LemonField.Pure>
+                                                                    </>
+                                                                ),
+                                                            },
+                                                        ]
                                                         : []),
                                                 ]}
                                             />
@@ -513,61 +513,61 @@ export default function SurveyEdit(): JSX.Element {
                         },
                         ...(survey.type !== SurveyType.API
                             ? [
-                                  {
-                                      key: SurveyEditSection.Customization,
-                                      header: 'Customization',
-                                      content: (
-                                          <LemonField name="appearance" label="">
-                                              {({ value, onChange }) => (
-                                                  <>
-                                                      {survey.type === SurveyType.Widget && (
-                                                          <>
-                                                              <div className="font-bold">
-                                                                  Feedback button customization
-                                                              </div>
-                                                              <WidgetCustomization
-                                                                  hasBranchingLogic={hasBranchingLogic}
-                                                                  deleteBranchingLogic={deleteBranchingLogic}
-                                                                  customizeRatingButtons={
-                                                                      survey.questions[0].type ===
-                                                                      SurveyQuestionType.Rating
-                                                                  }
-                                                                  customizePlaceholderText={
-                                                                      survey.questions[0].type ===
-                                                                      SurveyQuestionType.Open
-                                                                  }
-                                                                  appearance={value || defaultSurveyAppearance}
-                                                                  onAppearanceChange={(appearance) => {
-                                                                      onChange(appearance)
-                                                                  }}
-                                                              />
-                                                              <LemonDivider className="mt-4" />
-                                                              <div className="font-bold">Survey customization</div>
-                                                          </>
-                                                      )}
-                                                      <Customization
-                                                          appearance={value || defaultSurveyAppearance}
-                                                          hasBranchingLogic={hasBranchingLogic}
-                                                          deleteBranchingLogic={deleteBranchingLogic}
-                                                          customizeRatingButtons={survey.questions.some(
-                                                              (question) => question.type === SurveyQuestionType.Rating
-                                                          )}
-                                                          customizePlaceholderText={survey.questions.some(
-                                                              (question) => question.type === SurveyQuestionType.Open
-                                                          )}
-                                                          onAppearanceChange={(appearance) => {
-                                                              onChange(appearance)
-                                                          }}
-                                                          isCustomFontsEnabled={
-                                                              !!featureFlags[FEATURE_FLAGS.SURVEYS_CUSTOM_FONTS]
-                                                          }
-                                                      />
-                                                  </>
-                                              )}
-                                          </LemonField>
-                                      ),
-                                  },
-                              ]
+                                {
+                                    key: SurveyEditSection.Customization,
+                                    header: 'Customization',
+                                    content: (
+                                        <LemonField name="appearance" label="">
+                                            {({ value, onChange }) => (
+                                                <>
+                                                    {survey.type === SurveyType.Widget && (
+                                                        <>
+                                                            <div className="font-bold">
+                                                                Feedback button customization
+                                                            </div>
+                                                            <WidgetCustomization
+                                                                hasBranchingLogic={hasBranchingLogic}
+                                                                deleteBranchingLogic={deleteBranchingLogic}
+                                                                customizeRatingButtons={
+                                                                    survey.questions[0].type ===
+                                                                    SurveyQuestionType.Rating
+                                                                }
+                                                                customizePlaceholderText={
+                                                                    survey.questions[0].type ===
+                                                                    SurveyQuestionType.Open
+                                                                }
+                                                                appearance={value || defaultSurveyAppearance}
+                                                                onAppearanceChange={(appearance) => {
+                                                                    onChange(appearance)
+                                                                }}
+                                                            />
+                                                            <LemonDivider className="mt-4" />
+                                                            <div className="font-bold">Survey customization</div>
+                                                        </>
+                                                    )}
+                                                    <Customization
+                                                        appearance={value || defaultSurveyAppearance}
+                                                        hasBranchingLogic={hasBranchingLogic}
+                                                        deleteBranchingLogic={deleteBranchingLogic}
+                                                        customizeRatingButtons={survey.questions.some(
+                                                            (question) => question.type === SurveyQuestionType.Rating
+                                                        )}
+                                                        customizePlaceholderText={survey.questions.some(
+                                                            (question) => question.type === SurveyQuestionType.Open
+                                                        )}
+                                                        onAppearanceChange={(appearance) => {
+                                                            onChange(appearance)
+                                                        }}
+                                                        isCustomFontsEnabled={
+                                                            !!featureFlags[FEATURE_FLAGS.SURVEYS_CUSTOM_FONTS]
+                                                        }
+                                                    />
+                                                </>
+                                            )}
+                                        </LemonField>
+                                    ),
+                                },
+                            ]
                             : []),
                         {
                             key: SurveyEditSection.DisplayConditions,
@@ -865,10 +865,10 @@ export default function SurveyEdit(): JSX.Element {
                                                             selectedEvents={
                                                                 survey.conditions?.events?.values?.length !=
                                                                     undefined &&
-                                                                survey.conditions?.events?.values?.length > 0
+                                                                    survey.conditions?.events?.values?.length > 0
                                                                     ? survey.conditions?.events?.values.map(
-                                                                          (v) => v.name
-                                                                      )
+                                                                        (v) => v.name
+                                                                    )
                                                                     : []
                                                             }
                                                             addElement={
@@ -934,7 +934,7 @@ export default function SurveyEdit(): JSX.Element {
                                                         }}
                                                         selectedItems={
                                                             survey.conditions?.actions?.values &&
-                                                            survey.conditions?.actions?.values.length > 0
+                                                                survey.conditions?.actions?.values.length > 0
                                                                 ? survey.conditions?.actions?.values
                                                                 : []
                                                         }

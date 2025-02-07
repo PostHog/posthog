@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconCancel, IconRefresh } from 'lib/lemon-ui/icons'
+import { IconCancel, IconRefresh } from '@posthog/lemon-ui/icons'
 
 import { BatchExportBackfill } from '~/types'
 

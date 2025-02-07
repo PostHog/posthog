@@ -8,11 +8,11 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
+import { LemonInput } from '@posthog/lemon-ui/LemonInput'
+import { LemonLabel } from '@posthog/lemon-ui/LemonLabel'
+import { SpinnerOverlay } from '@posthog/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
 
@@ -77,8 +77,8 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
                     !configurationChanged
                         ? 'No changes to save'
                         : isConfigurationSubmitting
-                        ? 'Saving in progress…'
-                        : undefined
+                            ? 'Saving in progress…'
+                            : undefined
                 }
             >
                 {isNew ? 'Create' : 'Save'}
@@ -266,9 +266,8 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
                                                     onChange={(filters: AnyPropertyFilter[]) => {
                                                         setConfigurationValue('filters', filters)
                                                     }}
-                                                    pageKey={`BatchExportsPropertyFilters.${
-                                                        batchExportConfig ? batchExportConfig.id : 'New'
-                                                    }`}
+                                                    pageKey={`BatchExportsPropertyFilters.${batchExportConfig ? batchExportConfig.id : 'New'
+                                                        }`}
                                                     metadataSource={{ kind: NodeKind.ActorsQuery }}
                                                 />
                                             </LemonField>

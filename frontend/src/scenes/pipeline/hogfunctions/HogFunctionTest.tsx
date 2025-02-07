@@ -14,8 +14,8 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { TZLabel } from 'lib/components/TZLabel'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonField } from 'lib/lemon-ui/LemonField'
+import { More } from '@posthog/lemon-ui/LemonButton'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
@@ -337,8 +337,8 @@ export function HogFunctionTest(): JSX.Element {
                                                     {type === 'broadcast'
                                                         ? 'The test broadcast will be sent with this sample data:'
                                                         : type === 'email'
-                                                        ? 'The provider will be tested with this sample data:'
-                                                        : 'Here are all the global variables you can use in your code:'}
+                                                            ? 'The provider will be tested with this sample data:'
+                                                            : 'Here are all the global variables you can use in your code:'}
                                                 </div>
                                                 {sampleGlobalsError ? (
                                                     <div className="text-warning">{sampleGlobalsError}</div>

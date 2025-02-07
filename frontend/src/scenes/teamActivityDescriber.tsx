@@ -9,7 +9,7 @@ import {
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
-import { Link } from 'lib/lemon-ui/Link'
+import { Link } from '@posthog/lemon-ui/Link'
 import { isNotNil, isObject, pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
@@ -163,8 +163,8 @@ const teamActionsMapping: Record<
 
         return descriptions.length
             ? {
-                  description: descriptions,
-              }
+                description: descriptions,
+            }
             : null
     },
     session_recording_opt_in(change: ActivityChange | undefined): ChangeMapping | null {
@@ -385,27 +385,27 @@ const teamActionsMapping: Record<
         const changes = [
             addedEvents?.length
                 ? `added ${addedEvents.length} ${pluralize(
-                      addedEvents.length,
-                      'event',
-                      'events',
-                      true
-                  )} (${addedEvents.join(', ')})`
+                    addedEvents.length,
+                    'event',
+                    'events',
+                    true
+                )} (${addedEvents.join(', ')})`
                 : null,
             removedEvents?.length
                 ? `removed ${removedEvents.length} ${pluralize(
-                      removedEvents.length,
-                      'event',
-                      'events',
-                      true
-                  )} (${removedEvents.join(', ')})`
+                    removedEvents.length,
+                    'event',
+                    'events',
+                    true
+                )} (${removedEvents.join(', ')})`
                 : null,
             modifiedEvents?.length
                 ? `modified ${modifiedEvents.length} ${pluralize(
-                      modifiedEvents.length,
-                      'event',
-                      'events',
-                      true
-                  )} (${modifiedEvents.join(', ')})`
+                    modifiedEvents.length,
+                    'event',
+                    'events',
+                    true
+                )} (${modifiedEvents.join(', ')})`
                 : null,
         ].filter(isNotNil)
 

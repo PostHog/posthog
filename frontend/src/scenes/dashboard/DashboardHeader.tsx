@@ -10,11 +10,11 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { privilegeLevelToName } from 'lib/constants'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { isLemonSelectSection } from 'lib/lemon-ui/LemonSelect'
-import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture/ProfileBubbles'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { More } from '@posthog/lemon-ui/LemonButton'
+import { LemonDivider } from '@posthog/lemon-ui/LemonDivider'
+import { isLemonSelectSection } from '@posthog/lemon-ui/LemonSelect'
+import { ProfileBubbles } from '@posthog/lemon-ui/ProfilePicture'
 import { humanFriendlyDetailedTime, slugify } from 'lib/utils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
@@ -152,8 +152,8 @@ export function DashboardHeader(): JSX.Element | null {
                                     dashboardLoading
                                         ? 'Wait for dashboard to finish loading'
                                         : canEditDashboard
-                                        ? undefined
-                                        : 'Not privileged to edit this dashboard'
+                                            ? undefined
+                                            : 'Not privileged to edit this dashboard'
                                 }
                             >
                                 Save
@@ -418,9 +418,8 @@ function CollaboratorBubbles({
             people={allCollaborators.map((collaborator) => ({
                 email: collaborator.user.email,
                 name: collaborator.user.first_name,
-                title: `${collaborator.user.first_name} <${collaborator.user.email}> (${
-                    privilegeLevelToName[collaborator.level]
-                })`,
+                title: `${collaborator.user.first_name} <${collaborator.user.email}> (${privilegeLevelToName[collaborator.level]
+                    })`,
             }))}
             tooltip={tooltipParts.join(' • ')}
             onClick={onClick}

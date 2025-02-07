@@ -1,6 +1,6 @@
 import { Meta } from '@storybook/react'
 import { useValues } from 'kea'
-import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
+import { LemonSlider } from '@posthog/lemon-ui/LemonSlider'
 import { useEffect, useState } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'

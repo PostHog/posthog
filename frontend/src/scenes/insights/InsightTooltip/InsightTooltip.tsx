@@ -3,8 +3,8 @@ import './InsightTooltip.scss'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { InsightLabel } from 'lib/components/InsightLabel'
-import { IconHandClick } from 'lib/lemon-ui/icons'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { IconHandClick } from '@posthog/lemon-ui/icons'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui/LemonTable'
 import { shortTimeZone } from 'lib/utils'
 import { ReactNode } from 'react'
 import { formatAggregationValue } from 'scenes/insights/utils'
@@ -102,9 +102,8 @@ export function InsightTooltip({
     const title: ReactNode | null =
         getTooltipTitle(seriesData, altTitle, date) ||
         (date
-            ? `${getFormattedDate(date, seriesData?.[0]?.filter?.interval)} (${
-                  timezone ? shortTimeZone(timezone) : 'UTC'
-              })`
+            ? `${getFormattedDate(date, seriesData?.[0]?.filter?.interval)} (${timezone ? shortTimeZone(timezone) : 'UTC'
+            })`
             : null)
     const rightTitle: ReactNode | null = getTooltipTitle(seriesData, altRightTitle, date) || null
 

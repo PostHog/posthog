@@ -14,10 +14,10 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { Popover } from 'lib/lemon-ui/Popover'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconOpenInNew } from '@posthog/lemon-ui/icons'
+import { LemonTextArea } from '@posthog/lemon-ui/LemonTextArea'
+import { Popover } from '@posthog/lemon-ui/Popover'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, isCoreFilter } from 'lib/taxonomy'
 import { useEffect, useMemo } from 'react'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
@@ -359,11 +359,11 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                             }}
                             disabledReason={
                                 'id_field' in localDefinition &&
-                                localDefinition.id_field &&
-                                'timestamp_field' in localDefinition &&
-                                localDefinition.timestamp_field &&
-                                'distinct_id_field' in localDefinition &&
-                                localDefinition.distinct_id_field
+                                    localDefinition.id_field &&
+                                    'timestamp_field' in localDefinition &&
+                                    localDefinition.timestamp_field &&
+                                    'distinct_id_field' in localDefinition &&
+                                    localDefinition.distinct_id_field
                                     ? null
                                     : 'Field mappings must be specified'
                             }

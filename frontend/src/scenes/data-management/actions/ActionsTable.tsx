@@ -4,15 +4,15 @@ import { useActions, useValues } from 'kea'
 import api from 'lib/api'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { IconPlayCircle } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable/types'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { IconPlayCircle } from '@posthog/lemon-ui/icons'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { More } from '@posthog/lemon-ui/LemonButton'
+import { LemonDivider } from '@posthog/lemon-ui/LemonDivider'
+import { LemonTable } from '@posthog/lemon-ui/LemonTable'
+import { createdAtColumn, createdByColumn } from '@posthog/lemon-ui/LemonTable'
+import { LemonTableLink } from '@posthog/lemon-ui/LemonTable'
+import { LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui/LemonTable'
+import { lemonToast } from '@posthog/lemon-ui/LemonToast'
 import { stripHTTP } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { actionsLogic } from 'scenes/actions/actionsLogic'
@@ -150,30 +150,30 @@ export function ActionsTable(): JSX.Element {
         },
         ...(hasAvailableFeature(AvailableFeature.TAGGING)
             ? [
-                  {
-                      title: 'Tags',
-                      dataIndex: 'tags',
-                      width: 250,
-                      key: 'tags',
-                      render: function renderTags(tags: string[]) {
-                          return <ObjectTags tags={tags} staticOnly />
-                      },
-                  } as LemonTableColumn<ActionType, keyof ActionType | undefined>,
-              ]
+                {
+                    title: 'Tags',
+                    dataIndex: 'tags',
+                    width: 250,
+                    key: 'tags',
+                    render: function renderTags(tags: string[]) {
+                        return <ObjectTags tags={tags} staticOnly />
+                    },
+                } as LemonTableColumn<ActionType, keyof ActionType | undefined>,
+            ]
             : []),
         createdByColumn() as LemonTableColumn<ActionType, keyof ActionType | undefined>,
         createdAtColumn() as LemonTableColumn<ActionType, keyof ActionType | undefined>,
         ...(currentTeam?.slack_incoming_webhook
             ? [
-                  {
-                      title: 'Webhook',
-                      dataIndex: 'post_to_slack',
-                      sorter: (a: ActionType, b: ActionType) => Number(a.post_to_slack) - Number(b.post_to_slack),
-                      render: function RenderActions(post_to_slack): JSX.Element | null {
-                          return post_to_slack ? <IconCheckCircle /> : null
-                      },
-                  } as LemonTableColumn<ActionType, keyof ActionType | undefined>,
-              ]
+                {
+                    title: 'Webhook',
+                    dataIndex: 'post_to_slack',
+                    sorter: (a: ActionType, b: ActionType) => Number(a.post_to_slack) - Number(b.post_to_slack),
+                    render: function RenderActions(post_to_slack): JSX.Element | null {
+                        return post_to_slack ? <IconCheckCircle /> : null
+                    },
+                } as LemonTableColumn<ActionType, keyof ActionType | undefined>,
+            ]
             : []),
         {
             width: 0,

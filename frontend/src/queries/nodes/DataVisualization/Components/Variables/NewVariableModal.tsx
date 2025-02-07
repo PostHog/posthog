@@ -7,7 +7,7 @@ import {
     LemonSelect,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
 
 import { Variable } from '../../types'
 import { variableModalLogic } from './variableModalLogic'

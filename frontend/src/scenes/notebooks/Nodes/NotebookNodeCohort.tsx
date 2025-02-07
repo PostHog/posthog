@@ -2,7 +2,7 @@ import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType, PropertyFilterType } from '~/types'
 import { useActions, useValues } from 'kea'
 import { urls } from 'scenes/urls'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { LemonSkeleton } from '@posthog/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeProps } from '../Notebook/utils'
 import { useEffect, useMemo } from 'react'
@@ -43,80 +43,80 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCohortAttribute
         setActions(
             !cohortMissing
                 ? [
-                      {
-                          text: 'People in cohort',
-                          icon: <IconPerson />,
-                          onClick: () => {
-                              setExpanded(false)
-                              insertAfter({
-                                  type: NotebookNodeType.Query,
-                                  attrs: {
-                                      query: {
-                                          kind: NodeKind.DataTableNode,
-                                          source: {
-                                              kind: NodeKind.ActorsQuery,
-                                              properties: [
-                                                  {
-                                                      type: PropertyFilterType.Cohort,
-                                                      key: 'id',
-                                                      value: id,
-                                                  },
-                                              ],
-                                          },
-                                          full: true,
-                                      },
-                                  },
-                              })
-                          },
-                      },
+                    {
+                        text: 'People in cohort',
+                        icon: <IconPerson />,
+                        onClick: () => {
+                            setExpanded(false)
+                            insertAfter({
+                                type: NotebookNodeType.Query,
+                                attrs: {
+                                    query: {
+                                        kind: NodeKind.DataTableNode,
+                                        source: {
+                                            kind: NodeKind.ActorsQuery,
+                                            properties: [
+                                                {
+                                                    type: PropertyFilterType.Cohort,
+                                                    key: 'id',
+                                                    value: id,
+                                                },
+                                            ],
+                                        },
+                                        full: true,
+                                    },
+                                },
+                            })
+                        },
+                    },
 
-                      {
-                          text: 'Cohort trends',
-                          icon: <IconTrends color="currentColor" />,
-                          onClick: () => {
-                              setExpanded(false)
-                              insertAfter({
-                                  type: NotebookNodeType.Query,
-                                  attrs: {
-                                      query: {
-                                          kind: 'InsightVizNode',
-                                          source: {
-                                              kind: 'TrendsQuery',
-                                              filterTestAccounts: true,
-                                              series: [
-                                                  {
-                                                      kind: 'EventsNode',
-                                                      event: '$pageview',
-                                                      name: '$pageview',
-                                                      math: 'total',
-                                                  },
-                                              ],
-                                              interval: 'day',
-                                              trendsFilter: {
-                                                  display: 'ActionsLineGraph',
-                                              },
-                                              properties: {
-                                                  type: 'AND',
-                                                  values: [
-                                                      {
-                                                          type: 'AND',
-                                                          values: [
-                                                              {
-                                                                  key: 'id',
-                                                                  value: id,
-                                                                  type: 'cohort',
-                                                              },
-                                                          ],
-                                                      },
-                                                  ],
-                                              },
-                                          },
-                                      },
-                                  },
-                              })
-                          },
-                      },
-                  ]
+                    {
+                        text: 'Cohort trends',
+                        icon: <IconTrends color="currentColor" />,
+                        onClick: () => {
+                            setExpanded(false)
+                            insertAfter({
+                                type: NotebookNodeType.Query,
+                                attrs: {
+                                    query: {
+                                        kind: 'InsightVizNode',
+                                        source: {
+                                            kind: 'TrendsQuery',
+                                            filterTestAccounts: true,
+                                            series: [
+                                                {
+                                                    kind: 'EventsNode',
+                                                    event: '$pageview',
+                                                    name: '$pageview',
+                                                    math: 'total',
+                                                },
+                                            ],
+                                            interval: 'day',
+                                            trendsFilter: {
+                                                display: 'ActionsLineGraph',
+                                            },
+                                            properties: {
+                                                type: 'AND',
+                                                values: [
+                                                    {
+                                                        type: 'AND',
+                                                        values: [
+                                                            {
+                                                                key: 'id',
+                                                                value: id,
+                                                                type: 'cohort',
+                                                            },
+                                                        ],
+                                                    },
+                                                ],
+                                            },
+                                        },
+                                    },
+                                },
+                            })
+                        },
+                    },
+                ]
                 : []
         )
     }, [cohort, cohortMissing])

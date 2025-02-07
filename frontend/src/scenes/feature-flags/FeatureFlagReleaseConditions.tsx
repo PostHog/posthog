@@ -12,14 +12,14 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
-import { IconErrorOutline, IconOpenInNew, IconSubArrowRight } from 'lib/lemon-ui/icons'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { IconErrorOutline, IconOpenInNew, IconSubArrowRight } from '@posthog/lemon-ui/icons'
+import { LemonBanner } from '@posthog/lemon-ui/LemonBanner'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { LemonDivider } from '@posthog/lemon-ui/LemonDivider'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
+import { LemonSlider } from '@posthog/lemon-ui/LemonSlider'
+import { LemonTag } from '@posthog/lemon-ui/LemonTag'
+import { Spinner } from '@posthog/lemon-ui/Spinner'
 import { getFilterLabel } from 'lib/taxonomy'
 import { capitalizeFirstLetter, dateFilterToText, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'
 import { urls } from 'scenes/urls'
@@ -67,17 +67,17 @@ function PropertyValueComponent({
                     {val}
                     <span>
                         {isPropertyFilterWithOperator(property) &&
-                        ['is_date_before', 'is_date_after'].includes(property.operator) &&
-                        dateStringToComponents(String(val)) // check it's a relative date
+                            ['is_date_before', 'is_date_after'].includes(property.operator) &&
+                            dateStringToComponents(String(val)) // check it's a relative date
                             ? ` ( ${dateFilterToText(
-                                  String(val),
-                                  undefined,
-                                  '',
-                                  [],
-                                  false,
-                                  String(val).slice(-1) === 'h' ? 'MMMM D, YYYY HH:mm:ss' : 'MMMM D, YYYY',
-                                  true
-                              )}{' '}
+                                String(val),
+                                undefined,
+                                '',
+                                [],
+                                false,
+                                String(val).slice(-1) === 'h' ? 'MMMM D, YYYY HH:mm:ss' : 'MMMM D, YYYY',
+                                true
+                            )}{' '}
                                                             )`
                             : ''}
                     </span>
@@ -257,9 +257,8 @@ export function FeatureFlagReleaseConditions({
                         <div>
                             <PropertyFilters
                                 orFiltering={true}
-                                pageKey={`feature-flag-${id}-${index}-${filterGroups.length}-${
-                                    filters.aggregation_group_type_index ?? ''
-                                }`}
+                                pageKey={`feature-flag-${id}-${index}-${filterGroups.length}-${filters.aggregation_group_type_index ?? ''
+                                    }`}
                                 propertyFilters={group?.properties}
                                 logicalRowDivider
                                 addText="Add condition"
@@ -272,17 +271,17 @@ export function FeatureFlagReleaseConditions({
                                 errorMessages={
                                     propertySelectErrors?.[index]?.properties?.some((message) => !!message.value)
                                         ? propertySelectErrors[index].properties?.map((message, index) => {
-                                              return message.value ? (
-                                                  <div
-                                                      key={index}
-                                                      className="text-danger flex items-center gap-1 text-sm Field--error"
-                                                  >
-                                                      <IconErrorOutline className="text-xl" /> {message.value}
-                                                  </div>
-                                              ) : (
-                                                  <></>
-                                              )
-                                          })
+                                            return message.value ? (
+                                                <div
+                                                    key={index}
+                                                    className="text-danger flex items-center gap-1 text-sm Field--error"
+                                                >
+                                                    <IconErrorOutline className="text-xl" /> {message.value}
+                                                </div>
+                                            ) : (
+                                                <></>
+                                            )
+                                        })
                                         : null
                                 }
                                 exactMatchFeatureFlagCohortOperators={true}
@@ -300,8 +299,8 @@ export function FeatureFlagReleaseConditions({
                                     ? group.rollout_percentage == null || group.rollout_percentage == 100
                                         ? 'highlight'
                                         : group.rollout_percentage == 0
-                                        ? 'caution'
-                                        : 'none'
+                                            ? 'caution'
+                                            : 'none'
                                     : 'none'
                             }
                         >
@@ -350,13 +349,12 @@ export function FeatureFlagReleaseConditions({
                                 of <b>{aggregationTargetName}</b> in this set. Will match approximately{' '}
                                 {affectedUsers[index] !== undefined ? (
                                     <b>
-                                        {`${
-                                            computeBlastRadiusPercentage(group.rollout_percentage, index).toPrecision(
-                                                2
-                                            ) * 1
+                                        {`${computeBlastRadiusPercentage(group.rollout_percentage, index).toPrecision(
+                                            2
+                                        ) * 1
                                             // Multiplying by 1 removes trailing zeros after the decimal
                                             // point added by toPrecision
-                                        }% `}
+                                            }% `}
                                     </b>
                                 ) : (
                                     <Spinner className="mr-1" />
@@ -554,12 +552,12 @@ export function FeatureFlagReleaseConditions({
                                 })),
                                 ...(includeGroupsIntroductionOption()
                                     ? [
-                                          {
-                                              value: -2,
-                                              label: 'MatchByGroupsIntroductionOption',
-                                              labelInMenu: matchByGroupsIntroductionOption,
-                                          },
-                                      ]
+                                        {
+                                            value: -2,
+                                            label: 'MatchByGroupsIntroductionOption',
+                                            labelInMenu: matchByGroupsIntroductionOption,
+                                        },
+                                    ]
                                     : []),
                             ]}
                         />

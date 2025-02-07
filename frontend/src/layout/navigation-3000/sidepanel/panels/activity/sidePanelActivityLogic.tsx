@@ -5,7 +5,7 @@ import api, { PaginatedResponse } from 'lib/api'
 import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityLogItem, humanize, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { dayjs } from 'lib/dayjs'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LemonMarkdown } from '@posthog/lemon-ui/LemonMarkdown'
 import { toParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import { projectLogic } from 'scenes/projectLogic'
@@ -138,7 +138,7 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
                     try {
                         const response = await api.get<ChangesResponse>(
                             `api/projects/${values.currentProjectId}/activity_log/important_changes?` +
-                                toParams({ unread: onlyUnread })
+                            toParams({ unread: onlyUnread })
                         )
 
                         // we can't rely on automatic success action here because we swallow errors so always succeed
@@ -282,10 +282,10 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
             actions.setFiltersForCurrentPage(
                 sceneSidePanelContext
                     ? {
-                          ...values.filters,
-                          scope: sceneSidePanelContext.activity_scope,
-                          item_id: sceneSidePanelContext.activity_item_id,
-                      }
+                        ...values.filters,
+                        scope: sceneSidePanelContext.activity_scope,
+                        item_id: sceneSidePanelContext.activity_item_id,
+                    }
                     : null
             )
         },

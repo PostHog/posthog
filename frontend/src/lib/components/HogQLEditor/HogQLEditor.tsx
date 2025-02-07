@@ -1,6 +1,6 @@
 import { Link } from '@posthog/lemon-ui'
 import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { useEffect, useState } from 'react'
 
@@ -49,8 +49,8 @@ export function HogQLEditor({
                     disableCmdEnter
                         ? undefined
                         : (value) => {
-                              onChange(value)
-                          }
+                            onChange(value)
+                        }
                 }
             />
             <div className="text-secondary pt-2 text-xs">

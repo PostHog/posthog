@@ -1,5 +1,5 @@
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { LemonDivider } from '@posthog/lemon-ui/LemonDivider'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 import {
     calculatePerformanceParts,
     perfDescriptions,
@@ -22,8 +22,8 @@ export const convertForTimelineView = (
     const rangeEnd = performanceEvent.load_event_end
         ? performanceEvent.load_event_end
         : performanceEvent.response_end
-        ? performanceEvent.response_end
-        : performanceEvent.end_time
+            ? performanceEvent.response_end
+            : performanceEvent.end_time
     const performanceMeasures =
         typeof rangeStart === 'number' && typeof rangeEnd === 'number'
             ? calculatePerformanceParts(performanceEvent)

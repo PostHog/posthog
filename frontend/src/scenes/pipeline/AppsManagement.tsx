@@ -1,9 +1,9 @@
 import { IconDownload, IconLock, IconRedo, IconTrash, IconUnlock } from '@posthog/icons'
 import { LemonBanner, LemonDialog, LemonDivider, LemonMenu, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { Link } from 'lib/lemon-ui/Link'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { LemonInput } from '@posthog/lemon-ui/LemonInput'
+import { Link } from '@posthog/lemon-ui/Link'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -107,7 +107,7 @@ function AppsToUpdate(): JSX.Element {
                     {checkingForUpdates
                         ? `Checking ${Object.keys(updatablePlugins).length} apps for updates`
                         : // we by default already check all apps for updates on initial load
-                          'Check again for updates'}
+                        'Check again for updates'}
                 </LemonButton>
             )}
             {pluginsNeedingUpdates.length > 0 && (

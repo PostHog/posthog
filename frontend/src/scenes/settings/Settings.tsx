@@ -7,7 +7,7 @@ import { router } from 'kea-router'
 import { NotFound } from 'lib/components/NotFound'
 import { TimeSensitiveAuthenticationArea } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { IconChevronRight, IconLink } from 'lib/lemon-ui/icons'
+import { IconChevronRight, IconLink } from '@posthog/lemon-ui/icons'
 import { capitalizeFirstLetter, inStorybookTestRunner } from 'lib/utils'
 import React from 'react'
 import { teamLogic } from 'scenes/teamLogic'
@@ -66,51 +66,51 @@ export function Settings({
 
     const options: SettingOption[] = settingsInSidebar
         ? settings.map((s) => ({
-              key: s.id,
-              content: (
-                  <OptionButton
-                      active={selectedSettingId === s.id}
-                      handleLocally={handleLocally}
-                      onClick={() => selectSetting(s.id)}
-                  >
-                      {s.title}
-                  </OptionButton>
-              ),
-          }))
+            key: s.id,
+            content: (
+                <OptionButton
+                    active={selectedSettingId === s.id}
+                    handleLocally={handleLocally}
+                    onClick={() => selectSetting(s.id)}
+                >
+                    {s.title}
+                </OptionButton>
+            ),
+        }))
         : levels.map((level) => ({
-              key: level,
-              content: (
-                  <OptionButton
-                      to={urls.settings(level)}
-                      handleLocally={handleLocally}
-                      active={selectedLevel === level && !selectedSectionId}
-                      onClick={() => selectLevel(level)}
-                  >
-                      <span className="text-secondary">{capitalizeFirstLetter(level)}</span>
-                  </OptionButton>
-              ),
-              items: sections
-                  .filter((x) => x.level === level)
-                  .map((section) => ({
-                      key: section.id,
-                      content: (
-                          <OptionButton
-                              to={section.to ?? urls.settings(section.id)}
-                              handleLocally={handleLocally}
-                              active={selectedSectionId === section.id}
-                              onClick={() => {
-                                  if (section.to) {
-                                      router.actions.push(section.to)
-                                  } else {
-                                      selectSection(section.id, level)
-                                  }
-                              }}
-                          >
-                              {section.title}
-                          </OptionButton>
-                      ),
-                  })),
-          }))
+            key: level,
+            content: (
+                <OptionButton
+                    to={urls.settings(level)}
+                    handleLocally={handleLocally}
+                    active={selectedLevel === level && !selectedSectionId}
+                    onClick={() => selectLevel(level)}
+                >
+                    <span className="text-secondary">{capitalizeFirstLetter(level)}</span>
+                </OptionButton>
+            ),
+            items: sections
+                .filter((x) => x.level === level)
+                .map((section) => ({
+                    key: section.id,
+                    content: (
+                        <OptionButton
+                            to={section.to ?? urls.settings(section.id)}
+                            handleLocally={handleLocally}
+                            active={selectedSectionId === section.id}
+                            onClick={() => {
+                                if (section.to) {
+                                    router.actions.push(section.to)
+                                } else {
+                                    selectSection(section.id, level)
+                                }
+                            }}
+                        >
+                            {section.title}
+                        </OptionButton>
+                    ),
+                })),
+        }))
 
     const compactNavigationContent: JSX.Element = settingsInSidebar ? (
         <>{selectedSetting.title}</>
@@ -235,9 +235,9 @@ const OptionButton = ({
             onClick={
                 handleLocally
                     ? (e) => {
-                          onClick()
-                          e.preventDefault()
-                      }
+                        onClick()
+                        e.preventDefault()
+                    }
                     : undefined
             }
             size="small"

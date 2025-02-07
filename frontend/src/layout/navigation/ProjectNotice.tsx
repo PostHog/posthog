@@ -3,9 +3,9 @@ import { Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
-import { Link } from 'lib/lemon-ui/Link'
+import { LemonBanner } from '@posthog/lemon-ui/LemonBanner'
+import { LemonBannerAction } from '@posthog/lemon-ui/LemonBanner'
+import { Link } from '@posthog/lemon-ui/Link'
 import { useEffect, useState } from 'react'
 import { verifyEmailLogic } from 'scenes/authentication/signup/verify-email/verifyEmailLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -35,8 +35,8 @@ function CountDown({ datetime, callback }: { datetime: dayjs.Dayjs; callback?: (
     const countdown = pastCountdown
         ? 'Expired'
         : duration.hours() > 0
-        ? duration.format('HH:mm:ss')
-        : duration.format('mm:ss')
+            ? duration.format('HH:mm:ss')
+            : duration.format('mm:ss')
 
     useEffect(() => {
         const interval = setInterval(() => setNow(dayjs()), 1000)

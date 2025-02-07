@@ -6,7 +6,7 @@ import {
     HumanizedChange,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { Link } from 'lib/lemon-ui/Link'
+import { Link } from '@posthog/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 const nameOrLinkToCohort = (id?: string | null, name?: string | null): string | JSX.Element => {

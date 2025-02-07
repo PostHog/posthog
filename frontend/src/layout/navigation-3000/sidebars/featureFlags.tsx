@@ -2,7 +2,7 @@ import Fuse from 'fuse.js'
 import { connect, kea, path, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import { dayjs } from 'lib/dayjs'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { lemonToast } from '@posthog/lemon-ui/LemonToast'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
@@ -92,11 +92,11 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
                             marker: { type: 'ribbon', status: featureFlag.active ? 'success' : 'danger' },
                             searchMatch: matches
                                 ? {
-                                      matchingFields: matches.map((match) =>
-                                          match.key === 'name' ? 'description' : match.key
-                                      ),
-                                      nameHighlightRanges: matches.find((match) => match.key === 'key')?.indices,
-                                  }
+                                    matchingFields: matches.map((match) =>
+                                        match.key === 'name' ? 'description' : match.key
+                                    ),
+                                    nameHighlightRanges: matches.find((match) => match.key === 'key')?.indices,
+                                }
                                 : null,
                             menuItems: [
                                 {

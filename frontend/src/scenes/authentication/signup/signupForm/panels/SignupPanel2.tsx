@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import SignupReferralSource from 'lib/components/SignupReferralSource'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
-import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { signupLogic } from '../signupLogic'
@@ -53,8 +53,8 @@ export function SignupPanel2(): JSX.Element | null {
                     {!preflight?.demo
                         ? 'Create account'
                         : !isSignupPanel2Submitting
-                        ? 'Enter the demo environment'
-                        : 'Preparing demo data…'}
+                            ? 'Enter the demo environment'
+                            : 'Preparing demo data…'}
                 </LemonButton>
             </Form>
 

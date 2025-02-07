@@ -1,6 +1,6 @@
 import { IconPlus } from '@posthog/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { Popover } from '@posthog/lemon-ui/Popover'
 import { useState } from 'react'
 
 import { PathCleaningFilter } from '~/types'

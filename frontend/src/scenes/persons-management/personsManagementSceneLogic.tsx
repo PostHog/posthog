@@ -2,7 +2,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
-import { LemonTab } from 'lib/lemon-ui/LemonTabs'
+import { LemonTab } from '@posthog/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Cohorts } from 'scenes/cohorts/Cohorts'
 import { Groups } from 'scenes/groups/Groups'
@@ -94,19 +94,19 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
                 const groupTabs: PersonsManagementTab[] = [
                     ...(showGroupsIntroductionPage
                         ? [
-                              {
-                                  key: 'groups-0',
-                                  label: 'Groups',
-                                  url: urls.groups(0),
-                                  content: <Groups groupTypeIndex={0} />,
-                              },
-                          ]
+                            {
+                                key: 'groups-0',
+                                label: 'Groups',
+                                url: urls.groups(0),
+                                content: <Groups groupTypeIndex={0} />,
+                            },
+                        ]
                         : Array.from(groupTypes.values()).map((groupType) => ({
-                              key: `groups-${groupType.group_type_index}`,
-                              label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
-                              url: urls.groups(groupType.group_type_index),
-                              content: <Groups groupTypeIndex={groupType.group_type_index} />,
-                          }))),
+                            key: `groups-${groupType.group_type_index}`,
+                            label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
+                            url: urls.groups(groupType.group_type_index),
+                            content: <Groups groupTypeIndex={groupType.group_type_index} />,
+                        }))),
                 ]
 
                 return groupTabs
@@ -123,14 +123,14 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
                     },
                     activeTab
                         ? {
-                              key: activeTab.key,
-                              name: activeTab.label,
-                              path: activeTab.url,
-                          }
+                            key: activeTab.key,
+                            name: activeTab.label,
+                            path: activeTab.url,
+                        }
                         : {
-                              key: 'loading',
-                              name: 'Loading...',
-                          },
+                            key: 'loading',
+                            name: 'Loading...',
+                        },
                 ]
             },
         ],

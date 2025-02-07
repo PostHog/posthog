@@ -5,8 +5,8 @@ import { Form } from 'kea-forms'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { TeamMembershipLevel } from 'lib/constants'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
+import { LemonInputSelect } from '@posthog/lemon-ui/LemonInputSelect'
 import { membershipLevelToName, teamMembershipLevelIntegers } from 'lib/utils/permissioning'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -60,10 +60,10 @@ export function AddMembersModalWithButton({ disabledReason }: { disabledReason: 
                                 fullWidth
                                 options={teamMembershipLevelIntegers.map(
                                     (teamMembershipLevel) =>
-                                        ({
-                                            value: teamMembershipLevel,
-                                            label: membershipLevelToName.get(teamMembershipLevel),
-                                        } as LemonSelectOption<TeamMembershipLevel>)
+                                    ({
+                                        value: teamMembershipLevel,
+                                        label: membershipLevelToName.get(teamMembershipLevel),
+                                    } as LemonSelectOption<TeamMembershipLevel>)
                                 )}
                             />
                         </LemonField>

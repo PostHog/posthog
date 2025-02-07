@@ -2,8 +2,8 @@ import { IconWarning } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { IconOpenInNew } from '@posthog/lemon-ui/icons'
+import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui/LemonTable'
 import { pluralize } from 'lib/utils'
 import { useEffect } from 'react'
 import { EnvironmentConfigOption, preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -79,10 +79,10 @@ export function InstanceConfigTab(): JSX.Element {
                 return instanceConfigMode === ConfigMode.View
                     ? RenderMetricValue(_, props)
                     : RenderMetricValueEdit({
-                          ...props,
-                          value: instanceConfigEditingState[record.key] ?? record.value,
-                          onValueChanged: updateInstanceConfigValue,
-                      })
+                        ...props,
+                        value: instanceConfigEditingState[record.key] ?? record.value,
+                        onValueChanged: updateInstanceConfigValue,
+                    })
             },
         },
     ]

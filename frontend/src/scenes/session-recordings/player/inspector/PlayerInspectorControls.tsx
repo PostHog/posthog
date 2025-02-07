@@ -11,7 +11,7 @@ import {
 import { LemonButton, LemonInput, SideAction, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconChevronRight, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
+import { IconChevronRight, IconUnverifiedEvent } from '@posthog/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useEffect, useState } from 'react'
@@ -115,12 +115,12 @@ function FilterSettingsButton({
                 upsellSideAction
                     ? upsellSideAction
                     : hasFilterableItems
-                    ? sideActionForType({
-                          setMiniFilter,
-                          allItemsByMiniFilterKey,
-                          miniFilters: networkFilters,
-                      })
-                    : undefined
+                        ? sideActionForType({
+                            setMiniFilter,
+                            allItemsByMiniFilterKey,
+                            miniFilters: networkFilters,
+                        })
+                        : undefined
             }
             label={capitalizeFirstLetter(type)}
             icon={icon}
@@ -153,28 +153,28 @@ function NetworkFilterSettingsButton(): JSX.Element {
             upsellSideAction={
                 !hasNetworkItems && !currentTeam?.capture_performance_opt_in
                     ? {
-                          icon: <IconChevronRight className="rotate-90" />,
+                        icon: <IconChevronRight className="rotate-90" />,
 
-                          dropdown: {
-                              closeOnClickInside: false,
-                              overlay: (
-                                  <LemonButton
-                                      data-attr="player-inspector-network-upsell"
-                                      icon={<IconGear />}
-                                      fullWidth
-                                      size="xsmall"
-                                      onClick={() =>
-                                          openSettingsPanel({
-                                              sectionId: 'project-replay',
-                                              settingId: 'replay-network',
-                                          })
-                                      }
-                                  >
-                                      Configure network capture in settings.
-                                  </LemonButton>
-                              ),
-                          },
-                      }
+                        dropdown: {
+                            closeOnClickInside: false,
+                            overlay: (
+                                <LemonButton
+                                    data-attr="player-inspector-network-upsell"
+                                    icon={<IconGear />}
+                                    fullWidth
+                                    size="xsmall"
+                                    onClick={() =>
+                                        openSettingsPanel({
+                                            sectionId: 'project-replay',
+                                            settingId: 'replay-network',
+                                        })
+                                    }
+                                >
+                                    Configure network capture in settings.
+                                </LemonButton>
+                            ),
+                        },
+                    }
                     : undefined
             }
         />
@@ -201,28 +201,28 @@ function ConsoleFilterSettingsButton(): JSX.Element {
             upsellSideAction={
                 !hasConsoleItems && !currentTeam?.capture_console_log_opt_in
                     ? {
-                          icon: <IconChevronRight className="rotate-90" />,
+                        icon: <IconChevronRight className="rotate-90" />,
 
-                          dropdown: {
-                              closeOnClickInside: false,
-                              overlay: (
-                                  <LemonButton
-                                      data-attr="player-inspector-console-upsell"
-                                      icon={<IconGear />}
-                                      fullWidth
-                                      size="xsmall"
-                                      onClick={() =>
-                                          openSettingsPanel({
-                                              sectionId: 'project-replay',
-                                              settingId: 'replay',
-                                          })
-                                      }
-                                  >
-                                      Configure console log capture in settings.
-                                  </LemonButton>
-                              ),
-                          },
-                      }
+                        dropdown: {
+                            closeOnClickInside: false,
+                            overlay: (
+                                <LemonButton
+                                    data-attr="player-inspector-console-upsell"
+                                    icon={<IconGear />}
+                                    fullWidth
+                                    size="xsmall"
+                                    onClick={() =>
+                                        openSettingsPanel({
+                                            sectionId: 'project-replay',
+                                            settingId: 'replay',
+                                        })
+                                    }
+                                >
+                                    Configure console log capture in settings.
+                                </LemonButton>
+                            ),
+                        },
+                    }
                     : undefined
             }
         />

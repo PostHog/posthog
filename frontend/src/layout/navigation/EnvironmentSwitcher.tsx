@@ -3,8 +3,8 @@ import { LemonInput, LemonTag, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
-import { LemonMenuItem, LemonMenuOverlay, LemonMenuSection } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
+import { LemonMenuItem, LemonMenuOverlay, LemonMenuSection } from '@posthog/lemon-ui/LemonMenu'
+import { UploadedLogo } from '@posthog/lemon-ui/UploadedLogo'
 import { removeFlagIdIfPresent, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { useMemo } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -50,7 +50,7 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
                         <UploadedLogo name={projectName} entityId={projectId} outlinedLettermark />
                     ),
                     disabledReason: 'Select an environment of this project below',
-                    onClick: () => {},
+                    onClick: () => { },
                     sideAction: {
                         icon: <IconPlus />,
                         tooltip: `New environment within ${projectName}`,

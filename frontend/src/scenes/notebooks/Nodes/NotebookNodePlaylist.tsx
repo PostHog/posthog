@@ -14,7 +14,7 @@ import { JSONContent, NotebookNodeProps, NotebookNodeAttributeProperties } from 
 import { ErrorBoundary } from '@sentry/react'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { IconComment } from 'lib/lemon-ui/icons'
+import { IconComment } from '@posthog/lemon-ui/icons'
 import { sessionRecordingPlayerLogicType } from 'scenes/session-recordings/player/sessionRecordingPlayerLogicType'
 import { RecordingsUniversalFilters } from 'scenes/session-recordings/filters/RecordingsUniversalFilters'
 
@@ -60,33 +60,33 @@ const Component = ({
         setActions(
             activeSessionRecording
                 ? [
-                      {
-                          text: 'View replay',
-                          onClick: () => {
-                              getReplayLogic(activeSessionRecording.id)?.actions.setPause()
+                    {
+                        text: 'View replay',
+                        onClick: () => {
+                            getReplayLogic(activeSessionRecording.id)?.actions.setPause()
 
-                              insertAfter({
-                                  type: NotebookNodeType.Recording,
-                                  attrs: {
-                                      id: String(activeSessionRecording.id),
-                                      __init: {
-                                          expanded: true,
-                                      },
-                                  },
-                              })
-                          },
-                      },
-                      {
-                          text: 'Comment',
-                          icon: <IconComment />,
-                          onClick: () => {
-                              if (activeSessionRecording.id) {
-                                  const time = getReplayLogic(activeSessionRecording.id)?.values.currentPlayerTime
-                                  insertReplayCommentByTimestamp(time ?? 0, activeSessionRecording.id)
-                              }
-                          },
-                      },
-                  ]
+                            insertAfter({
+                                type: NotebookNodeType.Recording,
+                                attrs: {
+                                    id: String(activeSessionRecording.id),
+                                    __init: {
+                                        expanded: true,
+                                    },
+                                },
+                            })
+                        },
+                    },
+                    {
+                        text: 'Comment',
+                        icon: <IconComment />,
+                        onClick: () => {
+                            if (activeSessionRecording.id) {
+                                const time = getReplayLogic(activeSessionRecording.id)?.values.currentPlayerTime
+                                insertReplayCommentByTimestamp(time ?? 0, activeSessionRecording.id)
+                            }
+                        },
+                    },
+                ]
                 : []
         )
     }, [activeSessionRecording])

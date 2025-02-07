@@ -2,7 +2,7 @@ import './EditSurvey.scss'
 
 import { LemonDialog, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
 import { truncate } from 'lib/utils'
 
 import { MultipleSurveyQuestion, RatingSurveyQuestion, SurveyQuestionBranchingType, SurveyQuestionType } from '~/types'
@@ -74,11 +74,11 @@ export function QuestionBranchingInput({
                     options={[
                         ...(questionIndex < survey.questions.length - 1
                             ? [
-                                  {
-                                      label: 'Next question',
-                                      value: SurveyQuestionBranchingType.NextQuestion,
-                                  },
-                              ]
+                                {
+                                    label: 'Next question',
+                                    value: SurveyQuestionBranchingType.NextQuestion,
+                                },
+                            ]
                             : []),
                         {
                             label: survey.appearance?.displayThankYouMessage ? 'Confirmation message' : 'End',
@@ -86,11 +86,11 @@ export function QuestionBranchingInput({
                         },
                         ...(hasResponseBasedBranching
                             ? [
-                                  {
-                                      label: 'Specific question based on answer',
-                                      value: SurveyQuestionBranchingType.ResponseBased,
-                                  },
-                              ]
+                                {
+                                    label: 'Specific question based on answer',
+                                    value: SurveyQuestionBranchingType.ResponseBased,
+                                },
+                            ]
                             : []),
                         ...availableNextQuestions.map((question) => ({
                             label: truncate(`${question.questionIndex + 1}. ${question.question}`, 40),
@@ -187,11 +187,11 @@ function QuestionResponseBasedBranchingInput({
                             options={[
                                 ...(questionIndex < survey.questions.length - 1
                                     ? [
-                                          {
-                                              label: 'Next question',
-                                              value: SurveyQuestionBranchingType.NextQuestion,
-                                          },
-                                      ]
+                                        {
+                                            label: 'Next question',
+                                            value: SurveyQuestionBranchingType.NextQuestion,
+                                        },
+                                    ]
                                     : []),
                                 {
                                     label: 'Confirmation message',

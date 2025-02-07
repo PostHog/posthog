@@ -3,7 +3,7 @@ import './Playlist.scss'
 import { LemonCollapse, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
+import { LemonTableLoader } from '@posthog/lemon-ui/LemonTable'
 import { range } from 'lib/utils'
 import { ReactNode, useRef, useState } from 'react'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
@@ -284,10 +284,10 @@ export function ListSection({
         <>
             {items.length > 0
                 ? items.map((item) => (
-                      <div key={item.id} className="border-b" onClick={() => onClick(item)}>
-                          {render({ item, isActive: item.id === activeItemId })}
-                      </div>
-                  ))
+                    <div key={item.id} className="border-b" onClick={() => onClick(item)}>
+                        {render({ item, isActive: item.id === activeItemId })}
+                    </div>
+                ))
                 : null}
             {footer}
         </>

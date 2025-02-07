@@ -7,9 +7,9 @@ import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { statusColumn, updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { More } from '@posthog/lemon-ui/LemonButton'
+import { LemonMenuOverlay } from '@posthog/lemon-ui/LemonMenu'
+import { statusColumn, updatedAtColumn } from '@posthog/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
 import { PipelineNodeTab, PipelineStage, ProductKey } from '~/types'
@@ -163,14 +163,14 @@ export const TransformationsMoreOverlay = ({
             items={[
                 ...(!inOverview && transformation.enabled && sortedEnabledTransformations.length > 1
                     ? [
-                          {
-                              label: 'Reorder apps',
-                              onClick: openReorderModal,
-                              disabledReason: canConfigurePlugins
-                                  ? undefined
-                                  : 'You do not have permission to reorder apps.',
-                          },
-                      ]
+                        {
+                            label: 'Reorder apps',
+                            onClick: openReorderModal,
+                            disabledReason: canConfigurePlugins
+                                ? undefined
+                                : 'You do not have permission to reorder apps.',
+                        },
+                    ]
                     : []),
                 ...pipelinePluginBackedNodeMenuCommonItems(
                     transformation,

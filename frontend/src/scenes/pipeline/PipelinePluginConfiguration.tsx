@@ -17,8 +17,8 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
+import { LemonMarkdown } from '@posthog/lemon-ui/LemonMarkdown'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 import React from 'react'
 import { useState } from 'react'
@@ -73,9 +73,9 @@ export function PipelinePluginConfiguration({
     const fields = configSchemaArray.map((fieldConfig, index) => (
         <React.Fragment key={fieldConfig.key || `__key__${index}`}>
             {fieldConfig.key &&
-            fieldConfig.type &&
-            isValidField(fieldConfig) &&
-            !hiddenFields.includes(fieldConfig.key) ? (
+                fieldConfig.type &&
+                isValidField(fieldConfig) &&
+                !hiddenFields.includes(fieldConfig.key) ? (
                 <LemonField
                     name={fieldConfig.key}
                     label={

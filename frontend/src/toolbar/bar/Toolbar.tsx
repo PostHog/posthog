@@ -17,8 +17,8 @@ import {
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { IconFlare, IconMenu } from 'lib/lemon-ui/icons'
-import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
+import { IconFlare, IconMenu } from '@posthog/lemon-ui/icons'
+import { LemonMenu, LemonMenuItems } from '@posthog/lemon-ui/LemonMenu'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { useEffect, useRef } from 'react'
 
@@ -61,12 +61,12 @@ function MoreMenu(): JSX.Element {
                     },
                     hedgehogMode
                         ? {
-                              icon: <IconFlare />,
-                              label: 'Hedgehog options',
-                              onClick: () => {
-                                  setVisibleMenu('hedgehog')
-                              },
-                          }
+                            icon: <IconFlare />,
+                            label: 'Hedgehog options',
+                            onClick: () => {
+                                setVisibleMenu('hedgehog')
+                            },
+                        }
                         : undefined,
                     {
                         icon: currentlyLightMode ? <IconNight /> : <IconDay />,

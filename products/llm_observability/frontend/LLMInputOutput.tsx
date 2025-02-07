@@ -1,5 +1,5 @@
-import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { IconArrowDown, IconArrowUp } from '@posthog/lemon-ui/icons'
+import { LemonDivider } from '@posthog/lemon-ui/LemonDivider'
 
 export function LLMInputOutput({
     inputDisplay,

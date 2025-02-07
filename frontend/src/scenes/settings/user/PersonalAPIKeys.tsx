@@ -18,9 +18,9 @@ import {
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { IconErrorOutline } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonField } from 'lib/lemon-ui/LemonField'
+import { IconErrorOutline } from '@posthog/lemon-ui/icons'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
 import { capitalizeFirstLetter, humanFriendlyDetailedTime } from 'lib/utils'
 import { Fragment, useEffect } from 'react'
 
@@ -271,8 +271,8 @@ function EditKeyModal(): JSX.Element {
                                                                         )
                                                                             ? 'Does not apply to this resource'
                                                                             : disabledDueToProjectScope
-                                                                            ? 'Not available for project scoped keys'
-                                                                            : undefined,
+                                                                                ? 'Not available for project scoped keys'
+                                                                                : undefined,
                                                                     },
                                                                     {
                                                                         label: 'Write',
@@ -282,8 +282,8 @@ function EditKeyModal(): JSX.Element {
                                                                         )
                                                                             ? 'Does not apply to this resource'
                                                                             : disabledDueToProjectScope
-                                                                            ? 'Not available for project scoped keys'
-                                                                            : undefined,
+                                                                                ? 'Not available for project scoped keys'
+                                                                                : undefined,
                                                                     },
                                                                 ]}
                                                                 size="xsmall"

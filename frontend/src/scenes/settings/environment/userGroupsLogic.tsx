@@ -3,13 +3,13 @@ import Fuse from 'fuse.js'
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
 
 import { UserBasicType, UserGroup } from '~/types'
 
 import type { userGroupsLogicType } from './userGroupsLogicType'
 
-export interface UserGroupsFuse extends Fuse<UserGroup> {}
+export interface UserGroupsFuse extends Fuse<UserGroup> { }
 
 export const userGroupsLogic = kea<userGroupsLogicType>([
     path(['scenes', 'settings', 'environment', 'userGroupsLogic']),

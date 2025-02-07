@@ -1,7 +1,7 @@
 import { LemonButton, LemonSkeleton, LemonTextArea } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { maxSettingsLogic } from './maxSettingsLogic'
@@ -21,9 +21,8 @@ export function MaxMemorySettings(): JSX.Element {
                 <LemonField name="text" label="Max’s memory">
                     <LemonTextArea
                         id="product-description-textarea" // Slightly dirty ID for .focus() elsewhere
-                        placeholder={`What's should Max know about ${
-                            currentProject ? currentProject.name : 'your company or this product'
-                        }?`}
+                        placeholder={`What's should Max know about ${currentProject ? currentProject.name : 'your company or this product'
+                            }?`}
                         maxLength={10000}
                         maxRows={5}
                     />

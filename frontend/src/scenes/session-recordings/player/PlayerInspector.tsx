@@ -3,7 +3,7 @@
  */
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
-import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
+import { IconUnverifiedEvent } from '@posthog/lemon-ui/icons'
 
 import { SessionRecordingSidebarTab } from '~/types'
 

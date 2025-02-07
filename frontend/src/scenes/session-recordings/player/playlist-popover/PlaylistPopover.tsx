@@ -2,13 +2,13 @@ import { IconPin, IconPlus } from '@posthog/icons'
 import { LemonCheckbox, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { IconOpenInNew, IconWithCount } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { Popover } from 'lib/lemon-ui/Popover'
-import { Spinner } from 'lib/lemon-ui/Spinner'
+import { IconOpenInNew, IconWithCount } from '@posthog/lemon-ui/icons'
+import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui/LemonButton'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
+import { LemonInput } from '@posthog/lemon-ui/LemonInput'
+import { LemonSkeleton } from '@posthog/lemon-ui/LemonSkeleton'
+import { Popover } from '@posthog/lemon-ui/Popover'
+import { Spinner } from '@posthog/lemon-ui/Spinner'
 import { urls } from 'scenes/urls'
 
 import { sessionRecordingsPlaylistLogic } from '../../playlist/sessionRecordingsPlaylistLogic'
@@ -95,7 +95,7 @@ export function PlaylistPopoverButton({
                                             className="flex-1"
                                             icon={
                                                 currentPlaylistsLoading &&
-                                                modifyingPlaylist?.short_id === playlist.short_id ? (
+                                                    modifyingPlaylist?.short_id === playlist.short_id ? (
                                                     <Spinner className="text-sm" />
                                                 ) : (
                                                     <LemonCheckbox className="pointer-events-none" checked={selected} />

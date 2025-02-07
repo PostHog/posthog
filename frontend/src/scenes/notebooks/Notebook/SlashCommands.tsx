@@ -18,8 +18,8 @@ import { ReactRenderer } from '@tiptap/react'
 import Suggestion from '@tiptap/suggestion'
 import Fuse from 'fuse.js'
 import { useValues } from 'kea'
-import { IconBold, IconItalic } from 'lib/lemon-ui/icons'
-import { Popover } from 'lib/lemon-ui/Popover'
+import { IconBold, IconItalic } from '@posthog/lemon-ui/icons'
+import { Popover } from '@posthog/lemon-ui/Popover'
 import { selectFiles } from 'lib/utils/file-utils'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
 
@@ -36,15 +36,15 @@ import { EditorCommands, EditorRange } from './utils'
 
 type SlashCommandConditionalProps =
     | {
-          mode: 'add'
-          getPos: () => number
-          range?: never
-      }
+        mode: 'add'
+        getPos: () => number
+        range?: never
+    }
     | {
-          mode: 'slash'
-          getPos?: never
-          range: EditorRange
-      }
+        mode: 'slash'
+        getPos?: never
+        range: EditorRange
+    }
 
 type SlashCommandsProps = SlashCommandConditionalProps & {
     query?: string

@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonBanner } from '@posthog/lemon-ui/LemonBanner'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { getHogQLValue } from 'scenes/insights/filters/AggregationSelect'
@@ -127,8 +127,8 @@ export function FunnelsMetricForm({ isSecondary = false }: { isSecondary?: boole
                             !breakdownAttributionType
                                 ? BreakdownAttributionType.FirstTouch
                                 : breakdownAttributionType === BreakdownAttributionType.Step
-                                ? `${breakdownAttributionType}/${breakdownAttributionValue || 0}`
-                                : breakdownAttributionType
+                                    ? `${breakdownAttributionType}/${breakdownAttributionValue || 0}`
+                                    : breakdownAttributionType
 
                         return currentValue
                     })()}

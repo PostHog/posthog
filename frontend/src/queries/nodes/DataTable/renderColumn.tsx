@@ -5,10 +5,10 @@ import { Property } from 'lib/components/Property'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { Link } from 'lib/lemon-ui/Link'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { LemonTag } from '@posthog/lemon-ui/LemonTag'
+import { Link } from '@posthog/lemon-ui/Link'
+import { Spinner } from '@posthog/lemon-ui/Spinner'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 import { autoCaptureEventToDescription } from 'lib/utils'
 import { GroupActorDisplay } from 'scenes/persons/GroupActorDisplay'
 import { PersonDisplay, PersonDisplayProps } from 'scenes/persons/PersonDisplay'
@@ -137,13 +137,13 @@ export function renderColumn(
                 : [...(query.source.properties || []), newProperty]
             const newUrl = query.propertiesViaUrl
                 ? combineUrl(
-                      router.values.location.pathname,
-                      {
-                          ...router.values.searchParams,
-                          properties: newProperties,
-                      },
-                      router.values.hashParams
-                  ).url
+                    router.values.location.pathname,
+                    {
+                        ...router.values.searchParams,
+                        properties: newProperties,
+                    },
+                    router.values.hashParams
+                ).url
                 : '#'
             return (
                 <Link
@@ -184,13 +184,13 @@ export function renderColumn(
                 : [...(query.source.properties || []), newProperty]
             const newUrl = query.propertiesViaUrl
                 ? combineUrl(
-                      router.values.location.pathname,
-                      {
-                          ...router.values.searchParams,
-                          properties: newProperties,
-                      },
-                      router.values.hashParams
-                  ).url
+                    router.values.location.pathname,
+                    {
+                        ...router.values.searchParams,
+                        properties: newProperties,
+                    },
+                    router.values.hashParams
+                ).url
                 : '#'
             return (
                 <Link

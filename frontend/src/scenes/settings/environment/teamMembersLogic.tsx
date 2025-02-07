@@ -3,7 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { lemonToast } from '@posthog/lemon-ui/LemonToast'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
@@ -89,34 +89,34 @@ export const teamMembersLogic = kea<teamMembersLogicType>([
                 if (!currentTeam?.access_control || !hasAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS)) {
                     return (organizationMembers ?? []).map(
                         (member) =>
-                            ({
-                                ...member,
-                                explicit_team_level: null,
-                                organization_level: member.level,
-                            } as FusedTeamMemberType)
+                        ({
+                            ...member,
+                            explicit_team_level: null,
+                            organization_level: member.level,
+                        } as FusedTeamMemberType)
                     )
                 }
                 return (organizationMembers ?? [])
                     .filter(({ level }) => level >= MINIMUM_IMPLICIT_ACCESS_LEVEL)
                     .map(
                         (member) =>
-                            ({
-                                ...member,
-                                explicit_team_level: null,
-                                organization_level: member.level,
-                            } as FusedTeamMemberType)
+                        ({
+                            ...member,
+                            explicit_team_level: null,
+                            organization_level: member.level,
+                        } as FusedTeamMemberType)
                     )
                     .concat(
                         explicitMembers
                             .filter(({ parent_level }) => parent_level < MINIMUM_IMPLICIT_ACCESS_LEVEL)
                             .map(
                                 (member) =>
-                                    ({
-                                        ...member,
-                                        level: member.effective_level,
-                                        explicit_team_level: member.level,
-                                        organization_level: member.parent_level,
-                                    } as FusedTeamMemberType)
+                                ({
+                                    ...member,
+                                    level: member.effective_level,
+                                    explicit_team_level: member.level,
+                                    organization_level: member.parent_level,
+                                } as FusedTeamMemberType)
                             )
                     )
             },

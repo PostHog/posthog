@@ -3,7 +3,7 @@ import Fuse from 'fuse.js'
 import { connect, kea, path, selectors } from 'kea'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
-import { IconCalculate, IconClipboardEdit } from 'lib/lemon-ui/icons'
+import { IconCalculate, IconClipboardEdit } from '@posthog/lemon-ui/icons'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -80,121 +80,121 @@ export const editorSidebarLogic = kea<editorSidebarLogicType>([
                 dataWarehouseTablesBySourceType,
                 databaseLoading
             ) => [
-                {
-                    key: 'data-warehouse-sources',
-                    noun: ['source', 'external source'],
-                    loading: databaseLoading,
-                    items:
-                        relevantDataWarehouseTables.length > 0
-                            ? relevantDataWarehouseTables.map(([table, matches]) => ({
-                                  key: table.id,
-                                  name: table.name,
-                                  url: '',
-                                  searchMatch: matches
-                                      ? {
+                    {
+                        key: 'data-warehouse-sources',
+                        noun: ['source', 'external source'],
+                        loading: databaseLoading,
+                        items:
+                            relevantDataWarehouseTables.length > 0
+                                ? relevantDataWarehouseTables.map(([table, matches]) => ({
+                                    key: table.id,
+                                    name: table.name,
+                                    url: '',
+                                    searchMatch: matches
+                                        ? {
                                             matchingFields: matches.map((match) => match.key),
                                             nameHighlightRanges: matches.find((match) => match.key === 'name')?.indices,
                                         }
-                                      : null,
-                                  onClick: () => {
-                                      actions.selectSchema(table)
-                                  },
-                                  menuItems: [
-                                      {
-                                          label: 'Add join',
-                                          onClick: () => {
-                                              actions.selectSourceTable(table.name)
-                                              actions.toggleJoinTableModal()
-                                          },
-                                      },
-                                  ],
-                              }))
-                            : dataWarehouseTablesBySourceType,
-                    onAdd: () => {
-                        router.actions.push(urls.pipeline(PipelineTab.Sources))
-                    },
-                } as SidebarCategory,
-                {
-                    key: 'data-warehouse-tables',
-                    noun: ['table', 'tables'],
-                    loading: databaseLoading,
-                    items: relevantPosthogTables.map(([table, matches]) => ({
-                        key: table.id,
-                        name: table.name,
-                        url: '',
-                        searchMatch: matches
-                            ? {
-                                  matchingFields: matches.map((match) => match.key),
-                                  nameHighlightRanges: matches.find((match) => match.key === 'name')?.indices,
-                              }
-                            : null,
-                        onClick: () => {
-                            actions.selectSchema(table)
+                                        : null,
+                                    onClick: () => {
+                                        actions.selectSchema(table)
+                                    },
+                                    menuItems: [
+                                        {
+                                            label: 'Add join',
+                                            onClick: () => {
+                                                actions.selectSourceTable(table.name)
+                                                actions.toggleJoinTableModal()
+                                            },
+                                        },
+                                    ],
+                                }))
+                                : dataWarehouseTablesBySourceType,
+                        onAdd: () => {
+                            router.actions.push(urls.pipeline(PipelineTab.Sources))
                         },
-                        menuItems: [
-                            {
-                                label: 'Add join',
-                                onClick: () => {
-                                    actions.selectSourceTable(table.name)
-                                    actions.toggleJoinTableModal()
-                                },
+                    } as SidebarCategory,
+                    {
+                        key: 'data-warehouse-tables',
+                        noun: ['table', 'tables'],
+                        loading: databaseLoading,
+                        items: relevantPosthogTables.map(([table, matches]) => ({
+                            key: table.id,
+                            name: table.name,
+                            url: '',
+                            searchMatch: matches
+                                ? {
+                                    matchingFields: matches.map((match) => match.key),
+                                    nameHighlightRanges: matches.find((match) => match.key === 'name')?.indices,
+                                }
+                                : null,
+                            onClick: () => {
+                                actions.selectSchema(table)
                             },
-                        ],
-                    })),
-                } as SidebarCategory,
-                {
-                    key: 'data-warehouse-views',
-                    noun: ['view', 'views'],
-                    loading: initialDataWarehouseSavedQueryLoading,
-                    items: relevantSavedQueries.map(([savedQuery, matches]) => ({
-                        key: savedQuery.id,
-                        name: savedQuery.name,
-                        url: '',
-                        icon: savedQuery.status ? (
-                            <Tooltip title="Materialized view">
-                                <IconCalculate />
-                            </Tooltip>
-                        ) : (
-                            <Tooltip title="View">
-                                <IconClipboardEdit />
-                            </Tooltip>
-                        ),
-                        searchMatch: matches
-                            ? {
-                                  matchingFields: matches.map((match) => match.key),
-                                  nameHighlightRanges: matches.find((match) => match.key === 'name')?.indices,
-                              }
-                            : null,
-                        onClick: () => {
-                            actions.selectSchema(savedQuery)
-                        },
-                        menuItems: [
-                            {
-                                label: 'Edit view definition',
-                                onClick: () => {
-                                    multitabEditorLogic({
-                                        key: `hogQLQueryEditor/${router.values.location.pathname}`,
-                                    }).actions.editView(savedQuery.query.query, savedQuery)
+                            menuItems: [
+                                {
+                                    label: 'Add join',
+                                    onClick: () => {
+                                        actions.selectSourceTable(table.name)
+                                        actions.toggleJoinTableModal()
+                                    },
                                 },
+                            ],
+                        })),
+                    } as SidebarCategory,
+                    {
+                        key: 'data-warehouse-views',
+                        noun: ['view', 'views'],
+                        loading: initialDataWarehouseSavedQueryLoading,
+                        items: relevantSavedQueries.map(([savedQuery, matches]) => ({
+                            key: savedQuery.id,
+                            name: savedQuery.name,
+                            url: '',
+                            icon: savedQuery.status ? (
+                                <Tooltip title="Materialized view">
+                                    <IconCalculate />
+                                </Tooltip>
+                            ) : (
+                                <Tooltip title="View">
+                                    <IconClipboardEdit />
+                                </Tooltip>
+                            ),
+                            searchMatch: matches
+                                ? {
+                                    matchingFields: matches.map((match) => match.key),
+                                    nameHighlightRanges: matches.find((match) => match.key === 'name')?.indices,
+                                }
+                                : null,
+                            onClick: () => {
+                                actions.selectSchema(savedQuery)
                             },
-                            {
-                                label: 'Add join',
-                                onClick: () => {
-                                    actions.selectSourceTable(savedQuery.name)
-                                    actions.toggleJoinTableModal()
+                            menuItems: [
+                                {
+                                    label: 'Edit view definition',
+                                    onClick: () => {
+                                        multitabEditorLogic({
+                                            key: `hogQLQueryEditor/${router.values.location.pathname}`,
+                                        }).actions.editView(savedQuery.query.query, savedQuery)
+                                    },
                                 },
-                            },
-                            {
-                                label: 'Delete',
-                                status: 'danger',
-                                onClick: () => {
-                                    actions.deleteDataWarehouseSavedQuery(savedQuery.id)
+                                {
+                                    label: 'Add join',
+                                    onClick: () => {
+                                        actions.selectSourceTable(savedQuery.name)
+                                        actions.toggleJoinTableModal()
+                                    },
                                 },
-                            },
-                        ],
-                    })),
-                } as SidebarCategory,
-            ],
+                                {
+                                    label: 'Delete',
+                                    status: 'danger',
+                                    onClick: () => {
+                                        actions.deleteDataWarehouseSavedQuery(savedQuery.id)
+                                    },
+                                },
+                            ],
+                        })),
+                    } as SidebarCategory,
+                ],
         ],
         nonMaterializedViews: [
             (s) => [s.dataWarehouseSavedQueries],

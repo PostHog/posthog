@@ -1,6 +1,6 @@
 import { LemonBanner, LemonButton, LemonInputSelect, LemonInputSelectOption, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconSlackExternal } from 'lib/lemon-ui/icons'
+import { IconSlackExternal } from '@posthog/lemon-ui/icons'
 import { useEffect, useMemo } from 'react'
 
 import { IntegrationType, SlackChannelType } from '~/types'
@@ -10,15 +10,15 @@ import { slackIntegrationLogic } from './slackIntegrationLogic'
 const getSlackChannelOptions = (slackChannels?: SlackChannelType[] | null): LemonInputSelectOption[] | null => {
     return slackChannels
         ? slackChannels.map((x) => ({
-              key: `${x.id}|#${x.name}`,
-              labelComponent: (
-                  <span className="flex items-center">
-                      {x.is_private ? `🔒${x.name}` : `#${x.name}`}
-                      {x.is_ext_shared ? <IconSlackExternal className="ml-2" /> : null}
-                  </span>
-              ),
-              label: `${x.id} #${x.name}`,
-          }))
+            key: `${x.id}|#${x.name}`,
+            labelComponent: (
+                <span className="flex items-center">
+                    {x.is_private ? `🔒${x.name}` : `#${x.name}`}
+                    {x.is_ext_shared ? <IconSlackExternal className="ml-2" /> : null}
+                </span>
+            ),
+            label: `${x.id} #${x.name}`,
+        }))
         : null
 }
 
@@ -73,11 +73,11 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                     slackChannelOptions ??
                     (modifiedValue
                         ? [
-                              {
-                                  key: modifiedValue,
-                                  label: modifiedValue?.split('|')[1] ?? modifiedValue,
-                              },
-                          ]
+                            {
+                                key: modifiedValue,
+                                label: modifiedValue?.split('|')[1] ?? modifiedValue,
+                            },
+                        ]
                         : [])
                 }
                 loading={slackChannelsLoading}

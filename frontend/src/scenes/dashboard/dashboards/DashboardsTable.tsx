@@ -5,15 +5,15 @@ import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemo
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { DashboardPrivilegeLevel } from 'lib/constants'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonRow } from 'lib/lemon-ui/LemonRow'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { Link } from 'lib/lemon-ui/Link'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { More } from '@posthog/lemon-ui/LemonButton'
+import { LemonDivider } from '@posthog/lemon-ui/LemonDivider'
+import { LemonRow } from '@posthog/lemon-ui/LemonRow'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui/LemonTable'
+import { createdAtColumn, createdByColumn } from '@posthog/lemon-ui/LemonTable'
+import { LemonTableLink } from '@posthog/lemon-ui/LemonTable'
+import { Link } from '@posthog/lemon-ui/Link'
+import { Tooltip } from '@posthog/lemon-ui/Tooltip'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardsFilters, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
@@ -117,96 +117,96 @@ export function DashboardsTable({
         },
         ...(hasAvailableFeature(AvailableFeature.TAGGING)
             ? [
-                  {
-                      title: 'Tags',
-                      dataIndex: 'tags' as keyof DashboardType,
-                      render: function Render(tags: DashboardType['tags']) {
-                          return tags ? <ObjectTags tags={tags} staticOnly /> : null
-                      },
-                  } as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
-              ]
+                {
+                    title: 'Tags',
+                    dataIndex: 'tags' as keyof DashboardType,
+                    render: function Render(tags: DashboardType['tags']) {
+                        return tags ? <ObjectTags tags={tags} staticOnly /> : null
+                    },
+                } as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
+            ]
             : []),
         createdByColumn<DashboardType>() as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
         createdAtColumn<DashboardType>() as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
         hideActions
             ? {}
             : {
-                  width: 0,
-                  render: function RenderActions(_, { id, name, user_access_level }: DashboardType) {
-                      return (
-                          <More
-                              overlay={
-                                  <>
-                                      <LemonButton
-                                          to={urls.dashboard(id)}
-                                          onClick={() => {
-                                              dashboardLogic({ id }).mount()
-                                              dashboardLogic({ id }).actions.setDashboardMode(
-                                                  null,
-                                                  DashboardEventSource.DashboardsList
-                                              )
-                                          }}
-                                          fullWidth
-                                      >
-                                          View
-                                      </LemonButton>
+                width: 0,
+                render: function RenderActions(_, { id, name, user_access_level }: DashboardType) {
+                    return (
+                        <More
+                            overlay={
+                                <>
+                                    <LemonButton
+                                        to={urls.dashboard(id)}
+                                        onClick={() => {
+                                            dashboardLogic({ id }).mount()
+                                            dashboardLogic({ id }).actions.setDashboardMode(
+                                                null,
+                                                DashboardEventSource.DashboardsList
+                                            )
+                                        }}
+                                        fullWidth
+                                    >
+                                        View
+                                    </LemonButton>
 
-                                      <AccessControlledLemonButton
-                                          userAccessLevel={user_access_level}
-                                          minAccessLevel="editor"
-                                          resourceType={AccessControlResourceType.Dashboard}
-                                          to={urls.dashboard(id)}
-                                          onClick={() => {
-                                              dashboardLogic({ id }).mount()
-                                              dashboardLogic({ id }).actions.setDashboardMode(
-                                                  DashboardMode.Edit,
-                                                  DashboardEventSource.DashboardsList
-                                              )
-                                          }}
-                                          fullWidth
-                                      >
-                                          Edit
-                                      </AccessControlledLemonButton>
+                                    <AccessControlledLemonButton
+                                        userAccessLevel={user_access_level}
+                                        minAccessLevel="editor"
+                                        resourceType={AccessControlResourceType.Dashboard}
+                                        to={urls.dashboard(id)}
+                                        onClick={() => {
+                                            dashboardLogic({ id }).mount()
+                                            dashboardLogic({ id }).actions.setDashboardMode(
+                                                DashboardMode.Edit,
+                                                DashboardEventSource.DashboardsList
+                                            )
+                                        }}
+                                        fullWidth
+                                    >
+                                        Edit
+                                    </AccessControlledLemonButton>
 
-                                      <LemonButton
-                                          onClick={() => {
-                                              showDuplicateDashboardModal(id, name)
-                                          }}
-                                          fullWidth
-                                      >
-                                          Duplicate
-                                      </LemonButton>
+                                    <LemonButton
+                                        onClick={() => {
+                                            showDuplicateDashboardModal(id, name)
+                                        }}
+                                        fullWidth
+                                    >
+                                        Duplicate
+                                    </LemonButton>
 
-                                      <LemonDivider />
+                                    <LemonDivider />
 
-                                      <LemonRow icon={<IconHome className="text-warning" />} fullWidth status="warning">
-                                          <span className="text-secondary">
-                                              Change the default dashboard
-                                              <br />
-                                              from the <Link to={urls.projectHomepage()}>project home page</Link>.
-                                          </span>
-                                      </LemonRow>
+                                    <LemonRow icon={<IconHome className="text-warning" />} fullWidth status="warning">
+                                        <span className="text-secondary">
+                                            Change the default dashboard
+                                            <br />
+                                            from the <Link to={urls.projectHomepage()}>project home page</Link>.
+                                        </span>
+                                    </LemonRow>
 
-                                      <LemonDivider />
+                                    <LemonDivider />
 
-                                      <AccessControlledLemonButton
-                                          userAccessLevel={user_access_level}
-                                          minAccessLevel="editor"
-                                          resourceType={AccessControlResourceType.Dashboard}
-                                          onClick={() => {
-                                              showDeleteDashboardModal(id)
-                                          }}
-                                          fullWidth
-                                          status="danger"
-                                      >
-                                          Delete dashboard
-                                      </AccessControlledLemonButton>
-                                  </>
-                              }
-                          />
-                      )
-                  },
-              },
+                                    <AccessControlledLemonButton
+                                        userAccessLevel={user_access_level}
+                                        minAccessLevel="editor"
+                                        resourceType={AccessControlResourceType.Dashboard}
+                                        onClick={() => {
+                                            showDeleteDashboardModal(id)
+                                        }}
+                                        fullWidth
+                                        status="danger"
+                                    >
+                                        Delete dashboard
+                                    </AccessControlledLemonButton>
+                                </>
+                            }
+                        />
+                    )
+                },
+            },
     ]
 
     return (

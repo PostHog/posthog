@@ -1,7 +1,7 @@
 import { Chart, ChartConfiguration } from 'chart.js/auto'
 import { useActions, useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { LemonModal } from '@posthog/lemon-ui/LemonModal'
 import { useEffect } from 'react'
 
 import { experimentLogic } from '../experimentLogic'
@@ -138,7 +138,7 @@ export const VariantDeltaTimeseries = (): JSX.Element => {
             width={800}
             title="Variant performance over time"
             footer={
-                <LemonButton form="secondary-metric-modal-form" type="secondary" onClick={() => {}}>
+                <LemonButton form="secondary-metric-modal-form" type="secondary" onClick={() => { }}>
                     Close
                 </LemonButton>
             }

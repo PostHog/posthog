@@ -5,8 +5,8 @@ import { useActions, useValues } from 'kea'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'lib/constants'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonBanner } from '@posthog/lemon-ui/LemonBanner'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui/LemonTable'
 import { DefinitionHeader, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { propertyDefinitionsTableLogic } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -57,14 +57,14 @@ export function PropertyDefinitionsTable(): JSX.Element {
         },
         ...(hasTagging
             ? [
-                  {
-                      title: 'Tags',
-                      key: 'tags',
-                      render: function Render(_, definition: PropertyDefinition) {
-                          return <ObjectTags tags={definition.tags ?? []} staticOnly />
-                      },
-                  } as LemonTableColumn<PropertyDefinition, keyof PropertyDefinition | undefined>,
-              ]
+                {
+                    title: 'Tags',
+                    key: 'tags',
+                    render: function Render(_, definition: PropertyDefinition) {
+                        return <ObjectTags tags={definition.tags ?? []} staticOnly />
+                    },
+                } as LemonTableColumn<PropertyDefinition, keyof PropertyDefinition | undefined>,
+            ]
             : []),
     ]
 
@@ -75,10 +75,10 @@ export function PropertyDefinitionsTable(): JSX.Element {
                 <Link
                     to={urls.insightNewHogQL(
                         'SELECT arrayJoin(JSONExtractKeys(properties)) AS property_key, count()\n' +
-                            (filters.type === 'person' ? 'FROM persons\n' : 'FROM events\n') +
-                            (filters.type === 'person' ? '' : 'WHERE {filters}\n') +
-                            'GROUP BY property_key\n' +
-                            'ORDER BY count() DESC',
+                        (filters.type === 'person' ? 'FROM persons\n' : 'FROM events\n') +
+                        (filters.type === 'person' ? '' : 'WHERE {filters}\n') +
+                        'GROUP BY property_key\n' +
+                        'ORDER BY count() DESC',
                         { dateRange: { date_from: '-24h' } }
                     )}
                 >
@@ -111,13 +111,13 @@ export function PropertyDefinitionsTable(): JSX.Element {
                     pageSize: EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
                     onForward: propertyDefinitions.next
                         ? () => {
-                              loadPropertyDefinitions(propertyDefinitions.next)
-                          }
+                            loadPropertyDefinitions(propertyDefinitions.next)
+                        }
                         : undefined,
                     onBackward: propertyDefinitions.previous
                         ? () => {
-                              loadPropertyDefinitions(propertyDefinitions.previous)
-                          }
+                            loadPropertyDefinitions(propertyDefinitions.previous)
+                        }
                         : undefined,
                 }}
                 dataSource={propertyDefinitions.results}

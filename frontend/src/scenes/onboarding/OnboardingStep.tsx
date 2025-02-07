@@ -2,7 +2,7 @@ import { IconArrowRight } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { IconChevronRight } from 'lib/lemon-ui/icons'
+import { IconChevronRight } from '@posthog/lemon-ui/icons'
 import React from 'react'
 import { urls } from 'scenes/urls'
 
@@ -86,9 +86,8 @@ export const OnboardingStep = ({
                 </div>
             </div>
             <div
-                className={`${stepKey !== 'product_intro' && 'p-2'} ${
-                    stepKey !== 'product_intro' && !fullWidth && 'max-w-screen-md mx-auto'
-                }`}
+                className={`${stepKey !== 'product_intro' && 'p-2'} ${stepKey !== 'product_intro' && !fullWidth && 'max-w-screen-md mx-auto'
+                    }`}
             >
                 {subtitle && (
                     <div className="max-w-screen-md mx-auto">
@@ -112,11 +111,11 @@ export const OnboardingStep = ({
                                 onSkip && onSkip()
                                 !hasNextStep
                                     ? completeOnboarding(
-                                          undefined,
-                                          dashboardCreatedDuringOnboarding
-                                              ? urls.dashboard(dashboardCreatedDuringOnboarding.id)
-                                              : undefined
-                                      )
+                                        undefined,
+                                        dashboardCreatedDuringOnboarding
+                                            ? urls.dashboard(dashboardCreatedDuringOnboarding.id)
+                                            : undefined
+                                    )
                                     : goToNextStep()
                             }}
                             data-attr="onboarding-skip-button"
@@ -135,11 +134,11 @@ export const OnboardingStep = ({
                                 continueAction && continueAction()
                                 !hasNextStep
                                     ? completeOnboarding(
-                                          undefined,
-                                          dashboardCreatedDuringOnboarding
-                                              ? urls.dashboard(dashboardCreatedDuringOnboarding.id)
-                                              : undefined
-                                      )
+                                        undefined,
+                                        dashboardCreatedDuringOnboarding
+                                            ? urls.dashboard(dashboardCreatedDuringOnboarding.id)
+                                            : undefined
+                                    )
                                     : goToNextStep()
                             }}
                             sideIcon={hasNextStep ? <IconArrowRight /> : null}

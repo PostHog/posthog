@@ -20,8 +20,8 @@ import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { DashboardPrivilegeLevel, FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
 import { currentSessionId, TimeToSeeDataPayload } from 'lib/internalMetrics'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { Link } from 'lib/lemon-ui/Link'
+import { lemonToast } from '@posthog/lemon-ui/LemonToast'
+import { Link } from '@posthog/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clearDOMTextSelection, isAbortedRequest, shouldCancelQuery, toParams, uuid } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -190,12 +190,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
         loadDashboard: (payload: {
             refresh?: RefreshType
             action:
-                | 'initial_load'
-                | 'update'
-                | 'refresh'
-                | 'load_missing'
-                | 'refresh_insights_on_filters_updated'
-                | 'preview'
+            | 'initial_load'
+            | 'update'
+            | 'refresh'
+            | 'load_missing'
+            | 'refresh_insights_on_filters_updated'
+            | 'preview'
         }) => payload,
         triggerDashboardUpdate: (payload) => ({ payload }),
         /** The current state in which the dashboard is being viewed, see DashboardMode. */
@@ -491,10 +491,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 loadDashboardSuccess: (state, { dashboard, payload }) =>
                     dashboard
                         ? {
-                              ...state,
-                              // don't update filters if we're previewing
-                              ...(payload?.action === 'preview' ? {} : dashboard.variables ?? {}),
-                          }
+                            ...state,
+                            // don't update filters if we're previewing
+                            ...(payload?.action === 'preview' ? {} : dashboard.variables ?? {}),
+                        }
                         : state,
             },
         ],
@@ -517,10 +517,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 loadDashboardSuccess: (state, { dashboard, payload }) =>
                     dashboard
                         ? {
-                              ...state,
-                              // don't update filters if we're previewing
-                              ...(payload?.action === 'preview' ? {} : dashboard.variables ?? {}),
-                          }
+                            ...state,
+                            // don't update filters if we're previewing
+                            ...(payload?.action === 'preview' ? {} : dashboard.variables ?? {}),
+                        }
                         : state,
             },
         ],
@@ -548,12 +548,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 loadDashboardSuccess: (state, { dashboard }) =>
                     dashboard
                         ? {
-                              ...state,
-                              date_from: dashboard?.filters.date_from || null,
-                              date_to: dashboard?.filters.date_to || null,
-                              properties: dashboard?.filters.properties || [],
-                              breakdown_filter: dashboard?.filters.breakdown_filter || null,
-                          }
+                            ...state,
+                            date_from: dashboard?.filters.date_from || null,
+                            date_to: dashboard?.filters.date_to || null,
+                            properties: dashboard?.filters.properties || [],
+                            breakdown_filter: dashboard?.filters.breakdown_filter || null,
+                        }
                         : state,
             },
         ],
@@ -572,17 +572,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 loadDashboardSuccess: (state, { dashboard, payload }) =>
                     dashboard
                         ? {
-                              ...state,
-                              // don't update filters if we're previewing
-                              ...(payload?.action === 'preview'
-                                  ? {}
-                                  : {
-                                        date_from: dashboard?.filters.date_from || null,
-                                        date_to: dashboard?.filters.date_to || null,
-                                        properties: dashboard?.filters.properties || [],
-                                        breakdown_filter: dashboard?.filters.breakdown_filter || null,
-                                    }),
-                          }
+                            ...state,
+                            // don't update filters if we're previewing
+                            ...(payload?.action === 'preview'
+                                ? {}
+                                : {
+                                    date_from: dashboard?.filters.date_from || null,
+                                    date_to: dashboard?.filters.date_to || null,
+                                    properties: dashboard?.filters.properties || [],
+                                    breakdown_filter: dashboard?.filters.breakdown_filter || null,
+                                }),
+                        }
                         : state,
             },
         ],
@@ -698,8 +698,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     [shortId]: loading
                         ? { loading: true, queued: true, timer: new Date() }
                         : queued
-                        ? { loading: false, queued: true, timer: null }
-                        : { refreshed: true, timer: state[shortId]?.timer || null },
+                            ? { loading: false, queued: true, timer: null }
+                            : { refreshed: true, timer: state[shortId]?.timer || null },
                 }),
                 setRefreshStatuses: (state, { shortIds, loading, queued }) =>
                     Object.fromEntries(
@@ -708,8 +708,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             loading
                                 ? { loading: true, queued: true, timer: new Date() }
                                 : queued
-                                ? { loading: false, queued: true, timer: null }
-                                : { refreshed: true, timer: state[shortId]?.timer || null },
+                                    ? { loading: false, queued: true, timer: null }
+                                    : { refreshed: true, timer: state[shortId]?.timer || null },
                         ])
                     ) as Record<string, RefreshStatus>,
                 setRefreshError: (state, { shortId }) => ({
@@ -832,33 +832,33 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (dashboard: DashboardType): DashboardTemplateEditorType | undefined => {
                 return dashboard
                     ? {
-                          template_name: dashboard.name,
-                          dashboard_description: dashboard.description,
-                          dashboard_filters: dashboard.filters,
-                          tags: dashboard.tags || [],
-                          tiles: dashboard.tiles.map((tile) => {
-                              if (tile.text) {
-                                  return {
-                                      type: 'TEXT',
-                                      body: tile.text.body,
-                                      layouts: tile.layouts,
-                                      color: tile.color,
-                                  }
-                              }
-                              if (tile.insight) {
-                                  return {
-                                      type: 'INSIGHT',
-                                      name: tile.insight.name,
-                                      description: tile.insight.description || '',
-                                      query: tile.insight.query,
-                                      layouts: tile.layouts,
-                                      color: tile.color,
-                                  }
-                              }
-                              throw new Error('Unknown tile type')
-                          }),
-                          variables: [],
-                      }
+                        template_name: dashboard.name,
+                        dashboard_description: dashboard.description,
+                        dashboard_filters: dashboard.filters,
+                        tags: dashboard.tags || [],
+                        tiles: dashboard.tiles.map((tile) => {
+                            if (tile.text) {
+                                return {
+                                    type: 'TEXT',
+                                    body: tile.text.body,
+                                    layouts: tile.layouts,
+                                    color: tile.color,
+                                }
+                            }
+                            if (tile.insight) {
+                                return {
+                                    type: 'INSIGHT',
+                                    name: tile.insight.name,
+                                    description: tile.insight.description || '',
+                                    query: tile.insight.query,
+                                    layouts: tile.layouts,
+                                    color: tile.color,
+                                }
+                            }
+                            throw new Error('Unknown tile type')
+                        }),
+                        variables: [],
+                    }
                     : undefined
             },
         ],
@@ -964,10 +964,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 if (featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS_CONTROL]) {
                     return dashboard?.user_access_level
                         ? accessLevelSatisfied(
-                              AccessControlResourceType.Dashboard,
-                              dashboard.user_access_level,
-                              'editor'
-                          )
+                            AccessControlResourceType.Dashboard,
+                            dashboard.user_access_level,
+                            'editor'
+                        )
                         : true
                 }
                 return !!dashboard && dashboard.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
@@ -1028,20 +1028,20 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     name: dashboard?.id
                         ? dashboard.name
                         : dashboardFailedToLoad
-                        ? 'Could not load'
-                        : !dashboardLoading
-                        ? 'Not found'
-                        : null,
+                            ? 'Could not load'
+                            : !dashboardLoading
+                                ? 'Not found'
+                                : null,
                     onRename: canEditDashboard
                         ? async (name) => {
-                              if (dashboard) {
-                                  await dashboardsModel.asyncActions.updateDashboard({
-                                      id: dashboard.id,
-                                      name,
-                                      allowUndo: true,
-                                  })
-                              }
-                          }
+                            if (dashboard) {
+                                await dashboardsModel.asyncActions.updateDashboard({
+                                    id: dashboard.id,
+                                    name,
+                                    allowUndo: true,
+                                })
+                            }
+                        }
                         : undefined,
                 },
             ],
@@ -1053,11 +1053,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // Only render the new access control  on side panel if they are not using the old dashboard permissions (v1)
                 return dashboard && dashboard.access_control_version === 'v2'
                     ? {
-                          activity_scope: ActivityScope.DASHBOARD,
-                          activity_item_id: `${dashboard.id}`,
-                          access_control_resource: 'dashboard',
-                          access_control_resource_id: `${dashboard.id}`,
-                      }
+                        activity_scope: ActivityScope.DASHBOARD,
+                        activity_item_id: `${dashboard.id}`,
+                        access_control_resource: 'dashboard',
+                        access_control_resource_id: `${dashboard.id}`,
+                    }
                     : null
             },
         ],

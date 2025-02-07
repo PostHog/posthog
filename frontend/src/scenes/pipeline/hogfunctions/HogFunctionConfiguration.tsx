@@ -21,8 +21,8 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonField } from 'lib/lemon-ui/LemonField'
+import { More } from '@posthog/lemon-ui/LemonButton'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { urls } from 'scenes/urls'
 
@@ -140,8 +140,8 @@ export function HogFunctionConfiguration({
                         !configurationChanged
                             ? 'No changes'
                             : isConfigurationSubmitting
-                            ? 'Saving in progress…'
-                            : undefined
+                                ? 'Saving in progress…'
+                                : undefined
                     }
                 >
                     Clear changes
@@ -157,8 +157,8 @@ export function HogFunctionConfiguration({
                 {willReEnableOnSave
                     ? ' & re-enable'
                     : willChangeEnabledOnSave
-                    ? ` & ${configuration.enabled ? 'enable' : 'disable'}`
-                    : ''}
+                        ? ` & ${configuration.enabled ? 'enable' : 'disable'}`
+                        : ''}
             </LemonButton>
         </>
     )
@@ -261,7 +261,7 @@ export function HogFunctionConfiguration({
                                 </LemonField>
 
                                 {isLegacyPlugin ? null : hogFunction?.template &&
-                                  !hogFunction.template.id.startsWith('template-blank-') ? (
+                                    !hogFunction.template.id.startsWith('template-blank-') ? (
                                     <LemonDropdown
                                         showArrow
                                         overlay={

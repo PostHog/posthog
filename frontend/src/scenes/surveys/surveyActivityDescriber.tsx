@@ -8,7 +8,7 @@ import {
     HumanizedChange,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { Link } from 'lib/lemon-ui/Link'
+import { Link } from '@posthog/lemon-ui/Link'
 import { truncate } from 'lib/utils'
 import { urls } from 'scenes/urls'
 import { match, P } from 'ts-pattern'
@@ -198,8 +198,8 @@ const surveyActionsMapping: Record<
 
         return changes.length > 0
             ? {
-                  description: changes,
-              }
+                description: changes,
+            }
             : null
     },
     conditions: function onConditions(change) {
@@ -226,8 +226,8 @@ const surveyActionsMapping: Record<
 
         return changes.filter((change) => change.props.children).length > 0
             ? {
-                  description: changes.filter((change) => change.props.children),
-              }
+                description: changes.filter((change) => change.props.children),
+            }
             : null
     },
     responses_limit: function onResponsesLimit(change) {
@@ -289,8 +289,8 @@ const surveyActionsMapping: Record<
 
         return changes.length > 0
             ? {
-                  description: changes,
-              }
+                description: changes,
+            }
             : null
     },
     targeting_flag_filters: function onTargetingFlagFilter(change) {
@@ -322,8 +322,8 @@ const surveyActionsMapping: Record<
 
         return changes.length > 0
             ? {
-                  description: changes,
-              }
+                description: changes,
+            }
             : null
     },
 }
@@ -444,11 +444,11 @@ export function describeQuestionChanges(before: SurveyQuestion, after: SurveyQue
     const typeChangeDescription =
         before.type !== after.type
             ? [
-                  <>
-                      changed question type from <strong>{SurveyQuestionLabel[before.type]}</strong> to{' '}
-                      <strong>{SurveyQuestionLabel[after.type]}</strong>
-                  </>,
-              ]
+                <>
+                    changed question type from <strong>{SurveyQuestionLabel[before.type]}</strong> to{' '}
+                    <strong>{SurveyQuestionLabel[after.type]}</strong>
+                </>,
+            ]
             : []
 
     const specificChanges = match([before, after])
@@ -499,10 +499,10 @@ export function describeCommonChanges(before: SurveyQuestion, after: SurveyQuest
 export function describeLinkChanges([before, after]: [LinkSurveyQuestion, LinkSurveyQuestion]): JSX.Element[] {
     return before.link !== after.link
         ? [
-              <>
-                  updated link from <strong>{before.link}</strong> to <strong>{after.link}</strong>
-              </>,
-          ]
+            <>
+                updated link from <strong>{before.link}</strong> to <strong>{after.link}</strong>
+            </>,
+        ]
         : []
 }
 

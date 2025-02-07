@@ -10,7 +10,7 @@ import {
     HumanizedActivityLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { ACTIVITY_PAGE_SIZE } from 'lib/constants'
-import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
+import { PaginationManual } from '@posthog/lemon-ui/PaginationControl'
 import { cohortActivityDescriber } from 'scenes/cohorts/activityDescriptions'
 import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'

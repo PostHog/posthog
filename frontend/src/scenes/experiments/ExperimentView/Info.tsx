@@ -5,7 +5,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconOpenInNew } from '@posthog/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import { ProgressStatus } from '~/types'
@@ -109,21 +109,20 @@ export function Info(): JSX.Element {
                                 <div className="text-xs font-semibold uppercase tracking-wide">Last refreshed</div>
                                 <div className="inline-flex space-x-2">
                                     <span
-                                        className={`${
-                                            lastRefresh
+                                        className={`${lastRefresh
                                                 ? dayjs().diff(dayjs(lastRefresh), 'hours') > 12
                                                     ? 'text-danger'
                                                     : dayjs().diff(dayjs(lastRefresh), 'hours') > 6
-                                                    ? 'text-warning'
-                                                    : ''
+                                                        ? 'text-warning'
+                                                        : ''
                                                 : ''
-                                        }`}
+                                            }`}
                                     >
                                         {metricResultsLoading || secondaryMetricResultsLoading
                                             ? 'Loading…'
                                             : lastRefresh
-                                            ? dayjs(lastRefresh).fromNow()
-                                            : 'a while ago'}
+                                                ? dayjs(lastRefresh).fromNow()
+                                                : 'a while ago'}
                                     </span>
                                     <LemonButton
                                         type="secondary"

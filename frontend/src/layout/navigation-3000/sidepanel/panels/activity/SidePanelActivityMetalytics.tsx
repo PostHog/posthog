@@ -2,7 +2,7 @@ import { Spinner, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { metalyticsLogic } from 'lib/components/Metalytics/metalyticsLogic'
-import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture/ProfileBubbles'
+import { ProfileBubbles } from '@posthog/lemon-ui/ProfilePicture'
 
 export function SidePanelActivityMetalytics(): JSX.Element {
     const { scope, instanceId, viewCount, recentUserMembers, viewCountLoading, recentUsersLoading } =

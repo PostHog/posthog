@@ -3,8 +3,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { JSONViewer } from 'lib/components/JSONViewer'
-import { IconExclamation } from 'lib/lemon-ui/icons'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { IconExclamation } from '@posthog/lemon-ui/icons'
+import { LemonMarkdown } from '@posthog/lemon-ui/LemonMarkdown'
 import { isObject } from 'lib/utils'
 import React, { useState } from 'react'
 
@@ -99,10 +99,10 @@ export const LLMMessageDisplay = React.memo(
                     isOutput
                         ? 'bg-[var(--bg-fill-success-tertiary)]'
                         : role === 'user'
-                        ? 'bg-[var(--bg-fill-tertiary)]'
-                        : role === 'assistant'
-                        ? 'bg-[var(--bg-fill-info-tertiary)]'
-                        : null // e.g. system
+                            ? 'bg-[var(--bg-fill-tertiary)]'
+                            : role === 'assistant'
+                                ? 'bg-[var(--bg-fill-info-tertiary)]'
+                                : null // e.g. system
                 )}
             >
                 <div className="flex items-center gap-1 w-full px-2 h-6 text-xs font-medium">

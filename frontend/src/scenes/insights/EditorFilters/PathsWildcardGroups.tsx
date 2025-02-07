@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { LemonInputSelect } from '@posthog/lemon-ui/LemonInputSelect'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 
 import { EditorFilterProps } from '~/types'

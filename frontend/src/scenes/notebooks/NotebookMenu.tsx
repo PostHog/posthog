@@ -4,7 +4,7 @@ import { IconClock, IconDownload, IconEllipsis, IconShare, IconTrash } from '@po
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { LemonMenu } from '@posthog/lemon-ui/LemonMenu'
 import { urls } from 'scenes/urls'
 
 import { notebooksModel } from '~/models/notebooksModel'
@@ -35,19 +35,19 @@ export function NotebookMenu({ shortId }: NotebookLogicProps): JSX.Element {
                     onClick: () => openShareModal(),
                 },
                 !isLocalOnly &&
-                    !notebook?.is_template && {
-                        label: 'Delete',
-                        icon: <IconTrash />,
-                        status: 'danger',
-                        disabledReason:
-                            notebook?.user_access_level !== 'editor'
-                                ? 'You do not have permission to delete this notebook.'
-                                : undefined,
-                        onClick: () => {
-                            notebooksModel.actions.deleteNotebook(shortId, notebook?.title)
-                            router.actions.push(urls.notebooks())
-                        },
+                !notebook?.is_template && {
+                    label: 'Delete',
+                    icon: <IconTrash />,
+                    status: 'danger',
+                    disabledReason:
+                        notebook?.user_access_level !== 'editor'
+                            ? 'You do not have permission to delete this notebook.'
+                            : undefined,
+                    onClick: () => {
+                        notebooksModel.actions.deleteNotebook(shortId, notebook?.title)
+                        router.actions.push(urls.notebooks())
                     },
+                },
             ]}
         >
             <LemonButton aria-label="more" icon={<IconEllipsis />} size="small" />

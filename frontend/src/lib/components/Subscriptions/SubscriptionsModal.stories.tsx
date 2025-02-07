@@ -1,5 +1,5 @@
 import { Meta } from '@storybook/react'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
 import { uuid } from 'lib/utils'
 import { useRef, useState } from 'react'
 
@@ -45,21 +45,21 @@ const Template = (
                     insightShortIdRef.current === 'empty'
                         ? []
                         : [
-                              createMockSubscription(),
-                              createMockSubscription({
-                                  title: 'Weekly C-level report',
-                                  target_value: 'james@posthog.com',
-                                  frequency: 'weekly',
-                                  interval: 1,
-                              }),
-                              createMockSubscription({
-                                  title: 'Daily Slack report',
-                                  target_type: 'slack',
-                                  target_value: 'C123|#general',
-                                  frequency: 'weekly',
-                                  interval: 1,
-                              }),
-                          ],
+                            createMockSubscription(),
+                            createMockSubscription({
+                                title: 'Weekly C-level report',
+                                target_value: 'james@posthog.com',
+                                frequency: 'weekly',
+                                interval: 1,
+                            }),
+                            createMockSubscription({
+                                title: 'Daily Slack report',
+                                target_type: 'slack',
+                                target_value: 'C123|#general',
+                                frequency: 'weekly',
+                                interval: 1,
+                            }),
+                        ],
             },
             '/api/environments/:id/subscriptions/:subId': createMockSubscription(),
             '/api/projects/:id/integrations': { results: !noIntegrations ? [mockIntegration] : [] },

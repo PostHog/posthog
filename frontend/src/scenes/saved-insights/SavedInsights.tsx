@@ -32,17 +32,17 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconAction, IconGridView, IconListView, IconTableChart } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { IconAction, IconGridView, IconListView, IconTableChart } from '@posthog/lemon-ui/icons'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { More } from '@posthog/lemon-ui/LemonButton'
+import { LemonDivider } from '@posthog/lemon-ui/LemonDivider'
+import { LemonSegmentedButton } from '@posthog/lemon-ui/LemonSegmentedButton'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui/LemonTable'
+import { createdAtColumn, createdByColumn } from '@posthog/lemon-ui/LemonTable'
+import { LemonTableLink } from '@posthog/lemon-ui/LemonTable'
+import { LemonTabs } from '@posthog/lemon-ui/LemonTabs'
+import { PaginationControl, usePagination } from '@posthog/lemon-ui/PaginationControl'
+import { SpinnerOverlay } from '@posthog/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNonEmptyObject } from 'lib/utils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
@@ -535,24 +535,24 @@ export function SavedInsights(): JSX.Element {
         },
         ...(hasTagging
             ? [
-                  {
-                      title: 'Tags',
-                      dataIndex: 'tags' as keyof QueryBasedInsightModel,
-                      key: 'tags',
-                      render: function renderTags(tags: string[]) {
-                          return <ObjectTags tags={tags} staticOnly />
-                      },
-                  },
-              ]
+                {
+                    title: 'Tags',
+                    dataIndex: 'tags' as keyof QueryBasedInsightModel,
+                    key: 'tags',
+                    render: function renderTags(tags: string[]) {
+                        return <ObjectTags tags={tags} staticOnly />
+                    },
+                },
+            ]
             : []),
         ...(tab === SavedInsightsTabs.Yours
             ? []
             : [
-                  createdByColumn() as LemonTableColumn<
-                      QueryBasedInsightModel,
-                      keyof QueryBasedInsightModel | undefined
-                  >,
-              ]),
+                createdByColumn() as LemonTableColumn<
+                    QueryBasedInsightModel,
+                    keyof QueryBasedInsightModel | undefined
+                >,
+            ]),
         createdAtColumn() as LemonTableColumn<QueryBasedInsightModel, keyof QueryBasedInsightModel | undefined>,
         {
             title: 'Last modified',
@@ -646,15 +646,15 @@ export function SavedInsights(): JSX.Element {
                     { key: SavedInsightsTabs.History, label: 'History' },
                     ...(showAlerts
                         ? [
-                              {
-                                  key: SavedInsightsTabs.Alerts,
-                                  label: (
-                                      <div className="flex items-center gap-2">
-                                          Alerts <LemonTag type="highlight">ALPHA</LemonTag>
-                                      </div>
-                                  ),
-                              },
-                          ]
+                            {
+                                key: SavedInsightsTabs.Alerts,
+                                label: (
+                                    <div className="flex items-center gap-2">
+                                        Alerts <LemonTag type="highlight">ALPHA</LemonTag>
+                                    </div>
+                                ),
+                            },
+                        ]
                         : []),
                 ]}
             />
@@ -670,9 +670,8 @@ export function SavedInsights(): JSX.Element {
                     <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center">
                         <span className="text-secondary">
                             {count
-                                ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${
-                                      count === 1 ? '' : 's'
-                                  }`
+                                ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${count === 1 ? '' : 's'
+                                }`
                                 : null}
                         </span>
                         <div>

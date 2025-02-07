@@ -1,7 +1,7 @@
 import { LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { LemonLabel } from '@posthog/lemon-ui/LemonLabel'
 import { useState } from 'react'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 

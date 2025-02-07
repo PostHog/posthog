@@ -1,9 +1,9 @@
 import { IconPlus } from '@posthog/icons'
 import { LemonLabel } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { LemonButton } from '@posthog/lemon-ui/LemonButton'
+import { LemonCollapse } from '@posthog/lemon-ui/LemonCollapse'
+import { LemonInput } from '@posthog/lemon-ui/LemonInput'
 import { useState } from 'react'
 
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
@@ -46,9 +46,9 @@ export function WebExperimentVariant({ variant }: WebExperimentVariantProps): JS
                 </div>
             )}
             {experimentForm?.variants &&
-            experimentForm?.variants[variant] &&
-            experimentForm?.variants[variant].transforms &&
-            experimentForm?.variants[variant].transforms?.length > 0 ? (
+                experimentForm?.variants[variant] &&
+                experimentForm?.variants[variant].transforms &&
+                experimentForm?.variants[variant].transforms?.length > 0 ? (
                 <div>
                     <div className="flex items-center justify-between mb-2">
                         <LemonLabel>Transformations</LemonLabel>

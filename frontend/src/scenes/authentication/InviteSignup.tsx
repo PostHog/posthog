@@ -6,11 +6,11 @@ import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
 import { SocialLoginButtons, SSOEnforcedLoginButton } from 'lib/components/SocialLoginButton/SocialLoginButton'
-import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
-import { LemonField } from 'lib/lemon-ui/LemonField'
-import { Link } from 'lib/lemon-ui/Link'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { IconChevronLeft, IconChevronRight } from '@posthog/lemon-ui/icons'
+import { LemonField } from '@posthog/lemon-ui/LemonField'
+import { Link } from '@posthog/lemon-ui/Link'
+import { ProfilePicture } from '@posthog/lemon-ui/ProfilePicture'
+import { SpinnerOverlay } from '@posthog/lemon-ui/Spinner'
 import { useEffect } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -102,9 +102,8 @@ function ErrorView(): JSX.Element | null {
         },
         [ErrorCodes.Unknown]: {
             title: 'Oops! We could not validate this invite link',
-            detail: `${
-                error?.detail || ''
-            } There was an issue with your invite link, please try again in a few seconds. If the problem persists, contact us.`,
+            detail: `${error?.detail || ''
+                } There was an issue with your invite link, please try again in a few seconds. If the problem persists, contact us.`,
             actions: user ? <BackToPostHog /> : <HelperLinks />,
         },
     }
