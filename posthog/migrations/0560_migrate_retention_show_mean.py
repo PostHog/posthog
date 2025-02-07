@@ -6,15 +6,16 @@ def migrate_show_mean_from_boolean_to_string(apps, schema_editor):
 
     # Get all retention insights
     retention_insights = Insight.objects.filter(
-        filters__insight="RETENTION", deleted=False, filters__has_key="show_mean"
-    ).exclude(
-        filters__show_mean__isnull=True,
+        deleted=False,
+        query__source__kind="RetentionQuery",
+        query__source__retentionFilter__has_key="showMean",
     )
 
     for insight in retention_insights.iterator(chunk_size=100):
-        if isinstance(insight.filters.get("show_mean"), bool):
-            # Convert boolean to string - if True, use 'simple'
-            insight.filters["show_mean"] = "simple" if insight.filters["show_mean"] else None
+        show_mean_value = insight.query["source"]["retentionFilter"]["showMean"]
+        if isinstance(show_mean_value, bool):
+            # Convert boolean to string - if True, use 'simple' else 'none'
+            insight.query["source"]["retentionFilter"]["showMean"] = "simple" if show_mean_value else "none"
             insight.save()
 
 
@@ -23,16 +24,17 @@ def reverse_migrate_show_mean_from_string_to_boolean(apps, schema_editor):
 
     # Get all retention insights
     retention_insights = Insight.objects.filter(
-        filters__insight="RETENTION", deleted=False, filters__has_key="show_mean"
-    ).exclude(
-        filters__show_mean__isnull=True,
+        deleted=False,
+        query__source__kind="RetentionQuery",
+        query__source__retentionFilter__has_key="showMean",
     )
 
     for insight in retention_insights.iterator(chunk_size=100):
-        if isinstance(insight.filters.get("show_mean"), str):
+        show_mean_value = insight.query["source"]["retentionFilter"]["showMean"]
+        if isinstance(show_mean_value, str):
             # Convert string back to boolean - 'simple' and 'weighted' becomes True
-            insight.filters["show_mean"] = (
-                insight.filters["show_mean"] == "simple" or insight.filters["show_mean"] == "weighted"
+            insight.query["source"]["retentionFilter"]["showMean"] = (
+                show_mean_value == "simple" or show_mean_value == "weighted"
             )
             insight.save()
 
