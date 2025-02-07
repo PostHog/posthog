@@ -37,7 +37,7 @@ return returnEvent
             label: 'Properties to Hash',
             description: 'Add property paths to hash',
             default: {
-                Ip: 'properties.$ip',
+                Ip: '$ip',
             },
             secret: false,
             required: true,
