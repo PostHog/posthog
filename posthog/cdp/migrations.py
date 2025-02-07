@@ -162,7 +162,8 @@ def migrate_legacy_plugins(
             # Order by order asc but with nulls last
         )
         .filter(enabled=True)
-        .order_by("team_id")
+        # Order by id descending. Makes it easier to re run and quickly pick up the latest added plugins
+        .order_by("-id")
     )
 
     if kind == "destination":
