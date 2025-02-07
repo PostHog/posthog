@@ -3,8 +3,8 @@ import { useActions, useValues } from 'kea'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'
 import { useState } from 'react'
+import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, InsightType } from '~/types'
@@ -42,8 +42,8 @@ export function PathCleaningFiltersConfig(): JSX.Element | null {
     return (
         <>
             <p>
-                Make your <Link to={urls.insightNew(InsightType.PATHS)}>Paths</Link> clearer by aliasing one or multiple
-                URLs.{' '}
+                Make your <Link to={INSIGHT_TYPE_URLS[InsightType.PATHS]}>Paths</Link> clearer by aliasing one or
+                multiple URLs.{' '}
                 <i>
                     Example: <code>http://tenant-one.mydomain.com/accounts</code> and{' '}
                     <code>http://tenant-two.mydomain.com/accounts</code> can become a single <code>/accounts</code>{' '}

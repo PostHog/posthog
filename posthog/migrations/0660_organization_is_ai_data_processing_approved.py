@@ -4,7 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "0660_migrate_retention_show_mean")]
+    dependencies = [("posthog", "0559_team_api_query_rate_limit")]
 
     operations = [
         migrations.AddField(
