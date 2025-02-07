@@ -12,6 +12,11 @@ import { Paths } from './types'
 const FALLBACK_CANVAS_WIDTH = 1000
 const FALLBACK_CANVAS_HEIGHT = 0
 
+// We want the border radius to overlap the links. For this we subtract the border radius of both
+// sides from the node width, and add it back to the svg element that is moved left by one border radius.
+const NODE_BORDER_RADIUS = 6
+const NODE_WIDTH = 48
+
 const createCanvas = (canvasRef: RefObject<HTMLDivElement>, width: number, height: number): D3Selector => {
     return d3
         .select(canvasRef.current)
@@ -28,7 +33,7 @@ const createSankeyGenerator = (width: number, height: number): Sankey.SankeyLayo
         .nodeId((d: PathNodeData) => d.name)
         .nodeAlign(Sankey.sankeyLeft)
         .nodeSort(null)
-        .nodeWidth(15)
+        .nodeWidth(NODE_WIDTH - 2 * NODE_BORDER_RADIUS)
         .size([width, height])
 }
 
@@ -42,10 +47,11 @@ const appendPathNodes = (
         .selectAll('rect')
         .data(nodes)
         .join('rect')
-        .attr('x', (d: PathNodeData) => d.x0 + 1)
+        .attr('x', (d: PathNodeData) => d.x0 - NODE_BORDER_RADIUS)
         .attr('y', (d: PathNodeData) => d.y0)
+        .attr('rx', NODE_BORDER_RADIUS)
         .attr('height', (d: PathNodeData) => d.y1 - d.y0)
-        .attr('width', (d: PathNodeData) => d.x1 - d.x0 - 2)
+        .attr('width', (d: PathNodeData) => d.x1 - d.x0 + 2 * NODE_BORDER_RADIUS)
         .attr('fill', (d: PathNodeData) => {
             let c
             for (const link of d.sourceLinks) {
@@ -152,8 +158,8 @@ export function renderPaths(
     const clonedPaths = structuredClone(paths)
     const { nodes, links } = sankey(clonedPaths)
 
-    appendPathNodes(svg, nodes, pathsFilter, funnelPathsFilter)
     appendPathLinks(svg, links)
+    appendPathNodes(svg, nodes, pathsFilter, funnelPathsFilter)
 
     // :TRICKY: this needs to come last, as d3 mutates data in place and otherwise
     // we won't have node positions.
