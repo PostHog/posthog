@@ -151,6 +151,8 @@ class DeltaTableHelper:
     ) -> DeltaTable:
         table_size_mb = data.nbytes / (1024 * 1024)
         repartitions = int(table_size_mb / 10)
+        if repartitions == 0:
+            repartitions = 1
 
         self._logger.debug(f"PySpark: table_size_mb = {table_size_mb}. repartitions = {repartitions}")
 
