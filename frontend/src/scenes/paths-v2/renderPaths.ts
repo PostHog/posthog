@@ -6,7 +6,7 @@ import { Dispatch, RefObject, SetStateAction } from 'react'
 
 import { FunnelPathsFilter, PathsFilter } from '~/queries/schema'
 
-import { isSelectedPathStartOrEnd, PathNodeData, PathTargetLink, roundedRect } from './pathUtils'
+import { isSelectedPathStartOrEnd, PathNodeData, PathTargetLink } from './pathUtils'
 import { Paths } from './types'
 
 const FALLBACK_CANVAS_WIDTH = 1000
@@ -117,28 +117,6 @@ const appendPathLinks = (svg: any, links: PathNodeData[]): void => {
         })
         .on('mouseleave', () => {
             svg.selectAll('path').attr('stroke', 'var(--paths-link)')
-        })
-
-    link.append('g')
-        .append('path')
-        .attr('d', (data: PathNodeData) => {
-            if (data.source.layer === 0) {
-                return
-            }
-            const _height =
-                data.source.y1 - data.source.y0 - data.source.sourceLinks.reduce((prev, curr) => prev + curr.width, 0)
-            return roundedRect(0, 0, 30, _height, Math.min(25, _height), false, true, false, false)
-        })
-        .attr('fill', 'url(#dropoff-gradient)')
-        .attr('stroke-width', 0)
-        .attr('transform', (data: PathNodeData) => {
-            return (
-                'translate(' +
-                Math.round(data.source.x1) +
-                ',' +
-                Math.round(data.source.y0 + data.source.sourceLinks.reduce((prev, curr) => prev + curr.width, 0)) +
-                ')'
-            )
         })
 }
 
