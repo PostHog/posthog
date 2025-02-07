@@ -41,7 +41,7 @@ RUN pnpm build
 #
 # ---------------------------------------------------------
 #
-FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.80.1-node_18.19.1 AS plugin-server-build
+FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.82-node_18.19.1 AS plugin-server-build
 
 # Compile and install system dependencies
 RUN apt-get update && \
