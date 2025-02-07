@@ -10,7 +10,14 @@ from posthog.hogql_queries.insights.trends.breakdown import (
 )
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
-from posthog.schema import AssistantFunnelsQuery, Compare, FunnelStepReference, FunnelVizType, RetentionPeriod
+from posthog.schema import (
+    AssistantFunnelsQuery,
+    AssistantRetentionQuery,
+    Compare,
+    FunnelStepReference,
+    FunnelVizType,
+    RetentionPeriod,
+)
 
 
 def _format_matrix(matrix: list[list[str]]) -> str:
@@ -218,7 +225,7 @@ def compress_and_format_trends_results(results: list[dict]) -> str:
     return _format_trends_results(results)
 
 
-def compress_and_format_retention_results(results: list[dict], period: RetentionPeriod | None = None) -> str:
+class RetentionResultsFormatter:
     """
     Compresses and formats retention results into a LLM-friendly string.
 
@@ -233,37 +240,48 @@ def compress_and_format_retention_results(results: list[dict], period: Retention
     2024-01-31|Total Persons on Date 4
     ```
     """
-    period = period or RetentionPeriod.DAY
 
-    if not results:
-        return "No data recorded for this time period."
+    def __init__(self, query: AssistantRetentionQuery, results: list[dict]):
+        self._query = query
+        self._results = results
 
-    matrix = [["Date", "Number of persons on date"]]
-    for series in results:
-        matrix[0].append(series["label"])
-        row = [_strip_datetime_seconds(series["date"])]
-        for idx, val in enumerate(series["values"]):
-            initial_count = series["values"][0]["count"]
-            count = val["count"]
-            if idx == 0:
-                row.append(_format_number(count))
-                row.append("100%")
-            elif initial_count != 0:
-                row.append(_format_percentage(count / initial_count))
-            else:
-                row.append("0%")
-        matrix.append(row)
+    def format(self) -> str:
+        results = self._results
+        period = self._period
 
-    date_from = _strip_datetime_seconds(results[0]["date"])
-    date_to = _strip_datetime_seconds(results[-1]["date"])
-    return f"Date range: {date_from} to {date_to}\nGranularity: {period}\n{_format_matrix(matrix)}"
+        if not results:
+            return "No data recorded for this time period."
+
+        matrix = [["Date", "Number of persons on date"]]
+        for series in results:
+            matrix[0].append(series["label"])
+            row = [_strip_datetime_seconds(series["date"])]
+            for idx, val in enumerate(series["values"]):
+                initial_count = series["values"][0]["count"]
+                count = val["count"]
+                if idx == 0:
+                    row.append(_format_number(count))
+                    row.append("100%")
+                elif initial_count != 0:
+                    row.append(_format_percentage(count / initial_count))
+                else:
+                    row.append("0%")
+            matrix.append(row)
+
+        date_from = _strip_datetime_seconds(results[0]["date"])
+        date_to = _strip_datetime_seconds(results[-1]["date"])
+        return f"Date range: {date_from} to {date_to}\nGranularity: {period}\n{_format_matrix(matrix)}"
+
+    @property
+    def _period(self) -> RetentionPeriod:
+        return self._query.retentionFilter.period or RetentionPeriod.DAY
 
 
 class FunnelResultsFormatter:
     """
     Compresses and formats funnels results into a LLM-friendly string.
 
-    Example answer for a conversion funnel:
+    Example answer for a steps funnel:
     ```
     Date range
     Metric|Label 1|Label 2
@@ -273,13 +291,25 @@ class FunnelResultsFormatter:
     Average conversion time|value1|value2
     Median conversion time|value1|value2
     ```
+
+    Example answer for a time to convert funnel:
+    ```
+    Date range: 2025-01-20 00:00:00 to 2025-01-22 23:59:59
+
+    Events: $pageview (custom) -> $ai_trace
+    Time|User distribution
+    10m|100%
+    10m 1s|0%
+
+    The user distribution is the percentage of users who completed the funnel at the given time.
+    ```
     """
 
     def __init__(
         self,
-        team: Team,
         query: AssistantFunnelsQuery,
         results: list[dict[str, Any]] | list[list[dict[str, Any]]] | dict[str, Any],
+        team: Team,
         utc_now_datetime: datetime,
     ):
         self._query = query
@@ -320,7 +350,6 @@ class FunnelResultsFormatter:
         if len(results) == 0 or not isinstance(results, dict):
             return "No data recorded for this time period."
 
-        results = cast(list[dict[str, Any]], results)
         matrix: list[list[Any]] = [
             ["Time", "User distribution"],
         ]

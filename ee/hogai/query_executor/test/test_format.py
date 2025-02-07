@@ -4,6 +4,8 @@ from posthog.schema import (
     AssistantFunnelsEventsNode,
     AssistantFunnelsFilter,
     AssistantFunnelsQuery,
+    AssistantRetentionFilter,
+    AssistantRetentionQuery,
     Compare,
     DateRange,
     FunnelStepReference,
@@ -13,11 +15,11 @@ from posthog.test.base import BaseTest
 
 from ..format import (
     FunnelResultsFormatter,
+    RetentionResultsFormatter,
     _extract_series_label,
     _format_duration,
     _format_number,
     _strip_datetime_seconds,
-    compress_and_format_retention_results,
     compress_and_format_trends_results,
 )
 
@@ -188,16 +190,16 @@ class TestCompression(BaseTest):
         ]
         self.assertIn(
             "Metric|$pageview custom|$pageview|$pageview\nTotal person count|5|2|1\nConversion rate|100%|40%|20%\nDropoff rate|0%|60%|80%\nAverage conversion time|-|10s|20s\nMedian conversion time|-|11s|22s",
-            FunnelResultsFormatter(self.team, AssistantFunnelsQuery(series=[]), results, datetime.now()).format(),
+            FunnelResultsFormatter(AssistantFunnelsQuery(series=[]), results, self.team, datetime.now()).format(),
         )
         self.assertIn(
             "Metric|$pageview custom|$pageview|$pageview\nTotal person count|5|2|1\nConversion rate|100%|40%|50%\nDropoff rate|0%|60%|50%\nAverage conversion time|-|10s|20s\nMedian conversion time|-|11s|22s",
             FunnelResultsFormatter(
-                self.team,
                 AssistantFunnelsQuery(
                     series=[], funnelsFilter=AssistantFunnelsFilter(funnelStepReference=FunnelStepReference.PREVIOUS)
                 ),
                 results,
+                self.team,
                 datetime.now(),
             ).format(),
         )
@@ -229,16 +231,16 @@ class TestCompression(BaseTest):
         ]
         self.assertIn(
             "Metric|$pageview custom|$pageview\nTotal person count|0|0\nConversion rate|100%|0%\nDropoff rate|0%|100%\nAverage conversion time|-|-\nMedian conversion time|-|-",
-            FunnelResultsFormatter(self.team, AssistantFunnelsQuery(series=[]), results, datetime.now()).format(),
+            FunnelResultsFormatter(AssistantFunnelsQuery(series=[]), results, self.team, datetime.now()).format(),
         )
         self.assertIn(
             "Metric|$pageview custom|$pageview\nTotal person count|0|0\nConversion rate|100%|0%\nDropoff rate|0%|100%\nAverage conversion time|-|-\nMedian conversion time|-|-",
             FunnelResultsFormatter(
-                self.team,
                 AssistantFunnelsQuery(
                     series=[], funnelsFilter=AssistantFunnelsFilter(funnelStepReference=FunnelStepReference.PREVIOUS)
                 ),
                 results,
+                self.team,
                 datetime.now(),
             ).format(),
         )
@@ -270,7 +272,7 @@ class TestCompression(BaseTest):
         ]
         self.assertIn(
             "---au\nMetric|$pageview|signup\nTotal person count|5|2\nConversion rate|100%|40%\nDropoff rate|0%|60%\nAverage conversion time|-|10s\nMedian conversion time|-|11s",
-            FunnelResultsFormatter(self.team, AssistantFunnelsQuery(series=[]), results, datetime.now()).format(),
+            FunnelResultsFormatter(AssistantFunnelsQuery(series=[]), results, self.team, datetime.now()).format(),
         )
 
     def test_funnel_format_multiple_series(self):
@@ -327,9 +329,9 @@ class TestCompression(BaseTest):
 
         self.assertEqual(
             FunnelResultsFormatter(
-                self.team,
                 AssistantFunnelsQuery(series=[]),
                 results,
+                self.team,
                 datetime.now(),
             ).format(),
             'Date range: 2025-01-31 00:00:00 to 2025-02-07 23:59:59\n\n---au\nMetric|$pageview|signup\nTotal person count|5|2\nConversion rate|100%|40%\nDropoff rate|0%|60%\nAverage conversion time|-|10s\nMedian conversion time|-|11s\n\n---us\nMetric|$pageview|signup\nTotal person count|5|2\nConversion rate|100%|40%\nDropoff rate|0%|60%\nAverage conversion time|-|10s\nMedian conversion time|-|11s\n\nConversion and drop-off rates are calculated in overall. For example, "Conversion rate: 9%" means that 9% of users from the first step completed the funnel.',
@@ -361,7 +363,9 @@ class TestCompression(BaseTest):
         ]
 
         self.assertEqual(
-            compress_and_format_retention_results(results),
+            RetentionResultsFormatter(
+                AssistantRetentionQuery(retentionFilter=AssistantRetentionFilter()), results
+            ).format(),
             "Date range: 2025-01-21 00:00 to 2025-01-24 00:00\n"
             "Granularity: Day\n"
             "Date|Number of persons on date|Day 0|Day 1|Day 2|Day 3\n"
@@ -392,7 +396,9 @@ class TestCompression(BaseTest):
         ]
 
         self.assertEqual(
-            compress_and_format_retention_results(results),
+            RetentionResultsFormatter(
+                AssistantRetentionQuery(retentionFilter=AssistantRetentionFilter()), results
+            ).format(),
             "Date range: 2025-01-21 00:00 to 2025-01-24 00:00\n"
             "Granularity: Day\n"
             "Date|Number of persons on date|Day 0|Day 1|Day 2|Day 3\n"
@@ -491,6 +497,6 @@ class TestCompression(BaseTest):
         )
         results = {"average_conversion_time": 600, "bins": [[600, 1], [601, 0]]}
         self.assertEqual(
-            FunnelResultsFormatter(self.team, query, results, datetime.now()).format(),
+            FunnelResultsFormatter(query, results, self.team, datetime.now()).format(),
             "Date range: 2025-01-20 00:00:00 to 2025-01-22 23:59:59\n\nEvents: $pageview (custom) -> $ai_trace\nTime|User distribution\n10m|100%\n10m 1s|0%\n\nThe user distribution is the percentage of users who completed the funnel at the given time.",
         )

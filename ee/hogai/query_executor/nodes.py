@@ -9,7 +9,7 @@ from rest_framework.exceptions import APIException
 
 from ee.hogai.query_executor.format import (
     FunnelResultsFormatter,
-    compress_and_format_retention_results,
+    RetentionResultsFormatter,
     compress_and_format_trends_results,
 )
 from ee.hogai.query_executor.prompts import (
@@ -121,12 +121,9 @@ class QueryExecutorNode(AssistantNode):
         if isinstance(viz_message.answer, AssistantTrendsQuery):
             return compress_and_format_trends_results(results)
         elif isinstance(viz_message.answer, AssistantFunnelsQuery):
-            return FunnelResultsFormatter(self._team, viz_message.answer, results, self._utc_now_datetime).format()
+            return FunnelResultsFormatter(viz_message.answer, results, self._team, self._utc_now_datetime).format()
         elif isinstance(viz_message.answer, AssistantRetentionQuery):
-            return compress_and_format_retention_results(
-                results,
-                viz_message.answer.retentionFilter.period,
-            )
+            return RetentionResultsFormatter(viz_message.answer, results).format()
         raise NotImplementedError(f"Unsupported query type: {type(viz_message.answer)}")
 
     def _get_example_prompt(self, viz_message: VisualizationMessage) -> str:
