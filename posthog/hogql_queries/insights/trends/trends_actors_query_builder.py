@@ -206,7 +206,12 @@ class TrendsActorsQueryBuilder:
                 ast.SelectQuery(select=[]),
                 date_from,
                 date_to,
-                filters=self._events_where_expr(with_date_range_expr=False, with_event_or_action_expr=False),
+                filters=self._events_where_expr(
+                    with_date_range_expr=False, with_event_or_action_expr=False, with_breakdown_expr=False
+                ),
+                filters_with_breakdown=self._events_where_expr(
+                    with_date_range_expr=False, with_event_or_action_expr=False
+                ),
                 event_or_action_filter=self._event_or_action_where_expr(),
                 ratio=self._ratio_expr(),
                 is_first_matching_event=self.trends_aggregation_operations.is_first_matching_event(),

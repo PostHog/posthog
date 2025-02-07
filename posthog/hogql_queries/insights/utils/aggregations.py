@@ -66,11 +66,13 @@ class FirstTimeForUserEventsQueryAlternator(QueryAlternator):
         date_from: ast.Expr,
         date_to: ast.Expr,
         filters: ast.Expr | None = None,
+        filters_with_breakdown: ast.Expr | None = None,
         event_or_action_filter: ast.Expr | None = None,
         ratio: ast.RatioExpr | None = None,
         is_first_matching_event: bool = False,
     ):
         self._filters = filters
+        self._filters_with_breakdown = filters_with_breakdown
         self._is_first_matching_event = is_first_matching_event
         query.select = self._select_expr(date_from)
         query.select_from = self._select_from_expr(ratio)
@@ -80,7 +82,15 @@ class FirstTimeForUserEventsQueryAlternator(QueryAlternator):
         super().__init__(query)
 
     def _select_expr(self, date_from: ast.Expr):
-        aggregation_filters = date_from if self._filters is None else ast.And(exprs=[date_from, self._filters])
+        min_timestamp_with_condition_filters = (
+            self._filters_with_breakdown if self._filters_with_breakdown is not None else self._filters
+        )
+        aggregation_filters = (
+            date_from
+            if min_timestamp_with_condition_filters is None
+            else ast.And(exprs=[date_from, min_timestamp_with_condition_filters])
+        )
+
         min_timestamp_expr = (
             ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])
             if not self._is_first_matching_event or self._filters is None
