@@ -17,7 +17,7 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
     const { openModal } = useActions(retentionModalLogic(insightProps))
     const backgroundColor = theme?.['preset-1'] || '#000000' // Default to black if no color found
     const backgroundColorMean = theme?.['preset-2'] || '#000000' // Default to black if no color found
-    const showMean = retentionFilter?.showMean || null
+    const showMean = retentionFilter?.showMean || 'none'
 
     return (
         <table
