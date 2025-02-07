@@ -4,7 +4,7 @@ import { forms } from 'kea-forms'
 import api from 'lib/api'
 import { tryJsonParse } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { editor, MarkerSeverity } from 'monaco-editor'
+import { editor as monacoEditor, MarkerSeverity } from 'monaco-editor'
 
 import { groupsModel } from '~/models/groupsModel'
 import { HogFunctionInvocationGlobals, HogFunctionTestInvocationResult } from '~/types'
@@ -89,7 +89,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         setJsonError: (error: string | null) => ({ error }),
         validateJson: (
             value: string,
-            monacoEditor: editor.IStandaloneCodeEditor | null,
+            monacoEditor: monacoEditor.IStandaloneCodeEditor | null,
             currentDecorations: string[]
         ) => ({ value, monacoEditor, currentDecorations }),
         setDecorationIds: (decorationIds: string[]) => ({ decorationIds }),
@@ -174,7 +174,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 JSON.parse(value)
                 // If valid, ensure everything is cleared
                 actions.setJsonError(null)
-                editor.setModelMarkers(model, 'owner', [])
+                monacoEditor.deltaDecorations(model, 'owner', [])
                 monacoEditor.deltaDecorations(currentDecorations, [])
             } catch (err: any) {
                 actions.setJsonError(err.message)
@@ -188,7 +188,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 const pos = model.getPositionAt(position)
 
                 // Set single error marker
-                editor.setModelMarkers(model, 'owner', [
+                monacoEditor.deltaDecorations(model, 'owner', [
                     {
                         startLineNumber: pos.lineNumber,
                         startColumn: pos.column,

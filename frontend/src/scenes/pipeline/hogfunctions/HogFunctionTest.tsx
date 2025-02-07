@@ -17,7 +17,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
-import { editor, MarkerSeverity } from 'monaco-editor'
+import { editor as monacoEditor, MarkerSeverity } from 'monaco-editor'
 import { useRef } from 'react'
 
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
@@ -30,7 +30,7 @@ const HogFunctionTestEditor = ({
     value: string
     onChange?: (value?: string) => void
 }): JSX.Element => {
-    const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
+    const editorRef = useRef<monacoEditor.IStandaloneCodeEditor | null>(null)
     const decorationsRef = useRef<string[]>([]) // Track decoration IDs
 
     const handleValidation = (newValue: string): void => {
@@ -40,7 +40,7 @@ const HogFunctionTestEditor = ({
         const model = editorRef.current.getModel()!
 
         // First clear everything
-        editor.setModelMarkers(model, 'owner', [])
+        monacoEditor.setModelMarkers(model, 'owner', [])
 
         // Clear existing decorations and get new empty array of IDs
         decorationsRef.current = editorRef.current.deltaDecorations(decorationsRef.current, [])
@@ -57,7 +57,7 @@ const HogFunctionTestEditor = ({
                 const pos = model.getPositionAt(position)
 
                 // Set error marker
-                editor.setModelMarkers(model, 'owner', [
+                monacoEditor.setModelMarkers(model, 'owner', [
                     {
                         startLineNumber: pos.lineNumber,
                         startColumn: pos.column,
