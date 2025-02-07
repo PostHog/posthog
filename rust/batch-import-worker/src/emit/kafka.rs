@@ -14,61 +14,22 @@ use tracing::info;
 
 use crate::{context::AppContext, job::config::KafkaEmitterConfig};
 
-use super::Emitter;
+use super::{Emitter, Transaction};
 
 pub struct KafkaEmitter {
-    state: EmitterState,
+    producer: TransactionalProducer,
     topic: String,
     send_rate: u64, // Messages sent per second
     last_send_finished_time: Option<Instant>,
 }
 
-enum EmitterState {
-    Idle(TransactionalProducer),
-    Transition,
-    Writing {
-        txn: KafkaTransaction,
-        start: Instant,
-        count: AtomicUsize,
-    },
-}
-
-// TODO - this interface kinda sucks - really the emitter should be using typestate or
-// something internally, but the trait interface isn't well designed to allow for that
-impl EmitterState {
-    fn begin(&mut self) -> Result<(), Error> {
-        let taken = std::mem::replace(self, Self::Transition);
-        match taken {
-            Self::Idle(producer) => {
-                let transaction = producer.begin()?;
-                *self = Self::Writing {
-                    txn: transaction,
-                    start: Instant::now(),
-                    count: AtomicUsize::new(0),
-                };
-                Ok(())
-            }
-            _ => {
-                *self = taken;
-                Err(Error::msg("Invalid state transition"))
-            }
-        }
-    }
-
-    fn commit(&mut self) -> Result<(usize, Instant), Error> {
-        let taken = std::mem::replace(self, Self::Transition);
-        match taken {
-            Self::Writing { txn, count, start } => {
-                let producer = txn.commit()?;
-                *self = Self::Idle(producer);
-                Ok((count.load(Ordering::SeqCst), start))
-            }
-            _ => {
-                *self = taken;
-                Err(Error::msg("Invalid state transition"))
-            }
-        }
-    }
+pub struct KafkaEmitterTransaction<'a> {
+    inner: KafkaTransaction<'a>,
+    topic: &'a str,
+    last_send_finished_time: Option<Instant>,
+    send_rate: u64,
+    start: Instant,
+    count: AtomicUsize,
 }
 
 impl KafkaEmitter {
@@ -83,16 +44,59 @@ impl KafkaEmitter {
             Duration::from_secs(emitter_config.transaction_timeout_seconds),
         )?;
 
-        let state = EmitterState::Idle(producer);
-
         Ok(Self {
-            state,
+            producer,
             topic: emitter_config.topic,
             send_rate: emitter_config.send_rate,
             last_send_finished_time: None,
         })
     }
+}
 
+#[async_trait]
+impl Emitter for KafkaEmitter {
+    async fn begin_write<'a>(&'a mut self) -> Result<Box<dyn Transaction<'a> + 'a>, Error> {
+        let txn = self.producer.begin()?;
+        Ok(Box::new(KafkaEmitterTransaction {
+            inner: txn,
+            start: Instant::now(),
+            topic: &self.topic,
+            last_send_finished_time: self.last_send_finished_time,
+            send_rate: self.send_rate,
+            count: AtomicUsize::new(0),
+        }))
+    }
+}
+
+#[async_trait]
+impl<'a> Transaction<'a> for KafkaEmitterTransaction<'a> {
+    async fn emit(&self, data: &[InternallyCapturedEvent]) -> Result<(), Error> {
+        self.inner
+            .send_keyed_iter_to_kafka(&self.topic, |e| Some(e.inner.key()), data.iter())
+            .await?;
+
+        self.count.fetch_add(data.len(), Ordering::SeqCst);
+
+        Ok(())
+    }
+
+    async fn commit_write(self: Box<Self>) -> Result<(), Error> {
+        let unboxed = *self;
+        let count = unboxed.count.load(Ordering::SeqCst);
+        let min_duration = unboxed.get_min_txn_duration(count, unboxed.start);
+        let txn_elapsed = unboxed.start.elapsed();
+        let to_sleep = min_duration.saturating_sub(txn_elapsed);
+        info!(
+            "sent {} messages in {:?}, minimum send duration is {:?}, sleeping for {:?}",
+            count, txn_elapsed, min_duration, to_sleep
+        );
+        tokio::time::sleep(to_sleep).await;
+        unboxed.inner.commit()?;
+        Ok(())
+    }
+}
+
+impl<'a> KafkaEmitterTransaction<'a> {
     fn get_min_txn_duration(&self, txn_count: usize, txn_start: Instant) -> Duration {
         // Get how long the send must take if this is the first send
         let send_rate = self.send_rate as f64;
@@ -106,39 +110,5 @@ impl KafkaEmitter {
             min_duration = min_duration.saturating_sub(gap);
         }
         min_duration
-    }
-}
-
-#[async_trait]
-impl Emitter for KafkaEmitter {
-    async fn begin_write(&mut self) -> Result<(), Error> {
-        self.state.begin()
-    }
-
-    async fn emit(&self, data: &[InternallyCapturedEvent]) -> Result<(), Error> {
-        let EmitterState::Writing { txn, count, .. } = &self.state else {
-            return Err(Error::msg("Cannot emit in a non-writing state"));
-        };
-
-        txn.send_keyed_iter_to_kafka(&self.topic, |e| Some(e.inner.key()), data.iter())
-            .await?;
-
-        count.fetch_add(data.len(), Ordering::SeqCst);
-
-        Ok(())
-    }
-
-    async fn commit_write(&mut self) -> Result<(), Error> {
-        let (count, start) = self.state.commit()?;
-        let min_duration = self.get_min_txn_duration(count, start);
-        let txn_elapsed = start.elapsed();
-        let to_sleep = min_duration.saturating_sub(txn_elapsed);
-        info!(
-            "sent {} messages in {:?}, minimum send duration is {:?}, sleeping for {:?}",
-            count, txn_elapsed, min_duration, to_sleep
-        );
-        tokio::time::sleep(to_sleep).await;
-        self.last_send_finished_time = Some(Instant::now());
-        Ok(())
     }
 }
