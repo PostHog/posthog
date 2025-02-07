@@ -8,7 +8,7 @@ use tokio::task;
 use tokio::time::sleep;
 
 use async_trait::async_trait;
-use metrics::counter;
+use metrics::{counter, gauge};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tracing::instrument;
@@ -76,8 +76,10 @@ impl FallbackSink {
                         let was_healthy = thread_healthy.load(Ordering::Relaxed);
                         if was_healthy && !is_healthy {
                             error!("primary sink has become unhealthy");
+                            gauge!("capture_primary_sink_health").set(0.0);
                         } else if !was_healthy && is_healthy {
                             warn!("primary sink has recovered");
+                            gauge!("capture_primary_sink_health").set(1.0);
                         }
                         thread_healthy.store(is_healthy, Ordering::Relaxed);
                     }

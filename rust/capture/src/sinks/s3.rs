@@ -29,11 +29,11 @@ struct Inner {
     bucket: String,
     prefix: String,
     buffer: Arc<Mutex<EventBuffer>>,
-    liveness: HealthHandle
+    liveness: HealthHandle,
 }
 
 pub struct S3Sink {
-    inner: Arc<Inner>
+    inner: Arc<Inner>,
 }
 
 struct EventBuffer {
@@ -65,10 +65,8 @@ impl EventBuffer {
 
     fn should_flush(&self) -> bool {
         !self.event_bytes.is_empty()
-            && (
-                self.event_bytes.len() >= MAX_BUFFER_SIZE
-             || self.time_elapsed.elapsed() >= FLUSH_INTERVAL
-            )
+            && (self.event_bytes.len() >= MAX_BUFFER_SIZE
+                || self.time_elapsed.elapsed() >= FLUSH_INTERVAL)
     }
 }
 
@@ -102,7 +100,7 @@ impl S3Sink {
             bucket,
             prefix,
             buffer,
-            liveness
+            liveness,
         });
 
         // Do initial healthcheck
@@ -225,8 +223,7 @@ impl Inner {
 
         debug!(
             "Flushing {} events to S3 path: {}",
-            buffer.event_count,
-            path
+            buffer.event_count, path
         );
 
         let event_count = buffer.event_count;
