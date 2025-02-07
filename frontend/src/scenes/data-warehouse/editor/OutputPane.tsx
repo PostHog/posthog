@@ -106,7 +106,7 @@ export function OutputPane(): JSX.Element {
     }, [response])
 
     return (
-        <div className="flex flex-col w-full flex-1 bg-bg-3000">
+        <div className="flex flex-col w-full flex-1 bg-primary">
             {variablesForInsight.length > 0 && (
                 <div className="py-2 px-4">
                     <VariablesForInsight />
@@ -256,7 +256,7 @@ function InternalDataTableVisualization(
     // TODO(@Gilbert09): Better loading support for all components - e.g. using the `loading` param of `Table`
     if (!showEditingUI && (!response || responseLoading)) {
         component = (
-            <div className="flex flex-col flex-1 justify-center items-center border rounded bg-bg-light">
+            <div className="flex flex-col flex-1 justify-center items-center border rounded bg-surface-primary">
                 <Animation type={AnimationType.LaptopHog} />
             </div>
         )
@@ -371,7 +371,7 @@ const Content = ({
             <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} />
         ) : !response ? (
             <div className="flex flex-1 justify-center items-center">
-                <span className="text-muted mt-3">Query results will appear here</span>
+                <span className="text-secondary mt-3">Query results will appear here</span>
             </div>
         ) : (
             <div className="flex-1 absolute top-0 left-0 right-0 bottom-0">
@@ -398,7 +398,7 @@ const Content = ({
 
         return !response ? (
             <div className="flex flex-1 justify-center items-center">
-                <span className="text-muted mt-3">Query results will be visualized here</span>
+                <span className="text-secondary mt-3">Query results will be visualized here</span>
             </div>
         ) : (
             <div className="flex-1 absolute top-0 left-0 right-0 bottom-0 px-4 py-1 hide-scrollbar">

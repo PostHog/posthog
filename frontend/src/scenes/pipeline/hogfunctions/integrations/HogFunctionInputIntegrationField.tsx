@@ -62,7 +62,7 @@ export function HogFunctionInputIntegrationField({
         requiresFieldValue = requiresField?.value
         if (!requiresFieldValue) {
             return (
-                <div className="border border-dashed h-10 rounded p-2 text-muted-alt italic">
+                <div className="border border-dashed h-10 rounded p-2 text-secondary italic">
                     Configure {requiresFieldSchema.label} to continue
                 </div>
             )
@@ -70,7 +70,7 @@ export function HogFunctionInputIntegrationField({
     }
     if (!integration) {
         return (
-            <div className="border border-dashed h-10 rounded p-2 text-muted-alt italic">
+            <div className="border border-dashed h-10 rounded p-2 text-secondary italic">
                 Configure {relatedSchemaIntegration.label} to continue
             </div>
         )

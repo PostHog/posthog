@@ -1,0 +1,1175 @@
+// Global components
+@import 'vars';
+@import '../../../node_modules/react-toastify/dist/ReactToastify';
+@import 'functions';
+@import 'mixins';
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+@import 'utilities-legacy'; // TODO: Remove all legacy utilities
+
+// Set variables
+:root,
+:host {
+    --color-white: hsl(0deg 0% 100%);
+    --color-black: hsl(0deg 0% 0%);
+
+    // Primitive neutral cool colors
+    --primitive-neutral-cool-50: hsl(240deg 8% 95%);
+    --primitive-neutral-cool-75: hsl(236deg 8% 92.5%);
+    --primitive-neutral-cool-100: hsl(232deg 8% 90%);
+    --primitive-neutral-cool-150: hsl(232.5deg 8% 85%);
+    --primitive-neutral-cool-200: hsl(233deg 8% 80%);
+    --primitive-neutral-cool-250: hsl(231.5deg 8% 75%);
+    --primitive-neutral-cool-300: hsl(230deg 8% 70%);
+    --primitive-neutral-cool-350: hsl(230.5deg 8% 65%);
+    --primitive-neutral-cool-400: hsl(231deg 8% 60%);
+    --primitive-neutral-cool-450: hsl(231deg 8% 55%);
+    --primitive-neutral-cool-500: hsl(231deg 8% 50%);
+    --primitive-neutral-cool-550: hsl(230.5deg 8% 45%);
+    --primitive-neutral-cool-600: hsl(230deg 8% 40%);
+    --primitive-neutral-cool-650: hsl(230deg 8% 35%);
+    --primitive-neutral-cool-700: hsl(230deg 8% 30%);
+    --primitive-neutral-cool-750: hsl(235deg 8% 25%);
+    --primitive-neutral-cool-800: hsl(230deg 8% 20%);
+    --primitive-neutral-cool-850: hsl(235deg 8% 15%);
+    --primitive-neutral-cool-900: hsl(240deg 8% 10%);
+    --primitive-neutral-cool-950: hsl(240deg 8% 8%);
+
+    // Primitive neutral colors
+    --primitive-neutral-50: hsl(0deg 0% 95%);
+    --primitive-neutral-100: hsl(0deg 0% 90%);
+    --primitive-neutral-150: hsl(0deg 0% 85%);
+    --primitive-neutral-200: hsl(0deg 0% 80%);
+    --primitive-neutral-250: hsl(0deg 0% 75%);
+    --primitive-neutral-300: hsl(0deg 0% 70%);
+    --primitive-neutral-350: hsl(0deg 0% 65%);
+    --primitive-neutral-400: hsl(0deg 0% 60%);
+    --primitive-neutral-450: hsl(0deg 0% 55%);
+    --primitive-neutral-500: hsl(0deg 0% 50%);
+    --primitive-neutral-550: hsl(0deg 0% 45%);
+    --primitive-neutral-600: hsl(0deg 0% 40%);
+    --primitive-neutral-650: hsl(0deg 0% 35%);
+    --primitive-neutral-700: hsl(0deg 0% 30%);
+    --primitive-neutral-750: hsl(0deg 0% 25%);
+    --primitive-neutral-800: hsl(0deg 0% 20%);
+    --primitive-neutral-850: hsl(0deg 0% 15%);
+    --primitive-neutral-900: hsl(0deg 0% 10%);
+    --primitive-neutral-950: hsl(0deg 0% 5%);
+
+    // Primitive 3000 colors
+    --primitive-3000-25: hsl(75deg 14% 96.5%);
+    --primitive-3000-50: hsl(75deg 14% 95%);
+    --primitive-3000-100: hsl(70deg 16% 93%);
+    --primitive-3000-150: hsl(77deg 13% 89%);
+    --primitive-3000-200: hsl(78deg 13% 85%);
+    --primitive-3000-250: hsl(67deg 8% 80%);
+    --primitive-3000-300: hsl(72deg 8% 76%);
+    --primitive-3000-350: hsl(70deg 8% 71%);
+    --primitive-3000-400: hsl(69deg 8% 65%);
+    --primitive-3000-450: hsl(67deg 8% 60%);
+    --primitive-3000-500: hsl(67deg 8% 55%);
+
+    // PostHog brand colors
+    // Split into hue, saturation, lightness to make it easier to change the brand colors
+    // //////////////////////////////////////////////////////////
+    --primitive-posthog-brand-orange-hue: 19;
+    --primitive-posthog-brand-orange-saturation: 100%;
+    --primitive-posthog-brand-orange-lightness: 48%;
+    --primitive-posthog-brand-blue-hue: 228;
+    --primitive-posthog-brand-blue-saturation: 100%;
+    --primitive-posthog-brand-blue-lightness: 56%;
+    --primitive-posthog-brand-yellow-hue: 43;
+    --primitive-posthog-brand-yellow-saturation: 94%;
+    --primitive-posthog-brand-yellow-lightness: 57%;
+
+    // Generic brand color assignments
+    // Change these to change the brand colors
+    // //////////////////////////////////////////////////////////
+    --brand-primary-hue: var(--primitive-posthog-brand-orange-hue);
+    --brand-primary-saturation: var(--primitive-posthog-brand-orange-saturation);
+    --brand-primary-lightness: var(--primitive-posthog-brand-orange-lightness);
+    --brand-secondary-hue: var(--primitive-posthog-brand-blue-hue);
+    --brand-secondary-saturation: var(--primitive-posthog-brand-blue-saturation);
+    --brand-secondary-lightness: var(--primitive-posthog-brand-blue-lightness);
+
+    // Accent colors (accents can be changed to change the brand colors)
+    // Used for interactive elements and highlights, inputs, toggles, charts, etc.
+    // //////////////////////////////////////////////////////////
+    --accent-primary: hsl(var(--brand-primary-hue), var(--brand-primary-saturation), var(--brand-primary-lightness));
+    --accent-primary-hover: hsl(
+        var(--brand-primary-hue),
+        var(--brand-primary-saturation),
+        calc(var(--brand-primary-lightness) + 10%)
+    );
+    --accent-primary-active: hsl(
+        var(--brand-primary-hue),
+        var(--brand-primary-saturation),
+        calc(var(--brand-primary-lightness) + 15%)
+    );
+    --accent-primary-highlight: hsla(
+        var(--brand-primary-hue),
+        var(--brand-primary-saturation),
+        var(--brand-primary-lightness),
+        10%
+    );
+    --accent-secondary: hsl(
+        var(--brand-secondary-hue),
+        var(--brand-secondary-saturation),
+        var(--brand-secondary-lightness)
+    );
+    --accent-secondary-hover: hsl(
+        var(--brand-secondary-hue),
+        var(--brand-secondary-saturation),
+        calc(var(--brand-secondary-lightness) + 10%)
+    );
+    --accent-secondary-active: hsl(
+        var(--brand-secondary-hue),
+        var(--brand-secondary-saturation),
+        calc(var(--brand-secondary-lightness) + 15%)
+    );
+    --accent-secondary-highlight: hsla(
+        var(--brand-secondary-hue),
+        var(--brand-secondary-saturation),
+        var(--brand-secondary-lightness),
+        10%
+    );
+
+    // Backgrounds
+    // Behind surfaces, large areas: app scenes, etc.
+    // //////////////////////////////////////////////////////////
+    --bg-primary: light-dark(
+        var(--primitive-3000-50),
+        var(--primitive-neutral-cool-950)
+    ); /* Most prominent/used background (replaces --bg-3000) */
+
+    // Surfaces
+    // Above backgrounds, smaller areas: Cards, Tables, stuff that stands out
+    // //////////////////////////////////////////////////////////
+    --bg-surface-primary: light-dark(
+        var(--color-white),
+        var(--primitive-neutral-cool-850)
+    ); /* Most prominent surface (Cards, tables, etc.) */
+
+    --bg-surface-secondary: light-dark(
+        var(--primitive-3000-100),
+        var(--primitive-neutral-cool-900)
+    ); /* Second most prominent surface (Toolbars) */
+
+    --bg-surface-tertiary: light-dark(
+        var(--primitive-3000-150),
+        var(--primitive-neutral-cool-950)
+    ); /* Most prominent surface (Cards, tables, etc.) */
+
+    --bg-surface-tooltip: light-dark(var(--primitive-neutral-cool-850), var(--primitive-neutral-100));
+    --bg-surface-popover: light-dark(var(--color-white), var(--primitive-neutral-cool-850));
+
+    // Content (text, icons)
+    // //////////////////////////////////////////////////////////
+    --text-primary: light-dark(var(--primitive-neutral-950), var(--primitive-neutral-100));
+    --text-primary-inverse: light-dark(var(--primitive-neutral-100), var(--primitive-neutral-950));
+    --text-secondary: light-dark(var(--primitive-neutral-750), var(--primitive-neutral-350));
+    --text-tertiary: light-dark(var(--primitive-neutral-600), var(--primitive-neutral-400));
+    --text-success: light-dark(var(--color-green-600), var(--color-green-400));
+    --text-warning: light-dark(var(--color-yellow-700), var(--color-yellow-400));
+    --text-error: light-dark(var(--color-red-600), var(--color-red-400));
+
+    // Fills
+    // Small colourful areas: banners, pills, buttons, etc.
+    // //////////////////////////////////////////////////////////
+    --bg-fill-primary: light-dark(var(--color-white), var(--primitive-neutral-cool-900));
+    --bg-fill-secondary: light-dark(var(--primitive-3000-25), var(--primitive-neutral-cool-850));
+    --bg-fill-tertiary: light-dark(var(--primitive-3000-50), var(--primitive-neutral-cool-800));
+    --bg-fill-info-secondary: light-dark(
+        var(--color-blue-100),
+        var(--color-blue-950)
+    ); /* promonent bg for info blocks */
+
+    --bg-fill-input: light-dark(var(--color-white), var(--primitive-neutral-cool-850));
+    --bg-fill-info-tertiary: light-dark(var(--color-blue-50), var(--color-blue-950)); /* subtle bg for info blocks */
+    --bg-fill-warning-secondary: light-dark(
+        var(--color-yellow-100),
+        var(--color-yellow-950)
+    ); /* prominent bg for warning blocks */
+
+    --bg-fill-warning-tertiary: light-dark(
+        var(--color-yellow-50),
+        --alpha(var(--color-yellow-950) / 50%)
+    ); /* subtle bg for warning blocks */
+
+    --bg-fill-warning-highlight: light-dark(
+        --alpha(var(--color-yellow-500) / 10%),
+        --alpha(var(--color-yellow-950) / 50%)
+    ); /* highlight bg for warning blocks */
+
+    --bg-fill-error-secondary: light-dark(
+        var(--color-red-100),
+        var(--color-red-950)
+    ); /* prominent bg for error blocks */
+
+    --bg-fill-error-tertiary: light-dark(
+        var(--color-red-50),
+        --alpha(var(--color-red-950) / 50%)
+    ); /* subtle bg for error blocks */
+
+    --bg-fill-error-highlight: light-dark(
+        --alpha(var(--color-red-500) / 10%),
+        --alpha(var(--color-red-950) / 50%)
+    ); /* highlight bg for error blocks */
+
+    --bg-fill-success-secondary: light-dark(
+        var(--color-green-100),
+        var(--color-green-950)
+    ); /* promonent bg for success blocks */
+
+    --bg-fill-success-tertiary: light-dark(
+        var(--color-green-50),
+        --alpha(var(--color-green-950) / 50%)
+    ); /* subtle bg for success blocks */
+
+    --bg-fill-success-highlight: light-dark(
+        --alpha(var(--color-green-500) / 10%),
+        --alpha(var(--color-green-950) / 50%)
+    ); /* highlight bg for success blocks */
+
+    --bg-fill-primary-highlight: light-dark(
+        --alpha(var(--color-primary-500) / 10%),
+        --alpha(var(--color-primary-950) / 50%)
+    ); /* highlight bg for primary blocks */
+
+    // Content on fills
+    // Texts which are on colourful fills, ensures contrast
+    // //////////////////////////////////////////////////////////
+    --text-info-on-fill: light-dark(var(--color-blue-800), var(--color-blue-50)); /* On-fill text for info */
+    --text-warning-on-fill: light-dark(var(--color-yellow-800), var(--color-yellow-50)); /* On-fill text for warning */
+    --text-error-on-fill: light-dark(var(--color-red-800), var(--color-red-50)); /* On-fill text for error */
+    --text-success-on-fill: light-dark(var(--color-green-800), var(--color-green-50)); /* On-fill text for success */
+
+    // Borders
+    // Borders for surfaces/fills (TODO: perhaps we need to do border-fill-primary, border-fill-warning, etc.)
+    // //////////////////////////////////////////////////////////
+    --border-primary: light-dark(var(--primitive-3000-200), var(--primitive-neutral-cool-800));
+    --border-info: light-dark(var(--color-blue-400), var(--color-blue-900));
+    --border-warning: light-dark(var(--color-yellow-400), var(--color-yellow-900)); /* Border for warning */
+    --border-error: light-dark(var(--color-red-400), var(--color-red-900)); /* Border for error */
+    --border-success: light-dark(var(--color-green-400), var(--color-green-900)); /* Border for success */
+
+    // Breakpoint variables
+    // //////////////////////////////////////////////////////////
+    --breakpoint-sm: 576px;
+    --breakpoint-md: 768px;
+    --breakpoint-lg: 992px;
+    --breakpoint-xl: 1200px;
+    --breakpoint-xxl: 1600px;
+
+    // Colors (DEPRECATED) TO BE REMOVED/ REPLACED WITH THE SEMANTIC COLORS
+    --color-purple: #b62ad9; // TODO: Remove this once we have a proper color palette
+    --primary: #1d4aff;
+    --danger-lighter: #ffa599;
+    --danger-light: #df4b20;
+    --danger: #db3707;
+    --danger-highlight: color-mix(in sRGB, var(--danger) 10%, transparent);
+    --danger-dark: #992705;
+    --warning: #f7a501;
+    --warning-highlight: color-mix(in sRGB, var(--warning) 10%, transparent);
+    --warning-dark: #e09423;
+    --highlight: var(--accent-primary);
+    --success: #388600;
+    --success-highlight: color-mix(in sRGB, var(--success) 10%, transparent);
+    --success-light: #5f9d32;
+    --success-dark: #245700;
+    --muted: #5f5f5f;
+    --muted-alt: #747ea1;
+    --mark: hsl(42deg 93% 86% / 80%);
+    --white: #fff;
+
+    // --bg-light: #fff;
+    --side: #fafaf9;
+    --mid: #f2f2f2;
+
+    // --border: rgba(0, 0, 0, 0.15);
+    --border-light: rgb(0 0 0 / 8%);
+
+    // --border-bold: rgba(0, 0, 0, 0.24);
+    --transparent: transparent;
+    --link: var(--accent-primary);
+
+    // Brand colors
+    --brand-blue: #1d4aff;
+    --brand-red: #f54e00;
+    --brand-yellow: #f9bd2b;
+    --brand-key: #000;
+
+    // PostHog 3000 - Light mode
+    --text-3000-light: #111;
+    --text-secondary-3000-light: rgb(17 17 17 / 70%);
+    --muted-3000-light: rgb(17 17 17 / 60%);
+    --trace-3000-light: rgb(17 17 17 / 25%);
+    --primary-3000-light: var(--accent-primary);
+
+    // --primary-highlight-light: color-mix(in srgb, var(--accent-primary) 10%, transparent);
+    --primary-3000-hover-light: var(--accent-primary-hover);
+    --primary-3000-active-light: var(--accent-primary-active);
+    --secondary-3000-light: rgb(207 209 194 / 60%);
+    --secondary-3000-hover-light: #cfd1c2;
+    --accent-3000-light: #eeefe9;
+    --bg-3000-light: #f3f4ef;
+    --border-3000-light: #dadbd2;
+    --border-bold-3000-light: #c1c2b9;
+    --glass-bg-3000-light: rgb(228 229 222 / 70%);
+    --glass-border-3000-light: #e4e5de;
+    --link-3000-light: var(--accent-primary);
+    --primary-3000-frame-bg-light: #eb9d2a;
+    --primary-3000-button-bg-light: #fff;
+    --primary-3000-button-border-light: #b17816;
+    --primary-3000-button-border-hover-light: #8e5b03;
+    --secondary-3000-frame-bg-light: #e1dddd;
+    --secondary-3000-button-bg-light: #f3f4ef;
+    --secondary-3000-button-border-light: #ccc;
+    --secondary-3000-button-border-hover-light: #aaa;
+    --danger-3000-frame-bg-light: rgb(245 78 0 / 50%);
+    --danger-3000-button-border-light: #e96b30;
+    --danger-3000-button-border-hover-light: #f54e00;
+
+    // PostHog 3000 - Dark mode
+    --text-3000-dark: #fff;
+    --text-secondary-3000-dark: rgb(255 255 255 / 70%);
+    --muted-3000-dark: rgb(255 255 255 / 50%);
+    --trace-3000-dark: rgb(255 255 255 / 25%);
+    --primary-3000-dark: #f7a503;
+
+    // --primary-highlight-dark: color-mix(in srgb, var(--primary-3000-dark) 10%, transparent);
+    --primary-3000-hover-dark: var(--accent-primary-hover);
+    --primary-3000-active-dark: var(--accent-primary-active);
+    --primary-alt-highlight-light: #e5e7e0;
+    --secondary-3000-dark: #1d1f27;
+    --secondary-3000-hover-dark: #575d77;
+    --accent-3000-dark: #21242b;
+    --bg-3000-dark: #1d1f27;
+    --border-3000-dark: #35373e;
+    --border-bold-3000-dark: #3f4046;
+    --glass-bg-3000-dark: rgb(36 38 42 / 60%);
+    --glass-border-3000-dark: var(--border-3000-dark);
+    --link-3000-dark: var(--accent-primary);
+    --primary-3000-frame-bg-dark: #926826;
+    --primary-3000-button-bg-dark: #e0a045;
+    --primary-3000-button-border-dark: #b17816;
+    --primary-3000-button-border-hover-dark: #8e5b03;
+    --primary-alt-highlight-dark: #232429;
+    --secondary-3000-frame-bg-dark: #323232;
+    --secondary-3000-button-bg-dark: #1d1f27;
+    --secondary-3000-button-border-dark: #4a4c52;
+    --secondary-3000-button-border-hover-dark: #5e6064;
+    --danger-3000-frame-bg-dark: rgb(245 78 0 / 50%);
+    --danger-3000-button-border-dark: #c44003;
+    --danger-3000-button-border-hover-dark: #f54e00;
+
+    // Shadows
+    --shadow-elevation-3000-light: 0 3px 0 var(--border-3000-light);
+    --shadow-elevation-3000-dark: 0 3px 0 var(--border-3000-dark);
+    --shadow-elevation-3000: 0 3px 0 light-dark(var(--border-3000-light), var(--border-3000-dark));
+
+    // The derived colors
+    --primary-highlight: light-dark(var(--primary-highlight-light), var(--primary-highlight-dark));
+    --primary-alt: var(--text-3000);
+    --border: var(--border-primary);
+    --border-bold: var(--border-bold-3000);
+    --bg-bridge: #ebece8;
+
+    // Non-color vars
+    --radius: 0.375rem; // Increased from Tailwind's default of 0.25rem
+    --radius-sm: 0.25rem; // Increased from Tailwind's default of 0.125rem
+    --radius-base: var(--radius); // Increased from Tailwind's default of 0.25rem
+    --radius-lg: 0.625rem; // Increased from Tailwind's default of 0.5rem
+    --radius-full: 9999px;
+    --modal-shadow-elevation: 0px 16px 16px -16px rgb(0 0 0 / 35%);
+    --opacity-disabled: 0.65;
+    --font-medium: 500;
+    --font-semibold: 600;
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue', helvetica, arial,
+        sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    --font-title: 'MatterSQ', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue',
+        helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    --font-mono: ui-monospace, 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
+
+    // Dashboard item colors
+    --blue: #597dce;
+    --purple: #c278cf;
+    --green: var(--success);
+    --black: var(--text-3000);
+
+    //// Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
+    --data-color-1: #1d4aff;
+    --data-color-1-hover: #1a3cf6;
+    --data-color-2: #621da6;
+    --data-color-3: #42827e;
+    --data-color-4: #ce0e74;
+    --data-color-5: #f14f58;
+    --data-color-6: #7c440e;
+    --data-color-7: #529a0a;
+    --data-color-8: #0476fb;
+    --data-color-9: #fe729e;
+    --data-color-10: #35416b;
+    --data-color-11: #41cbc4;
+    --data-color-12: #b64b02;
+    --data-color-13: #e4a604;
+    --data-color-14: #a56eff;
+    --data-color-15: #30d5c8;
+
+    // Lifecycle series (compiled)
+    --lifecycle-new: #1d4aff;
+    --lifecycle-returning: #388600;
+    --lifecycle-resurrecting: #a56eff;
+    --lifecycle-dormant: #db3707;
+    --lifecycle-new-hover: rgb(0 36.23894 182);
+    --lifecycle-returning-hover: rgb(13.37313 32 0);
+    --lifecycle-resurrecting-hover: rgb(101.68966 8 255);
+    --lifecycle-dormant-hover: rgb(120.15929 30.17699 3.84071);
+
+    // Funnels
+    // TODO: unify with lib/colors.ts, getGraphColors()
+    --funnel-axis: var(--border);
+    --funnel-grid: #ddd;
+
+    // Z-indexes
+    --z-bottom-notice: 1450;
+    --z-command-palette: 1400;
+    --z-force-modal-above-popovers: 1350;
+    --z-tooltip: 1300;
+
+    // 1066 through 1069 are reserved to be set from code
+    --z-definition-popover: 1250;
+    --z-popover: 1200;
+    --z-graph-tooltip: 1150;
+
+    // 1061 and 1062 are reserved to be set from code
+    --z-modal: 1100;
+    --z-hedgehog-buddy: 1050;
+    --z-annotation-popover: 100;
+    --z-drawer: 900;
+    --z-notifications-popover: 800; // below the TZ aware popover but over the main-nav
+    --z-resizer: 755;
+    --z-main-nav: 750;
+    --z-lemon-sidebar: 700;
+    --z-lemon-activation-sidebar: 650;
+    --z-mobile-nav-overlay: 600;
+    --z-top-navigation: 550;
+    --z-content-overlay: 500;
+    --z-raised: 5;
+
+    // Toasts
+    // Update and override from react-toastify
+    // which attaches these variables to :root
+    // which means they aren't available in the toolbar
+    --toastify-color-dark: var(--accent-3000-dark);
+    --toastify-color-light: var(--bg-surface-primary);
+    --toastify-color-info: var(--color-blue-500);
+    --toastify-color-success: var(--success);
+    --toastify-color-warning: var(--warning);
+    --toastify-color-error: var(--danger);
+    --toastify-color-progress-info: var(--toastify-color-info);
+    --toastify-color-progress-success: var(--toastify-color-success);
+    --toastify-color-progress-warning: var(--toastify-color-warning);
+    --toastify-color-progress-error: var(--toastify-color-error);
+    --toastify-toast-background: var(--bg-surface-primary);
+    --toastify-toast-width: 26rem;
+    --toastify-toast-min-height: 3.5rem;
+    --toastify-toast-max-height: 16rem;
+    --toastify-text-color-light: #757575;
+
+    // In-app prompts
+    --in-app-prompts-width: 26rem;
+    --lettermark-1-bg: #dcb1e3;
+    --lettermark-1-text: #572e5e;
+    --lettermark-2-bg: #ffc4b2;
+    --lettermark-2-text: #3e5891;
+    --lettermark-3-bg: #fdedc9;
+    --lettermark-3-text: #3e5891;
+    --lettermark-4-bg: #3e5891;
+    --lettermark-4-text: #ffc4b2;
+    --lettermark-5-bg: #8da9e7;
+    --lettermark-5-text: #572e5e;
+    --lettermark-6-bg: #572e5e;
+    --lettermark-6-text: #dcb1e3;
+    --lettermark-7-bg: #ffc035;
+    --lettermark-7-text: #35416b;
+    --lettermark-8-bg: #ff906e;
+    --lettermark-8-text: #2a3d65;
+
+    // Modals
+    --modal-backdrop-blur: 5px; // Half the value in Figma as blur is calculated differently there it seems
+    --modal-backdrop-color: rgb(0 0 0 / 20%);
+    --modal-transition-time: 200ms;
+
+    // Tooltips
+    --tooltip-bg-light: #2d2d2d;
+    --tooltip-bg-dark: #656d81;
+
+    // Notebooks
+    --notebook-popover-transition-properties: 150ms cubic-bezier(0, 0.5, 0.5, 1);
+    --notebook-column-left-width: 27rem;
+    --notebook-column-right-width: 20rem;
+
+    // --border: light-dark(var(--border-3000-light), var(--border-3000-dark));
+    --accent: light-dark(var(--accent-3000-light), var(--accent-3000-dark));
+    --text-3000: light-dark(var(--text-3000-light), var(--text-3000-dark));
+    --text-secondary-3000: light-dark(var(--text-secondary-3000-light), var(--text-secondary-3000-dark));
+    --muted-3000: light-dark(var(--muted-3000-light), var(--muted-3000-dark));
+    --trace-3000: light-dark(var(--trace-3000-light), var(--trace-3000-dark));
+    --primary-3000: light-dark(var(--accent-primary), var(--accent-primary));
+
+    // --primary-highlight: var(--accent-primary-highlight);
+    --primary-3000-hover: light-dark(var(--accent-primary-hover), var(--accent-primary-hover));
+    --primary-3000-active: light-dark(var(--accent-primary-active), var(--accent-primary-active));
+    --secondary-3000: light-dark(var(--secondary-3000-light), var(--secondary-3000-dark));
+    --secondary-3000-hover: light-dark(var(--secondary-3000-hover-light), var(--secondary-3000-hover-dark));
+    --accent-3000: light-dark(var(--accent-3000-light), var(--accent-3000-dark));
+    --bg-3000: var(--bg-primary); // light-dark(var(--bg-3000-light), var(--bg-3000-dark));
+    --border-3000: light-dark(var(--border-3000-light), var(--border-3000-dark));
+    --border-light-opaque: light-dark(#eee, #1e2028);
+    --border-bold-3000: light-dark(var(--border-bold-3000-light), var(--border-bold-3000-dark));
+    --glass-bg-3000: light-dark(var(--bg-surface-tertiary), var(--primitive-neutral-cool-950));
+    --glass-border-3000: light-dark(var(--glass-border-3000-light), var(--glass-border-3000-dark));
+
+    // --bg-light: light-dark(#fff, var(--bg-surface-primary));
+    --bg-light: var(--bg-surface-primary);
+    --bg-table: light-dark(#f9faf7, #232429);
+
+    // --link: light-dark(var(--link-3000-light), var(--link-3000-dark));
+    --primary-3000-frame-bg: light-dark(var(--primary-3000-frame-bg-light), var(--primary-3000-frame-bg-dark));
+    --primary-3000-button-bg: light-dark(var(--primary-3000-button-bg-light), var(--primary-3000-button-bg-dark));
+    --primary-3000-button-border: light-dark(
+        var(--primary-3000-button-border-light),
+        var(--primary-3000-button-border-dark)
+    );
+    --primary-3000-button-border-hover: light-dark(
+        var(--primary-3000-button-border-hover-light),
+        var(--primary-3000-button-border-hover-dark)
+    );
+    --primary-alt-highlight: light-dark(var(--primary-alt-highlight-light), var(--primary-alt-highlight-dark));
+    --secondary-3000-frame-bg: light-dark(var(--secondary-3000-frame-bg-light), var(--secondary-3000-frame-bg-dark));
+    --secondary-3000-button-bg: light-dark(var(--secondary-3000-button-bg-light), var(--secondary-3000-button-bg-dark));
+    --secondary-3000-button-border: light-dark(
+        var(--secondary-3000-button-border-light),
+        var(--secondary-3000-button-border-dark)
+    );
+    --secondary-3000-button-border-hover: light-dark(
+        var(--secondary-3000-button-border-hover-light),
+        var(--secondary-3000-button-border-hover-dark)
+    );
+    --danger-3000-frame-bg: light-dark(var(--danger-3000-frame-bg-light), var(--danger-3000-frame-bg-dark));
+    --danger-3000-button-border: light-dark(
+        var(--danger-3000-button-border-light),
+        var(--danger-3000-button-border-dark)
+    );
+    --danger-3000-button-border-hover: light-dark(
+        var(--danger-3000-button-border-hover-light),
+        var(--danger-3000-button-border-hover-dark)
+    );
+    --tooltip-bg: light-dark(var(--tooltip-bg-light), var(--tooltip-bg-dark));
+}
+
+// We specifically override the brand colors for dark mode here
+// Because we can't do light-dark for the individual hue/saturation/lightness
+[theme='dark'] {
+    --brand-primary-hue: var(--primitive-posthog-brand-yellow-hue);
+    --brand-primary-saturation: var(--primitive-posthog-brand-yellow-saturation);
+    --brand-primary-lightness: var(--primitive-posthog-brand-yellow-lightness);
+
+    // Accent colors
+    // //////////////////////////////////////////////////////////
+    --accent-primary: hsl(var(--brand-primary-hue), var(--brand-primary-saturation), var(--brand-primary-lightness));
+    --accent-primary-hover: hsl(
+        var(--brand-primary-hue),
+        var(--brand-primary-saturation),
+        calc(var(--brand-primary-lightness) + 10%)
+    );
+    --accent-primary-active: hsl(
+        var(--brand-primary-hue),
+        var(--brand-primary-saturation),
+        calc(var(--brand-primary-lightness) + 15%)
+    );
+    --accent-primary-highlight: hsla(
+        var(--brand-primary-hue),
+        var(--brand-primary-saturation),
+        var(--brand-primary-lightness),
+        10%
+    );
+    --accent-secondary: hsl(
+        var(--brand-secondary-hue),
+        var(--brand-secondary-saturation),
+        var(--brand-secondary-lightness)
+    );
+    --accent-secondary-hover: hsl(
+        var(--brand-secondary-hue),
+        var(--brand-secondary-saturation),
+        calc(var(--brand-secondary-lightness) + 10%)
+    );
+    --accent-secondary-active: hsl(
+        var(--brand-secondary-hue),
+        var(--brand-secondary-saturation),
+        calc(var(--brand-secondary-lightness) + 15%)
+    );
+    --accent-secondary-highlight: hsla(
+        var(--brand-secondary-hue),
+        var(--brand-secondary-saturation),
+        var(--brand-secondary-lightness),
+        10%
+    );
+}
+
+@layer base {
+    *,
+    ::after,
+    ::before,
+    ::backdrop,
+    ::file-selector-button {
+        border-color: var(--border-primary, currentColor);
+    }
+
+    .rendering-pixelated {
+        image-rendering: pixelated;
+    }
+
+    input[type='text'] {
+        font-weight: 400;
+    }
+
+    input[type='radio'] {
+        accent-color: var(--accent-primary);
+    }
+
+    input[type='search'] {
+        &::-webkit-search-decoration,
+        &::-webkit-search-cancel-button,
+        &::-webkit-search-results-button,
+        &::-webkit-search-results-decoration {
+            display: none;
+        }
+    }
+
+    body {
+        font-size: 14px;
+        font-weight: 400;
+        line-height: 1.5715;
+        color: var(--text-3000);
+        color-scheme: light dark;
+        touch-action: manipulation; // Disable double-tap-to-zoom on mobile, making taps slightly snappier
+        background: var(--bg-primary);
+
+        &[theme='light'] {
+            color-scheme: light;
+        }
+
+        &[theme='dark'] {
+            color-scheme: dark;
+        }
+
+        &.is-resizing {
+            cursor: grabbing !important;
+
+            // Disable pointer events on all elements except the resizer
+            *:not(.Resizer) {
+                pointer-events: none;
+            }
+        }
+
+        * > {
+            ::-webkit-scrollbar {
+                width: 0.5rem;
+                height: 0.5rem;
+            }
+
+            ::-webkit-scrollbar-track {
+                background: var(--bg-surface-primary);
+            }
+
+            ::-webkit-scrollbar-thumb {
+                background: var(--trace-3000);
+                border-radius: var(--radius);
+
+                &:hover {
+                    background: var(--muted-3000);
+                }
+            }
+        }
+
+        b,
+        strong {
+            font-weight: 600; // Tailwind's default is "bolder" (800)
+        }
+
+        h1,
+        h2,
+        h3:not(.thank-you-message), // to prevent the survey thank you message to be styled, as these styles are only for PostHog main app
+        h4,
+        h5 {
+            margin-top: 0;
+            margin-bottom: 0.5em;
+            font-family: var(--font-title);
+            font-weight: 500;
+        }
+
+        h1,
+        h2,
+        h3,
+        h4 {
+            color: var(--text-3000);
+        }
+
+        h1 {
+            font-size: 1.75rem;
+        }
+
+        h2 {
+            font-size: 1.3125rem;
+        }
+
+        h3 {
+            font-size: 1rem;
+        }
+
+        h5 {
+            margin-bottom: 0.25rem;
+            font-size: 0.6875rem;
+            font-weight: 600;
+            line-height: 1.5rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.075em;
+        }
+
+        pre {
+            margin-top: 0;
+            margin-bottom: 1em;
+            overflow: auto;
+        }
+
+        dialog {
+            background-color: var(--bg-primary);
+        }
+
+        .LemonButton,
+        .Link {
+            .text-link {
+                color: var(--text-3000) !important;
+            }
+
+            &:hover {
+                .text-link {
+                    color: var(--accent-primary) !important;
+                }
+            }
+        }
+    }
+
+    .page-title-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem 1rem;
+        align-items: center;
+        min-height: 2.5rem;
+        margin: 1rem 0 0.25rem;
+
+        @include screen($md) {
+            flex-wrap: nowrap;
+        }
+    }
+
+    .page-title {
+        min-width: 0;
+        margin: 0;
+        font-size: 28px;
+        font-weight: 600;
+        line-height: 34px;
+    }
+
+    .page-caption {
+        max-width: 48rem;
+        margin-bottom: 1rem;
+        font-size: 0.875rem;
+        line-height: 1.25rem;
+
+        &.tabbed {
+            margin-bottom: 0.5rem;
+        }
+    }
+
+    .secondary {
+        font-size: 0.9em;
+        font-weight: var(--font-medium);
+        color: var(--primary-alt);
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        background: none;
+        border: 0;
+    }
+
+    .card-secondary {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    mark {
+        background-color: var(--mark) !important;
+        border-radius: var(--radius);
+    }
+
+    hr {
+        margin: 1em 0;
+        border-top: 1px solid var(--border);
+    }
+
+    // Vendor-specific adjustments
+
+    input::-ms-clear {
+        display: none; // Hide IE/Edge's clear button that can mess input sizing up
+    }
+
+    // Toasts
+
+    .Toastify__toast {
+        align-items: center;
+        padding: 0.75rem;
+        margin-bottom: 0.5rem !important;
+        font-family: var(--font-sans);
+        font-size: 1rem;
+        cursor: unset;
+        border: 1px solid var(--secondary-3000-button-border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-elevation-3000);
+        opacity: 1 !important;
+    }
+
+    .Toastify__toast-container {
+        padding: 0;
+    }
+
+    .Toastify__toast-body {
+        padding: 0;
+        font-size: 0.875rem;
+        font-weight: 500;
+        line-height: 1.25rem;
+        color: var(--text-3000);
+
+        b,
+        strong {
+            font-weight: 700;
+        }
+
+        button {
+            margin: 0 0.75rem;
+        }
+    }
+
+    .Toastify__toast-icon {
+        width: 1.5rem;
+        height: 1.5rem;
+        margin-right: 0.75rem;
+        font-size: 1.5rem;
+        color: var(--text-secondary);
+
+        .Toastify__toast--success & {
+            color: var(--toastify-color-success);
+        }
+
+        .Toastify__toast--warning & {
+            color: var(--toastify-color-warning);
+        }
+
+        .Toastify__toast--error & {
+            color: var(--toastify-color-error);
+        }
+    }
+
+    .Toastify__progress-bar {
+        height: var(--radius);
+    }
+
+    // Form & input styles
+
+    .error-on-blur {
+        &.errored:not(:focus) {
+            border-color: var(--danger) !important;
+        }
+    }
+
+    // Button styles
+
+    .info-indicator {
+        margin-left: 4px;
+        color: var(--primary-alt) !important;
+        cursor: pointer;
+
+        &.left {
+            margin-right: 4px;
+            margin-left: 0;
+        }
+    }
+
+    // Graph series glyph
+
+    .graph-series-glyph {
+        display: flex;
+        flex-shrink: 0;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        font-size: 12px;
+        font-weight: bold;
+        pointer-events: none;
+        border: 2px solid var(--text-3000);
+        border-radius: 50%;
+
+        // variants
+        &.funnel-step-glyph {
+            width: 23px;
+            height: 23px;
+            font-size: unset;
+            color: var(--primary-alt);
+            background-color: var(--bg-surface-primary);
+            border-color: var(--border);
+        }
+    }
+
+    // Bottom notice (DEBUG=1 mode)
+
+    #bottom-notice {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        z-index: var(--z-bottom-notice);
+        display: flex !important;
+        flex-direction: row;
+        width: 100%;
+        font-size: 0.75rem;
+        line-height: 1.5rem;
+        color: #fff;
+        background: #000;
+
+        code {
+            font-size: inherit;
+            color: inherit;
+        }
+
+        &.warning div {
+            height: auto;
+            background: var(--danger);
+        }
+
+        &.tricolor {
+            cursor: pointer;
+
+            div:nth-child(1) {
+                background: var(--brand-blue);
+            }
+
+            div:nth-child(2) {
+                background: var(--brand-red);
+            }
+
+            div:nth-child(3) {
+                background: var(--brand-yellow);
+            }
+
+            span {
+                cursor: text;
+            }
+        }
+
+        div {
+            flex-basis: 0;
+            flex-grow: 1;
+            height: 1.5rem;
+            text-align: center;
+        }
+
+        span {
+            display: none;
+        }
+
+        button {
+            width: 1.5rem;
+            height: 1.5rem;
+            padding: 0;
+            font-size: 1rem;
+            font-weight: bold;
+            color: inherit;
+            cursor: pointer;
+            background: transparent;
+            border: none;
+        }
+
+        @media screen and (min-width: 750px) {
+            font-size: 1rem;
+            line-height: 2rem;
+
+            div {
+                height: 2rem;
+            }
+
+            span {
+                display: inline;
+            }
+
+            button {
+                width: 2rem;
+                height: 2rem;
+                font-size: 1.25rem;
+            }
+        }
+    }
+
+    html {
+        text-size-adjust: 100%;
+    }
+
+    input::placeholder,
+    textarea::placeholder {
+        // Overrides Tailwind's default
+        color: var(--text-secondary);
+    }
+
+    a {
+        color: var(--link);
+        text-decoration: none;
+    }
+
+    p {
+        margin-top: 0;
+        margin-bottom: 1em;
+    }
+
+    img {
+        vertical-align: middle;
+        border-style: none;
+    }
+
+    [tabindex='-1']:focus {
+        outline: none !important;
+    }
+
+    .storybook-test-runner {
+        &.storybook-test-runner--fullscreen {
+            height: fit-content;
+        }
+
+        &.storybook-test-runner--padded {
+            #storybook-root {
+                // Make the root element (which is the default screenshot reference) hug the component
+                display: inline-block;
+            }
+        }
+
+        // Only use this class in visual regression tests
+        *,
+        *::before,
+        *::after {
+            transition-duration: 0ms !important;
+            animation-fill-mode: forwards !important;
+            animation-duration: 0ms !important;
+            animation-iteration-count: 1 !important;
+        }
+
+        // Hide some parts of the UI that were causing flakiness
+        ::-webkit-scrollbar,
+        *> ::-webkit-scrollbar,
+        // Scrollbar in WebKit/Blink browsers
+        .LemonTabs__bar::after,
+        // Active tab slider
+        .scrollable::after,
+        // Scrollability indicators
+        .scrollable::before {
+            display: none;
+        }
+
+        #storybook-root > .fixed:only-child {
+            // Fix for stories of fixed overlays like CommandBar - otherwise body would be zero-sized
+            position: static !important;
+        }
+
+        #storybook-root:empty ~ .ReactModalPortal > .ReactModal__Overlay {
+            // Fix for stories of fixed modals - otherwise body would be zero-sized
+            position: static !important;
+        }
+    }
+
+    .ligatures-none {
+        font-variant-ligatures: none;
+    }
+
+    .hide-scrollbar {
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+
+        &::-webkit-scrollbar {
+            display: none;
+        }
+    }
+
+    .arial {
+        font-family: Arial, sans-serif;
+    }
+
+    .verdana {
+        font-family: Verdana, sans-serif;
+    }
+
+    .tahoma {
+        font-family: Tahoma, sans-serif;
+    }
+
+    .trebuchet-ms {
+        font-family: 'Trebuchet MS', sans-serif;
+    }
+
+    .helvetica {
+        font-family: Helvetica, sans-serif;
+    }
+
+    .times-new-roman {
+        font-family: 'Times New Roman', serif;
+    }
+
+    .georgia {
+        font-family: Georgia, serif;
+    }
+
+    .courier-new {
+        font-family: 'Courier New', monospace;
+    }
+
+    .system-ui {
+        font-family: system-ui;
+    }
+
+    // Highlight background blink
+
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes highlight {
+        0% {
+            background-color: var(--mark);
+        }
+
+        100% {
+            background-color: initial;
+        }
+    }
+
+    // Generic 360 spin
+
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes spin {
+        0% {
+            transform: rotateZ(0deg);
+        }
+
+        100% {
+            transform: rotateZ(360deg);
+        }
+    }
+}

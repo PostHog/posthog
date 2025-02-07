@@ -145,6 +145,56 @@ describe('HogTransformer', () => {
                 }
             `)
         })
+
+        it('only allow modifying certain properties', async () => {
+            // Setup the hog function
+            const fn = createHogFunction({
+                type: 'transformation',
+                name: 'Modifier',
+                team_id: teamId,
+                enabled: true,
+                bytecode: [],
+                execution_order: 1,
+                id: 'd77e792e-0f35-431b-a983-097534aa4767',
+                hog: `
+                    let returnEvent := event
+                    returnEvent.distinct_id := 'modified-distinct-id'
+                    returnEvent.event := 'modified-event'
+                    returnEvent.properties.test_property := 'modified-test-value'
+                    returnEvent.something_else := 'should not be allowed'
+                    returnEvent.timestamp := 'should not be allowed'
+                    return returnEvent
+                `,
+            })
+            fn.bytecode = await compileHog(fn.hog)
+            await insertHogFunction(hub.db.postgres, teamId, fn)
+            await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
+
+            const event: PluginEvent = createPluginEvent({}, teamId)
+            const result = await hogTransformer.transformEvent(event)
+
+            expect(result.event).toMatchInlineSnapshot(`
+                {
+                  "distinct_id": "modified-distinct-id",
+                  "event": "modified-event",
+                  "ip": "89.160.20.129",
+                  "now": "2024-06-07T12:00:00.000Z",
+                  "properties": {
+                    "$current_url": "https://example.com",
+                    "$ip": "89.160.20.129",
+                    "$transformations_failed": [],
+                    "$transformations_succeeded": [
+                      "Modifier (d77e792e-0f35-431b-a983-097534aa4767)",
+                    ],
+                    "test_property": "modified-test-value",
+                  },
+                  "site_url": "http://localhost",
+                  "team_id": 2,
+                  "timestamp": "2024-01-01T00:00:00Z",
+                  "uuid": "event-id",
+                }
+            `)
+        })
         it('should execute multiple transformations', async () => {
             const testTemplate: HogFunctionTemplate = {
                 free: true,

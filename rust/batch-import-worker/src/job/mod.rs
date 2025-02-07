@@ -113,7 +113,7 @@ impl Job {
         if let Err(e) = next_commit {
             // If we fail to commit, we just log and bail out - the job will be paused if it needs to be,
             // but this pod should restart, in case it's sink is in some bad state
-            error!("Failed to commit chunk: {}", e);
+            error!("Failed to commit chunk: {:?}", e);
             return Err(e);
         }
 
@@ -127,13 +127,13 @@ impl Job {
             Err(e) => {
                 // If we fail to fetch and parse, we need to pause the job (assuming manual intervention is required) and
                 // return an Ok(None) - this pod can continue to process other jobs, it just can't work on this one
-                error!("Failed to fetch and parse chunk: {}", e);
+                error!("Failed to fetch and parse chunk: {:?}", e);
                 self.model
                     .lock()
                     .await
                     .pause(
                         self.context.clone(),
-                        format!("Failed to fetch and parse chunk: {}", e),
+                        format!("Failed to fetch and parse chunk: {:?}", e),
                     )
                     .await?;
                 return Ok(None);

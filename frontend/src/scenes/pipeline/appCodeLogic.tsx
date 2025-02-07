@@ -117,15 +117,13 @@ export async function formatSource(filename: string, source: string): Promise<st
     }
 
     // Lazy-load prettier, as it's pretty big and its only use is formatting app source code
-    // @ts-expect-error
     const prettier = (await import('prettier/standalone')).default
-    // @ts-expect-error
     const parserTypeScript = (await import('prettier/parser-typescript')).default
 
     return prettier.format(source, {
         filepath: filename,
         parser: 'typescript',
-        plugins: [parserTypeScript],
+        plugins: [parserTypeScript as any],
         // copied from .prettierrc
         semi: false,
         trailingComma: 'es5',

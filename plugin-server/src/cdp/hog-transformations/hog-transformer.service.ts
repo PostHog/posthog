@@ -257,6 +257,18 @@ export class HogTransformerService {
                         event.event = transformedEvent.event
                     }
 
+                    if ('distinct_id' in transformedEvent) {
+                        if (typeof transformedEvent.distinct_id !== 'string') {
+                            status.error('⚠️', 'Invalid transformation result - distinct_id must be a string', {
+                                function_id: hogFunction.id,
+                                distinct_id: transformedEvent.distinct_id,
+                            })
+                            transformationsFailed.push(transformationIdentifier)
+                            continue
+                        }
+                        event.distinct_id = transformedEvent.distinct_id
+                    }
+
                     transformationsSucceeded.push(transformationIdentifier)
                 }
 
