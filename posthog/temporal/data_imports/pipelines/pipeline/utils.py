@@ -13,6 +13,8 @@ from django.db.models import F
 from posthog.constants import DATA_WAREHOUSE_COMPACTION_TASK_QUEUE
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
+from posthog.exceptions_capture import capture_exception
+from posthog.settings.base_variables import DEBUG, TEST
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.logger import FilteringBoundLogger
 from dlt.common.data_types.typing import TDataType
@@ -321,7 +323,7 @@ def trigger_compaction_job(job: ExternalDataJob, schema: ExternalDataSchema) -> 
     workflow_id = f"{schema.id}-compaction"
 
     try:
-        asyncio.run(
+        handle = asyncio.run(
             temporal.start_workflow(
                 workflow="deltalake-compaction-job",
                 arg=dataclasses.asdict(
@@ -335,8 +337,14 @@ def trigger_compaction_job(job: ExternalDataJob, schema: ExternalDataSchema) -> 
                 ),
             )
         )
+
+        if not DEBUG and not TEST:
+            # Wait for the compaction to complete before continuing
+            asyncio.run(handle.result())
     except WorkflowAlreadyStartedError:
         pass
+    except Exception as e:
+        capture_exception(e)
 
     return workflow_id
 
