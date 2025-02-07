@@ -6,17 +6,16 @@ from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
 from langchain_core.runnables import RunnableConfig
 from rest_framework.exceptions import APIException
-from posthog.exceptions_capture import capture_exception
 
 from ee.hogai.query_executor.format import (
-    compress_and_format_funnels_results,
+    FunnelResultsFormatter,
     compress_and_format_retention_results,
     compress_and_format_trends_results,
 )
 from ee.hogai.query_executor.prompts import (
-    QUERY_RESULTS_PROMPT,
     FALLBACK_EXAMPLE_PROMPT,
     FUNNELS_EXAMPLE_PROMPT,
+    QUERY_RESULTS_PROMPT,
     RETENTION_EXAMPLE_PROMPT,
     TRENDS_EXAMPLE_PROMPT,
 )
@@ -25,9 +24,9 @@ from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssis
 from posthog.api.services.query import process_query_dict
 from posthog.clickhouse.client.execute_async import get_query_status
 from posthog.errors import ExposedCHQueryError
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantMessage,
@@ -122,18 +121,7 @@ class QueryExecutorNode(AssistantNode):
         if isinstance(viz_message.answer, AssistantTrendsQuery):
             return compress_and_format_trends_results(results)
         elif isinstance(viz_message.answer, AssistantFunnelsQuery):
-            query_date_range = QueryDateRange(
-                viz_message.answer.dateRange, self._team, viz_message.answer.interval, self._utc_now_datetime
-            )
-            funnel_step_reference = (
-                viz_message.answer.funnelsFilter.funnelStepReference if viz_message.answer.funnelsFilter else None
-            )
-            return compress_and_format_funnels_results(
-                results,
-                date_from=query_date_range.date_from_str,
-                date_to=query_date_range.date_to_str,
-                funnel_step_reference=funnel_step_reference,
-            )
+            return FunnelResultsFormatter(self._team, viz_message.answer, results, self._utc_now_datetime).format()
         elif isinstance(viz_message.answer, AssistantRetentionQuery):
             return compress_and_format_retention_results(
                 results,
