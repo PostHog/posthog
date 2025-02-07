@@ -342,7 +342,7 @@ async def test_iter_records_can_flatten_properties(clickhouse_client):
 
 
 async def test_iter_records_uses_extra_query_parameters(clickhouse_client):
-    """Test iter_records can flatten properties as indicated by a field expression."""
+    """Test iter_records can use extra query parameters"""
     team_id = randint(1, 1000000)
     data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     data_interval_start = data_interval_end - dt.timedelta(hours=1)
