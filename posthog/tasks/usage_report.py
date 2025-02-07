@@ -154,7 +154,7 @@ class InstanceMetadata:
 
 
 @dataclasses.dataclass
-class OrgReport(UsageReportCounters):
+class OrganizationReport(UsageReportCounters):
     date: str
     organization_id: str
     organization_name: str
@@ -165,7 +165,7 @@ class OrgReport(UsageReportCounters):
 
 
 @dataclasses.dataclass
-class FullUsageReport(OrgReport, InstanceMetadata):
+class FullUsageReport(OrganizationReport, InstanceMetadata):
     pass
 
 
@@ -967,14 +967,14 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
 
 
 def _add_team_report_to_org_reports(
-    org_reports: dict[str, OrgReport],
+    org_reports: dict[str, OrganizationReport],
     team: Team,
     team_report: UsageReportCounters,
     period_start: datetime,
 ) -> None:
     org_id = str(team.organization.id)
     if org_id not in org_reports:
-        org_report = OrgReport(
+        org_report = OrganizationReport(
             date=period_start.strftime("%Y-%m-%d"),
             organization_id=org_id,
             organization_name=team.organization.name,
@@ -1000,7 +1000,7 @@ def _add_team_report_to_org_reports(
                 )
 
 
-def _get_all_org_reports(period_start: datetime, period_end: datetime) -> dict[str, OrgReport]:
+def _get_all_org_reports(period_start: datetime, period_end: datetime) -> dict[str, OrganizationReport]:
     logger.info("Getting all usage data...")  # noqa T201
     time_now = datetime.now()
     all_data = _get_all_usage_data_as_team_rows(period_start, period_end)
@@ -1012,7 +1012,7 @@ def _get_all_org_reports(period_start: datetime, period_end: datetime) -> dict[s
     teams = _get_teams_for_usage_reports()
     logger.debug(f"Getting teams for usage reports took {(datetime.now() - time_now).total_seconds()} seconds.")  # noqa T201
 
-    org_reports: dict[str, OrgReport] = {}
+    org_reports: dict[str, OrganizationReport] = {}
 
     logger.info("Generating reports for teams...")  # noqa T201
     time_now = datetime.now()
@@ -1025,7 +1025,7 @@ def _get_all_org_reports(period_start: datetime, period_end: datetime) -> dict[s
     return org_reports
 
 
-def _get_full_org_usage_report(org_report: OrgReport, instance_metadata: InstanceMetadata) -> FullUsageReport:
+def _get_full_org_usage_report(org_report: OrganizationReport, instance_metadata: InstanceMetadata) -> FullUsageReport:
     return FullUsageReport(
         **dataclasses.asdict(org_report),
         **dataclasses.asdict(instance_metadata),
