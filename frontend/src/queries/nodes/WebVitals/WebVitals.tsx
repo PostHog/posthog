@@ -1,10 +1,15 @@
 import { useActions, useValues } from 'kea'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
 import { useMemo, useState } from 'react'
+import { urls } from 'scenes/urls'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { Query } from '~/queries/Query/Query'
 import { AnyResponseType, WebVitalsQuery, WebVitalsQueryResponse } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
+import { ProductKey } from '~/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { getMetric } from './definitions'
@@ -84,8 +89,27 @@ export function WebVitals(props: {
 
             <div className="flex flex-col sm:flex-row gap-2 p-4">
                 <WebVitalsContent webVitalsQueryResponse={webVitalsQueryResponse} />
-                <div className="flex-1">
+                <div className="flex flex-col flex-1">
                     <Query query={webVitalsMetricQuery} readOnly embedded />
+
+                    <div className="flex w-full justify-end">
+                        <LemonButton
+                            key="open-insight-button"
+                            to={urls.insightNew({ query: webVitalsMetricQuery })}
+                            icon={<IconOpenInNew />}
+                            size="small"
+                            type="secondary"
+                            onClick={() => {
+                                void addProductIntentForCrossSell({
+                                    from: ProductKey.WEB_ANALYTICS,
+                                    to: ProductKey.PRODUCT_ANALYTICS,
+                                    intent_context: ProductIntentContext.WEB_VITALS_INSIGHT,
+                                })
+                            }}
+                        >
+                            Open as new Insight
+                        </LemonButton>
+                    </div>
                 </div>
             </div>
         </div>
