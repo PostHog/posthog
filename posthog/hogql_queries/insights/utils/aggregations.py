@@ -66,10 +66,10 @@ class FirstTimeForUserEventsQueryAlternator(QueryAlternator):
         date_from: ast.Expr,
         date_to: ast.Expr,
         filters: ast.Expr | None = None,
-        filters_with_breakdown: ast.Expr | None = None,
         event_or_action_filter: ast.Expr | None = None,
         ratio: ast.RatioExpr | None = None,
         is_first_matching_event: bool = False,
+        filters_with_breakdown: ast.Expr | None = None,
     ):
         self._filters = filters
         self._filters_with_breakdown = filters_with_breakdown
