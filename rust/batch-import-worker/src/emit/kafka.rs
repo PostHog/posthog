@@ -20,13 +20,11 @@ pub struct KafkaEmitter {
     producer: TransactionalProducer,
     topic: String,
     send_rate: u64, // Messages sent per second
-    last_send_finished_time: Option<Instant>,
 }
 
 pub struct KafkaEmitterTransaction<'a> {
     inner: KafkaTransaction<'a>,
     topic: &'a str,
-    last_send_finished_time: Option<Instant>,
     send_rate: u64,
     start: Instant,
     count: AtomicUsize,
@@ -48,7 +46,6 @@ impl KafkaEmitter {
             producer,
             topic: emitter_config.topic,
             send_rate: emitter_config.send_rate,
-            last_send_finished_time: None,
         })
     }
 }
@@ -61,7 +58,6 @@ impl Emitter for KafkaEmitter {
             inner: txn,
             start: Instant::now(),
             topic: &self.topic,
-            last_send_finished_time: self.last_send_finished_time,
             send_rate: self.send_rate,
             count: AtomicUsize::new(0),
         }))
@@ -83,7 +79,7 @@ impl<'a> Transaction<'a> for KafkaEmitterTransaction<'a> {
     async fn commit_write(self: Box<Self>) -> Result<(), Error> {
         let unboxed = *self;
         let count = unboxed.count.load(Ordering::SeqCst);
-        let min_duration = unboxed.get_min_txn_duration(count, unboxed.start);
+        let min_duration = unboxed.get_min_txn_duration(count);
         let txn_elapsed = unboxed.start.elapsed();
         let to_sleep = min_duration.saturating_sub(txn_elapsed);
         info!(
@@ -97,18 +93,10 @@ impl<'a> Transaction<'a> for KafkaEmitterTransaction<'a> {
 }
 
 impl<'a> KafkaEmitterTransaction<'a> {
-    fn get_min_txn_duration(&self, txn_count: usize, txn_start: Instant) -> Duration {
+    fn get_min_txn_duration(&self, txn_count: usize) -> Duration {
         // Get how long the send must take if this is the first send
-        let send_rate = self.send_rate as f64;
+        let max_send_rate = self.send_rate as f64;
         let batch_size = txn_count as f64;
-        let mut min_duration = Duration::from_secs_f64(batch_size / send_rate);
-
-        // If we've sent before, and there's a gap between the last send and now, we can subtract that
-        // from the minimum duration, since it's a period we spent not-sending
-        if let Some(instant) = self.last_send_finished_time {
-            let gap = txn_start - instant;
-            min_duration = min_duration.saturating_sub(gap);
-        }
-        min_duration
+        Duration::from_secs_f64(batch_size / max_send_rate)
     }
 }
