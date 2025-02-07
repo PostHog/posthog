@@ -92,7 +92,7 @@ export const DisplayTab = (): JSX.Element => {
             )}
 
             <div className="mt-1 mb-2">
-                <LemonLabel className="mb-1">{`Goal line${goalLines.length > 1 ? 's' : ''}`}</LemonLabel>
+                <LemonLabel className="mb-1">Goals</LemonLabel>
 
                 {goalLines.map(({ label, value = 0, displayLabel = true }, goalLineIndex) => (
                     <div className="flex flex-1 gap-1 mb-1" key={`${goalLineIndex}`}>
@@ -126,7 +126,7 @@ export const DisplayTab = (): JSX.Element => {
                             key="delete"
                             icon={<IconTrash />}
                             status="danger"
-                            title="Delete Y-series"
+                            title="Delete Goal Line"
                             noPadding
                             onClick={() => removeGoalLine(goalLineIndex)}
                         />

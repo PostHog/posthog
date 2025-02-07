@@ -10,6 +10,7 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
 import { FunnelsAdvanced } from 'scenes/insights/EditorFilters/FunnelsAdvanced'
 import { FunnelsQuerySteps } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
+import { GoalLines } from 'scenes/insights/EditorFilters/GoalLines'
 import { PathsAdvanced } from 'scenes/insights/EditorFilters/PathsAdvanced'
 import { PathsEventsTypes } from 'scenes/insights/EditorFilters/PathsEventTypes'
 import { PathsExclusions } from 'scenes/insights/EditorFilters/PathsExclusions'
@@ -272,6 +273,16 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             ]),
         },
         {
+            title: 'Goals',
+            editorFilters: [
+                {
+                    key: 'goal-lines',
+                    position: 'right',
+                    component: GoalLines,
+                },
+            ],
+        },
+        {
             title: 'Exclusions',
             editorFilters: filterFalsy([
                 isPaths && {
@@ -322,25 +333,20 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         },
     ]
 
-    let editorFilterGroups: InsightEditorFilterGroup[] = []
-
-    const leftFilters = editorFilters.reduce(
-        (acc, x) => acc.concat(x.editorFilters.filter((y) => y.position !== 'right')),
-        [] as InsightEditorFilter[]
-    )
-    const rightFilters = editorFilters.reduce(
-        (acc, x) => acc.concat(x.editorFilters.filter((y) => y.position === 'right')),
-        [] as InsightEditorFilter[]
-    )
-
-    editorFilterGroups = [
+    const editorFilterGroups: InsightEditorFilterGroup[] = [
         {
             title: 'left',
-            editorFilters: leftFilters,
+            editorFilters: editorFilters.reduce(
+                (acc, x) => acc.concat(x.editorFilters.filter((y) => y.position !== 'right')),
+                [] as InsightEditorFilter[]
+            ),
         },
         {
             title: 'right',
-            editorFilters: rightFilters,
+            editorFilters: editorFilters.reduce(
+                (acc, x) => acc.concat(x.editorFilters.filter((y) => y.position === 'right')),
+                [] as InsightEditorFilter[]
+            ),
         },
     ]
 
