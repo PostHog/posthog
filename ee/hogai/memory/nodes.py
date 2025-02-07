@@ -182,7 +182,7 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
         return re.sub(r"\[\d+\]", "", message)
 
     def _model(self):
-        return ChatPerplexity(model="llama-3.1-sonar-large-128k-online", temperature=0, streaming=True)
+        return ChatPerplexity(model="sonar-pro", temperature=0, streaming=True)
 
 
 class MemoryInitializerInterruptNode(AssistantNode):
