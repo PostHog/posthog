@@ -280,7 +280,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </div>
                             }
                         />
-                        {featureFlag.experiment_set && featureFlag.experiment_set?.length > 0 && (
+                        {featureFlag.experiment_set && featureFlag.experiment_set.length > 0 && (
                             <LemonBanner type="warning">
                                 This feature flag is linked to an experiment. Edit settings here only for advanced
                                 functionality. If unsure, go back to{' '}
@@ -742,6 +742,8 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         recordingFilterForFlag,
         flagStatus,
         flagType,
+        hasExperiment,
+        isDraftExperiment,
     } = useValues(featureFlagLogic)
     const {
         distributeVariantsEqually,
@@ -781,6 +783,16 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
             properties.variant_key = variantKey
         }
         posthog.capture('viewed recordings from feature flag', properties)
+    }
+
+    const canEditVariant = (index: number): boolean => {
+        if (hasExperiment && !isDraftExperiment) {
+            return false
+        }
+        if (hasExperiment && isDraftExperiment && index === 0) {
+            return false
+        }
+        return true
     }
 
     return (
@@ -956,10 +968,9 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                 {
                                     label: 'Release toggle (boolean)',
                                     value: 'boolean',
-                                    disabledReason:
-                                        featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
-                                            ? 'This feature flag is associated with an experiment.'
-                                            : undefined,
+                                    disabledReason: hasExperiment
+                                        ? 'This feature flag is associated with an experiment.'
+                                        : undefined,
                                 },
                                 {
                                     label: <span>Multiple variants with rollout percentages (A/B/n test)</span>,
@@ -968,10 +979,9 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                 {
                                     label: <span>Remote config (single payload)</span>,
                                     value: 'remote_config',
-                                    disabledReason:
-                                        featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
-                                            ? 'This feature flag is associated with an experiment.'
-                                            : undefined,
+                                    disabledReason: hasExperiment
+                                        ? 'This feature flag is associated with an experiment.'
+                                        : undefined,
                                 },
                             ]}
                             onChange={(value) => {
@@ -1123,12 +1133,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                 autoCapitalize="off"
                                                 autoCorrect="off"
                                                 spellCheck={false}
-                                                disabled={
-                                                    !!(
-                                                        featureFlag.experiment_set &&
-                                                        featureFlag.experiment_set?.length > 0
-                                                    )
-                                                }
+                                                disabled={!canEditVariant(index)}
                                             />
                                         </LemonField>
                                     </div>
@@ -1211,8 +1216,10 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                 noPadding
                                                 onClick={() => removeVariant(index)}
                                                 disabledReason={
-                                                    featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
-                                                        ? 'Cannot delete variants from a feature flag that is part of an experiment'
+                                                    !canEditVariant(index)
+                                                        ? isDraftExperiment
+                                                            ? 'Cannot delete the control variant from an experiment.'
+                                                            : 'Cannot delete variants from a feature flag that is part of a launched experiment.'
                                                         : undefined
                                                 }
                                                 tooltipPlacement="top-end"
@@ -1237,8 +1244,8 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             }}
                             icon={<IconPlus />}
                             disabledReason={
-                                featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
-                                    ? 'Cannot add variants to a feature flag that is part of an experiment. To update variants, create a new experiment.'
+                                hasExperiment && !isDraftExperiment
+                                    ? 'Cannot add variants to a feature flag that is part of a launched experiment. To update variants, reset the experiment to draft.'
                                     : undefined
                             }
                             tooltipPlacement="top-start"

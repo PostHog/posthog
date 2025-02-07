@@ -45,7 +45,7 @@ describe('insightSceneLogic', () => {
     })
 
     it('redirects maintaining url params when opening /insight/new with insight type in theurl', async () => {
-        router.actions.push(urls.insightNew(InsightType.FUNNELS))
+        router.actions.push(urls.insightNew({ type: InsightType.FUNNELS }))
         await expectLogic(logic).toFinishAllListeners()
 
         expect((logic.values.insightLogicRef?.logic.values.insight.query as InsightVizNode).source?.kind).toEqual(
@@ -55,10 +55,12 @@ describe('insightSceneLogic', () => {
 
     it('redirects maintaining url params when opening /insight/new with query in the url', async () => {
         router.actions.push(
-            urls.insightNew(undefined, undefined, {
-                kind: NodeKind.InsightVizNode,
-                source: examples.InsightPathsQuery,
-            } as InsightVizNode)
+            urls.insightNew({
+                query: {
+                    kind: NodeKind.InsightVizNode,
+                    source: examples.InsightPathsQuery,
+                } as InsightVizNode,
+            })
         )
         await expectLogic(logic).toFinishAllListeners()
 

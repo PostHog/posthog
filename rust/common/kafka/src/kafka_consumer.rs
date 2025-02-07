@@ -1,4 +1,7 @@
-use std::sync::{Arc, Weak};
+use std::{
+    fmt,
+    sync::{Arc, Weak},
+};
 
 use rdkafka::{
     consumer::{Consumer, StreamConsumer},
@@ -144,5 +147,19 @@ impl Offset {
             .consumer
             .store_offset(&inner.topic, self.partition, self.offset)?;
         Ok(())
+    }
+
+    pub fn get_value(&self) -> i64 {
+        self.offset
+    }
+}
+
+impl fmt::Debug for Offset {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{{ partition: {}, offset: {} }}",
+            self.partition, self.offset
+        )
     }
 }
