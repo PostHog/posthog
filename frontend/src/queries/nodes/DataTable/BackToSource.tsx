@@ -30,7 +30,7 @@ export function BackToSource(): JSX.Element | null {
         <LemonButton
             tooltip={summary}
             type="secondary"
-            onClick={() => router.actions.push(urls.insightNew(undefined, undefined, backToSourceQuery))}
+            onClick={() => router.actions.push(urls.insightNew({ query: backToSourceQuery }))}
         >
             &laquo; Back to {backToSourceQuery.source.kind?.replace('Query', '') ?? 'Insight'}
         </LemonButton>
