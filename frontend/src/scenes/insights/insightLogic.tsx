@@ -349,6 +349,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     Scene.ExperimentsSharedMetrics,
                 ].includes(activeScene),
         ],
+        isUsingPathsV1: [(s) => [s.featureFlags], (featureFlags) => !featureFlags[FEATURE_FLAGS.PATHS_V2]],
         isUsingPathsV2: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.PATHS_V2]],
     }),
     listeners(({ actions, values }) => ({

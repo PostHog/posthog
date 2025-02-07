@@ -58,7 +58,7 @@ export function InsightVizDisplay({
     embedded: boolean
     inSharedMode?: boolean
 }): JSX.Element | null {
-    const { insightProps, canEditInsight, isUsingPathsV2 } = useValues(insightLogic)
+    const { insightProps, canEditInsight, isUsingPathsV1, isUsingPathsV2 } = useValues(insightLogic)
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
@@ -249,7 +249,7 @@ export function InsightVizDisplay({
                                 </div>
 
                                 <div className="flex items-center gap-2">
-                                    {isPaths && <PathCanvasLabel />}
+                                    {isPaths && isUsingPathsV1 && <PathCanvasLabel />}
                                     {isFunnels && <FunnelCanvasLabel />}
                                 </div>
                             </div>
