@@ -342,10 +342,8 @@
      FROM session_replay_events
      WHERE min_first_timestamp BETWEEN '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
      GROUP BY session_id
-     HAVING ifNull(argMinMerge(snapshot_source), '') == 'mobile'
-     AND ifNull(argMinMerge(snapshot_library), '') IN ('posthog-ios',
-                                                       'posthog-android',
-                                                       'posthog-react-native'))
+     HAVING (ifNull(argMinMerge(snapshot_source), '') == 'mobile'
+             AND ifNull(argMinMerge(snapshot_library), '') IN (['posthog-ios', 'posthog-android', 'posthog-react-native'])))
   WHERE session_id NOT IN
       (SELECT DISTINCT session_id
        FROM session_replay_events
