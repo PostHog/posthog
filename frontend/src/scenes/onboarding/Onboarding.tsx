@@ -15,7 +15,6 @@ import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, ProductKey } from '~/types'
 
 import { DataWarehouseSources } from './data-warehouse/sources'
-import { OnboardingBillingStep } from './OnboardingBillingStep'
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
 import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
 import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
@@ -32,6 +31,7 @@ import { SDKs } from './sdks/SDKs'
 import { sdksLogic } from './sdks/sdksLogic'
 import { SessionReplaySDKInstructions } from './sdks/session-replay/SessionReplaySDKInstructions'
 import { SurveysSDKInstructions } from './sdks/surveys/SurveysSDKInstructions'
+import { OnboardingUpgradeStep } from './upgrade/OnboardingUpgradeStep'
 
 export const scene: SceneExport = {
     component: Onboarding,
@@ -87,7 +87,8 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
             steps = [...steps, ReverseProxyStep]
         }
         if (shouldShowBillingStep && billingProduct) {
-            const BillingStep = <OnboardingBillingStep product={billingProduct} stepKey={OnboardingStepKey.PLANS} />
+            const BillingStep = <OnboardingUpgradeStep product={billingProduct} stepKey={OnboardingStepKey.PLANS} />
+            // const BillingStep = <OnboardingBillingStep product={billingProduct} stepKey={OnboardingStepKey.PLANS} />
             steps = [...steps, BillingStep]
         }
         const inviteTeammatesStep = <OnboardingInviteTeammates stepKey={OnboardingStepKey.INVITE_TEAMMATES} />
