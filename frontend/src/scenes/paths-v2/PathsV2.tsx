@@ -13,7 +13,6 @@ import { pathsDataLogic } from './pathsDataLogic'
 import type { PathNodeData } from './pathUtils'
 import { renderPaths } from './renderPaths'
 
-const DEFAULT_PATHS_ID = 'default_paths'
 export const FALLBACK_CANVAS_WIDTH = 1000
 const FALLBACK_CANVAS_HEIGHT = 0
 
@@ -24,11 +23,9 @@ export function PathsV2(): JSX.Element {
         useResizeObserver({ ref: canvasRef })
     const [nodes, setNodes] = useState<PathNodeData[]>([])
 
-    const { insight, insightProps } = useValues(insightLogic)
+    const { insightProps } = useValues(insightLogic)
     const { insightQuery, paths, pathsFilter, funnelPathsFilter, insightDataLoading, insightDataError, theme } =
         useValues(pathsDataLogic(insightProps))
-
-    const id = `'${insight?.short_id || DEFAULT_PATHS_ID}'`
 
     useEffect(() => {
         setNodes([])
@@ -61,7 +58,7 @@ export function PathsV2(): JSX.Element {
     }
 
     return (
-        <div className="h-full w-full overflow-auto" id={id} ref={canvasContainerRef}>
+        <div className="h-full w-full overflow-auto" ref={canvasContainerRef}>
             <div
                 ref={canvasRef}
                 className="Paths"

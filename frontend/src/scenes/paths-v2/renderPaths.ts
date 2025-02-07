@@ -165,7 +165,7 @@ export function renderPaths(
     const svg = createCanvas(canvasRef, width, height)
     const sankey = createSankeyGenerator(width, height)
 
-    // :TRICKY: clone the paths, as d3 mutates data in place
+    // :TRICKY: clone the paths, as d3 mutates data in place.
     const clonedPaths = structuredClone(paths)
     const { nodes, links } = sankey(clonedPaths)
 
