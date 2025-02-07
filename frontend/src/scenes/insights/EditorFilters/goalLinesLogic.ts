@@ -39,7 +39,7 @@ export const goalLinesLogic = kea<goalLinesLogicType>([
                         if (Number.isNaN(value)) {
                             goalLines[goalLineIndex][key] = 0
                         } else {
-                            goalLines[goalLineIndex][key] = parseInt(value.toString())
+                            goalLines[goalLineIndex][key] = parseInt(value.toString(), 10)
                         }
                     } else {
                         goalLines[goalLineIndex][key] = value
@@ -78,7 +78,7 @@ export const goalLinesLogic = kea<goalLinesLogicType>([
     subscriptions(({ values, actions }) => ({
         querySource: (querySource) => {
             const goalLines = querySource?.trendsFilter?.goalLines
-            if (values.goalLines.length == 0 && goalLines && goalLines.length > 0) {
+            if (values.goalLines.length === 0 && goalLines && goalLines.length > 0) {
                 actions.setGoalLines(goalLines)
             }
         },
