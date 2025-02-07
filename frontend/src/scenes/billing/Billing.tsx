@@ -196,11 +196,11 @@ export function Billing(): JSX.Element {
                                                                       billing?.amount_off_expires_at?.format('LL')
                                                                     : null
                                                             }`}
-                                                            className="text-muted"
+                                                            className="text-secondary"
                                                         >
                                                             Available credits
                                                         </LemonLabel>
-                                                        <div className="font-semibold text-2xl text-muted">
+                                                        <div className="font-semibold text-2xl text-secondary">
                                                             {humanFriendlyCurrency(billing?.discount_amount_usd, 0)}
                                                         </div>
                                                     </div>
@@ -209,11 +209,11 @@ export function Billing(): JSX.Element {
                                                     <div>
                                                         <LemonLabel
                                                             info="The discount applied to your current bill, reflected in the total amount."
-                                                            className="text-muted"
+                                                            className="text-secondary"
                                                         >
                                                             Applied discount
                                                         </LemonLabel>
-                                                        <div className="font-semibold text-2xl text-muted">
+                                                        <div className="font-semibold text-2xl text-secondary">
                                                             {billing.discount_percent}%
                                                         </div>
                                                     </div>
@@ -230,7 +230,7 @@ export function Billing(): JSX.Element {
                                             remaining)
                                         </p>
                                         {!billing.has_active_subscription && (
-                                            <p className="italic ml-0 text-muted mb-0">
+                                            <p className="italic ml-0 text-secondary mb-0">
                                                 Monthly free allocation resets at the end of the cycle.
                                             </p>
                                         )}

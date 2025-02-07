@@ -257,7 +257,7 @@ export const parseKafkaMessage = async (
         return dropMessage('invalid_json', { error, team_id: teamIdWithConfig.teamId })
     }
 
-    const { $snapshot_items, $session_id, $window_id, $snapshot_source } = event.properties || {}
+    const { $snapshot_items, $session_id, $window_id, $snapshot_source, $lib } = event.properties || {}
 
     // NOTE: This is simple validation - ideally we should do proper schema based validation
     if (event.event !== '$snapshot_items' || !$snapshot_items || !$session_id) {
@@ -299,6 +299,7 @@ export const parseKafkaMessage = async (
             end: events[events.length - 1].timestamp,
         },
         snapshot_source: $snapshot_source,
+        snapshot_library: $lib ?? null,
     }
 }
 

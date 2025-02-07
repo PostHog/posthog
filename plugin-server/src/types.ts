@@ -18,6 +18,7 @@ import { DateTime } from 'luxon'
 import { VM } from 'vm2'
 
 import { EncryptedFields } from './cdp/encryption-utils'
+import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { BatchConsumer } from './kafka/batch-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { ObjectStorage } from './main/services/object_storage'
@@ -28,7 +29,6 @@ import { UUID } from './utils/utils'
 import { ActionManager } from './worker/ingestion/action-manager'
 import { ActionMatcher } from './worker/ingestion/action-matcher'
 import { AppMetrics } from './worker/ingestion/app-metrics'
-import type { CookielessSaltManager } from './worker/ingestion/event-pipeline/cookielessServerHashStep'
 import { GroupTypeManager } from './worker/ingestion/group-type-manager'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
 import { TeamManager } from './worker/ingestion/team-manager'
@@ -387,8 +387,7 @@ export interface Hub extends PluginsServerConfig {
     encryptedFields: EncryptedFields
 
     // cookieless
-    cookielessConfig: CookielessConfig
-    cookielessSaltManager: CookielessSaltManager
+    cookielessManager: CookielessManager
 }
 
 export interface PluginServerCapabilities {
@@ -1319,14 +1318,4 @@ export type AppMetric2Type = {
         | 'inputs_failed'
         | 'fetch'
     count: number
-}
-
-export interface CookielessConfig {
-    disabled: boolean
-    forceStatelessMode: boolean
-    deleteExpiredLocalSaltsIntervalMs: number
-    identifiesTtlSeconds: number
-    sessionTtlSeconds: number
-    saltTtlSeconds: number
-    sessionInactivityMs: number
 }

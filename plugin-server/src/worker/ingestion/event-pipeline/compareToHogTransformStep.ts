@@ -63,7 +63,7 @@ export async function compareToHogTransformStep(
     try {
         // TRICKY: We really want to make sure that the other event is unaffected
         const clonedEvent = cloneObject(prePluginsEvent)
-        const result = await hogTransformer.transformEvent(clonedEvent)
+        const result = await hogTransformer.transformEvent(clonedEvent, true)
         const hogEvent = result.event
 
         if (!hogEvent || !postPluginsEvent) {

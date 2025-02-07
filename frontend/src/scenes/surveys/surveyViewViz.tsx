@@ -64,12 +64,12 @@ export function UsersCount({ surveyUserStats }: { surveyUserStats: SurveyUserSta
         <div className="inline-flex mb-4">
             <div>
                 <div className="text-4xl font-bold">{humanFriendlyNumber(total)}</div>
-                <div className="font-semibold text-muted-alt">{labelTotal}</div>
+                <div className="font-semibold text-secondary">{labelTotal}</div>
             </div>
             {sent > 0 && (
                 <div className="ml-10">
                     <div className="text-4xl font-bold">{humanFriendlyNumber(sent)}</div>
-                    <div className="font-semibold text-muted-alt">{labelSent}</div>
+                    <div className="font-semibold text-secondary">{labelSent}</div>
                 </div>
             )}
         </div>
@@ -147,7 +147,7 @@ export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUs
                                         <div key={`survey-summary-legend-${label}`} className="flex items-center mr-6">
                                             {/* eslint-disable-next-line react/forbid-dom-props */}
                                             <div className="w-3 h-3 rounded-full mr-2" style={style} />
-                                            <span className="font-semibold text-muted-alt">{`${label} (${(
+                                            <span className="font-semibold text-secondary">{`${label} (${(
                                                 (count / total) *
                                                 100
                                             ).toFixed(1)}%)`}</span>
@@ -218,7 +218,7 @@ export function RatingQuestionBarChart({
                 <></>
             ) : (
                 <div className="mb-8">
-                    <div className="font-semibold text-muted-alt">{`${
+                    <div className="font-semibold text-secondary">{`${
                         question.scale === 10
                             ? '0 - 10'
                             : question.scale === 7
@@ -270,8 +270,8 @@ export function RatingQuestionBarChart({
                         </div>
                     </div>
                     <div className="flex flex-row justify-between mt-1">
-                        <div className="text-muted-alt pl-10">{question.lowerBoundLabel}</div>
-                        <div className="text-muted-alt pr-10">{question.upperBoundLabel}</div>
+                        <div className="text-secondary pl-10">{question.lowerBoundLabel}</div>
+                        <div className="text-secondary pr-10">{question.upperBoundLabel}</div>
                     </div>
                 </div>
             )}
@@ -313,7 +313,7 @@ export function NPSSurveyResultsBarChart({
                 <></>
             ) : (
                 <div className="mb-8">
-                    <div className="font-semibold text-muted-alt">{`${
+                    <div className="font-semibold text-secondary">{`${
                         question.scale === 10 ? '0 - 10' : '1 - 5'
                     } rating`}</div>
                     <div className="text-xl font-bold mb-2">NPS Scores over time for "{question.question}"</div>
@@ -410,7 +410,7 @@ export function SingleChoiceQuestionPieChart({
                 <></>
             ) : (
                 <div className="mb-8">
-                    <div className="font-semibold text-muted-alt">Single choice</div>
+                    <div className="font-semibold text-secondary">Single choice</div>
                     <div className="text-xl font-bold mb-2">{question.question}</div>
                     <div className="h-80 overflow-y-auto border rounded pt-4 pb-2 flex">
                         <div className="relative h-full w-80">
@@ -467,9 +467,9 @@ export function SingleChoiceQuestionPieChart({
                                             // eslint-disable-next-line react/forbid-dom-props
                                             style={{ backgroundColor: colors[i % colors.length] }}
                                         />
-                                        <span className="font-semibold text-muted-alt max-w-48 truncate">{`${labels[i]}`}</span>
+                                        <span className="font-semibold text-secondary max-w-48 truncate">{`${labels[i]}`}</span>
                                         <span className="font-bold ml-1 truncate">{` ${percentage}% `}</span>
-                                        <span className="font-semibold text-muted-alt ml-1 truncate">{`(${count})`}</span>
+                                        <span className="font-semibold text-secondary ml-1 truncate">{`(${count})`}</span>
                                     </div>
                                 )
                             })}
@@ -521,7 +521,7 @@ export function MultipleChoiceQuestionBarChart({
                 <></>
             ) : (
                 <div className="mb-8">
-                    <div className="font-semibold text-muted-alt">Multiple choice</div>
+                    <div className="font-semibold text-secondary">Multiple choice</div>
                     <div className="text-xl font-bold mb-2">{question.question}</div>
 
                     <div
@@ -601,10 +601,10 @@ export function OpenTextViz({
                     <div className="flex flex-row justify-between items-center">
                         <Tooltip title="See all Open Text responses in the Events table at the bottom.">
                             <div className="inline-flex gap-1">
-                                <div className="font-semibold text-muted-alt">Open text</div>
+                                <div className="font-semibold text-secondary">Open text</div>
                                 <LemonDivider vertical className="my-1 mx-1" />
-                                <div className="font-semibold text-muted-alt">random selection</div>
-                                <IconInfo className="text-lg text-muted-alt shrink-0 ml-0.5 mt-0.5" />
+                                <div className="font-semibold text-secondary">random selection</div>
+                                <IconInfo className="text-lg text-secondary shrink-0 ml-0.5 mt-0.5" />
                             </div>
                         </Tooltip>
                         <ResponseSummariesButton questionIndex={questionIndex} />
@@ -625,7 +625,7 @@ export function OpenTextViz({
                                             ? JSON.stringify(event.properties[surveyResponseField])
                                             : event.properties[surveyResponseField]}
                                     </div>
-                                    <div className="bg-bg-light items-center px-5 py-4 border-t rounded-b truncate w-full">
+                                    <div className="bg-surface-primary items-center px-5 py-4 border-t rounded-b truncate w-full">
                                         <PersonDisplay
                                             person={personProp}
                                             withIcon={true}

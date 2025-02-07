@@ -3536,7 +3536,7 @@
                                                                     WHERE equals(person.team_id, 99999)
                                                                     GROUP BY person.id
                                                                     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-07-01 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), and(or(ifNull(notILike(e__person.properties___email, '%@posthog.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0)), or(ifNull(equals(e__person.`properties___$os`, 'android'), 0), ifNull(equals(e__person.`properties___$browser`, 'safari'), 0))))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-07-01 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), and(or(ifNull(notILike(toString(e__person.properties___email), '%@posthog.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0)), or(ifNull(equals(e__person.`properties___$os`, 'android'), 0), ifNull(equals(e__person.`properties___$browser`, 'safari'), 0))))
            GROUP BY day_start,
                     breakdown_value)
         GROUP BY day_start,
@@ -3595,7 +3595,7 @@
                                                                     WHERE equals(person.team_id, 99999)
                                                                     GROUP BY person.id
                                                                     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-07-01 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), and(ifNull(equals(e__person.`properties___$os`, 'android'), 0), ifNull(equals(e__person.`properties___$browser`, 'chrome'), 0)), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0), ifNull(ilike(e__person.properties___email, '%@posthog.com%'), 0)))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-07-01 23:59:59', 6, 'UTC'))), equals(e.event, 'sign up'), and(ifNull(equals(e__person.`properties___$os`, 'android'), 0), ifNull(equals(e__person.`properties___$browser`, 'chrome'), 0)), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', ''), 'val'), 0), ifNull(ilike(toString(e__person.properties___email), '%@posthog.com%'), 0)))
            GROUP BY day_start,
                     breakdown_value)
         GROUP BY day_start,
@@ -4274,7 +4274,7 @@
        (SELECT sum(total) AS count,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT quantile(0.5)(session_duration) AS total,
+          (SELECT ifNull(quantile(0.5)(accurateCastOrNull(session_duration, 'Float64')), 0) AS total,
                   breakdown_value AS breakdown_value
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
@@ -4320,7 +4320,7 @@
        (SELECT sum(total) AS count,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT quantile(0.5)(session_duration) AS total,
+          (SELECT ifNull(quantile(0.5)(accurateCastOrNull(session_duration, 'Float64')), 0) AS total,
                   breakdown_value AS breakdown_value
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
@@ -4366,7 +4366,7 @@
        (SELECT sum(total) AS count,
                [ifNull(toString(breakdown_value_1), '$$_posthog_breakdown_null_$$')] AS breakdown_value
         FROM
-          (SELECT quantile(0.5)(session_duration) AS total,
+          (SELECT ifNull(quantile(0.5)(accurateCastOrNull(session_duration, 'Float64')), 0) AS total,
                   breakdown_value_1 AS breakdown_value_1
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
@@ -4412,7 +4412,7 @@
        (SELECT sum(total) AS count,
                [ifNull(toString(breakdown_value_1), '$$_posthog_breakdown_null_$$')] AS breakdown_value
         FROM
-          (SELECT quantile(0.5)(session_duration) AS total,
+          (SELECT ifNull(quantile(0.5)(accurateCastOrNull(session_duration, 'Float64')), 0) AS total,
                   breakdown_value_1 AS breakdown_value_1
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
@@ -4940,7 +4940,7 @@
        (SELECT sum(total) AS count,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT quantile(0.5)(session_duration) AS total,
+          (SELECT ifNull(quantile(0.5)(accurateCastOrNull(session_duration, 'Float64')), 0) AS total,
                   breakdown_value AS breakdown_value
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
@@ -5003,7 +5003,7 @@
        (SELECT sum(total) AS count,
                [ifNull(toString(breakdown_value_1), '$$_posthog_breakdown_null_$$')] AS breakdown_value
         FROM
-          (SELECT quantile(0.5)(session_duration) AS total,
+          (SELECT ifNull(quantile(0.5)(accurateCastOrNull(session_duration, 'Float64')), 0) AS total,
                   breakdown_value_1 AS breakdown_value_1
            FROM
              (SELECT any(e__session.`$session_duration`) AS session_duration,
@@ -5081,7 +5081,7 @@
 # ---
 # name: TestTrends.test_trends_with_session_property_single_aggregate_math
   '''
-  SELECT quantile(0.5)(session_duration) AS total
+  SELECT ifNull(quantile(0.5)(accurateCastOrNull(session_duration, 'Float64')), 0) AS total
   FROM
     (SELECT any(e__session.`$session_duration`) AS session_duration
      FROM events AS e SAMPLE 1
@@ -5106,7 +5106,7 @@
 # ---
 # name: TestTrends.test_trends_with_session_property_single_aggregate_math.1
   '''
-  SELECT quantile(0.5)(session_duration) AS total
+  SELECT ifNull(quantile(0.5)(accurateCastOrNull(session_duration, 'Float64')), 0) AS total
   FROM
     (SELECT any(e__session.`$session_duration`) AS session_duration
      FROM events AS e SAMPLE 1
@@ -5138,7 +5138,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT quantile(0.5)(session_duration) AS total,
+       (SELECT ifNull(quantile(0.5)(accurateCastOrNull(session_duration, 'Float64')), 0) AS total,
                day_start AS day_start
         FROM
           (SELECT any(e__session.`$session_duration`) AS session_duration,
@@ -5177,7 +5177,7 @@
     (SELECT sum(total) AS count,
             day_start AS day_start
      FROM
-       (SELECT quantile(0.5)(session_duration) AS total,
+       (SELECT ifNull(quantile(0.5)(accurateCastOrNull(session_duration, 'Float64')), 0) AS total,
                day_start AS day_start
         FROM
           (SELECT any(e__session.`$session_duration`) AS session_duration,
@@ -5223,7 +5223,7 @@
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT quantile(0.5)(session_duration) AS total,
+          (SELECT ifNull(quantile(0.5)(accurateCastOrNull(session_duration, 'Float64')), 0) AS total,
                   breakdown_value AS breakdown_value,
                   day_start AS day_start
            FROM
@@ -5278,7 +5278,7 @@
                day_start AS day_start,
                breakdown_value AS breakdown_value
         FROM
-          (SELECT quantile(0.5)(session_duration) AS total,
+          (SELECT ifNull(quantile(0.5)(accurateCastOrNull(session_duration, 'Float64')), 0) AS total,
                   breakdown_value AS breakdown_value,
                   day_start AS day_start
            FROM
@@ -5333,7 +5333,7 @@
                day_start AS day_start,
                [ifNull(toString(breakdown_value_1), '$$_posthog_breakdown_null_$$')] AS breakdown_value
         FROM
-          (SELECT quantile(0.5)(session_duration) AS total,
+          (SELECT ifNull(quantile(0.5)(accurateCastOrNull(session_duration, 'Float64')), 0) AS total,
                   breakdown_value_1 AS breakdown_value_1,
                   day_start AS day_start
            FROM
@@ -5388,7 +5388,7 @@
                day_start AS day_start,
                [ifNull(toString(breakdown_value_1), '$$_posthog_breakdown_null_$$')] AS breakdown_value
         FROM
-          (SELECT quantile(0.5)(session_duration) AS total,
+          (SELECT ifNull(quantile(0.5)(accurateCastOrNull(session_duration, 'Float64')), 0) AS total,
                   breakdown_value_1 AS breakdown_value_1,
                   day_start AS day_start
            FROM
