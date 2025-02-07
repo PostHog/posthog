@@ -405,6 +405,7 @@
         var(--color-yellow-500) 10%,
         transparent
     ); /* highlight bg for warning blocks */
+
     --bg-fill-error-secondary: var(--color-red-100); /* prominent bg for error blocks */
     --bg-fill-error-tertiary: var(--color-red-50); /* subtle bg for error blocks */
     --bg-fill-error-highlight: color-mix(
@@ -412,6 +413,7 @@
         var(--color-red-500) 10%,
         transparent
     ); /* highlight bg for error blocks */
+
     --bg-fill-success-secondary: var(--color-green-100); /* promonent bg for success blocks */
     --bg-fill-success-tertiary: var(--color-green-50); /* subtle bg for success blocks */
     --bg-fill-success-highlight: color-mix(
@@ -419,6 +421,7 @@
         var(--color-green-500) 10%,
         transparent
     ); /* highlight bg for success blocks */
+
     --bg-fill-primary-highlight: color-mix(
         in oklab,
         var(--color-primary-500) 10%,
