@@ -13,14 +13,10 @@ import { pathsDataLogic } from './pathsDataLogic'
 import type { PathNodeData } from './pathUtils'
 import { renderPaths } from './renderPaths'
 
-export const FALLBACK_CANVAS_WIDTH = 1000
-const FALLBACK_CANVAS_HEIGHT = 0
-
 export function PathsV2(): JSX.Element {
     const canvasRef = useRef<HTMLDivElement>(null)
     const canvasContainerRef = useRef<HTMLDivElement>(null)
-    const { width: canvasWidth = FALLBACK_CANVAS_WIDTH, height: canvasHeight = FALLBACK_CANVAS_HEIGHT } =
-        useResizeObserver({ ref: canvasRef })
+    const { width: canvasWidth, height: canvasHeight } = useResizeObserver({ ref: canvasRef })
     const [nodes, setNodes] = useState<PathNodeData[]>([])
 
     const { insightProps } = useValues(insightLogic)

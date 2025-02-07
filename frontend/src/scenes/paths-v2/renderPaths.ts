@@ -6,9 +6,11 @@ import { Dispatch, RefObject, SetStateAction } from 'react'
 
 import { FunnelPathsFilter, PathsFilter } from '~/queries/schema'
 
-import { FALLBACK_CANVAS_WIDTH } from './PathsV2'
 import { isSelectedPathStartOrEnd, PathNodeData, PathTargetLink, roundedRect } from './pathUtils'
 import { Paths } from './types'
+
+const FALLBACK_CANVAS_WIDTH = 1000
+const FALLBACK_CANVAS_HEIGHT = 0
 
 const createCanvas = (canvasRef: RefObject<HTMLDivElement>, width: number, height: number): D3Selector => {
     return d3
@@ -142,13 +144,16 @@ const appendPathLinks = (svg: any, links: PathNodeData[]): void => {
 
 export function renderPaths(
     canvasRef: RefObject<HTMLDivElement>,
-    canvasWidth: number,
-    canvasHeight: number,
+    _canvasWidth: number | undefined,
+    _canvasHeight: number | undefined,
     paths: Paths,
     pathsFilter: PathsFilter,
     funnelPathsFilter: FunnelPathsFilter,
     setNodes: Dispatch<SetStateAction<PathNodeData[]>>
 ): void {
+    const canvasWidth = _canvasWidth || FALLBACK_CANVAS_WIDTH
+    const canvasHeight = _canvasHeight || FALLBACK_CANVAS_HEIGHT
+
     if (!paths || paths.nodes.length === 0) {
         return
     }
