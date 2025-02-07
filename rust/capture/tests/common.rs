@@ -138,7 +138,11 @@ impl ServerHandle {
             .expect("failed to send request")
     }
 
-    pub async fn capture_recording<T: Into<reqwest::Body>>(&self, body: T, user_agent: Option<&str>) -> reqwest::Response {
+    pub async fn capture_recording<T: Into<reqwest::Body>>(
+        &self,
+        body: T,
+        user_agent: Option<&str>,
+    ) -> reqwest::Response {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_millis(3000))
             .build()

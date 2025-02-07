@@ -235,7 +235,9 @@ pub async fn recording(
         Err(err) => Err(err),
         Ok((context, events)) => {
             let count = events.len() as u64;
-            if let Err(err) = process_replay_events(state.sink.clone(), events, user_agent, &context).await {
+            if let Err(err) =
+                process_replay_events(state.sink.clone(), events, user_agent, &context).await
+            {
                 let cause = match err {
                     CaptureError::MissingDistinctId => "missing_distinct_id",
                     CaptureError::MissingSessionId => "missing_session_id",
@@ -374,7 +376,10 @@ pub async fn process_replay_events<'a>(
         .properties
         .remove("$lib")
         // missing lib could be one of multiple libraries, so we try to fall back to user agent
-        .unwrap_or(Value::String(snapshot_library_fallback_from(user_agent.to_string()).unwrap_or(String::from("unknown"))));
+        .unwrap_or(Value::String(
+            snapshot_library_fallback_from(user_agent.to_string())
+                .unwrap_or(String::from("unknown")),
+        ));
 
     let mut snapshot_items: Vec<Value> = Vec::with_capacity(events.len());
     for mut event in events {

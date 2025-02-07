@@ -88,7 +88,9 @@ async fn it_captures_one_recording_with_user_agent_fallback_for_lib() -> Result<
             // NO LIB SET HERE
         }
     });
-    let res = server.capture_recording(event.to_string(), Option::from(lib)).await;
+    let res = server
+        .capture_recording(event.to_string(), Option::from(lib))
+        .await;
     assert_eq!(StatusCode::OK, res.status());
 
     let event = main_topic.next_event()?;
