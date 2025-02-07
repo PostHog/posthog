@@ -57,6 +57,8 @@ RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "initial_gclid": DatabaseField(name="initial_gclid"),
     "initial_fbclid": DatabaseField(name="initial_fbclid"),
     "initial_gad_source": DatabaseField(name="initial_gad_source"),
+    "initial__kx": DatabaseField(name="initial__kx"),
+    "initial_irclid": DatabaseField(name="initial_irclid"),
     # do not expose the count fields, as we can't rely on them being accurate due to double-counting events
     "pageview_uniq": DatabaseField(name="pageview_uniq"),
     "autocapture_uniq": DatabaseField(name="autocapture_uniq"),
@@ -92,6 +94,8 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$entry_gclid": StringDatabaseField(name="$entry_gclid"),
     "$entry_fbclid": StringDatabaseField(name="$entry_fbclid"),
     "$entry_gad_source": StringDatabaseField(name="$entry_gad_source"),
+    "$entry__kx": StringDatabaseField(name="$entry__kx"),
+    "$entry_irclid": StringDatabaseField(name="$entry_irclid"),
     # we expose "count" fields here, though they are actually the aggregates of the uniq columns in the raw tables
     "$pageview_count": IntegerDatabaseField(name="$pageview_count"),
     "$autocapture_count": IntegerDatabaseField(name="$autocapture_count"),
@@ -136,6 +140,8 @@ class RawSessionsTableV2(Table):
             "initial_gclid",
             "initial_fbclid",
             "initial_gad_source",
+            "initial__kx",
+            "initial_irclid",
             "pageview_uniq",
             "autocapture_uniq",
             "screen_uniq",
@@ -221,6 +227,8 @@ def select_from_sessions_table_v2(
         "$entry_gclid": null_if_empty(arg_min_merge_field("initial_gclid")),
         "$entry_fbclid": null_if_empty(arg_min_merge_field("initial_fbclid")),
         "$entry_gad_source": null_if_empty(arg_min_merge_field("initial_gad_source")),
+        "$entry__kx": null_if_empty(arg_min_merge_field("initial__kx")),
+        "$entry_irclid": null_if_empty(arg_min_merge_field("initial_irclid")),
         # the count columns here do not come from the "count" columns in the raw table, instead aggregate the uniq columns
         "$pageview_count": ast.Call(name="uniqMerge", args=[ast.Field(chain=[table_name, "pageview_uniq"])]),
         "$screen_count": ast.Call(name="uniqMerge", args=[ast.Field(chain=[table_name, "screen_uniq"])]),

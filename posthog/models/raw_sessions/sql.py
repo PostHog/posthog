@@ -88,6 +88,8 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+    initial__kx AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+    initial_irclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
 
     -- Count pageview, autocapture, and screen events for providing totals.
     -- It's unclear if we can use the counts as they are not idempotent, and we had a bug on EU where events were
@@ -225,6 +227,8 @@ SELECT
     initializeAggregation('argMinState', {mc_cid}, timestamp) as initial_mc_cid,
     initializeAggregation('argMinState', {igshid}, timestamp) as initial_igshid,
     initializeAggregation('argMinState', {ttclid}, timestamp) as initial_ttclid,
+    initializeAggregation('argMinState', {kx}, timestamp) as initial__kx,
+    initializeAggregation('argMinState', {irclid}, timestamp) as initial_irclid,
 
     -- counts
     if(event='$pageview', 1, 0) as pageview_count,
@@ -280,6 +284,8 @@ WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')),
         mc_cid=source_string_column("mc_cid"),
         igshid=source_string_column("igshid"),
         ttclid=source_string_column("ttclid"),
+        kx=source_string_column("_kx"),
+        irclid=source_string_column("irclid"),
         vitals_lcp=source_nullable_float_column("$web_vitals_LCP_value"),
     )
 )
@@ -338,6 +344,8 @@ SELECT
     argMinState({mc_cid}, timestamp) as initial_mc_cid,
     argMinState({igshid}, timestamp) as initial_igshid,
     argMinState({ttclid}, timestamp) as initial_ttclid,
+    argMinState({kx}, timestamp) as initial__kx,
+    argMinState({irclid}, timestamp) as initial_irclid,
 
     -- count
     sumIf(1, event='$pageview') as pageview_count,
@@ -398,6 +406,8 @@ GROUP BY
         mc_cid=source_string_column("mc_cid"),
         igshid=source_string_column("igshid"),
         ttclid=source_string_column("ttclid"),
+        kx=source_string_column("_kx"),
+        irclid=source_string_column("irclid"),
         vitals_lcp=source_nullable_float_column("$web_vitals_LCP_value"),
     )
 )
@@ -516,6 +526,8 @@ SELECT
     argMinMerge(initial_mc_cid) as initial_mc_cid,
     argMinMerge(initial_igshid) as initial_igshid,
     argMinMerge(initial_ttclid) as initial_ttclid,
+    argMinMerge(initial__kx) as initial__kx,
+    argMinMerge(initial_irclid) as initial_irclid,
 
     sum(pageview_count) as pageview_count,
     uniqMerge(pageview_uniq) as pageview_uniq,
