@@ -8,7 +8,12 @@ import { PathNodeCardButton } from './PathNodeCardButton'
 import { PathNodeCardMenu } from './PathNodeCardMenu'
 import { pathsDataLogic } from './pathsDataLogic'
 import { isSelectedPathStartOrEnd, pageUrl, PathNodeData } from './pathUtils'
-import { PATH_NODE_CARD_LEFT_OFFSET, PATH_NODE_CARD_TOP_OFFSET, PATH_NODE_CARD_WIDTH } from './renderPaths'
+import {
+    PATH_NODE_CARD_HEIGHT,
+    PATH_NODE_CARD_LEFT_OFFSET,
+    PATH_NODE_CARD_TOP_OFFSET,
+    PATH_NODE_CARD_WIDTH,
+} from './renderPaths'
 
 export type PathNodeCardProps = {
     insightProps: InsightLogicProps
@@ -57,6 +62,7 @@ export function PathNodeCard({ insightProps, node }: PathNodeCardProps): JSX.Ele
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         width: PATH_NODE_CARD_WIDTH,
+                        height: PATH_NODE_CARD_HEIGHT,
                         left: node.x0 + PATH_NODE_CARD_LEFT_OFFSET,
                         top: node.y0 + PATH_NODE_CARD_TOP_OFFSET,
                         border: `1px solid ${

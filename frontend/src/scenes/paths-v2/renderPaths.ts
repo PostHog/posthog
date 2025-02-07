@@ -9,19 +9,37 @@ import { FunnelPathsFilter, PathsFilter } from '~/queries/schema'
 import { isSelectedPathStartOrEnd, PathNodeData, PathTargetLink } from './pathUtils'
 import { Paths } from './types'
 
+/*
+ * Canvas
+ */
+
 const FALLBACK_CANVAS_WIDTH = 1000
 const FALLBACK_CANVAS_HEIGHT = 0
+
+/*
+ * Node
+ */
 
 // We want the border radius to overlap the links. For this we subtract the border radius of both
 // sides from the node width, and add it back to the svg element that is moved left by the border radius.
 //
 // We also expand the canvas margin by the border radius on both sides to make sure the nodes are not cut off.
 const NODE_BORDER_RADIUS = 6
-const NODE_WIDTH = 48
+const NODE_WIDTH = 48 - 2 * NODE_BORDER_RADIUS
+
+/*
+ * Node label
+ */
 
 export const PATH_NODE_CARD_WIDTH = 240
-export const PATH_NODE_CARD_TOP_OFFSET = 0
+export const PATH_NODE_CARD_HEIGHT = 44
+const PATH_NODE_CARD_MARGIN_TOP = 20
+const PATH_NODE_CARD_MARGIN_BOTTOM = 10
+export const PATH_NODE_CARD_TOP_OFFSET = -(PATH_NODE_CARD_HEIGHT + PATH_NODE_CARD_MARGIN_BOTTOM)
 export const PATH_NODE_CARD_LEFT_OFFSET = 0 - NODE_BORDER_RADIUS
+
+/** Space between two nodes, should fit the node label and it's vertical margins. */
+const NODE_PADDING = PATH_NODE_CARD_MARGIN_TOP + PATH_NODE_CARD_HEIGHT + PATH_NODE_CARD_MARGIN_BOTTOM
 
 const createCanvas = (canvasRef: RefObject<HTMLDivElement>, width: number, height: number): D3Selector => {
     return d3
@@ -39,8 +57,11 @@ const createSankeyGenerator = (width: number, height: number): Sankey.SankeyLayo
      */
     const marginLeft = 0 + NODE_BORDER_RADIUS
 
-    /** **Top canvas margin** */
-    const marginTop = 0
+    /** **Top canvas margin**
+     * - Expanded by the node label height and it's bottom margin, so that the
+     * first label fits into the canvas.
+     */
+    const marginTop = PATH_NODE_CARD_HEIGHT + PATH_NODE_CARD_MARGIN_BOTTOM
 
     /** **Right canvas margin**
      * - Expanded by the border radius to make sure the nodes are not cut off.
@@ -57,7 +78,8 @@ const createSankeyGenerator = (width: number, height: number): Sankey.SankeyLayo
         .nodeId((d: PathNodeData) => d.name)
         .nodeAlign(Sankey.sankeyLeft)
         .nodeSort(null)
-        .nodeWidth(NODE_WIDTH - 2 * NODE_BORDER_RADIUS)
+        .nodeWidth(NODE_WIDTH)
+        .nodePadding(NODE_PADDING)
         .size([width, height])
         .extent([
             [marginLeft, marginTop], // top-left coordinates
