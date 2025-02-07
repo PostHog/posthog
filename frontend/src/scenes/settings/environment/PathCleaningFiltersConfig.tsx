@@ -7,7 +7,22 @@ import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, InsightType } from '~/types'
+import { AvailableFeature, InsightType, PathCleaningFilter } from '~/types'
+
+const cleanPathWithRegexes = (path: string, filters: PathCleaningFilter[]): string => {
+    return filters.reduce((text, filter) => {
+        try {
+            return text.replace(new RegExp(filter.regex ?? ''), filter.alias ?? '')
+        } catch (e) {
+            // If error is RegExp syntax error just return text, this means regexp is invalid, just ignore it
+            if (e instanceof SyntaxError) {
+                return text
+            }
+
+            throw e
+        }
+    }, path)
+}
 
 export function PathCleaningFiltersConfig(): JSX.Element | null {
     const [testValue, setTestValue] = useState('')
@@ -33,10 +48,7 @@ export function PathCleaningFiltersConfig(): JSX.Element | null {
         )
     }
 
-    const cleanedTestPath =
-        currentTeam.path_cleaning_filters?.reduce((text, filter) => {
-            return text.replace(new RegExp(filter.regex ?? ''), filter.alias ?? '')
-        }, testValue) ?? ''
+    const cleanedTestPath = cleanPathWithRegexes(testValue, currentTeam.path_cleaning_filters ?? [])
     const readableTestPath = parseAliasToReadable(cleanedTestPath)
 
     return (
