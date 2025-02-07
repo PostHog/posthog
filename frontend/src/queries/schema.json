@@ -1258,8 +1258,7 @@
                 },
                 "showMean": {
                     "description": "Whether an additional series should be shown, showing the mean conversion for each period across cohorts.",
-                    "enum": ["simple", "weighted", "none"],
-                    "type": "string"
+                    "type": "boolean"
                 },
                 "targetEntity": {
                     "$ref": "#/definitions/RetentionEntity",
@@ -12480,8 +12479,7 @@
                     "$ref": "#/definitions/RetentionEntity"
                 },
                 "showMean": {
-                    "enum": ["simple", "weighted", "none"],
-                    "type": "string"
+                    "type": "boolean"
                 },
                 "targetEntity": {
                     "$ref": "#/definitions/RetentionEntity"
@@ -12515,8 +12513,7 @@
                     "$ref": "#/definitions/RetentionEntity"
                 },
                 "show_mean": {
-                    "enum": ["simple", "weighted", "none"],
-                    "type": "string"
+                    "type": "boolean"
                 },
                 "target_entity": {
                     "$ref": "#/definitions/RetentionEntity"
