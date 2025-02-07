@@ -249,7 +249,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.22
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.23
   '''
   
   SELECT team_id,
@@ -263,7 +263,7 @@
            metric_name
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.23
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.24
   '''
   
   SELECT team_id,
