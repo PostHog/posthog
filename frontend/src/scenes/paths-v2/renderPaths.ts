@@ -24,8 +24,9 @@ const FALLBACK_CANVAS_HEIGHT = 0
 // sides from the node width, and add it back to the svg element that is moved left by the border radius.
 //
 // We also expand the canvas margin by the border radius on both sides to make sure the nodes are not cut off.
-const NODE_BORDER_RADIUS = 6
+const NODE_BORDER_RADIUS = 4
 const NODE_WIDTH = 48 - 2 * NODE_BORDER_RADIUS
+const NODE_MIN_HEIGHT = 3
 
 /*
  * Node label
@@ -100,7 +101,7 @@ const appendPathNodes = (
         .attr('x', (d: PathNodeData) => d.x0 - NODE_BORDER_RADIUS)
         .attr('y', (d: PathNodeData) => d.y0)
         .attr('rx', NODE_BORDER_RADIUS)
-        .attr('height', (d: PathNodeData) => d.y1 - d.y0)
+        .attr('height', (d: PathNodeData) => Math.max(d.y1 - d.y0, NODE_MIN_HEIGHT))
         .attr('width', (d: PathNodeData) => d.x1 - d.x0 + 2 * NODE_BORDER_RADIUS)
         .attr('fill', (d: PathNodeData) => {
             let c
