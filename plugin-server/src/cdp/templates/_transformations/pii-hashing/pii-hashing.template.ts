@@ -21,10 +21,10 @@ if (empty(propertiesToHash)) {
 let returnEvent := event
 
 // Hash each property value
-for (let propName, path in propertiesToHash) {
-    let value := path
-    if (notEmpty(value) and value != propName) {  // Check if path resolved to a value
-        returnEvent.properties[propName] := sha256Hex(toString(value))
+for (let _, path in propertiesToHash) {
+    let value := event.properties[path]
+    if (notEmpty(value)) { 
+        returnEvent.properties[path] := sha256Hex(toString(value))
     }
 }
 
@@ -35,10 +35,9 @@ return returnEvent
             key: 'propertiesToHash',
             type: 'dictionary',
             label: 'Properties to Hash',
-            description: 'Add property names to hash (e.g., "$email", "$ip", "$device_type").',
+            description: 'Add property paths to hash',
             default: {
-                $email: '{event.properties.$email}',
-                $ip: '{event.properties.$ip}',
+                Ip: 'properties.$ip',
             },
             secret: false,
             required: true,

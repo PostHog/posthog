@@ -28,7 +28,7 @@ describe('pii-hashing.template', () => {
         const response = await tester.invoke(
             {
                 propertiesToHash: {
-                    $email: '{event.properties.$email}',
+                    $email: '$email',
                 },
             },
             mockGlobals
@@ -54,8 +54,8 @@ describe('pii-hashing.template', () => {
         const response = await tester.invoke(
             {
                 propertiesToHash: {
-                    $email: '{event.properties.$email}',
-                    $phone: '{event.properties.$phone}',
+                    Email: '$email',
+                    Phone: '$phone',
                 },
             },
             mockGlobals
@@ -82,8 +82,8 @@ describe('pii-hashing.template', () => {
         const response = await tester.invoke(
             {
                 propertiesToHash: {
-                    $email: '{event.properties.$email}',
-                    $phone: '{event.properties.$phone}',
+                    Email: '$email',
+                    Phone: '$phone',
                 },
             },
             mockGlobals
@@ -129,9 +129,9 @@ describe('pii-hashing.template', () => {
         const response = await tester.invoke(
             {
                 propertiesToHash: {
-                    $email: '{event.properties.nonexistent}',
-                    $phone: '{event.properties.user.phone}',
-                    $ssn: '{event.properties.deeply.nested.invalid.path}',
+                    Email: 'properties.nonexistent',
+                    Phone: 'properties.user.phone',
+                    Ssn: 'properties.deeply.nested.invalid.path',
                 },
             },
             mockGlobals
@@ -144,39 +144,5 @@ describe('pii-hashing.template', () => {
         // Invalid paths should not create new properties
         expect((response.execResult as EventResult).properties.$phone).toBeUndefined()
         expect((response.execResult as EventResult).properties.$ssn).toBeUndefined()
-    })
-
-    it('should handle various property names and paths', async () => {
-        mockGlobals = tester.createGlobals({
-            event: {
-                properties: {
-                    $email: 'test@example.com',
-                    regular_field: 'sensitive-data',
-                    custom_field: 'another-secret',
-                },
-            },
-        })
-
-        const response = await tester.invoke(
-            {
-                propertiesToHash: {
-                    regular_field: '{event.properties.regular_field}',
-                    custom_field: '{event.properties.$email}', // Map to different source
-                    $email: '{event.properties.custom_field}', // Cross-property mapping
-                },
-            },
-            mockGlobals
-        )
-
-        expect(response.finished).toBe(true)
-        expect(response.error).toBeUndefined()
-        // Check each property is hashed
-        expect((response.execResult as EventResult).properties.regular_field).toMatch(/^[a-f0-9]{64}$/)
-        expect((response.execResult as EventResult).properties.custom_field).toMatch(/^[a-f0-9]{64}$/)
-        expect((response.execResult as EventResult).properties.$email).toMatch(/^[a-f0-9]{64}$/)
-        // Verify original values are not present
-        expect((response.execResult as EventResult).properties.regular_field).not.toBe('sensitive-data')
-        expect((response.execResult as EventResult).properties.custom_field).not.toBe('test@example.com')
-        expect((response.execResult as EventResult).properties.$email).not.toBe('another-secret')
     })
 })
