@@ -126,7 +126,7 @@ export function Customization({
                                 className={clsx(
                                     surveyErrors?.appearance?.ratingButtonActiveColor
                                         ? 'border-danger'
-                                        : 'border-primary'
+                                        : 'ignore-error-border'
                                 )}
                             />
                             {surveyErrors?.appearance?.ratingButtonActiveColor && (
