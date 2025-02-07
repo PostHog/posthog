@@ -355,3 +355,74 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner.calculate()
 
         assert len(response.results) == 1
+
+    def test_actors_query_url_normalization(self):
+        _create_person(
+            team=self.team,
+            distinct_ids=["p1"],
+            properties={},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["p2"],
+            properties={},
+        )
+
+        for i in range(1, 4):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"p{i}",
+                timestamp="2020-01-08T12:00:00Z",
+                properties={"$browser": "Chrome", "current_url": "https://example.com/"},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"p{i}",
+                timestamp="2020-01-09T12:00:00Z",
+                properties={"$browser": "Chrome", "current_url": "https://example.com/"},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"p{i}",
+                timestamp="2020-01-10T12:00:00Z",
+                properties={"$browser": "Firefox", "current_url": "https://example.com/"},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"p{i}",
+                timestamp="2020-01-11T12:00:00Z",
+                properties={"$browser": "Firefox", "current_url": "https://example.com/"},
+            )
+
+        flush_persons_and_events()
+
+        source_query = TrendsQuery(
+            dateRange=DateRange(date_from="2020-01-08", date_to="2020-01-11"),
+            interval=IntervalType.DAY,
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.FIRST_MATCHING_EVENT_FOR_USER,
+                    properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Firefox")],
+                )
+            ],
+            breakdownFilter=BreakdownFilter(
+                breakdown_type=BreakdownType.EVENT, breakdown="current_url", breakdown_normalize_url=True
+            ),
+        )
+
+        runner = self._create_runner(
+            ActorsQuery(
+                source=InsightActorsQuery(
+                    source=source_query, day="2020-01-10T00:00:00Z", breakdown="https://example.com"
+                )
+            )
+        )
+
+        response = runner.calculate()
+
+        assert len(response.results) == 3
