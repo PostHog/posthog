@@ -98,7 +98,7 @@ const appendPathLinks = (
         .data(links)
         .join('g')
         .attr('stroke', 'var(--paths-link)')
-        .attr('opacity', 0.35)
+        .attr('opacity', 0.1)
 
     link.append('path')
         .attr('d', Sankey.sankeyLinkHorizontal())
