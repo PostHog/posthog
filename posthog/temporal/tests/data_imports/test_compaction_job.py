@@ -76,7 +76,7 @@ async def _run(team: Team):
         status=ExternalDataJob.Status.COMPLETED,
     )
     with override_settings(
-        BUCKET_URL=f"s3a://{BUCKET_NAME}",
+        BUCKET_URL=f"s3://{BUCKET_NAME}",
         AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
         AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         AIRBYTE_BUCKET_REGION="us-east-1",
