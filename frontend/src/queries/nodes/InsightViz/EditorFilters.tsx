@@ -274,13 +274,13 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         },
         {
             title: 'Goals',
-            editorFilters: [
-                {
+            editorFilters: filterFalsy([
+                isTrends && {
                     key: 'goal-lines',
                     position: 'right',
                     component: GoalLines,
                 },
-            ],
+            ]),
         },
         {
             title: 'Exclusions',
