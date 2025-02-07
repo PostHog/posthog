@@ -83,7 +83,7 @@ export function JSSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
                 <b>Test that it works</b>
             </div>
             <CodeSnippet language={Language.JavaScript} wrap>
-                {`posthog.featureFlags.overrideFeatureFlags({ flags: {'${flagKey}': '${variant}'})`}
+                {`posthog.featureFlags.overrideFeatureFlags({ flags: {'${flagKey}': '${variant}'}})`}
             </CodeSnippet>
         </div>
     )
