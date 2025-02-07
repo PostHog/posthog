@@ -1,6 +1,5 @@
 from typing import cast
 from django.test import override_settings
-import pytest
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.feature_flag.feature_flag import FeatureFlag
@@ -204,31 +203,31 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             {
                 "subscription_id": "1",
                 "subscription_created_at": datetime(2023, 1, 2),
-                "subscription_customer_id": "1",
+                "subscription_customer_id": "user_control_0",
                 "subscription_amount": 100,
             },
             {
                 "subscription_id": "2",
                 "subscription_created_at": datetime(2023, 1, 3),
-                "subscription_customer_id": "2",
+                "subscription_customer_id": "user_test_1",
                 "subscription_amount": 50,
             },
             {
                 "subscription_id": "3",
                 "subscription_created_at": datetime(2023, 1, 4),
-                "subscription_customer_id": "3",
+                "subscription_customer_id": "user_test_2",
                 "subscription_amount": 75,
             },
             {
                 "subscription_id": "4",
                 "subscription_created_at": datetime(2023, 1, 5),
-                "subscription_customer_id": "4",
+                "subscription_customer_id": "user_test_3",
                 "subscription_amount": 80,
             },
             {
                 "subscription_id": "5",
                 "subscription_created_at": datetime(2023, 1, 6),
-                "subscription_customer_id": "5",
+                "subscription_customer_id": "user_extra",
                 "subscription_amount": 90,
             },
         ]
@@ -1289,7 +1288,6 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(control_result.absolute_exposure, 8)
         self.assertEqual(test_result.absolute_exposure, 10)
 
-    @pytest.mark.skip(reason="Doesn't work with the new query runner")
     def test_query_runner_with_data_warehouse_subscriptions_table(self):
         table_name = self.create_data_warehouse_table_with_subscriptions()
 
