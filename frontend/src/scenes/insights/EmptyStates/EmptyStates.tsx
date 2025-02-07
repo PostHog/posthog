@@ -326,7 +326,13 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
     )
 }
 
-export function InsightValidationError({ detail, query }: { detail: string; query?: Record<string, any> | null }): JSX.Element {
+export function InsightValidationError({
+    detail,
+    query,
+}: {
+    detail: string
+    query?: Record<string, any> | null
+}): JSX.Element {
     return (
         <div
             data-attr="insight-empty-state"
