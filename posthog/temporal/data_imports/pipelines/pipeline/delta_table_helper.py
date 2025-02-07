@@ -56,7 +56,7 @@ def _get_spark_session_singleton() -> SparkSession:
 
     spark_conf.set("spark.memory.fraction", "0.6")
     spark_conf.set("spark.memory.storageFraction", "0.3")
-    spark_conf.set("spark.sql.shuffle.partitions", "100")
+    spark_conf.set("spark.sql.shuffle.partitions", "16")
 
     spark_conf.set(
         "spark.hadoop.fs.s3a.aws.credentials.provider", "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"
