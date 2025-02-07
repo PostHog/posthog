@@ -409,9 +409,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
 
                 values.experimentForm.variants[nextVariantName] = {
                     is_new: true,
-                    transforms: [
-                        { html: '' }, // TODO: this shouldn't be empty string
-                    ],
+                    transforms: [{}],
                     conditions: null,
                     rollout_percentage: 0,
                 }
@@ -428,7 +426,7 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                         webVariant.transforms = []
                     }
 
-                    webVariant.transforms.push({ html: '' }) // TODO: this shouldn't be empty string
+                    webVariant.transforms.push({})
 
                     actions.setExperimentFormValue('variants', values.experimentForm.variants)
                     actions.selectVariant(variant)
