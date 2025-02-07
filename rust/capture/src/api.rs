@@ -18,12 +18,12 @@ pub struct CaptureResponse {
     pub quota_limited: Option<Vec<String>>,
 }
 
-#[derive(Error, Debug)]
+#[derive(Clone, Error, Debug)]
 pub enum CaptureError {
     #[error("failed to decode request: {0}")]
     RequestDecodingError(String),
     #[error("failed to parse request: {0}")]
-    RequestParsingError(#[from] serde_json::Error),
+    RequestParsingError(String),
 
     #[error("request holds no event")]
     EmptyBatch,
@@ -61,6 +61,12 @@ pub enum CaptureError {
 
     #[error("rate limited")]
     RateLimited,
+}
+
+impl From<serde_json::Error> for CaptureError {
+    fn from(e: serde_json::Error) -> Self {
+        CaptureError::RequestParsingError(e.to_string())
+    }
 }
 
 impl IntoResponse for CaptureError {
