@@ -1,10 +1,13 @@
-import { Tooltip } from '@posthog/lemon-ui'
+import { IconEllipsis } from '@posthog/icons'
+import { LemonButton, LemonMenu, PopoverReferenceContext, Tooltip } from '@posthog/lemon-ui'
+import { captureException } from '@sentry/react'
 import { useActions, useValues } from 'kea'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { userLogic } from 'scenes/userLogic'
 
 import { FunnelPathsFilter } from '~/queries/schema'
-import { InsightLogicProps } from '~/types'
+import { AvailableFeature, InsightLogicProps } from '~/types'
 
-import { PathNodeLabelButton } from './PathNodeLabelButton'
 import { pathsDataLogic } from './pathsDataLogic'
 import { isSelectedPathStartOrEnd, pageUrl, PathNodeData } from './pathUtils'
 import { NODE_LABEL_HEIGHT, NODE_LABEL_LEFT_OFFSET, NODE_LABEL_TOP_OFFSET, NODE_LABEL_WIDTH } from './renderPaths'
@@ -21,6 +24,27 @@ export function PathNodeLabel({ insightProps, node }: PathNodeLabelProps): JSX.E
     const pathsFilter = _pathsFilter || {}
     const funnelPathsFilter = _funnelPathsFilter || ({} as FunnelPathsFilter)
 
+    const { hasAvailableFeature } = useValues(userLogic)
+    const hasAdvancedPaths = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
+
+    const nodeName = pageUrl(node)
+    const isPath = nodeName.includes('/')
+
+    const setAsPathStart = (): void => updateInsightFilter({ startPoint: nodeName })
+    const setAsPathEnd = (): void => updateInsightFilter({ endPoint: nodeName })
+    const excludePathItem = (): void => {
+        updateInsightFilter({ excludeEvents: [...(pathsFilter.excludeEvents || []), pageUrl(node, false)] })
+    }
+    const viewFunnel = (): void => {
+        viewPathToFunnel(node)
+    }
+    const copyName = (): void => {
+        void copyToClipboard(nodeName).then(captureException)
+    }
+    const openModal = (): void => openPersonsModal({ path_end_key: node.name })
+
+    const isTruncatedPath = node.name.slice(1) === '_...'
+
     return (
         <Tooltip title={pageUrl(node)} placement="right">
             <div
@@ -36,15 +60,43 @@ export function PathNodeLabel({ insightProps, node }: PathNodeLabelProps): JSX.E
                     }`,
                 }}
             >
-                <PathNodeLabelButton
-                    name={node.name}
-                    count={node.value}
-                    node={node}
-                    viewPathToFunnel={viewPathToFunnel}
-                    openPersonsModal={openPersonsModal}
-                    setFilter={updateInsightFilter}
-                    filter={pathsFilter}
-                />
+                <div className="flex justify-between items-center w-full">
+                    <div className="font-semibold overflow-hidden max-h-16">
+                        <span className="text-xs break-words">{pageUrl(node, isPath)}</span>
+                    </div>
+                    {/* TRICKY: We don't want the popover to affect the buttons */}
+                    <PopoverReferenceContext.Provider value={null}>
+                        <div className="flex flex-nowrap">
+                            <LemonButton size="small" onClick={openModal}>
+                                <span className="text-link text-xs px-1 font-medium">{node.value}</span>
+                            </LemonButton>
+                            <LemonMenu
+                                items={[
+                                    { label: 'Set as path start', onClick: setAsPathStart },
+                                    ...(hasAdvancedPaths
+                                        ? [
+                                              { label: 'Set as path end', onClick: setAsPathEnd },
+                                              { label: 'Exclude path item', onClick: excludePathItem },
+                                              { label: 'View funnel', onClick: viewFunnel },
+                                          ]
+                                        : []),
+                                    { label: 'Copy path item name', onClick: copyName },
+                                ]}
+                                placement="bottom-end"
+                            >
+                                <LemonButton
+                                    size="small"
+                                    icon={<IconEllipsis />}
+                                    disabledReason={
+                                        isTruncatedPath
+                                            ? 'Multiple paths truncated and combined for efficiency during querying. No further analysis possible.'
+                                            : undefined
+                                    }
+                                />
+                            </LemonMenu>
+                        </div>
+                    </PopoverReferenceContext.Provider>
+                </div>
             </div>
         </Tooltip>
     )
