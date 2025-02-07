@@ -24,6 +24,7 @@
  * - Each record is an array of [windowId, event]
  */
 
+import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
 import { KafkaOffsetManager } from '../kafka/offset-manager'
@@ -97,12 +98,16 @@ describe('session recording integration', () => {
             eventsByWindowId: {
                 window1: events.map((event, index) => ({
                     ...event,
-                    timestamp: 1000 + index * 1000,
+                    timestamp: DateTime.fromISO('2025-01-01T10:00:00.000Z')
+                        .plus({ seconds: index * 2 })
+                        .toMillis(),
                 })),
             },
             eventsRange: {
-                start: 1000,
-                end: 1000 + (events.length - 1) * 1000,
+                start: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
+                end: DateTime.fromISO('2025-01-01T10:00:00.000Z').plus({
+                    seconds: (events.length - 1) * 2,
+                }),
             },
             metadata: {
                 partition: 1,
