@@ -1,6 +1,5 @@
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { RetryError } from '@posthog/plugin-scaffold'
-import fetch from 'node-fetch'
 
 import { Response } from '~/src/utils/fetch'
 
