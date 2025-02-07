@@ -1,13 +1,19 @@
 #!/usr/bin/env node
-import * as esbuild from 'esbuild'
-;(async function build() {
-    let result = await esbuild.build({
+import * as path from 'path'
+import { fileURLToPath } from 'url'
+import { buildInParallel } from '@posthog/esbuilder'
+
+export const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+await buildInParallel([
+    {
         entryPoints: ['src/index.ts'],
         bundle: true,
         outdir: 'dist',
-    })
-    if (!result.errors.length) {
-        // eslint-disable-next-line no-console
-        console.log('Build succeeded')
+        absWorkingDir: __dirname,
     }
-})()
+], {
+    async onBuildComplete(config, buildResponse) {
+        console.log('Build complete')
+    }
+})
