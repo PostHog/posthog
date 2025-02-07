@@ -110,6 +110,7 @@ class PipelineNonDLT:
 
                 row_count += py_table.num_rows
                 chunk_index += 1
+                gc.collect()
 
             if len(buffer) > 0:
                 py_table = table_from_py_list(buffer)
