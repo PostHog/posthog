@@ -87,7 +87,7 @@ export function WebVitals(props: {
                 />
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-2 p-4">
+            <div className="flex flex-col sm:flex-row gap-2 p-4 bg-surface-secondary">
                 <WebVitalsContent webVitalsQueryResponse={webVitalsQueryResponse} />
                 <div className="flex flex-col flex-1">
                     <Query query={webVitalsMetricQuery} readOnly embedded />
