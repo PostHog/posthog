@@ -168,11 +168,14 @@ export class HogTransformerService {
         return promises
     }
 
-    public transformEventAndProduceMessages(event: PluginEvent): Promise<TransformationResult> {
+    public transformEventAndProduceMessages(
+        event: PluginEvent,
+        runTestFunctions: boolean = false
+    ): Promise<TransformationResult> {
         return runInstrumentedFunction({
             statsKey: `hogTransformer.transformEventAndProduceMessages`,
             func: async () => {
-                const transformationResult = await this.transformEvent(event)
+                const transformationResult = await this.transformEvent(event, runTestFunctions)
                 const messagePromises: Promise<void>[] = []
 
                 transformationResult.invocationResults.forEach((result) => {
@@ -187,7 +190,7 @@ export class HogTransformerService {
         })
     }
 
-    public transformEvent(event: PluginEvent): Promise<TransformationResultPure> {
+    public transformEvent(event: PluginEvent, runTestFunctions: boolean = false): Promise<TransformationResultPure> {
         return runInstrumentedFunction({
             statsKey: `hogTransformer.transformEvent`,
 
@@ -199,6 +202,9 @@ export class HogTransformerService {
 
                 // For now, execute each transformation function in sequence
                 for (const hogFunction of teamHogFunctions) {
+                    if (runTestFunctions && !hogFunction.name.includes('CDP-TEST-HIDDEN')) {
+                        continue
+                    }
                     const transformationIdentifier = `${hogFunction.name} (${hogFunction.id})`
                     const result = await this.executeHogFunction(hogFunction, this.createInvocationGlobals(event))
 
