@@ -22,10 +22,6 @@ export function PathNodeCard({ insightProps, node }: PathNodeCardProps): JSX.Ele
     const pathsFilter = _pathsFilter || {}
     const funnelPathsFilter = _funnelPathsFilter || ({} as FunnelPathsFilter)
 
-    if (!node.visible) {
-        return null
-    }
-
     // Attention: targetLinks are the incoming links, sourceLinks are the outgoing links
     const isPathStart = node.targetLinks.length === 0
     const isPathEnd = node.sourceLinks.length === 0

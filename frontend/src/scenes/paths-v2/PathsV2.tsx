@@ -23,7 +23,7 @@ export function PathsV2(): JSX.Element {
     const canvasContainerRef = useRef<HTMLDivElement>(null)
     const { width: canvasWidth = FALLBACK_CANVAS_WIDTH, height: canvasHeight = FALLBACK_CANVAS_HEIGHT } =
         useResizeObserver({ ref: canvasRef })
-    const [nodeCards, setNodeCards] = useState<PathNodeData[]>([])
+    const [nodes, setNodes] = useState<PathNodeData[]>([])
 
     const { insight, insightProps } = useValues(insightLogic)
     const { insightQuery, paths, pathsFilter, funnelPathsFilter, insightDataLoading, insightDataError, theme } =
@@ -32,7 +32,7 @@ export function PathsV2(): JSX.Element {
     const id = `'${insight?.short_id || DEFAULT_PATHS_ID}'`
 
     useEffect(() => {
-        setNodeCards([])
+        setNodes([])
 
         // Remove the existing SVG canvas(es). The .Paths__canvas selector is crucial, as we have to be sure
         // we're only removing the Paths viz and not, for example, button icons.
@@ -47,7 +47,7 @@ export function PathsV2(): JSX.Element {
             paths,
             pathsFilter || {},
             funnelPathsFilter || ({} as FunnelPathsFilter),
-            setNodeCards
+            setNodes
         )
 
         // Proper cleanup
@@ -79,8 +79,8 @@ export function PathsV2(): JSX.Element {
             >
                 {!insightDataLoading && paths && paths.nodes.length === 0 && !insightDataError && <InsightEmptyState />}
                 {!insightDataError &&
-                    nodeCards &&
-                    nodeCards.map((node, idx) => <PathNodeCard key={idx} node={node} insightProps={insightProps} />)}
+                    nodes &&
+                    nodes.map((node, idx) => <PathNodeCard key={idx} node={node} insightProps={insightProps} />)}
             </div>
         </div>
     )

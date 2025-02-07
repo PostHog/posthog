@@ -34,8 +34,7 @@ const appendPathNodes = (
     svg: any,
     nodes: PathNodeData[],
     pathsFilter: PathsFilter,
-    funnelPathsFilter: FunnelPathsFilter,
-    setNodeCards: Dispatch<SetStateAction<PathNodeData[]>>
+    funnelPathsFilter: FunnelPathsFilter
 ): void => {
     svg.append('g')
         .selectAll('rect')
@@ -73,24 +72,12 @@ const appendPathNodes = (
             if (data.y1 - data.y0 > HIDE_PATH_CARD_HEIGHT) {
                 return
             }
-            setNodeCards(
-                nodes.map((node: PathNodeData) =>
-                    node.index === data.index
-                        ? { ...node, visible: true }
-                        : { ...node, visible: node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT }
-                )
-            )
         })
         .append('title')
         .text((d: PathNodeData) => `${stripHTTP(d.name)}\n${d.value.toLocaleString()}`)
 }
 
-const appendPathLinks = (
-    svg: any,
-    links: PathNodeData[],
-    nodes: PathNodeData[],
-    setNodeCards: Dispatch<SetStateAction<PathNodeData[]>>
-): void => {
+const appendPathLinks = (svg: any, links: PathNodeData[]): void => {
     const link = svg
         .append('g')
         .attr('fill', 'none')
@@ -130,16 +117,6 @@ const appendPathLinks = (
                     pathCardsToShow.push(l.target.index)
                 })
             }
-            setNodeCards(
-                nodes.map((node: PathNodeData) => ({
-                    ...node,
-                    ...{
-                        visible: pathCardsToShow.includes(node.index)
-                            ? true
-                            : node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT,
-                    },
-                }))
-            )
         })
         .on('mouseleave', () => {
             svg.selectAll('path').attr('stroke', 'var(--paths-link)')
@@ -175,7 +152,7 @@ export function renderPaths(
     paths: Paths,
     pathsFilter: PathsFilter,
     funnelPathsFilter: FunnelPathsFilter,
-    setNodeCards: Dispatch<SetStateAction<PathNodeData[]>>
+    setNodes: Dispatch<SetStateAction<PathNodeData[]>>
 ): void {
     if (!paths || paths.nodes.length === 0) {
         return
@@ -193,12 +170,14 @@ export function renderPaths(
     const svg = createCanvas(canvasRef, width, height)
     const sankey = createSankeyGenerator(width, height)
 
-    // clone the paths, as sankey mutates the data
+    // :TRICKY: clone the paths, as d3 mutates data in place
     const clonedPaths = structuredClone(paths)
     const { nodes, links } = sankey(clonedPaths)
 
-    setNodeCards(nodes.map((node: PathNodeData) => ({ ...node, visible: node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT })))
+    appendPathNodes(svg, nodes, pathsFilter, funnelPathsFilter)
+    appendPathLinks(svg, links)
 
-    appendPathNodes(svg, nodes, pathsFilter, funnelPathsFilter, setNodeCards)
-    appendPathLinks(svg, links, nodes, setNodeCards)
+    // :TRICKY: this needs to come last, as d3 mutates data in place and otherwise
+    // we won't have node positions.
+    setNodes(nodes)
 }
