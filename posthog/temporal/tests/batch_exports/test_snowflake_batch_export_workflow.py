@@ -516,7 +516,7 @@ async def test_snowflake_export_workflow_without_events(ateam, snowflake_batch_e
     inputs = SnowflakeBatchExportInputs(
         team_id=ateam.pk,
         batch_export_id=str(snowflake_batch_export.id),
-        data_interval_end="2023-03-20 14:40:00.000000",
+        data_interval_end=dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0).isoformat(),
         interval=interval,
         **snowflake_batch_export.destination.config,
     )
@@ -581,7 +581,7 @@ async def test_snowflake_export_workflow_without_events(ateam, snowflake_batch_e
 async def test_snowflake_export_workflow_raises_error_on_put_fail(
     clickhouse_client, ateam, snowflake_batch_export, interval
 ):
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     data_interval_start = data_interval_end - snowflake_batch_export.interval_time_delta
 
     _ = await generate_test_events_in_clickhouse(
@@ -647,7 +647,7 @@ async def test_snowflake_export_workflow_raises_error_on_put_fail(
 async def test_snowflake_export_workflow_raises_error_on_copy_fail(
     clickhouse_client, ateam, snowflake_batch_export, interval
 ):
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     data_interval_start = data_interval_end - snowflake_batch_export.interval_time_delta
 
     _ = await generate_test_events_in_clickhouse(

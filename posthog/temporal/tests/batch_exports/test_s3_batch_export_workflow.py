@@ -1828,7 +1828,7 @@ async def test_insert_into_s3_activity_resumes_from_heartbeat(
     We mock the upload_part method to raise a `RequestTimeout` error after the first part has been uploaded.
     We then resume from the heartbeat and expect the activity to resume from where it left off.
     """
-    data_interval_end = dt.datetime.fromisoformat("2023-04-20T14:30:00.000000+00:00")
+    data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     data_interval_start = data_interval_end - s3_batch_export.interval_time_delta
 
     n_expected_parts = 3

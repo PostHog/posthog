@@ -52,8 +52,8 @@ def assert_records_match_events(records, events):
 async def test_iter_records(clickhouse_client):
     """Test the rows returned by iter_records."""
     team_id = randint(1, 1000000)
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:31:00.000000+00:00")
-    data_interval_start = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    data_interval_start = data_interval_end - dt.timedelta(hours=1)
 
     (events, _, _) = await generate_test_events_in_clickhouse(
         client=clickhouse_client,
@@ -84,8 +84,8 @@ async def test_iter_records(clickhouse_client):
 async def test_iter_records_handles_duplicates(clickhouse_client):
     """Test the rows returned by iter_records are de-duplicated."""
     team_id = randint(1, 1000000)
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:31:00.000000+00:00")
-    data_interval_start = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    data_interval_start = data_interval_end - dt.timedelta(hours=1)
 
     (events, _, _) = await generate_test_events_in_clickhouse(
         client=clickhouse_client,
@@ -116,8 +116,8 @@ async def test_iter_records_handles_duplicates(clickhouse_client):
 async def test_iter_records_can_exclude_events(clickhouse_client):
     """Test the rows returned by iter_records can exclude events."""
     team_id = randint(1, 1000000)
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:31:00.000000+00:00")
-    data_interval_start = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    data_interval_start = data_interval_end - dt.timedelta(hours=1)
 
     (events, _, _) = await generate_test_events_in_clickhouse(
         client=clickhouse_client,
@@ -151,8 +151,8 @@ async def test_iter_records_can_exclude_events(clickhouse_client):
 async def test_iter_records_can_include_events(clickhouse_client):
     """Test the rows returned by iter_records can include events."""
     team_id = randint(1, 1000000)
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:31:00.000000+00:00")
-    data_interval_start = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    data_interval_start = data_interval_end - dt.timedelta(hours=1)
 
     (events, _, _) = await generate_test_events_in_clickhouse(
         client=clickhouse_client,
@@ -248,8 +248,8 @@ async def test_iter_records_ignores_timestamp_predicates(clickhouse_client):
 async def test_iter_records_with_single_field_and_alias(clickhouse_client, field):
     """Test iter_records can return a single aliased field."""
     team_id = randint(1, 1000000)
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:31:00.000000+00:00")
-    data_interval_start = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    data_interval_start = data_interval_end - dt.timedelta(hours=1)
 
     (events, _, _) = await generate_test_events_in_clickhouse(
         client=clickhouse_client,
@@ -297,8 +297,8 @@ async def test_iter_records_with_single_field_and_alias(clickhouse_client, field
 async def test_iter_records_can_flatten_properties(clickhouse_client):
     """Test iter_records can flatten properties as indicated by a field expression."""
     team_id = randint(1, 1000000)
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:31:00.000000+00:00")
-    data_interval_start = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    data_interval_start = data_interval_end - dt.timedelta(hours=1)
 
     (events, _, _) = await generate_test_events_in_clickhouse(
         client=clickhouse_client,
@@ -344,8 +344,8 @@ async def test_iter_records_can_flatten_properties(clickhouse_client):
 async def test_iter_records_uses_extra_query_parameters(clickhouse_client):
     """Test iter_records can flatten properties as indicated by a field expression."""
     team_id = randint(1, 1000000)
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:31:00.000000+00:00")
-    data_interval_start = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    data_interval_start = data_interval_end - dt.timedelta(hours=1)
 
     (events, _, _) = await generate_test_events_in_clickhouse(
         client=clickhouse_client,
