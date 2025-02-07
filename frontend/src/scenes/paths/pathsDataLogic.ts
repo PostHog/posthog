@@ -172,7 +172,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
             }
 
             if (events.length > 0) {
-                router.actions.push(urls.insightNew(undefined, undefined, query))
+                router.actions.push(urls.insightNew({ query }))
             }
         },
     })),
