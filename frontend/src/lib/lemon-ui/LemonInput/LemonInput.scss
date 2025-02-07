@@ -24,7 +24,7 @@
 
     &:hover:not([aria-disabled='true']),
     &.LemonInput--focused:not([aria-disabled='true']) {
-        border-color: var(--border-bold);
+        border-color: var(--border-secondary);
     }
 
     &.LemonInput--transparent-background {

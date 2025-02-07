@@ -39,7 +39,7 @@ export function FunnelStepMore({ stepIndex }: FunnelStepMoreProps): JSX.Element 
                 },
             }
 
-            return urls.insightNew(undefined, undefined, query)
+            return urls.insightNew({ query })
         },
         [querySource, stepNumber]
     )
