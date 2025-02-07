@@ -1,4 +1,5 @@
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { dayjs } from 'lib/dayjs'
 import { ErrorTrackingAlerting } from 'scenes/error-tracking/configuration/alerting/ErrorTrackingAlerting'
 import { ErrorTrackingSymbolSets } from 'scenes/error-tracking/configuration/symbol-sets/ErrorTrackingSymbolSets'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -485,8 +486,17 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'organization-ai-consent',
                 title: 'PostHog AI data analysis',
                 description: (
+                    // Note: Sync the copy below with AIConsentPopoverWrapper.tsx
                     <>
-                        PostHog AI features, such as our assistant Max, use OpenAI services for data analysis.
+                        PostHog AI features, such as our assistant Max, use{' '}
+                        <Tooltip
+                            title={`As of ${dayjs().format(
+                                'MMMM YYYY'
+                            )}: OpenAI for core analysis, Perplexity for fetching product information`}
+                        >
+                            <dfn>external AI services</dfn>
+                        </Tooltip>{' '}
+                        for data analysis.
                         <br />
                         This <i>can</i> involve transfer of identifying user data, so we ask for your org-wide consent
                         below.

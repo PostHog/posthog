@@ -1,6 +1,7 @@
 import { IconLock } from '@posthog/icons'
-import { LemonButton, Popover, PopoverProps } from '@posthog/lemon-ui'
+import { LemonButton, Popover, PopoverProps, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { dayjs } from 'lib/dayjs'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 
 export function AIConsentPopoverWrapper({
@@ -12,14 +13,23 @@ export function AIConsentPopoverWrapper({
 
     return (
         <Popover
+            // Note: Sync the copy below with organization-ai-consent in SettingsMap.tsx
             overlay={
                 <div className="m-1.5">
                     <p className="font-medium text-pretty mb-1.5">
-                        Hi! I use OpenAI services to analyze your data,
+                        Hi! I use{' '}
+                        <Tooltip
+                            title={`As of ${dayjs().format(
+                                'MMMM YYYY'
+                            )}: OpenAI for core analysis, Perplexity for fetching product information`}
+                        >
+                            <dfn>external AI services</dfn>
+                        </Tooltip>{' '}
+                        for data analysis,
                         <br />
                         so that you can focus on building. This <em>can</em> include
                         <br />
-                        personal data of your users, if you're capturing it.
+                        identyifying data of your users, if you're capturing it.
                         <br />
                         <em>Your data won't be used for training models.</em>
                     </p>
@@ -32,7 +42,7 @@ export function AIConsentPopoverWrapper({
                         tooltip="You are approving this as an organization admin"
                         tooltipPlacement="bottom"
                     >
-                        I allow OpenAI-based analysis in this organization
+                        I allow AI-based analysis in this organization
                     </LemonButton>
                 </div>
             }

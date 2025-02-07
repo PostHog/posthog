@@ -749,6 +749,12 @@
             background-color: var(--bg-primary);
         }
 
+        dfn {
+            font-style: normal;
+            text-decoration: underline;
+            text-decoration-style: dotted;
+        }
+
         .LemonButton,
         .Link {
             .text-link {
