@@ -10,15 +10,26 @@ describe('remove-null-properties.template', () => {
         await tester.beforeEach()
     })
 
-    it('should remove null properties from event at all levels', async () => {
+    it('should remove null properties from event at all levels within depth limit', async () => {
         mockGlobals = tester.createGlobals({
             event: {
                 properties: {
                     validProp: 'value',
                     nullProp: null,
                     nested: {
+                        // level 2
                         valid: true,
                         nullProp: null,
+                        deepNested: {
+                            // level 3
+                            valid: 'deep',
+                            nullProp: null,
+                            tooDeep: {
+                                // level 4 - should remain unchanged
+                                valid: 'too deep',
+                                nullProp: null,
+                            },
+                        },
                     },
                     array: { '1': 1, '2': null, '3': 3 },
                 },
@@ -34,8 +45,16 @@ describe('remove-null-properties.template', () => {
                 validProp: 'value',
                 nested: {
                     valid: true,
+                    deepNested: {
+                        valid: 'deep',
+                        tooDeep: {
+                            // level 4 remains unchanged
+                            valid: 'too deep',
+                            nullProp: null,
+                        },
+                    },
                 },
-                array: [1, 3],
+                array: { '1': 1, '3': 3 }, // Changed to match Hog array format
             },
         })
     })
@@ -115,14 +134,14 @@ describe('remove-null-properties.template', () => {
         })
     })
 
-    it('should return original event when max depth is reached', async () => {
+    it('should process deeply nested structures up to max depth', async () => {
         interface DeepObject {
             nested?: DeepObject
             nullProp?: null
             value?: string
         }
 
-        let deepObj: DeepObject = { value: 'test' }
+        let deepObj: DeepObject = { value: 'test', nullProp: null }
         for (let i = 0; i < 5; i++) {
             deepObj = { nested: deepObj, nullProp: null }
         }
@@ -139,6 +158,20 @@ describe('remove-null-properties.template', () => {
 
         expect(response.finished).toBe(true)
         expect(response.error).toBeUndefined()
-        expect(response.execResult).toMatchObject(mockGlobals.event)
+
+        // Only process up to level 3, leave deeper levels unchanged
+        let result = (response.execResult as any).properties.deep
+        let depth = 1
+        while (result.nested && depth < 3) {
+            expect('nullProp' in result).toBe(false)
+            result = result.nested
+            depth++
+        }
+
+        // After level 3, structure should remain unchanged
+        expect(result.nullProp).toBe(null)
+        if (result.nested) {
+            expect(result.nested.nullProp).toBe(null)
+        }
     })
 })
