@@ -202,7 +202,8 @@ export class HogTransformerService {
 
                 // For now, execute each transformation function in sequence
                 for (const hogFunction of teamHogFunctions) {
-                    if (runTestFunctions && !hogFunction.name.includes(CDP_TEST_ID)) {
+                    if (hogFunction.name.includes(CDP_TEST_ID) && !runTestFunctions) {
+                        // Skip test functions if we're not running in test mode
                         continue
                     }
                     const transformationIdentifier = `${hogFunction.name} (${hogFunction.id})`
