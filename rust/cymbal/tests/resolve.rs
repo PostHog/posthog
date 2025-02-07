@@ -46,14 +46,14 @@ async fn end_to_end_resolver_test() {
     // We're going to pretend out stack consists exclusively of JS frames whose source
     // we have locally
     test_stack.retain(|s| {
-        let RawFrame::JavaScript(s) = s else {
+        let RawFrame::JavaScriptWeb(s) = s else {
             panic!("Expected a JavaScript frame")
         };
         s.source_url.as_ref().unwrap().contains(CHUNK_PATH)
     });
 
     for frame in test_stack.iter_mut() {
-        let RawFrame::JavaScript(frame) = frame else {
+        let RawFrame::JavaScriptWeb(frame) = frame else {
             panic!("Expected a JavaScript frame")
         };
         // Our test data contains our /actual/ source urls - we need to swap that to localhost

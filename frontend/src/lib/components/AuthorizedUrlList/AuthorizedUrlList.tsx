@@ -1,4 +1,4 @@
-import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
+import { IconCopy, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
@@ -95,7 +95,7 @@ function EmptyState({
                     >
                         {suggestionsLoading ? 'Fetching...' : 'Fetch suggestions'}
                     </LemonButton>
-                    <span className="text-small text-muted-alt">Sent an event? Refetch suggestions.</span>
+                    <span className="text-small text-secondary">Sent an event? Refetch suggestions.</span>
                 </div>
             </div>
         )
@@ -110,7 +110,7 @@ function EmptyState({
         loadSuggestions,
     ])
 
-    return children ? <div className="border rounded p-4 text-muted-alt">{children}</div> : null
+    return children ? <div className="border rounded p-4 text-secondary">{children}</div> : null
 }
 
 export interface AuthorizedUrlFormProps {
@@ -185,8 +185,16 @@ export function AuthorizedUrlList({
         allowWildCards,
     })
 
-    const { urlsKeyed, searchTerm, launchUrl, editUrlIndex, isAddUrlFormVisible, onlyAllowDomains } = useValues(logic)
-    const { addUrl, removeUrl, setSearchTerm, newUrl, setEditUrlIndex } = useActions(logic)
+    const {
+        urlsKeyed,
+        searchTerm,
+        launchUrl,
+        editUrlIndex,
+        isAddUrlFormVisible,
+        onlyAllowDomains,
+        manualLaunchParamsLoading,
+    } = useValues(logic)
+    const { addUrl, removeUrl, setSearchTerm, newUrl, setEditUrlIndex, copyLaunchCode } = useActions(logic)
 
     const noAuthorizedUrls = !urlsKeyed.some((url) => url.type === 'authorized')
 
@@ -207,7 +215,7 @@ export function AuthorizedUrlList({
                 <EmptyState experimentId={experimentId} actionId={actionId} type={type} />
 
                 {isAddUrlFormVisible && (
-                    <div className="border rounded p-2 bg-bg-light">
+                    <div className="border rounded p-2 bg-surface-primary">
                         <AuthorizedUrlForm
                             type={type}
                             actionId={actionId}
@@ -221,7 +229,7 @@ export function AuthorizedUrlList({
                     const isFirstSuggestion = keyedURL.originalIndex === 0 && keyedURL.type === 'suggestion'
 
                     return editUrlIndex === index ? (
-                        <div className="border rounded p-2 bg-bg-light">
+                        <div className="border rounded p-2 bg-surface-primary">
                             <AuthorizedUrlForm
                                 type={type}
                                 actionId={actionId}
@@ -230,7 +238,10 @@ export function AuthorizedUrlList({
                             />
                         </div>
                     ) : (
-                        <div key={index} className={clsx('border rounded flex items-center p-2 pl-4 bg-bg-light')}>
+                        <div
+                            key={index}
+                            className={clsx('border rounded flex items-center p-2 pl-4 bg-surface-primary')}
+                        >
                             {keyedURL.type === 'suggestion' && (
                                 <Tooltip title={'Seen in ' + keyedURL.count + ' events in the last 3 days'}>
                                     <LemonTag type="highlight" className="mr-4 uppercase cursor-pointer">
@@ -273,11 +284,41 @@ export function AuthorizedUrlList({
                                             }
                                             center
                                             data-attr="toolbar-open"
+                                            type="secondary"
                                             disabledReason={
                                                 keyedURL.url.includes('*')
                                                     ? 'Wildcard domains cannot be launched'
                                                     : undefined
                                             }
+                                            sideAction={{
+                                                dropdown: {
+                                                    placement: 'bottom-start',
+                                                    overlay: (
+                                                        <div className="px-2 py-1">
+                                                            <h3>If launching the toolbar didn't work, </h3>
+                                                            <p>
+                                                                You can copy the launch code and paste it into the
+                                                                browser console on your site.
+                                                            </p>
+                                                            <p>NB you need to have added posthog to the `window`</p>
+                                                            <LemonButton
+                                                                icon={<IconCopy />}
+                                                                size="small"
+                                                                className="float-right"
+                                                                type="primary"
+                                                                data-attr="copy-manual-toolbar-launch-code"
+                                                                onClick={() => {
+                                                                    copyLaunchCode(keyedURL.url)
+                                                                }}
+                                                                loading={manualLaunchParamsLoading}
+                                                            >
+                                                                Copy launch code
+                                                            </LemonButton>
+                                                        </div>
+                                                    ),
+                                                },
+                                                'data-attr': 'launch-toolbar-sideaction-dropdown',
+                                            }}
                                         >
                                             Launch
                                         </LemonButton>
