@@ -7,9 +7,11 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isUserLoggedIn } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { AvailableFeature, OrganizationType } from '~/types'
 
 import type { organizationLogicType } from './organizationLogicType'
+import { urls } from './urls'
 import { userLogic } from './userLogic'
 
 export type OrganizationUpdatePayload = Partial<
@@ -114,7 +116,8 @@ export const organizationLogic = kea<organizationLogicType>([
             }
         },
         createOrganizationSuccess: () => {
-            window.location.href = '/organization/members'
+            sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
+            window.location.href = urls.products()
         },
         updateOrganizationSuccess: () => {
             lemonToast.success('Your configuration has been saved')
