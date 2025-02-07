@@ -322,8 +322,8 @@ export interface AssistantFunnelsFilter {
     funnelOrderType?: FunnelsFilterLegacy['funnel_order_type']
     /**
      * Defines the type of visualization to use. The `steps` option is recommended.
-     * `steps` - shows a step-by-step funnel. Perfect to show a conversion rate of a sequence of events (default).
-     * `time_to_convert` - shows a histogram of the time it took to complete the funnel. Use this if the user asks about the average time it takes to complete the funnel.
+     * `steps` - shows a step-by-step funnel. Perfect to show a conversion rate of a sequence of events (default). Also returns average/median time to convert.
+     * `time_to_convert` - shows a histogram of the time it took to complete the funnel. Use this if the user asks about the average time it takes to complete the funnel, as the result includes a time distribution.
      * `trends` - shows a trend of the whole sequence's conversion rate over time. Use this if the user wants to see how the conversion rate changes over time.
      * @default steps
      */
