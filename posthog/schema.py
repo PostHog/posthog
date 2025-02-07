@@ -1659,7 +1659,7 @@ class AssistantFunnelsFilter(BaseModel):
             "Defines the type of visualization to use. The `steps` option is recommended. `steps` - shows a"
             " step-by-step funnel. Perfect to show a conversion rate of a sequence of events (default)."
             " `time_to_convert` - shows a histogram of the time it took to complete the funnel. `trends` - shows trends"
-            " of the whole sequence's conversion rate over time."
+            " of the conversion rate of the whole sequence over time."
         ),
     )
     funnelWindowInterval: Optional[int] = Field(
