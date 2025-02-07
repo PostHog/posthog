@@ -44,6 +44,7 @@ export interface SummarizedSessionRecordingEvent {
     event_count: number
     message_count: number
     snapshot_source: string | null
+    snapshot_library: string | null
 }
 
 // this is of course way more complicated than you'd expect
@@ -255,7 +256,8 @@ export const createSessionReplayEvent = (
     distinct_id: string,
     session_id: string,
     events: RRWebEvent[],
-    snapshot_source: string | null
+    snapshot_source: string | null,
+    snapshot_library: string | null
 ): { event: SummarizedSessionRecordingEvent } => {
     const timestamps = getTimestampsFrom(events)
 
@@ -310,6 +312,15 @@ export const createSessionReplayEvent = (
     const activeTime = activeMilliseconds(events)
     const urlArray = Array.from(urls)
 
+    // do some simple validation to avoid unexpected values
+    let validSnapshotLibrary = snapshot_library
+    if (snapshot_library?.trim() === '') {
+        validSnapshotLibrary = null
+    }
+    if (validSnapshotLibrary && validSnapshotLibrary.length > 1000) {
+        validSnapshotLibrary = validSnapshotLibrary.substring(0, 1000)
+    }
+
     // NB forces types to be correct e.g. by truncating or rounding
     // to ensure we don't send floats when we should send an integer
     const data: SummarizedSessionRecordingEvent = {
@@ -332,6 +343,9 @@ export const createSessionReplayEvent = (
         event_count: Math.trunc(events.length),
         message_count: 1,
         snapshot_source: snapshot_source || 'web',
+        // we can't default this one, since we now have multiple libs in production
+        // so `null` means unexpected data
+        snapshot_library: validSnapshotLibrary,
     }
 
     return { event: data }
