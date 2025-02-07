@@ -291,7 +291,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 FROM (
                     SELECT
                         e.actor_id,
-                        groupUniqArray(d.timestamp) AS timestamps
+                        groupUniqArray(d.timestamp) AS timestamps  -- NOTE: timestamp info is lost here
                     FROM {cross_join_select_query} e
                     CROSS JOIN (
                         SELECT
