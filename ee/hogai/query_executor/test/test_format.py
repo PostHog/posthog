@@ -500,3 +500,26 @@ class TestCompression(BaseTest):
             FunnelResultsFormatter(query, results, self.team, datetime.now()).format(),
             "Date range: 2025-01-20 00:00:00 to 2025-01-22 23:59:59\n\nEvents: $pageview (custom) -> $ai_trace\nTime|User distribution\n10m|100%\n10m 1s|0%\n\nThe user distribution is the percentage of users who completed the funnel at the given time.",
         )
+
+    def test_funnel_trends(self):
+        results = [
+            {
+                "count": 31,
+                "data": [10, 15.5, 0],
+                "days": ["2025-01-08", "2025-01-09", "2025-01-10"],
+                "labels": ["8-Jan-2025", "9-Jan-2025", "10-Jan-2025"],
+            }
+        ]
+        query = AssistantFunnelsQuery(
+            series=[
+                AssistantFunnelsEventsNode(event="$pageview", custom_name="custom"),
+                AssistantFunnelsEventsNode(event="$ai_trace"),
+            ],
+            dateRange=DateRange(date_from="2025-01-08", date_to="2025-01-10"),
+            funnelsFilter=AssistantFunnelsFilter(funnelVizType=FunnelVizType.TRENDS),
+        )
+
+        self.assertEqual(
+            FunnelResultsFormatter(query, results, self.team, datetime.now()).format(),
+            "Date range: 2025-01-08 00:00:00 to 2025-01-10 23:59:59\n\nEvents: $pageview (custom) -> $ai_trace\nTime|User distribution\n10m|100%\n10m 1s|15.5%\n10m 2s|0%\n\nThe user distribution is the percentage of users who completed the funnel at the given time.",
+        )

@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import datetime
 from math import floor
 from typing import Any, Optional, Union, cast
@@ -13,6 +14,7 @@ from posthog.models import Team
 from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantRetentionQuery,
+    AssistantTrendsQuery,
     Compare,
     FunnelStepReference,
     FunnelVizType,
@@ -118,83 +120,7 @@ def _replace_breakdown_labels(name: str) -> str:
     )
 
 
-def _extract_series_label(series: dict) -> str:
-    action = series.get("action")
-    name = series["label"]
-    if isinstance(action, dict):
-        custom_name = action.get("custom_name")
-        if custom_name is not None:
-            name = custom_name
-    if series.get("breakdown_value") is not None:
-        name += " (breakdown)"
-
-    return _replace_breakdown_labels(name)
-
-
-def _format_trends_aggregated_values(results: list[dict]) -> str:
-    # Get dates and series labels
-    result = results[0]
-    dates = result.get("action", {}).get("days") or []
-    if len(dates) == 0:
-        range = "All time"
-    else:
-        range = f"{dates[0]} to {dates[-1]}"
-
-    series_labels = []
-    for series in results:
-        label = f"Aggregated value for {_extract_series_label(series)}"
-        series_labels.append(label)
-
-    # Build header row
-    matrix: list[list[str]] = []
-    header = ["Date range", *series_labels]
-    matrix.append(header)
-
-    row = [range]
-    for series in results:
-        row.append(_format_number(series["aggregated_value"]))
-    matrix.append(row)
-
-    return _format_matrix(matrix)
-
-
-def _format_trends_non_aggregated_values(results: list[dict]) -> str:
-    # Get dates and series labels
-    result = results[0]
-    dates = result["days"]
-
-    series_labels = []
-    for series in results:
-        label = _extract_series_label(series)
-
-        series_labels.append(label)
-
-    # Build header row
-    matrix: list[list[str]] = []
-    header = ["Date", *series_labels]
-    matrix.append(header)
-
-    # Build data rows
-    for i, date in enumerate(dates):
-        row = [_strip_datetime_seconds(date)]
-        for series in results:
-            row.append(_format_number(series["data"][i]))
-        matrix.append(row)
-
-    return _format_matrix(matrix)
-
-
-def _format_trends_results(results: list[dict]) -> str:
-    # Get dates and series labels
-    result = results[0]
-    aggregation_applied = result.get("aggregated_value") is not None
-    if aggregation_applied:
-        return _format_trends_aggregated_values(results)
-    else:
-        return _format_trends_non_aggregated_values(results)
-
-
-def compress_and_format_trends_results(results: list[dict]) -> str:
+class TrendsResultsFormatter:
     """
     Compresses and formats trends results into a LLM-friendly string.
 
@@ -205,24 +131,109 @@ def compress_and_format_trends_results(results: list[dict]) -> str:
     Date 2|value1|value2
     ```
     """
-    if len(results) == 0:
-        return "No data recorded for this time period."
 
-    current = []
-    previous = []
+    def __init__(self, query: AssistantTrendsQuery, results: list[dict[str, Any]]):
+        self._query = query
+        self._results = results
 
-    for result in results:
-        if result.get("compare_label") == Compare.CURRENT:
-            current.append(result)
-        elif result.get("compare_label") == Compare.PREVIOUS:
-            previous.append(result)
+    def format(self) -> str:
+        results = self._results
+        if len(results) == 0:
+            return "No data recorded for this time period."
 
-    # If there isn't data in comparison, the series will be omitted.
-    if len(previous) > 0 and len(current) > 0:
-        template = f"Previous period:\n{_format_trends_results(previous)}\n\nCurrent period:\n{_format_trends_results(current)}"
-        return template
+        current = []
+        previous = []
 
-    return _format_trends_results(results)
+        for result in results:
+            if result.get("compare_label") == Compare.CURRENT:
+                current.append(result)
+            elif result.get("compare_label") == Compare.PREVIOUS:
+                previous.append(result)
+
+        # If there isn't data in comparison, the series will be omitted.
+        if len(previous) > 0 and len(current) > 0:
+            template = f"Previous period:\n{self._format_results(previous)}\n\nCurrent period:\n{self._format_results(current)}"
+            return template
+
+        return self._format_results(results)
+
+    @classmethod
+    def format_aggregated_values(cls, results: list[dict[str, Any]]) -> str:
+        # Get dates and series labels
+        result = results[0]
+        dates = result.get("action", {}).get("days") or []
+        if len(dates) == 0:
+            range = "All time"
+        else:
+            range = f"{dates[0]} to {dates[-1]}"
+
+        series_labels = []
+        for series in results:
+            label = f"Aggregated value for {cls.extract_series_label(series)}"
+            series_labels.append(label)
+
+        # Build header row
+        matrix: list[list[str]] = []
+        header = ["Date range", *series_labels]
+        matrix.append(header)
+
+        row = [range]
+        for series in results:
+            row.append(_format_number(series["aggregated_value"]))
+        matrix.append(row)
+
+        return _format_matrix(matrix)
+
+    @classmethod
+    def format_non_aggregated_values(
+        cls, results: list[dict[str, Any]], value_formatter: Callable[[Any], str] | None = None
+    ) -> str:
+        # Get dates and series labels
+        result = results[0]
+        dates = result["days"]
+        formatter = value_formatter or _format_number
+
+        series_labels = []
+        for series in results:
+            label = cls.extract_series_label(series)
+
+            series_labels.append(label)
+
+        # Build header row
+        matrix: list[list[str]] = []
+        header = ["Date", *series_labels]
+        matrix.append(header)
+
+        # Build data rows
+        for i, date in enumerate(dates):
+            row = [_strip_datetime_seconds(date)]
+            for series in results:
+                row.append(formatter(series["data"][i]))
+            matrix.append(row)
+
+        return _format_matrix(matrix)
+
+    @classmethod
+    def extract_series_label(cls, series: dict[str, Any]) -> str:
+        action = series.get("action")
+        name = series["label"]
+        if isinstance(action, dict):
+            custom_name = action.get("custom_name")
+            if custom_name is not None:
+                name = custom_name
+        if series.get("breakdown_value") is not None:
+            name += " (breakdown)"
+
+        return _replace_breakdown_labels(name)
+
+    def _format_results(self, results: list[dict]) -> str:
+        # Get dates and series labels
+        result = results[0]
+        aggregation_applied = result.get("aggregated_value") is not None
+        if aggregation_applied:
+            return self.format_aggregated_values(results)
+        else:
+            return self.format_non_aggregated_values(results)
 
 
 class RetentionResultsFormatter:
@@ -322,7 +333,7 @@ class FunnelResultsFormatter:
         elif self._viz_type == FunnelVizType.TIME_TO_CONVERT:
             return self._format_time_to_convert()
         else:
-            raise ValueError(f"Unsupported funnel viz type: {self._viz_type}")
+            return self._format_trends()
 
     def _format_steps(self) -> str:
         results = self._results
@@ -366,6 +377,16 @@ class FunnelResultsFormatter:
         hint = "The user distribution is the percentage of users who completed the funnel at the given time."
         return (
             f"{self._format_time_range()}\n\nEvents: {' -> '.join(series_labels)}\n{_format_matrix(matrix)}\n\n{hint}"
+        )
+
+    def _format_trends(self) -> str:
+        results = self._results
+        if len(results) == 0 or not isinstance(results, list):
+            return "No data recorded for this time period."
+
+        results = cast(list[dict[str, Any]], results)
+        return TrendsResultsFormatter.format_non_aggregated_values(
+            results, value_formatter=lambda x: _format_percentage(x / 100)
         )
 
     @property
