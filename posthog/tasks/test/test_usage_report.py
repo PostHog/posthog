@@ -551,7 +551,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "event_explorer_api_rows_read": 0,
                     "event_explorer_api_duration_ms": 0,
                     "rows_synced_in_period": 0,
-                    "posthog_exceptions_captured_in_period": 0,
+                    "exceptions_captured_in_period": 0,
                     "hog_function_calls_in_period": 0,
                     "hog_function_fetch_calls_in_period": 0,
                     "date": "2022-01-09",
@@ -608,7 +608,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "event_explorer_api_rows_read": 0,
                             "event_explorer_api_duration_ms": 0,
                             "rows_synced_in_period": 0,
-                            "posthog_exceptions_captured_in_period": 0,
+                            "exceptions_captured_in_period": 0,
                             "hog_function_calls_in_period": 0,
                             "hog_function_fetch_calls_in_period": 0,
                         },
@@ -659,7 +659,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "event_explorer_api_rows_read": 0,
                             "event_explorer_api_duration_ms": 0,
                             "rows_synced_in_period": 0,
-                            "posthog_exceptions_captured_in_period": 0,
+                            "exceptions_captured_in_period": 0,
                             "hog_function_calls_in_period": 0,
                             "hog_function_fetch_calls_in_period": 0,
                         },
@@ -733,7 +733,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "event_explorer_api_rows_read": 0,
                     "event_explorer_api_duration_ms": 0,
                     "rows_synced_in_period": 0,
-                    "posthog_exceptions_captured_in_period": 0,
+                    "exceptions_captured_in_period": 0,
                     "hog_function_calls_in_period": 0,
                     "hog_function_fetch_calls_in_period": 0,
                     "date": "2022-01-09",
@@ -790,7 +790,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "event_explorer_api_rows_read": 0,
                             "event_explorer_api_duration_ms": 0,
                             "rows_synced_in_period": 0,
-                            "posthog_exceptions_captured_in_period": 0,
+                            "exceptions_captured_in_period": 0,
                             "hog_function_calls_in_period": 0,
                             "hog_function_fetch_calls_in_period": 0,
                         }
@@ -1549,17 +1549,17 @@ class TestErrorTrackingUsageReport(ClickhouseDestroyTablesMixin, TestCase, Click
         )
 
         assert org_1_report["organization_name"] == "Org 1"
-        assert org_1_report["posthog_exceptions_captured_in_period"] == 10
-        assert org_1_report["teams"][str(self.org_1_team_1.pk)]["posthog_exceptions_captured_in_period"] == 5
-        assert org_1_report["teams"][str(self.org_1_team_2.pk)]["posthog_exceptions_captured_in_period"] == 5
+        assert org_1_report["exceptions_captured_in_period"] == 10
+        assert org_1_report["teams"][str(self.org_1_team_1.pk)]["exceptions_captured_in_period"] == 5
+        assert org_1_report["teams"][str(self.org_1_team_2.pk)]["exceptions_captured_in_period"] == 5
 
         org_2_report = _get_full_org_usage_report_as_dict(
             _get_full_org_usage_report(all_reports[str(self.org_2.id)], get_instance_metadata(period))
         )
 
         assert org_2_report["organization_name"] == "Org 2"
-        assert org_2_report["posthog_exceptions_captured_in_period"] == 7
-        assert org_2_report["teams"][str(self.org_2_team_3.pk)]["posthog_exceptions_captured_in_period"] == 7
+        assert org_2_report["exceptions_captured_in_period"] == 7
+        assert org_2_report["teams"][str(self.org_2_team_3.pk)]["exceptions_captured_in_period"] == 7
 
 
 class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
