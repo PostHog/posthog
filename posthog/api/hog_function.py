@@ -155,8 +155,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
 
         hog_type = attrs.get("type", instance.type if instance else "destination")
-        is_create = (
-            self.context.get("is_create") or self.context.get("view") and self.context["view"].action == "create"
+        is_create = self.context.get("is_create") or (
+            self.context.get("view") and self.context["view"].action == "create"
         )
 
         template_id = attrs.get("template_id", instance.template_id if instance else None)
