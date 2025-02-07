@@ -78,7 +78,7 @@ runs:
           run: |
               TAGS="posthog/posthog:${{ github.sha }}"
               if [[ "${{ inputs.push-image }}" == "true" ]]; then
-                TAGS="$TAGS,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:commit-${{ github.sha }}"
+                TAGS="$TAGS,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:pr-commit-${{ github.sha }}"
               fi
               if [[ "${{ inputs.pr-number }}" != "" ]]; then
                 TAGS="$TAGS,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:pr-${{ inputs.pr-number }}"
