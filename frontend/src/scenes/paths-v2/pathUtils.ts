@@ -106,8 +106,8 @@ export function pageUrl(d: PathNodeData, display?: boolean): string {
     } catch {
         // discard if invalid url
     }
-    return name.length > 20
-        ? name.substring(0, 11) + '...' + name.slice(-8)
+    return name.length > 30
+        ? name.substring(0, 21) + '...' + name.slice(-8)
         : name.length < 4 && d.name.length < 25
         ? d.name.replace(/(^[0-9]+_)/, '')
         : name

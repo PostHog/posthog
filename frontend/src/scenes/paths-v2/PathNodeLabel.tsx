@@ -5,11 +5,10 @@ import { useActions, useValues } from 'kea'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { userLogic } from 'scenes/userLogic'
 
-import { FunnelPathsFilter } from '~/queries/schema'
 import { AvailableFeature, InsightLogicProps } from '~/types'
 
 import { pathsDataLogic } from './pathsDataLogic'
-import { isSelectedPathStartOrEnd, pageUrl, PathNodeData } from './pathUtils'
+import { pageUrl, PathNodeData } from './pathUtils'
 import { NODE_LABEL_HEIGHT, NODE_LABEL_LEFT_OFFSET, NODE_LABEL_TOP_OFFSET, NODE_LABEL_WIDTH } from './renderPaths'
 
 export type PathNodeLabelProps = {
@@ -18,11 +17,8 @@ export type PathNodeLabelProps = {
 }
 
 export function PathNodeLabel({ insightProps, node }: PathNodeLabelProps): JSX.Element | null {
-    const { pathsFilter: _pathsFilter, funnelPathsFilter: _funnelPathsFilter } = useValues(pathsDataLogic(insightProps))
+    const { pathsFilter } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter, openPersonsModal, viewPathToFunnel } = useActions(pathsDataLogic(insightProps))
-
-    const pathsFilter = _pathsFilter || {}
-    const funnelPathsFilter = _funnelPathsFilter || ({} as FunnelPathsFilter)
 
     const { hasAvailableFeature } = useValues(userLogic)
     const hasAdvancedPaths = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
@@ -33,7 +29,7 @@ export function PathNodeLabel({ insightProps, node }: PathNodeLabelProps): JSX.E
     const setAsPathStart = (): void => updateInsightFilter({ startPoint: nodeName })
     const setAsPathEnd = (): void => updateInsightFilter({ endPoint: nodeName })
     const excludePathItem = (): void => {
-        updateInsightFilter({ excludeEvents: [...(pathsFilter.excludeEvents || []), pageUrl(node, false)] })
+        updateInsightFilter({ excludeEvents: [...(pathsFilter?.excludeEvents || []), pageUrl(node, false)] })
     }
     const viewFunnel = (): void => {
         viewPathToFunnel(node)
@@ -47,29 +43,20 @@ export function PathNodeLabel({ insightProps, node }: PathNodeLabelProps): JSX.E
 
     return (
         <div
-            className="absolute rounded bg-bg-light p-1"
+            className="absolute"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 width: NODE_LABEL_WIDTH,
                 height: NODE_LABEL_HEIGHT,
                 left: node.x0 + NODE_LABEL_LEFT_OFFSET,
                 top: node.y0 + NODE_LABEL_TOP_OFFSET,
-                border: `1px solid ${
-                    isSelectedPathStartOrEnd(pathsFilter, funnelPathsFilter, node) ? 'purple' : 'var(--border)'
-                }`,
             }}
         >
-            <div className="flex justify-between items-center w-full">
-                <Tooltip title={pageUrl(node)} placement="right">
-                    <div className="font-semibold overflow-hidden max-h-16">
-                        <span className="text-xs break-words">{pageUrl(node, isPath)}</span>
+            <Tooltip title={pageUrl(node)} placement="right">
+                <div className="flex items-center justify-between w-full">
+                    <div className="font-semibold overflow-hidden max-h-16 text-xs break-words">
+                        {pageUrl(node, isPath)}
                     </div>
-                </Tooltip>
-
-                <div className="flex flex-nowrap">
-                    <LemonButton size="small" onClick={openModal}>
-                        <span className="text-link text-xs px-1 font-medium">{node.value}</span>
-                    </LemonButton>
                     <LemonMenu
                         items={[
                             { label: 'Set as path start', onClick: setAsPathStart },
@@ -85,7 +72,7 @@ export function PathNodeLabel({ insightProps, node }: PathNodeLabelProps): JSX.E
                         placement="bottom-end"
                     >
                         <LemonButton
-                            size="small"
+                            size="xsmall"
                             icon={<IconEllipsis />}
                             disabledReason={
                                 isTruncatedPath
@@ -95,7 +82,11 @@ export function PathNodeLabel({ insightProps, node }: PathNodeLabelProps): JSX.E
                         />
                     </LemonMenu>
                 </div>
-            </div>
+            </Tooltip>
+
+            <LemonButton size="xsmall" onClick={openModal} noPadding>
+                <span className="font-normal">{node.value}</span>
+            </LemonButton>
         </div>
     )
 }
