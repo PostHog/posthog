@@ -85,18 +85,6 @@ const appendPathNodes = (
         .text((d: PathNodeData) => `${stripHTTP(d.name)}\n${d.value.toLocaleString()}`)
 }
 
-const appendDropoffs = (svg: D3Selector): void => {
-    const dropOffGradient = svg
-        .append('defs')
-        .append('linearGradient')
-        .attr('id', 'dropoff-gradient')
-        .attr('gradientTransform', 'rotate(90)')
-
-    dropOffGradient.append('stop').attr('offset', '0%').attr('stop-color', 'var(--paths-dropoff)')
-
-    dropOffGradient.append('stop').attr('offset', '100%').attr('stop-color', 'var(--bg-light)')
-}
-
 const appendPathLinks = (
     svg: any,
     links: PathNodeData[],
@@ -228,7 +216,6 @@ export function renderPaths(
     setNodeCards(nodes.map((node: PathNodeData) => ({ ...node, visible: node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT })))
 
     appendPathNodes(svg, nodes, pathsFilter, funnelPathsFilter, setNodeCards)
-    appendDropoffs(svg)
     appendPathLinks(svg, links, nodes, setNodeCards)
     addChartAxisLines(svg, height, nodes, maxLayer)
 }

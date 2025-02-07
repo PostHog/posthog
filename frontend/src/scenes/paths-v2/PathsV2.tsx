@@ -74,7 +74,6 @@ export function PathsV2(): JSX.Element {
                         '--paths-node-start-or-end': theme?.['preset-2'] || '#000000',
                         '--paths-link': theme?.['preset-1'] || '#000000',
                         '--paths-link-hover': theme?.['preset-2'] || '#000000',
-                        '--paths-dropoff': 'rgba(220,53,69,0.7)',
                     } as React.CSSProperties
                 }
             >
