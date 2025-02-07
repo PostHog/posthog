@@ -13,9 +13,9 @@ import { ProductIntentContext } from 'lib/utils/product-intents'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import {
     indexToVariantKeyFeatureFlagPayloads,
+    validateFeatureFlagKey,
     variantKeyToIndexFeatureFlagPayloads,
 } from 'scenes/feature-flags/featureFlagLogic'
-import { validateFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -65,7 +65,11 @@ import { experimentsLogic } from './experimentsLogic'
 import { holdoutsLogic } from './holdoutsLogic'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
-import { getMinimumDetectableEffect, transformFiltersForWinningVariant } from './utils'
+import {
+    featureFlagEligibleForExperiment,
+    getMinimumDetectableEffect,
+    transformFiltersForWinningVariant,
+} from './utils'
 
 const NEW_EXPERIMENT: Experiment = {
     id: 'new',
@@ -275,6 +279,9 @@ export const experimentLogic = kea<experimentLogicType>([
         setIsCreatingExperimentDashboard: (isCreating: boolean) => ({ isCreating }),
         setUnmodifiedExperiment: (experiment: Experiment) => ({ experiment }),
         restoreUnmodifiedExperiment: true,
+        setValidExistingFeatureFlag: (featureFlag: FeatureFlagType | null) => ({ featureFlag }),
+        setFeatureFlagValidationError: (error: string) => ({ error }),
+        validateFeatureFlag: (featureFlagKey: string) => ({ featureFlagKey }),
     }),
     reducers({
         experiment: [
@@ -580,6 +587,18 @@ export const experimentLogic = kea<experimentLogicType>([
                 setIsCreatingExperimentDashboard: (_, { isCreating }) => isCreating,
             },
         ],
+        validExistingFeatureFlag: [
+            null as FeatureFlagType | null,
+            {
+                setValidExistingFeatureFlag: (_, { featureFlag }) => featureFlag,
+            },
+        ],
+        featureFlagValidationError: [
+            null as string | null,
+            {
+                setFeatureFlagValidationError: (_, { error }) => error,
+            },
+        ],
     }),
     listeners(({ values, actions }) => ({
         createExperiment: async ({ draft }) => {
@@ -786,6 +805,10 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         setExperimentValue: async ({ name, value }, breakpoint) => {
+            if (Array.isArray(name) && name[0] === 'feature_flag_key') {
+                actions.validateFeatureFlag(value)
+            }
+
             await breakpoint(100)
 
             if (name === 'filters') {
@@ -1019,6 +1042,52 @@ export const experimentLogic = kea<experimentLogicType>([
         restoreUnmodifiedExperiment: () => {
             if (values.unmodifiedExperiment) {
                 actions.setExperiment(structuredClone(values.unmodifiedExperiment))
+            }
+        },
+        validateFeatureFlag: async ({ featureFlagKey }: { featureFlagKey: string }, breakpoint) => {
+            await breakpoint(200)
+            const response = await api.get(
+                `api/projects/${values.currentProjectId}/feature_flags/?${toParams({ search: featureFlagKey })}`
+            )
+            const existingErrors = {
+                // :KLUDGE: If there is no name error, we don't want to trigger the 'required' error early
+                name: undefined,
+                ...values.experimentErrors,
+            }
+            if (response.results.length > 0) {
+                const matchingFlag = response.results.find((flag: FeatureFlagType) => flag.key === featureFlagKey)
+                if (matchingFlag) {
+                    let isValid
+                    try {
+                        isValid = featureFlagEligibleForExperiment(matchingFlag)
+                    } catch (error) {
+                        isValid = false
+                    }
+                    actions.setValidExistingFeatureFlag(isValid ? matchingFlag : null)
+                    actions.setFeatureFlagValidationError(
+                        isValid ? '' : 'Existing feature flag is not eligible for experiments.'
+                    )
+                    actions.setExperimentManualErrors({
+                        ...existingErrors,
+                        feature_flag_key: values.featureFlagValidationError || undefined,
+                    })
+                    return
+                }
+            }
+
+            actions.setValidExistingFeatureFlag(null)
+            actions.setFeatureFlagValidationError(validateFeatureFlagKey(featureFlagKey) || '')
+            actions.setExperimentManualErrors({
+                ...existingErrors,
+                feature_flag_key: values.featureFlagValidationError || undefined,
+            })
+        },
+        touchExperimentField: ({ key }) => {
+            // :KLUDGE: Persist the existing feature_flag_key validation when the field is blurred.
+            if (key === 'feature_flag_key') {
+                actions.setExperimentManualErrors({
+                    feature_flag_key: values.featureFlagValidationError || undefined,
+                })
             }
         },
     })),
@@ -1808,9 +1877,9 @@ export const experimentLogic = kea<experimentLogicType>([
         experiment: {
             options: { showErrorsOnTouch: true },
             defaults: { ...NEW_EXPERIMENT } as Experiment,
-            errors: ({ name, feature_flag_key, parameters }) => ({
+            errors: ({ name, parameters }) => ({
                 name: !name && 'Please enter a name',
-                feature_flag_key: validateFeatureFlagKey(feature_flag_key),
+                // feature_flag_key is handled asynchronously
                 parameters: {
                     feature_flag_variants: parameters.feature_flag_variants?.map(({ key }) => ({
                         key: !key.match?.(/^([A-z]|[a-z]|[0-9]|-|_)+$/)

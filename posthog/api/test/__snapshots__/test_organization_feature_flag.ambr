@@ -2060,6 +2060,31 @@
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.50
   '''
+  SELECT "posthog_dashboard"."id",
+         "posthog_dashboard"."name",
+         "posthog_dashboard"."description",
+         "posthog_dashboard"."team_id",
+         "posthog_dashboard"."pinned",
+         "posthog_dashboard"."created_at",
+         "posthog_dashboard"."created_by_id",
+         "posthog_dashboard"."deleted",
+         "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."filters",
+         "posthog_dashboard"."variables",
+         "posthog_dashboard"."creation_mode",
+         "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."deprecated_tags",
+         "posthog_dashboard"."tags",
+         "posthog_dashboard"."share_token",
+         "posthog_dashboard"."is_shared"
+  FROM "posthog_dashboard"
+  INNER JOIN "posthog_featureflagdashboards" ON ("posthog_dashboard"."id" = "posthog_featureflagdashboards"."dashboard_id")
+  WHERE (NOT ("posthog_dashboard"."deleted")
+         AND "posthog_featureflagdashboards"."feature_flag_id" = 99999)
+  '''
+# ---
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.51
+  '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
          "posthog_organizationmembership"."user_id",
@@ -2090,31 +2115,6 @@
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_organizationmembership"."user_id" = 99999)
   LIMIT 21
-  '''
-# ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.51
-  '''
-  SELECT "posthog_dashboard"."id",
-         "posthog_dashboard"."name",
-         "posthog_dashboard"."description",
-         "posthog_dashboard"."team_id",
-         "posthog_dashboard"."pinned",
-         "posthog_dashboard"."created_at",
-         "posthog_dashboard"."created_by_id",
-         "posthog_dashboard"."deleted",
-         "posthog_dashboard"."last_accessed_at",
-         "posthog_dashboard"."filters",
-         "posthog_dashboard"."variables",
-         "posthog_dashboard"."creation_mode",
-         "posthog_dashboard"."restriction_level",
-         "posthog_dashboard"."deprecated_tags",
-         "posthog_dashboard"."tags",
-         "posthog_dashboard"."share_token",
-         "posthog_dashboard"."is_shared"
-  FROM "posthog_dashboard"
-  INNER JOIN "posthog_featureflagdashboards" ON ("posthog_dashboard"."id" = "posthog_featureflagdashboards"."dashboard_id")
-  WHERE (NOT ("posthog_dashboard"."deleted")
-         AND "posthog_featureflagdashboards"."feature_flag_id" = 99999)
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.52

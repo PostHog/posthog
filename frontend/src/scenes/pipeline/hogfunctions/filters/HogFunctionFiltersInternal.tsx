@@ -31,7 +31,7 @@ const setSimpleFilterValue = (value: string): HogFunctionFiltersType => {
 
 export function HogFunctionFiltersInternal(): JSX.Element {
     return (
-        <div className="p-3 space-y-2 border rounded bg-bg-light">
+        <div className="p-3 space-y-2 border rounded bg-surface-primary">
             <LemonField name="filters" label="Trigger" help="Choose what event should trigger this destination">
                 {({ value, onChange }) => (
                     <>
