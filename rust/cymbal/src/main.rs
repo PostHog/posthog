@@ -112,7 +112,8 @@ async fn main() {
             Ok(txn) => txn,
             Err(e) => {
                 error!("Failed to start kafka transaction, {:?}", e);
-                return;
+                error!("Failed to start kafka transaction, will panic to trigger restart: {:?}", e);
+                panic!("Failed to start kafka transaction: {:?}", e);
             }
         };
 
