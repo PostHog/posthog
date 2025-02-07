@@ -127,12 +127,19 @@ async fn main() {
         let metadata = context.kafka_consumer.metadata();
 
         // TODO - probably being over-explicit with the error handling here, and could instead
-        // let this function return an error and use the question mark operator, but it's good
+        // let main return an error and use the question mark operator, but it's good
         // to be explicit about places we drop things at the top level, so
         match txn.associate_offsets(offsets, &metadata) {
             Ok(_) => {}
             Err(e) => {
-                error!("Failed to commit kafka transaction, {:?}", e);
+                error!(
+                    "Failed to associate offsets with kafka transaction, {:?}",
+                    e
+                );
+                panic!(
+                    "Failed to associate offsets with kafka transaction, {:?}",
+                    e
+                );
             }
         }
 
@@ -140,6 +147,7 @@ async fn main() {
             Ok(_) => {}
             Err(e) => {
                 error!("Failed to commit kafka transaction, {:?}", e);
+                panic!("Failed to commit kafka transaction, {:?}", e);
             }
         }
 

@@ -198,7 +198,12 @@ fn to_topic_partition_list(offsets: Vec<Offset>) -> Result<TopicPartitionList, K
 
     let topic_map = topic_map
         .into_iter()
-        .map(|(k, v)| (k, rdkafka::Offset::from_raw(v)))
+        // Docs say: "The offsets should be the next message your application will consume,
+        // i.e., one greater than the the last processed message’s offset for each partition."
+        // Link: https://docs.rs/rdkafka/latest/rdkafka/producer/trait.Producer.html#tymethod.send_offsets_to_transaction.
+        // Since this is only used for associating offsets with a transaction, we know that each
+        // offset should be the next message to be consumed, i.e. the high watermark + 1.
+        .map(|(k, v)| (k, rdkafka::Offset::from_raw(v + 1)))
         .collect();
 
     TopicPartitionList::from_topic_map(&topic_map)

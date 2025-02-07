@@ -35,7 +35,7 @@ pub struct ConsumerConfig {
 
     // Note: consumers used in a transactional fashion should disable auto offset commits,
     // as their offsets should be committed via the transactional producer. All consumers
-    // disable auto offset storing.
+    // disable auto offset /storing/.
     pub kafka_consumer_auto_commit: bool,
 }
 
