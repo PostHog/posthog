@@ -23,7 +23,6 @@ import { FunnelCorrelation } from 'scenes/insights/views/Funnels/FunnelCorrelati
 import { FunnelStepsTable } from 'scenes/insights/views/Funnels/FunnelStepsTable'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import { Paths } from 'scenes/paths/Paths'
-import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { TrendInsight } from 'scenes/trends/Trends'
 
@@ -247,10 +246,7 @@ export function InsightVizDisplay({
                                     )}
                                 </div>
 
-                                <div className="flex items-center gap-2">
-                                    {isPaths && <PathCanvasLabel />}
-                                    {isFunnels && <FunnelCanvasLabel />}
-                                </div>
+                                <div className="flex items-center gap-2">{isFunnels && <FunnelCanvasLabel />}</div>
                             </div>
                         )}
 

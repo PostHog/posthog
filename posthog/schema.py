@@ -2329,7 +2329,7 @@ class PathsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    edgeLimit: Optional[int] = 50
+    edgeLimit: Optional[int] = 10
     endPoint: Optional[str] = None
     excludeEvents: Optional[list[str]] = None
     includeEventTypes: Optional[list[PathType]] = None

@@ -9355,7 +9355,7 @@
             "properties": {
                 "edgeLimit": {
                     "$ref": "#/definitions/integer",
-                    "default": 50
+                    "default": 10
                 },
                 "endPoint": {
                     "type": "string"

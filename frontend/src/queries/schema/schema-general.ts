@@ -1125,7 +1125,7 @@ export type PathsFilterLegacy = Omit<
 >
 
 export type PathsFilter = {
-    /** @default 50 */
+    /** @default 10 */
     edgeLimit?: integer
     pathsHogQLExpression?: PathsFilterLegacy['paths_hogql_expression']
     includeEventTypes?: PathsFilterLegacy['include_event_types']

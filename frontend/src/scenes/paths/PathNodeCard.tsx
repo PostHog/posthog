@@ -57,20 +57,25 @@ export function PathNodeCard({ insightProps, node }: PathNodeCardProps): JSX.Ele
                 matchWidth
             >
                 <div
-                    className="absolute rounded bg-bg-light p-1"
+                    // className="absolute rounded bg-bg-light p-1"
+                    className="absolute p-1"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         width: PATH_NODE_CARD_WIDTH,
-                        left: !isPathEnd
-                            ? node.x0 + PATH_NODE_CARD_LEFT_OFFSET
-                            : node.x0 + PATH_NODE_CARD_LEFT_OFFSET - PATH_NODE_CARD_WIDTH,
-                        top: !isPathEnd
-                            ? node.y0 + PATH_NODE_CARD_TOP_OFFSET
-                            : // use middle for end nodes
-                              node.y0 + (node.y1 - node.y0) / 2,
-                        border: `1px solid ${
-                            isSelectedPathStartOrEnd(pathsFilter, funnelPathsFilter, node) ? 'purple' : 'var(--border)'
-                        }`,
+                        left: node.x0 + PATH_NODE_CARD_LEFT_OFFSET,
+
+                        top: node.y0 + PATH_NODE_CARD_TOP_OFFSET,
+
+                        // left: !isPathEnd
+                        //     ? node.x0 + PATH_NODE_CARD_LEFT_OFFSET
+                        //     : node.x0 + PATH_NODE_CARD_LEFT_OFFSET - PATH_NODE_CARD_WIDTH,
+                        // top: !isPathEnd
+                        //     ? node.y0 + PATH_NODE_CARD_TOP_OFFSET
+                        //     : // use middle for end nodes
+                        //       node.y0 + (node.y1 - node.y0) / 2,
+                        // border: `1px solid ${
+                        //     isSelectedPathStartOrEnd(pathsFilter, funnelPathsFilter, node) ? 'purple' : 'var(--border)'
+                        // }`,
                     }}
                     data-attr="path-node-card-button"
                 >

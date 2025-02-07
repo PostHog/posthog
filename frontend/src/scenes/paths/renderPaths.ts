@@ -6,13 +6,14 @@ import { Dispatch, RefObject, SetStateAction } from 'react'
 
 import { FunnelPathsFilter, PathsFilter } from '~/queries/schema'
 
+import { DATA_LINKS, DATA_NODES } from './dummyData'
 import { FALLBACK_CANVAS_WIDTH, HIDE_PATH_CARD_HEIGHT } from './Paths'
 import { isSelectedPathStartOrEnd, PathNodeData, PathTargetLink, roundedRect } from './pathUtils'
 import { Paths } from './types'
 
-const NODE_WIDTH = 48
-const NODE_BORDER_RADIUS = 8
-const NODE_PADDING = 64
+export const NODE_WIDTH = 48
+export const NODE_BORDER_RADIUS = 2
+export const NODE_PADDING = 64
 
 const createCanvas = (canvasRef: RefObject<HTMLDivElement>, width: number, height: number): D3Selector => {
     return d3
@@ -25,15 +26,16 @@ const createCanvas = (canvasRef: RefObject<HTMLDivElement>, width: number, heigh
 }
 
 const createSankeyGenerator = (width: number, height: number): Sankey.SankeyLayout<any, any, any> => {
-    const marginLeft = 0 + NODE_BORDER_RADIUS,
-        marginTop = 0,
-        marginRight = 0 + NODE_BORDER_RADIUS,
-        marginBottom = 0
+    const marginLeft = 0 + NODE_BORDER_RADIUS + 10,
+        marginTop = 0 + 48,
+        marginRight = 0 + NODE_BORDER_RADIUS + 10,
+        marginBottom = 0 + 48
     // @ts-expect-error - d3 sankey typing things
     return new Sankey.sankey()
         .nodeId((d: PathNodeData) => d.name)
-        .nodeAlign(Sankey.sankeyJustify)
+        .nodeAlign(Sankey.sankeyCenter)
         .nodeSort(null)
+        .linkSort(null)
         .nodeWidth(NODE_WIDTH - 2 * NODE_BORDER_RADIUS)
         .nodePadding(NODE_PADDING)
         .size([width, height])
@@ -55,9 +57,9 @@ const appendPathNodes = (
         .data(nodes)
         .join('rect')
         .attr('x', (d: PathNodeData) => d.x0 - NODE_BORDER_RADIUS)
-        .attr('y', (d: PathNodeData) => d.y0)
+        .attr('y', (d: PathNodeData) => d.y0 - 0.5 * NODE_BORDER_RADIUS)
         .attr('rx', NODE_BORDER_RADIUS)
-        .attr('height', (d: PathNodeData) => d.y1 - d.y0)
+        .attr('height', (d: PathNodeData) => Math.max(d.y1 - d.y0, 4))
         .attr('width', (d: PathNodeData) => d.x1 - d.x0 + 2 * NODE_BORDER_RADIUS)
         .attr('fill', (d: PathNodeData) => {
             let c
@@ -87,29 +89,30 @@ const appendPathNodes = (
             if (data.y1 - data.y0 > HIDE_PATH_CARD_HEIGHT) {
                 return
             }
-            setNodeCards(
-                nodes.map((node: PathNodeData) =>
-                    node.index === data.index
-                        ? { ...node, visible: true }
-                        : { ...node, visible: node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT }
-                )
-            )
+            // setNodeCards(
+            //     nodes.map((node: PathNodeData) =>
+            //         node.index === data.index
+            //             ? { ...node, visible: true }
+            //             : { ...node, visible: node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT }
+            //     )
+            // )
+            setNodeCards(nodes.map((node: PathNodeData) => ({ ...node, visible: true })))
         })
         .append('title')
         .text((d: PathNodeData) => `${stripHTTP(d.name)}\n${d.value.toLocaleString()}`)
 }
 
-const appendDropoffs = (svg: D3Selector): void => {
-    const dropOffGradient = svg
-        .append('defs')
-        .append('linearGradient')
-        .attr('id', 'dropoff-gradient')
-        .attr('gradientTransform', 'rotate(90)')
+// const appendDropoffs = (svg: D3Selector): void => {
+//     const dropOffGradient = svg
+//         .append('defs')
+//         .append('linearGradient')
+//         .attr('id', 'dropoff-gradient')
+//         .attr('gradientTransform', 'rotate(90)')
 
-    dropOffGradient.append('stop').attr('offset', '0%').attr('stop-color', 'var(--paths-dropoff)')
+//     dropOffGradient.append('stop').attr('offset', '0%').attr('stop-color', 'var(--paths-dropoff)')
 
-    dropOffGradient.append('stop').attr('offset', '100%').attr('stop-color', 'var(--bg-light)')
-}
+//     dropOffGradient.append('stop').attr('offset', '100%').attr('stop-color', 'var(--bg-light)')
+// }
 
 const appendPathLinks = (
     svg: any,
@@ -124,7 +127,7 @@ const appendPathLinks = (
         .data(links)
         .join('g')
         .attr('stroke', 'var(--paths-link)')
-        .attr('opacity', 0.35)
+        .attr('opacity', 0.1)
 
     link.append('path')
         .attr('d', Sankey.sankeyLinkHorizontal())
@@ -156,14 +159,25 @@ const appendPathLinks = (
                     pathCardsToShow.push(l.target.index)
                 })
             }
+            // setNodeCards(
+            //     nodes.map((node: PathNodeData) => ({
+            //         ...node,
+            //         ...{
+            //             visible: pathCardsToShow.includes(node.index)
+            //                 ? true
+            //                 : node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT,
+            //         },
+            //     }))
+            // )
             setNodeCards(
                 nodes.map((node: PathNodeData) => ({
                     ...node,
-                    ...{
-                        visible: pathCardsToShow.includes(node.index)
-                            ? true
-                            : node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT,
-                    },
+                    visible: true,
+                    // ...{
+                    //     visible: pathCardsToShow.includes(node.index)
+                    //         ? true
+                    //         : node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT,
+                    // },
                 }))
             )
         })
@@ -194,19 +208,39 @@ const appendPathLinks = (
         })
 }
 
-const addChartAxisLines = (svg: D3Selector, height: number, nodes: PathNodeData[], maxLayer: number): void => {
-    if (maxLayer > 5) {
-        const arr = [...Array(maxLayer)]
-        const minWidthApart = nodes[1].x0 - nodes[0].x0
-        arr.forEach((_, i) => {
-            svg.append('line')
-                .style('stroke', 'var(--border)')
-                .attr('stroke-width', 2)
-                .attr('x1', minWidthApart * (i + 1) - 20)
-                .attr('y1', 0)
-                .attr('x2', minWidthApart * (i + 1) - 20)
-                .attr('y2', height)
-        })
+// const addChartAxisLines = (svg: D3Selector, height: number, nodes: PathNodeData[], maxLayer: number): void => {
+//     if (maxLayer > 5) {
+//         const arr = [...Array(maxLayer)]
+//         const minWidthApart = nodes[1].x0 - nodes[0].x0
+//         arr.forEach((_, i) => {
+//             svg.append('line')
+//                 .style('stroke', 'var(--border)')
+//                 .attr('stroke-width', 2)
+//                 .attr('x1', minWidthApart * (i + 1) - 20)
+//                 .attr('y1', 0)
+//                 .attr('x2', minWidthApart * (i + 1) - 20)
+//                 .attr('y2', height)
+//         })
+//     }
+// }
+
+const processPaths = ({ nodes, links }: Paths): Paths => {
+    return { nodes, links }
+
+    const totals = links.reduce((acc, { source, value }) => {
+        const key = source.split('_')[0]
+        acc[key] = (acc[key] || 0) + value
+        return acc
+    }, {})
+
+    console.log(totals)
+
+    return {
+        nodes,
+        links: links.map((link) => {
+            const key = link.source.split('_')[0]
+            return { ...link, value: link.value / totals[key] }
+        }),
     }
 }
 
@@ -235,14 +269,22 @@ export function renderPaths(
     const svg = createCanvas(canvasRef, width, height)
     const sankey = createSankeyGenerator(width, height)
 
-    // clone the paths, as sankey mutates the data
-    const clonedPaths = structuredClone(paths)
-    const { nodes, links } = sankey(clonedPaths)
+    const dataPaths = { nodes: DATA_NODES, links: DATA_LINKS }
 
-    setNodeCards(nodes.map((node: PathNodeData) => ({ ...node, visible: node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT })))
+    // clone the paths, as sankey mutates the data
+    // const clonedPaths = structuredClone(dataPaths)
+    const clonedPaths = structuredClone(paths)
+    console.debug('paths', dataPaths)
+    const { nodes: _nodes, links } = sankey(processPaths(clonedPaths))
+
+    console.debug('_nodes', _nodes)
+    const nodes = _nodes.map((node: any) => node)
+
+    // setNodeCards(nodes.map((node: PathNodeData) => ({ ...node, visible: node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT })))
+    setNodeCards(nodes.map((node: PathNodeData) => ({ ...node, visible: true })))
     appendPathLinks(svg, links, nodes, setNodeCards)
-    appendDropoffs(svg)
+    // appendDropoffs(svg)
     appendPathNodes(svg, nodes, pathsFilter, funnelPathsFilter, setNodeCards)
 
-    addChartAxisLines(svg, height, nodes, maxLayer)
+    // addChartAxisLines(svg, height, nodes, maxLayer)
 }
