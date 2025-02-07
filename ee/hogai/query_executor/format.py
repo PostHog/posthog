@@ -305,7 +305,16 @@ class FunnelResultsFormatter:
     10m|100%
     10m 1s|0%
 
-    The user distribution is the percentage of users who completed the funnel at the given time.
+    The user distribution is the percentage of users who completed the funnel in the given period.
+    ```
+
+    Example answer for a trends funnel:
+    ```
+    Date|$pageview (custom) -> $ai_trace conversion|$pageview (custom) -> $ai_trace drop-off
+    2025-01-05|10%|90%
+    2025-01-12|91%|9%
+    2025-01-19|100%|0%
+    2025-01-26|100%|0%
     ```
     """
 
@@ -360,7 +369,7 @@ class FunnelResultsFormatter:
         for series in results.get("bins") or []:
             matrix.append([_format_duration(series[0]), _format_percentage(series[1])])
 
-        hint = "The user distribution is the percentage of users who completed the funnel at the given period."
+        hint = "The user distribution is the percentage of users who completed the funnel in the given period."
         return f"{self._format_time_range()}\n\nEvents: {self._format_filter_series_label()}\n{_format_matrix(matrix)}\n\n{hint}"
 
     def _format_trends(self) -> str:

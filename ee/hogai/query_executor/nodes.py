@@ -14,7 +14,9 @@ from ee.hogai.query_executor.format import (
 )
 from ee.hogai.query_executor.prompts import (
     FALLBACK_EXAMPLE_PROMPT,
-    FUNNELS_EXAMPLE_PROMPT,
+    FUNNEL_STEPS_EXAMPLE_PROMPT,
+    FUNNEL_TIME_TO_CONVERT_EXAMPLE_PROMPT,
+    FUNNEL_TRENDS_EXAMPLE_PROMPT,
     QUERY_RESULTS_PROMPT,
     RETENTION_EXAMPLE_PROMPT,
     TRENDS_EXAMPLE_PROMPT,
@@ -33,6 +35,7 @@ from posthog.schema import (
     AssistantRetentionQuery,
     AssistantTrendsQuery,
     FailureMessage,
+    FunnelVizType,
     VisualizationMessage,
 )
 
@@ -130,7 +133,15 @@ class QueryExecutorNode(AssistantNode):
         if isinstance(viz_message.answer, AssistantTrendsQuery):
             return TRENDS_EXAMPLE_PROMPT
         if isinstance(viz_message.answer, AssistantFunnelsQuery):
-            return FUNNELS_EXAMPLE_PROMPT
+            if (
+                not viz_message.answer.funnelsFilter
+                or not viz_message.answer.funnelsFilter.funnelVizType
+                or viz_message.answer.funnelsFilter.funnelVizType == FunnelVizType.STEPS
+            ):
+                return FUNNEL_STEPS_EXAMPLE_PROMPT
+            if viz_message.answer.funnelsFilter.funnelVizType == FunnelVizType.TIME_TO_CONVERT:
+                return FUNNEL_TIME_TO_CONVERT_EXAMPLE_PROMPT
+            return FUNNEL_TRENDS_EXAMPLE_PROMPT
         if isinstance(viz_message.answer, AssistantRetentionQuery):
             return RETENTION_EXAMPLE_PROMPT
         raise NotImplementedError(f"Unsupported query type: {type(viz_message.answer)}")
