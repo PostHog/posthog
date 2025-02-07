@@ -289,10 +289,12 @@ export function DashboardHeader(): JSX.Element | null {
                             <LemonDivider vertical />
                             {dashboard && (
                                 <>
-                                    <CollaboratorBubbles
-                                        dashboard={dashboard}
-                                        onClick={() => push(urls.dashboardSharing(dashboard.id))}
-                                    />
+                                    {dashboard.access_control_version === 'v1' && (
+                                        <CollaboratorBubbles
+                                            dashboard={dashboard}
+                                            onClick={() => push(urls.dashboardSharing(dashboard.id))}
+                                        />
+                                    )}
                                     <LemonButton
                                         type="secondary"
                                         data-attr="dashboard-share-button"
