@@ -229,6 +229,7 @@ class Breakdown:
                     actors_filter = self._get_actors_query_where_expr(
                         breakdown_value=breakdown.property,
                         breakdown_type=breakdown.type,
+                        normalize_url=breakdown.normalize_url,
                         lookup_value=str(
                             lookup_value
                         ),  # numeric values are only in cohorts, so it's a safe convertion here
@@ -244,10 +245,9 @@ class Breakdown:
 
             if not isinstance(lookup_values, list):
                 actors_filter = self._get_actors_query_where_expr(
-                    breakdown_value=str(
-                        self._breakdown_filter.breakdown
-                    ),  # all other value types were excluded already
+                    breakdown_value=self._breakdown_filter.breakdown,
                     breakdown_type=self._breakdown_filter.breakdown_type,
+                    normalize_url=self._breakdown_filter.breakdown_normalize_url,
                     lookup_value=str(
                         lookup_values
                     ),  # numeric values are only in cohorts, so it's a safe convertion here
@@ -265,6 +265,7 @@ class Breakdown:
         breakdown_value: str,
         breakdown_type: BreakdownType | MultipleBreakdownType | None,
         lookup_value: str,
+        normalize_url: bool | None = None,
         histogram_bin_count: int | None = None,
         group_type_index: int | None = None,
     ):
@@ -325,7 +326,7 @@ class Breakdown:
                 raise ValueError("Breakdown value must be a valid JSON array if the the bin count is selected.")
 
         return ast.CompareOperation(
-            left=self.get_replace_null_values_transform(left),
+            left=self._get_breakdown_values_transform(left, normalize_url=normalize_url),
             op=ast.CompareOperationOp.Eq,
             right=ast.Constant(value=lookup_value),
         )
