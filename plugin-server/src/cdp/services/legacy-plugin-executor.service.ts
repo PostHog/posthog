@@ -134,7 +134,10 @@ export class LegacyPluginExecutorService {
         }
 
         const fetch = (...args: Parameters<typeof trackedFetch>): Promise<Response> => {
-            if (isTestFunction) {
+            const method = args[1] && typeof args[1].method === 'string' ? args[1].method : 'GET'
+
+            if (isTestFunction && method.toUpperCase() !== 'GET') {
+                // For testing we mock out all non-GET requests
                 addLog('info', 'Fetch called but mocked due to test function')
                 return Promise.resolve({
                     status: 500,
