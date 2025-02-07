@@ -52,6 +52,12 @@ export function DataWarehouseSelfManagedSourcesTable(): JSX.Element {
                     },
                 },
                 {
+                    title: 'Format',
+                    dataIndex: 'format',
+                    key: 'format',
+                    render: (_, item) => item.format,
+                },
+                {
                     key: 'actions',
                     width: 0,
                     render: (_, item) => (
