@@ -19,7 +19,7 @@ export const InsightResultMetadata = ({
         <>
             {!disableLastComputation && <ComputationTimeWithRefresh disableRefresh={disableLastComputationRefresh} />}
             {samplingFactor ? (
-                <span className="text-muted-alt">
+                <span className="text-secondary">
                     {!disableLastComputation && <span className="mx-1">•</span>}
                     Results calculated from {samplingFactor * 100}% of users
                 </span>
