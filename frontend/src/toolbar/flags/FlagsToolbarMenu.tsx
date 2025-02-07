@@ -9,8 +9,7 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { debounce } from 'lib/utils'
-import { useEffect, useMemo } from 'react'
+import { useEffect } from 'react'
 import { urls } from 'scenes/urls'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
@@ -28,13 +27,10 @@ export const FlagsToolbarMenu = (): JSX.Element => {
         setFeatureFlagValueFromPostHogClient,
         setDraftPayload,
         savePayloadOverride,
+        setPayloadEditorOpen,
     } = useActions(flagsToolbarLogic)
     const { apiURL, posthog: posthogClient } = useValues(toolbarConfigLogic)
-
-    const debouncedSetDraftPayload = useMemo(
-        () => debounce((key: string, value: string) => setDraftPayload(key, value), 300),
-        [setDraftPayload]
-    )
+    const { openPayloadEditors } = useValues(flagsToolbarLogic)
 
     useEffect(() => {
         posthogClient?.onFeatureFlags(setFeatureFlagValueFromPostHogClient)
@@ -121,33 +117,59 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                                             ) : null}
 
                                             <div className={clsx('py-1', hasVariants && 'pl-4')}>
-                                                <label className="text-xs font-semibold">Payload</label>
-                                                <div className="flex gap-2 items-center mt-1">
-                                                    <LemonTextArea
-                                                        className={clsx(
-                                                            'font-mono text-xs flex-1 !rounded',
-                                                            payloadErrors[feature_flag.key] && 'border-danger'
-                                                        )}
-                                                        value={
-                                                            draftPayloads[feature_flag.key] ??
-                                                            (payloadOverride
-                                                                ? JSON.stringify(payloadOverride, null, 2)
-                                                                : '')
-                                                        }
-                                                        onChange={(val) =>
-                                                            debouncedSetDraftPayload(feature_flag.key, val)
-                                                        }
-                                                        placeholder='{"key": "value"}'
-                                                        minRows={2}
-                                                    />
+                                                <div className="flex items-center justify-between">
+                                                    <label className="text-xs font-semibold">Payload</label>
                                                     <LemonButton
                                                         size="small"
-                                                        type="primary"
-                                                        onClick={() => savePayloadOverride(feature_flag.key)}
+                                                        onClick={() => setPayloadEditorOpen(feature_flag.key, true)}
+                                                        className={
+                                                            !openPayloadEditors[feature_flag.key] ? '' : 'hidden'
+                                                        }
                                                     >
-                                                        Save
+                                                        Edit
                                                     </LemonButton>
                                                 </div>
+                                                {openPayloadEditors[feature_flag.key] ? (
+                                                    <div className="flex gap-2 items-start mt-1">
+                                                        <LemonTextArea
+                                                            className={clsx(
+                                                                'font-mono text-xs flex-1 !rounded',
+                                                                payloadErrors[feature_flag.key] && 'border-danger'
+                                                            )}
+                                                            value={
+                                                                draftPayloads[feature_flag.key] ??
+                                                                (payloadOverride
+                                                                    ? JSON.stringify(payloadOverride, null, 2)
+                                                                    : '')
+                                                            }
+                                                            onChange={(val) => setDraftPayload(feature_flag.key, val)}
+                                                            placeholder='{"key": "value"}'
+                                                            minRows={2}
+                                                        />
+                                                        <div className="flex flex-col gap-1">
+                                                            <LemonButton
+                                                                size="xsmall"
+                                                                type="primary"
+                                                                onClick={() => savePayloadOverride(feature_flag.key)}
+                                                                center
+                                                            >
+                                                                Save
+                                                            </LemonButton>
+                                                            <LemonButton
+                                                                size="xsmall"
+                                                                onClick={() =>
+                                                                    setPayloadEditorOpen(feature_flag.key, false)
+                                                                }
+                                                            >
+                                                                Cancel
+                                                            </LemonButton>
+                                                        </div>
+                                                    </div>
+                                                ) : payloadOverride ? (
+                                                    <div className="font-mono text-xs mt-1 truncate">
+                                                        {JSON.stringify(payloadOverride)}
+                                                    </div>
+                                                ) : null}
                                             </div>
                                         </>
                                     </AnimatedCollapsible>
