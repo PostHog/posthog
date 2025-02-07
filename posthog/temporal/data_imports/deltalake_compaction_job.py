@@ -35,7 +35,7 @@ class DeltalakeCompactionJobWorkflow(PostHogWorkflow):
         await workflow.execute_activity(
             run_compaction,
             inputs,
-            start_to_close_timeout=dt.timedelta(minutes=5),
+            start_to_close_timeout=dt.timedelta(minutes=60),
             retry_policy=RetryPolicy(
                 maximum_attempts=1,
             ),
