@@ -90,7 +90,7 @@ runs:
           shell: bash
           run: |
               cd common/plugin_transpiler
-              pnpm install
+              pnpm --filter=@posthog/plugin-transpiler install --frozen-lockfile
               pnpm run build
 
         - name: Install Python dependencies

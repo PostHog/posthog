@@ -18,7 +18,7 @@ export function OnboardingSessionReplayConfiguration({ stepKey }: { stepKey: Onb
     return (
         <OnboardingStep title="Record user sessions" stepKey={stepKey} continueOverride={<></>}>
             <div className="mb-4">
-                <p className="text-muted">
+                <p className="text-secondary">
                     Session Replay records user sessions to help you understand their actions and uncover opportunities
                     for product improvement.
                 </p>
@@ -28,9 +28,9 @@ export function OnboardingSessionReplayConfiguration({ stepKey }: { stepKey: Onb
                 <div className="hidden md:block flex-shrink-0">
                     <FilmCameraHog className="w-36 h-auto" />
                 </div>
-                <div className="flex-1 border border-gray-200 rounded-lg bg-white p-4">
+                <div className="flex-1 border border-gray-200 rounded-lg bg-bg-light dark:bg-bg-depth p-4">
                     <h4 className="text-lg font-semibold mb-2">Why enable Session Replay?</h4>
-                    <ul className="space-y-2 text-muted">
+                    <ul className="space-y-2 text-secondary">
                         <li>
                             <strong>Understand user behavior:</strong> Get a clear view of how people navigate and
                             interact with your product.

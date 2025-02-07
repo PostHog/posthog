@@ -753,6 +753,7 @@ export enum PipelineStage {
 }
 
 export enum PipelineNodeTab {
+    Backfills = 'backfills',
     Configuration = 'configuration',
     Runs = 'runs',
     Logs = 'logs',
@@ -1482,6 +1483,7 @@ export interface SessionRecordingUpdateType {
     analyzed?: boolean
     player_metadata?: Record<string, any> | null
     durations?: Record<string, any> | null
+    $pathname: string
 }
 
 export interface SessionRecordingPropertiesType {
@@ -2331,6 +2333,7 @@ export interface TrendsFilterType extends FilterType {
     show_labels_on_series?: boolean
     show_percent_stack_view?: boolean
     y_axis_scale_type?: 'log10' | 'linear'
+    show_multiple_y_axes?: boolean
 }
 
 export interface StickinessFilterType extends FilterType {
@@ -2774,7 +2777,9 @@ export interface Survey {
         url: string
         selector: string
         seenSurveyWaitPeriodInDays?: number
-        urlMatchType?: SurveyUrlMatchType
+        urlMatchType?: SurveyMatchType
+        deviceTypes?: string[]
+        deviceTypesMatchType?: SurveyMatchType
         actions: {
             values: {
                 id: number
@@ -2809,7 +2814,7 @@ export interface Survey {
     response_sampling_daily_limits?: string[] | null
 }
 
-export enum SurveyUrlMatchType {
+export enum SurveyMatchType {
     Exact = PropertyOperator.Exact,
     IsNot = PropertyOperator.IsNot,
     Contains = PropertyOperator.IContains,
@@ -4388,6 +4393,46 @@ export type GroupedBatchExportRuns = {
     runs: BatchExportRun[]
 }
 
+export type RawBatchExportBackfill = {
+    id: string
+    status:
+        | 'Cancelled'
+        | 'Completed'
+        | 'ContinuedAsNew'
+        | 'Failed'
+        | 'FailedRetryable'
+        | 'Terminated'
+        | 'TimedOut'
+        | 'Running'
+        | 'Starting'
+    created_at: string
+    finished_at?: string
+    start_at?: string
+    end_at?: string
+    last_updated_at?: string
+    total_runs?: number
+}
+
+export type BatchExportBackfill = {
+    id: string
+    status:
+        | 'Cancelled'
+        | 'Completed'
+        | 'ContinuedAsNew'
+        | 'Failed'
+        | 'FailedRetryable'
+        | 'Terminated'
+        | 'TimedOut'
+        | 'Running'
+        | 'Starting'
+    created_at?: Dayjs
+    finished_at?: Dayjs
+    start_at?: Dayjs
+    end_at?: Dayjs
+    last_updated_at?: Dayjs
+    total_runs?: number
+}
+
 export type SDK = {
     name: string
     key: string
@@ -4897,4 +4942,9 @@ export type UserGroup = {
     id: string
     name: string
     members: UserBasicType[]
+}
+
+export interface CoreMemory {
+    id: string
+    text: string
 }

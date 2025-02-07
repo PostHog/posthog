@@ -6,7 +6,7 @@ use error::{EventError, UnhandledError};
 use fingerprinting::generate_fingerprint;
 use issue_resolution::resolve_issue;
 use metric_consts::FRAME_RESOLUTION;
-use tracing::warn;
+use tracing::{error, warn};
 use types::{Exception, RawErrProps, Stacktrace};
 
 pub mod app_context;
@@ -29,7 +29,16 @@ pub async fn handle_event(
         Ok(r) => r,
         Err(e) => {
             warn!("Failed to get props: {}", e);
-            add_error_to_event(&mut event, e)?;
+
+            if let Err(e) = add_error_to_event(&mut event, e) {
+                // If we fail to add an error to an event, we just log it.
+                // This can happen if we failed to read the properties
+                // of the event in /any/ way, e.g. due to a serde recursion limit.
+                // If that's the case, we will fail to add a new element to the
+                // event properties storing the error message, so there's not much
+                // we can do. We should consider whether we want to drop these events.
+                error!("Failed to add error to event: {}", e);
+            }
             return Ok(event);
         }
     };

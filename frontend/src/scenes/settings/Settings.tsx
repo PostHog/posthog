@@ -86,7 +86,7 @@ export function Settings({
                       active={selectedLevel === level && !selectedSectionId}
                       onClick={() => selectLevel(level)}
                   >
-                      <span className="text-muted-alt">{capitalizeFirstLetter(level)}</span>
+                      <span className="text-secondary">{capitalizeFirstLetter(level)}</span>
                   </OptionButton>
               ),
               items: sections
