@@ -18,6 +18,7 @@ import { castTimestampOrNow } from '../../utils/utils'
 import { buildGlobalsWithInputs, HogExecutorService } from '../services/hog-executor.service'
 import { HogFunctionManagerService } from '../services/hog-function-manager.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
+import { cleanNullValues, createGeoipLookup } from './transformation-functions'
 
 export const hogTransformationDroppedEvents = new Counter({
     name: 'hog_transformation_dropped_events',
@@ -48,19 +49,8 @@ export class HogTransformerService {
 
     private getTransformationFunctions() {
         return {
-            geoipLookup: (ipAddress: unknown) => {
-                if (typeof ipAddress !== 'string') {
-                    return null
-                }
-                if (!this.hub.mmdb) {
-                    return null
-                }
-                try {
-                    return this.hub.mmdb.city(ipAddress)
-                } catch {
-                    return null
-                }
-            },
+            geoipLookup: createGeoipLookup(this.hub.mmdb),
+            cleanNullValues,
         }
     }
 
@@ -255,6 +245,18 @@ export class HogTransformerService {
                             continue
                         }
                         event.event = transformedEvent.event
+                    }
+
+                    if ('distinct_id' in transformedEvent) {
+                        if (typeof transformedEvent.distinct_id !== 'string') {
+                            status.error('⚠️', 'Invalid transformation result - distinct_id must be a string', {
+                                function_id: hogFunction.id,
+                                distinct_id: transformedEvent.distinct_id,
+                            })
+                            transformationsFailed.push(transformationIdentifier)
+                            continue
+                        }
+                        event.distinct_id = transformedEvent.distinct_id
                     }
 
                     transformationsSucceeded.push(transformationIdentifier)
