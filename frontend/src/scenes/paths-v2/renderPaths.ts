@@ -168,22 +168,6 @@ const appendPathLinks = (
         })
 }
 
-const addChartAxisLines = (svg: D3Selector, height: number, nodes: PathNodeData[], maxLayer: number): void => {
-    if (maxLayer > 5) {
-        const arr = [...Array(maxLayer)]
-        const minWidthApart = nodes[1].x0 - nodes[0].x0
-        arr.forEach((_, i) => {
-            svg.append('line')
-                .style('stroke', 'var(--border)')
-                .attr('stroke-width', 2)
-                .attr('x1', minWidthApart * (i + 1) - 20)
-                .attr('y1', 0)
-                .attr('x2', minWidthApart * (i + 1) - 20)
-                .attr('y2', height)
-        })
-    }
-}
-
 export function renderPaths(
     canvasRef: RefObject<HTMLDivElement>,
     canvasWidth: number,
@@ -217,5 +201,4 @@ export function renderPaths(
 
     appendPathNodes(svg, nodes, pathsFilter, funnelPathsFilter, setNodeCards)
     appendPathLinks(svg, links, nodes, setNodeCards)
-    addChartAxisLines(svg, height, nodes, maxLayer)
 }
