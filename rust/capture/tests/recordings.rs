@@ -71,7 +71,7 @@ async fn it_captures_one_recording_with_user_agent_fallback_for_lib() -> Result<
     let distinct_id = random_string("id", 16);
     let session_id = random_string("id", 16);
     let window_id = random_string("id", 16);
-    let lib = random_string("posthog-android/1.0", 16);
+    let lib = "posthog-android/1.0.4";
 
     let main_topic = EphemeralTopic::new().await;
     let server = ServerHandle::for_recordings(&main_topic).await;
@@ -88,7 +88,7 @@ async fn it_captures_one_recording_with_user_agent_fallback_for_lib() -> Result<
             // NO LIB SET HERE
         }
     });
-    let res = server.capture_recording(event.to_string(), Option::from(lib.as_str())).await;
+    let res = server.capture_recording(event.to_string(), Option::from(lib)).await;
     assert_eq!(StatusCode::OK, res.status());
 
     let event = main_topic.next_event()?;

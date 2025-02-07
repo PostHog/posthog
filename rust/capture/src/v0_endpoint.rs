@@ -374,7 +374,7 @@ pub async fn process_replay_events<'a>(
         .properties
         .remove("$lib")
         // missing lib could be one of multiple libraries, so we try to fall back to user agent
-        .unwrap_or(Value::String(snapshot_library_fallback_from(user_agent.parse().unwrap()).unwrap_or(String::from("unknown"))));
+        .unwrap_or(Value::String(snapshot_library_fallback_from(user_agent.to_string()).unwrap_or(String::from("unknown"))));
 
     let mut snapshot_items: Vec<Value> = Vec::with_capacity(events.len());
     for mut event in events {

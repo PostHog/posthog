@@ -117,7 +117,7 @@ def snapshot_library_fallback_from(user_agent: str | None) -> str | None:
             fallback = None
         else:
             fallback = "web"
-            if "posthog" in user_agent and "/" in user_agent:
+            if "posthog" in user_agent.lower() and "/" in user_agent:
                 # mobile SDKs send e.g. posthog-android/1.0.0
                 fallback = user_agent.split("/")[0]
 
