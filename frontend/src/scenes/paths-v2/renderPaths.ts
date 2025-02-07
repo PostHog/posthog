@@ -6,7 +6,7 @@ import { Dispatch, RefObject, SetStateAction } from 'react'
 
 import { FunnelPathsFilter, PathsFilter } from '~/queries/schema'
 
-import { FALLBACK_CANVAS_WIDTH, HIDE_PATH_CARD_HEIGHT } from './PathsV2'
+import { FALLBACK_CANVAS_WIDTH } from './PathsV2'
 import { isSelectedPathStartOrEnd, PathNodeData, PathTargetLink, roundedRect } from './pathUtils'
 import { Paths } from './types'
 
@@ -67,11 +67,6 @@ const appendPathNodes = (
             }
             const startNodeColor = c && d3.color(c) ? d3.color(c) : 'var(--paths-node)'
             return startNodeColor
-        })
-        .on('mouseover', (_event: MouseEvent, data: PathNodeData) => {
-            if (data.y1 - data.y0 > HIDE_PATH_CARD_HEIGHT) {
-                return
-            }
         })
         .append('title')
         .text((d: PathNodeData) => `${stripHTTP(d.name)}\n${d.value.toLocaleString()}`)

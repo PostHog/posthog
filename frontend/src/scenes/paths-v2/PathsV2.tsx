@@ -14,7 +14,6 @@ import type { PathNodeData } from './pathUtils'
 import { renderPaths } from './renderPaths'
 
 const DEFAULT_PATHS_ID = 'default_paths'
-export const HIDE_PATH_CARD_HEIGHT = 30
 export const FALLBACK_CANVAS_WIDTH = 1000
 const FALLBACK_CANVAS_HEIGHT = 0
 
