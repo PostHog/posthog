@@ -245,7 +245,9 @@ class Breakdown:
 
             if not isinstance(lookup_values, list):
                 actors_filter = self._get_actors_query_where_expr(
-                    breakdown_value=self._breakdown_filter.breakdown,
+                    breakdown_value=str(
+                        self._breakdown_filter.breakdown
+                    ),  # all other value types were excluded already
                     breakdown_type=self._breakdown_filter.breakdown_type,
                     normalize_url=self._breakdown_filter.breakdown_normalize_url,
                     lookup_value=str(
