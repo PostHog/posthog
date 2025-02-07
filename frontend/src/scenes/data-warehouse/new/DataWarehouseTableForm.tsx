@@ -61,7 +61,7 @@ export function DatawarehouseTableForm({ onUpdate }: Props): JSX.Element {
             enableFormOnSubmit
             autoComplete="off"
         >
-            <div className="flex flex-col gap-2 max-w-160">
+            <div className="flex flex-col gap-2">
                 <LemonField name="name" label="Table name">
                     {({ value = '', onChange }) => (
                         <LemonInput
@@ -151,14 +151,14 @@ export function DatawarehouseTableForm({ onUpdate }: Props): JSX.Element {
                         </Link>
                     </div>
                 )}
-                {!!onUpdate && (
-                    <div className="flex justify-end">
-                        <LemonButton type="primary" onClick={onUpdate}>
-                            Update
-                        </LemonButton>
-                    </div>
-                )}
             </div>
+            {!!onUpdate && (
+                <div className="flex justify-end">
+                    <LemonButton type="primary" onClick={onUpdate}>
+                        Save
+                    </LemonButton>
+                </div>
+            )}
         </Form>
     )
 }
