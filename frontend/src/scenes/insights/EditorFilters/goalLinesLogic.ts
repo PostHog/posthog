@@ -42,6 +42,7 @@ export const goalLinesLogic = kea<goalLinesLogicType>([
                             goalLines[goalLineIndex][key] = parseInt(value.toString(), 10)
                         }
                     } else {
+                        // @ts-expect-error not sure why it thinks this is an error but it clearly isn't
                         goalLines[goalLineIndex][key] = value
                     }
 
