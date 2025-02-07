@@ -36,8 +36,8 @@ export const FUNNEL_MATH_DEFINITIONS: Record<FunnelMathType, MathDefinition> = {
         shortName: 'first event',
         description: (
             <>
-                Only the first time the user performed this event will count towards the funnel, and only if it matches
-                the event filters.
+                Matches only the first time the user performed this event type. If this event does not match the event
+                filters, or is outside the selected date range, the user will be excluded from the funnel.
                 <br />
                 <br />
                 <i>
@@ -53,8 +53,9 @@ export const FUNNEL_MATH_DEFINITIONS: Record<FunnelMathType, MathDefinition> = {
         shortName: 'first matching event',
         description: (
             <>
-                The first time the user performed this event that matches the event filters will count towards the
-                funnel.
+                Matches only the first time the user performed this event type with the selected filters. If this event
+                is outside the selected date range, or the user never performed the event with the selected filters, the
+                user will be excluded from the funnel.
                 <br />
                 <br />
                 <i>
@@ -144,7 +145,8 @@ export const BASE_MATH_DEFINITIONS: Record<BaseMathType, MathDefinition> = {
         shortName: 'first time',
         description: (
             <>
-                Only the first time the user performed this event will count, and only if it matches the event filters.
+                Matches only the first time the user performed this event type. If this event does not match the event
+                filters, or is outside the selected date range, the user will be excluded from the insight.
                 <br />
                 <br />
                 <i>
@@ -160,7 +162,9 @@ export const BASE_MATH_DEFINITIONS: Record<BaseMathType, MathDefinition> = {
         shortName: 'first matching event',
         description: (
             <>
-                The first time the user performed this event that matches the event filters will count.
+                Matches only the first time the user performed this event type with the selected filters. If this event
+                is outside the selected date range, or the user never performed the event with the selected filters, the
+                user will be excluded from the insight.
                 <br />
                 <br />
                 <i>
