@@ -162,7 +162,7 @@ async function syncCustomerMetadata(meta: CustomerIoMeta, event: ProcessedPlugin
     const customerExistsAlready = customerStatus.has('seen')
     const email = getEmailFromEvent(event)
 
-    logger.debug(email)
+    logger.debug('Detected email', email)
 
     // Update customer status
     customerStatus.add('seen')
