@@ -10,7 +10,7 @@ from rest_framework.exceptions import APIException
 from ee.hogai.query_executor.format import (
     FunnelResultsFormatter,
     RetentionResultsFormatter,
-    compress_and_format_trends_results,
+    TrendsResultsFormatter,
 )
 from ee.hogai.query_executor.prompts import (
     FALLBACK_EXAMPLE_PROMPT,
@@ -119,7 +119,7 @@ class QueryExecutorNode(AssistantNode):
 
     def _compress_results(self, viz_message: VisualizationMessage, results: list[dict]) -> str:
         if isinstance(viz_message.answer, AssistantTrendsQuery):
-            return compress_and_format_trends_results(results)
+            return TrendsResultsFormatter(viz_message.answer, results).format()
         elif isinstance(viz_message.answer, AssistantFunnelsQuery):
             return FunnelResultsFormatter(viz_message.answer, results, self._team, self._utc_now_datetime).format()
         elif isinstance(viz_message.answer, AssistantRetentionQuery):

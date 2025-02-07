@@ -355,12 +355,12 @@ class FunnelResultsFormatter:
             return "No data recorded for this time period."
 
         matrix: list[list[Any]] = [
-            ["Time", "User distribution"],
+            ["Average time to convert", "User distribution"],
         ]
         for series in results.get("bins") or []:
             matrix.append([_format_duration(series[0]), _format_percentage(series[1])])
 
-        hint = "The user distribution is the percentage of users who completed the funnel at the given time."
+        hint = "The user distribution is the percentage of users who completed the funnel at the given period."
         return f"{self._format_time_range()}\n\nEvents: {self._format_filter_series_label()}\n{_format_matrix(matrix)}\n\n{hint}"
 
     def _format_trends(self) -> str:
