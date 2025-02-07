@@ -135,7 +135,7 @@ function ItemTimeDisplay({ item }: { item: InspectorListItem }): JSX.Element {
                             title="This event occured before the recording started, likely as the page was loading."
                             placement="left"
                         >
-                            <span className="text-muted">load</span>
+                            <span className="text-secondary">load</span>
                         </Tooltip>
                     ) : (
                         colonDelimitedDuration(item.timeInRecording / 1000, fixedUnits)
@@ -277,7 +277,7 @@ export function PlayerInspectorListItem({
                 'ml-1 flex flex-col items-center',
                 isExpanded && 'border border-accent-primary',
                 isExpanded && item.highlightColor && `border border-${item.highlightColor}-dark`,
-                isHovering && 'bg-bg-light'
+                isHovering && 'bg-surface-primary'
             )}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
@@ -327,7 +327,9 @@ export function PlayerInspectorListItem({
                     <div
                         className={clsx(
                             'flex-1 overflow-hidden',
-                            item.highlightColor && `bg-${item.highlightColor}-highlight`
+                            item.highlightColor === 'danger' && `bg-fill-error-highlight`,
+                            item.highlightColor === 'warning' && `bg-fill-warning-highlight`,
+                            item.highlightColor === 'primary' && `bg-fill-accent-primary-highlight`
                         )}
                     >
                         <RowItemTitle item={item} finalTimestamp={end} />
@@ -364,7 +366,7 @@ export function PlayerInspectorListItem({
                             className="flex justify-end cursor-pointer mx-2 my-1"
                             onClick={() => setItemExpanded(index, false)}
                         >
-                            <span className="text-muted-alt">Collapse</span>
+                            <span className="text-secondary">Collapse</span>
                         </div>
                     </div>
                 </div>

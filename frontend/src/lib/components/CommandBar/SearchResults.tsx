@@ -18,7 +18,7 @@ export const SearchResults = (): JSX.Element => {
                 </div>
             ) : (
                 <div className="md:grid md:grid-cols-[320px_1fr] overflow-y-auto overflow-x-hidden">
-                    <div className="border-r border-b md:border-b-0 bg-bg-3000 overscroll-contain overflow-y-auto overflow-x-hidden">
+                    <div className="border-r border-b md:border-b-0 bg-primary overscroll-contain overflow-y-auto overflow-x-hidden">
                         {combinedSearchLoading && (
                             <>
                                 <SearchResultSkeleton />

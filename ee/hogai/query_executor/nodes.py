@@ -6,7 +6,7 @@ from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
 from langchain_core.runnables import RunnableConfig
 from rest_framework.exceptions import APIException
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 from ee.hogai.query_executor.format import (
     compress_and_format_funnels_results,
@@ -54,9 +54,11 @@ class QueryExecutorNode(AssistantNode):
                 viz_message.answer.model_dump(mode="json"),
                 # Celery doesn't run in tests, so there we use force_blocking instead
                 # This does mean that the waiting logic is not tested
-                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
-                if not settings.TEST
-                else ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                execution_mode=(
+                    ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
+                    if not settings.TEST
+                    else ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+                ),
             ).model_dump(mode="json")
             if results_response.get("query_status") and not results_response["query_status"]["complete"]:
                 query_id = results_response["query_status"]["id"]

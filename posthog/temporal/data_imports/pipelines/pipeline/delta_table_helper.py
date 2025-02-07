@@ -8,7 +8,7 @@ from typing import Any
 import pyarrow as pa
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from django.conf import settings
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 from posthog.settings.base_variables import TEST
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.pipeline.utils import arrow_to_spark_schema, spark_to_arrow_schema

@@ -79,7 +79,7 @@ export function CumulativeExposuresChart(): JSX.Element {
             <div className="flex space-x-2 items-center mb-2">
                 <h2 className="font-semibold text-lg mb-0">Cumulative exposures</h2>
                 <Tooltip title="Monitor number of unique users exposed to the experiment, and confirm the allocation matches the expected distribution between variants.">
-                    <IconInfo className="text-muted-alt text-base" />
+                    <IconInfo className="text-secondary text-base" />
                 </Tooltip>
             </div>
             {experiment.start_date ? (
@@ -96,7 +96,7 @@ export function CumulativeExposuresChart(): JSX.Element {
                     }}
                 />
             ) : (
-                <div className="border rounded bg-bg-light">
+                <div className="border rounded bg-surface-primary">
                     <InsightEmptyState
                         heading="No exposures to show yet"
                         detail="This chart will display once the experiment starts."
