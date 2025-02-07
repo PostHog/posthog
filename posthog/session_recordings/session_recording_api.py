@@ -7,7 +7,6 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from json import JSONDecodeError
 from typing import Any, Optional, cast, Literal
-from collections.abc import Sequence
 
 from posthoganalytics.ai.openai import OpenAI
 from urllib.parse import urlparse
@@ -912,16 +911,10 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         if "regex" not in request.data:
             raise exceptions.ValidationError("Missing required field: regex")
 
-        # Create system prompt by combining the initial and properties prompts
-        system_message = ChatCompletionSystemMessageParam(
-            role="system", content=clean_prompt_whitespace(AI_REGEX_PROMPTS)
+        messages = create_openai_messages(
+            system_content=clean_prompt_whitespace(AI_REGEX_PROMPTS),
+            user_content=clean_prompt_whitespace(request.data["regex"]),
         )
-
-        user_message = ChatCompletionUserMessageParam(
-            role="user", content=clean_prompt_whitespace(request.data["regex"])
-        )
-
-        messages = [system_message, user_message]
 
         client = _get_openai_client()
 
@@ -1095,7 +1088,7 @@ def _get_openai_client() -> OpenAI:
     return OpenAI(posthog_client=client)
 
 
-def create_openai_messages(system_content: str, user_content: str) -> Sequence[ChatCompletionMessageParam]:
+def create_openai_messages(system_content: str, user_content: str) -> list[ChatCompletionMessageParam]:
     """Helper function to create properly typed OpenAI messages."""
     return [
         ChatCompletionSystemMessageParam(role="system", content=system_content),
