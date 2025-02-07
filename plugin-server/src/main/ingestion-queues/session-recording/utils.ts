@@ -299,7 +299,7 @@ export const parseKafkaMessage = async (
             end: events[events.length - 1].timestamp,
         },
         snapshot_source: $snapshot_source,
-        snapshot_library: $lib,
+        snapshot_library: $lib ?? null,
     }
 }
 

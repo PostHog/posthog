@@ -76,6 +76,44 @@ describe('session recording process event', () => {
             },
         },
         {
+            testDescription: 'snapshot lib max length',
+            snapshotData: {
+                events_summary: [
+                    // click
+                    { timestamp: 1682449093469, type: 3, data: { source: 2, type: 2 }, windowId: '1' },
+                    // dbl click
+                    { timestamp: 1682449093469, type: 3, data: { source: 2, type: 4 }, windowId: '1' },
+                    // touch end
+                    { timestamp: 1682449093469, type: 3, data: { source: 2, type: 9 }, windowId: '1' },
+                    // right click
+                    { timestamp: 1682449093469, type: 3, data: { source: 2, type: 3 }, windowId: '1' },
+                    // touch move - mouse activity but not click activity
+                    { timestamp: 1682449093469, type: 3, data: { source: 6 }, windowId: '1' },
+                    // mouse move - mouse activity but not click activity
+                    { timestamp: 1682449093469, type: 3, data: { source: 1 }, windowId: '1' },
+                ],
+            },
+            $lib: 'a'.repeat(1010),
+            expected: {
+                click_count: 4,
+                keypress_count: 0,
+                mouse_activity_count: 6,
+                first_url: null,
+                first_timestamp: '2023-04-25 18:58:13.469',
+                last_timestamp: '2023-04-25 18:58:13.469',
+                active_milliseconds: 1, //  one event, but it's active, so active time is 1ms not 0
+                console_log_count: 0,
+                console_warn_count: 0,
+                console_error_count: 0,
+                size: 469,
+                event_count: 6,
+                message_count: 1,
+                snapshot_source: 'web',
+                urls: [],
+                snapshot_library: 'a'.repeat(1000),
+            },
+        },
+        {
             testDescription: 'keyboard press is detected',
             snapshotData: {
                 // keyboard press

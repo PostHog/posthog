@@ -6,6 +6,9 @@ import { status } from '../../../utils/status'
 import { castTimestampOrNow } from '../../../utils/utils'
 import { activeMilliseconds } from './snapshot-segmenter'
 
+// some properties are technically user submitted data so we'll do a little mild validation ahead of kafka
+const MAX_PROPERTY_LENGTH = 1000
+
 function sanitizeForUTF8(input: string): string {
     // the JS console truncates some logs...
     // when it does that it doesn't check if the output is valid UTF-8
@@ -317,8 +320,8 @@ export const createSessionReplayEvent = (
     if (snapshot_library?.trim() === '') {
         validSnapshotLibrary = null
     }
-    if (validSnapshotLibrary && validSnapshotLibrary.length > 1000) {
-        validSnapshotLibrary = validSnapshotLibrary.substring(0, 1000)
+    if (validSnapshotLibrary && validSnapshotLibrary.length > MAX_PROPERTY_LENGTH) {
+        validSnapshotLibrary = validSnapshotLibrary.substring(0, MAX_PROPERTY_LENGTH)
     }
 
     // NB forces types to be correct e.g. by truncating or rounding
