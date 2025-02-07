@@ -63,7 +63,7 @@ const Filters = (): JSX.Element => {
     return (
         <div
             className={clsx(
-                'sticky z-20 bg-bg-3000 border-b py-2',
+                'sticky z-20 bg-primary border-b py-2',
                 mobileLayout ? 'top-[var(--breadcrumbs-height-full)]' : 'top-[var(--breadcrumbs-height-compact)]'
             )}
         >
@@ -440,7 +440,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                 <WebAnalyticsModal />
                 <VersionCheckerBanner />
                 <div className="WebAnalyticsDashboard w-full flex flex-col">
-                    <div className="flex flex-row space-between justify-center">
+                    <div className="flex flex-row">
                         {featureFlags[FEATURE_FLAGS.WEB_VITALS] && (
                             <div className="flex-1">
                                 <LemonTabs<ProductTab>
