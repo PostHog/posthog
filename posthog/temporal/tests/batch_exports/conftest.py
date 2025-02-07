@@ -54,8 +54,8 @@ async def truncate_events(clickhouse_client):
     This is useful if during the test setup we insert a lot of events we wish to clean-up.
     """
     yield
-    await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS `sharded_events`")
-    await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS `events_recent`")
+    await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS sharded_events")
+    await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS events_recent")
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -65,8 +65,8 @@ async def truncate_persons(clickhouse_client):
     This is useful if during the test setup we insert a lot of persons we wish to clean-up.
     """
     yield
-    await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS `person`")
-    await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS `person_distinct_id2`")
+    await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS person")
+    await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS person_distinct_id2")
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -76,7 +76,7 @@ async def truncate_sessions(clickhouse_client):
     This is useful if during the test setup we insert a lot of sessions we wish to clean-up.
     """
     yield
-    await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS `raw_sessions`")
+    await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS raw_sessions")
 
 
 @pytest.fixture

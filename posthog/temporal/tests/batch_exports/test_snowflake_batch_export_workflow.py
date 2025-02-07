@@ -1060,6 +1060,7 @@ TEST_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
     ),
     BatchExportModel(name="events", schema=None),
     BatchExportModel(name="persons", schema=None),
+    BatchExportModel(name="sessions", schema=None),
     {
         "fields": [
             {"expression": "event", "alias": "event"},
