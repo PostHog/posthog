@@ -140,9 +140,10 @@ export class LegacyPluginExecutorService {
                 // For testing we mock out all non-GET requests
                 addLog('info', 'Fetch called but mocked due to test function')
                 return Promise.resolve({
-                    status: 500,
+                    status: 200,
                     json: () =>
                         Promise.resolve({
+                            status: 'OK',
                             message: 'Test function',
                         }),
                 } as Response)
