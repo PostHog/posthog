@@ -117,18 +117,6 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                                             ) : null}
 
                                             <div className={clsx('py-1', hasVariants && 'pl-4')}>
-                                                <div className="flex items-center justify-between">
-                                                    <label className="text-xs font-semibold">Payload</label>
-                                                    <LemonButton
-                                                        size="small"
-                                                        onClick={() => setPayloadEditorOpen(feature_flag.key, true)}
-                                                        className={
-                                                            !openPayloadEditors[feature_flag.key] ? '' : 'hidden'
-                                                        }
-                                                    >
-                                                        Edit
-                                                    </LemonButton>
-                                                </div>
                                                 {openPayloadEditors[feature_flag.key] ? (
                                                     <div className="flex gap-2 items-start mt-1">
                                                         <LemonTextArea
@@ -143,7 +131,7 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                                                                     : '')
                                                             }
                                                             onChange={(val) => setDraftPayload(feature_flag.key, val)}
-                                                            placeholder='{"key": "value"}'
+                                                            placeholder='Examples: "A string", 2500, {"key": "value"}'
                                                             minRows={2}
                                                         />
                                                         <div className="flex flex-col gap-1">
@@ -165,11 +153,21 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                                                             </LemonButton>
                                                         </div>
                                                     </div>
-                                                ) : payloadOverride ? (
-                                                    <div className="font-mono text-xs mt-1 truncate">
-                                                        {JSON.stringify(payloadOverride)}
+                                                ) : (
+                                                    <div className="flex justify-end items-center gap-2">
+                                                        {payloadOverride && (
+                                                            <div className="font-mono text-xs truncate flex-1">
+                                                                {JSON.stringify(payloadOverride)}
+                                                            </div>
+                                                        )}
+                                                        <LemonButton
+                                                            size="xsmall"
+                                                            onClick={() => setPayloadEditorOpen(feature_flag.key, true)}
+                                                        >
+                                                            Edit payload
+                                                        </LemonButton>
                                                     </div>
-                                                ) : null}
+                                                )}
                                             </div>
                                         </>
                                     </AnimatedCollapsible>
