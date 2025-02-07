@@ -101,7 +101,7 @@ def generate_test_events(
 
 
 async def insert_event_values_in_clickhouse(
-    client: ClickHouseClient, events: list[EventValues], table: str = "sharded_events"
+    client: ClickHouseClient, events: list[EventValues], table: str = "sharded_events", insert_sessions: bool = False
 ):
     """Execute an insert query to insert provided EventValues into sharded_events."""
     await client.execute_query(
@@ -143,6 +143,8 @@ async def insert_event_values_in_clickhouse(
         ],
     )
 
+
+async def insert_sessions_in_clickhouse(client: ClickHouseClient, table: str = "sharded_events"):
     generate_sessions_query = RAW_SESSION_TABLE_BACKFILL_SELECT_SQL()
     if table == "events_recent":
         generate_sessions_query = generate_sessions_query.replace("posthog_test.events", "posthog_test.events_recent")
@@ -221,9 +223,16 @@ async def generate_test_events_in_clickhouse(
         if duplicate is True:
             duplicate_events = events_to_insert
 
-        await insert_event_values_in_clickhouse(client=client, events=events_to_insert + duplicate_events, table=table)
+        await insert_event_values_in_clickhouse(
+            client=client,
+            events=events_to_insert + duplicate_events,
+            table=table,
+        )
 
         events.extend(events_to_insert)
+
+    if insert_sessions:
+        await insert_sessions_in_clickhouse(client=client, table=table)
 
     # Events outside original date range
     delta = end_time - start_time

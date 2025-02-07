@@ -866,7 +866,7 @@ async def test_insert_into_bigquery_activity_merges_sessions_data_in_follow_up_r
         data_interval_start + dt.timedelta(hours=1),
         data_interval_end + dt.timedelta(hours=1),
     )
-    _, _, _ = await generate_test_events_in_clickhouse(
+    new_events, _, _ = await generate_test_events_in_clickhouse(
         client=clickhouse_client,
         team_id=ateam.pk,
         start_time=new_data_interval_start,
@@ -879,6 +879,7 @@ async def test_insert_into_bigquery_activity_merges_sessions_data_in_follow_up_r
         person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
         event_name=event["event"],
         table="sharded_events",
+        insert_sessions=True,
     )
 
     insert_inputs.data_interval_start = new_data_interval_start.isoformat()
@@ -906,8 +907,11 @@ async def test_insert_into_bigquery_activity_merges_sessions_data_in_follow_up_r
     query_job = bigquery_client.query(f"SELECT * FROM {bigquery_dataset.dataset_id}.{table_id}")
     result = query_job.result()
     rows = list(result)
+    new_event = new_events[0]
+    new_event_properties = new_event["properties"] or {}
     assert len(rows) == 1
-    assert rows[0]["session_id"] == event["properties"]["$session_id"]
+    assert rows[0]["session_id"] == new_event_properties["$session_id"]
+    assert rows[0]["end_timestamp"] == dt.datetime.fromisoformat(new_event["timestamp"]).replace(tzinfo=dt.UTC)
 
 
 async def test_insert_into_bigquery_activity_handles_person_schema_changes(

@@ -275,6 +275,16 @@ def test_properties(request, session_id):
 
 
 @pytest.fixture
+def insert_sessions(request):
+    """Sets whether to insert new sessions or not."""
+    try:
+        return request.param
+    except AttributeError:
+        pass
+    return True
+
+
+@pytest.fixture
 def test_person_properties(request):
     """Set test person data properties."""
     try:
@@ -300,10 +310,6 @@ async def generate_test_data(
     else:
         table = "sharded_events"
 
-    # Really clean up tables before generating new data.
-    await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS `raw_sessions`")
-    await clickhouse_client.execute_query(f"TRUNCATE TABLE IF EXISTS `{table}`")
-
     events_to_export_created, _, _ = await generate_test_events_in_clickhouse(
         client=clickhouse_client,
         team_id=ateam.pk,
@@ -316,6 +322,7 @@ async def generate_test_data(
         properties=test_properties,
         person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
         table=table,
+        insert_sessions="$session_id" in test_properties and insert_sessions,
     )
 
     more_events_to_export_created, _, _ = await generate_test_events_in_clickhouse(

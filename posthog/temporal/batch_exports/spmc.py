@@ -1063,8 +1063,6 @@ def compose_filters_clause(
         A printed string with the ClickHouse SQL clause, and a dictionary
         of placeholder to values to be used as query parameters.
     """
-    from posthog.models import Team
-
     team = Team.objects.get(id=team_id)
     context = HogQLContext(
         team=team,

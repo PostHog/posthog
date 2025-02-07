@@ -32,7 +32,6 @@ from posthog.batch_exports.service import (
 )
 from posthog.temporal.batch_exports.batch_exports import (
     finish_batch_export_run,
-    iter_model_records,
     start_batch_export_run,
 )
 from posthog.temporal.batch_exports.snowflake_batch_export import (
@@ -45,8 +44,9 @@ from posthog.temporal.batch_exports.snowflake_batch_export import (
     load_private_key,
     snowflake_default_fields,
 )
+from posthog.temporal.batch_exports.spmc import Producer, RecordBatchQueue, SessionsRecordBatchModel
 from posthog.temporal.common.clickhouse import ClickHouseClient
-from posthog.temporal.tests.batch_exports.utils import mocked_start_batch_export_run
+from posthog.temporal.tests.batch_exports.utils import get_record_batch_from_queue, mocked_start_batch_export_run
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
@@ -889,7 +889,7 @@ async def assert_clickhouse_records_in_snowflake(
     rows = snowflake_cursor.fetchall()
 
     columns = {index: metadata.name for index, metadata in enumerate(snowflake_cursor.description)}
-    json_columns = ("properties", "person_properties", "people_set", "people_set_once")
+    json_columns = ("properties", "person_properties", "people_set", "people_set_once", "urls")
 
     # Rows are tuples, so we construct a dictionary using the metadata from cursor.description.
     # We rely on the order of the columns in each row matching the order set in cursor.description.
@@ -904,43 +904,67 @@ async def assert_clickhouse_records_in_snowflake(
         for row in rows
     ]
 
-    schema_column_names = (
-        expected_fields if expected_fields is not None else [field["alias"] for field in snowflake_default_fields()]
-    )
     if batch_export_model is not None:
         if isinstance(batch_export_model, BatchExportModel):
-            batch_export_schema = batch_export_model.schema
-        else:
-            batch_export_schema = batch_export_model
-
-        if batch_export_schema is not None:
-            schema_column_names = [field["alias"] for field in batch_export_schema["fields"]]
-        elif isinstance(batch_export_model, BatchExportModel) and batch_export_model.name == "persons":
-            schema_column_names = (
-                expected_fields if expected_fields is not None else EXPECTED_PERSONS_BATCH_EXPORT_FIELDS
+            model_name = batch_export_model.name
+            fields = batch_export_model.schema["fields"] if batch_export_model.schema is not None else None
+            filters = batch_export_model.filters
+            extra_query_parameters = (
+                batch_export_model.schema["values"] if batch_export_model.schema is not None else None
             )
+        else:
+            model_name = "custom"
+            fields = batch_export_model["fields"]
+            filters = None
+            extra_query_parameters = batch_export_model["values"]
+    else:
+        model_name = "events"
+        extra_query_parameters = None
+        fields = None
+        filters = None
 
     expected_records = []
-    async for record_batch in iter_model_records(
-        client=clickhouse_client,
-        model=batch_export_model,
+    queue = RecordBatchQueue()
+    if model_name == "sessions":
+        producer = Producer(model=SessionsRecordBatchModel(team_id))
+    else:
+        producer = Producer()
+
+    producer_task = await producer.start(
+        queue=queue,
+        model_name=model_name,
+        is_backfill=is_backfill,
         team_id=team_id,
-        interval_start=data_interval_start.isoformat(),
-        interval_end=data_interval_end.isoformat(),
+        full_range=(data_interval_start, data_interval_end),
+        done_ranges=[],
+        fields=fields,
+        filters=filters,
+        destination_default_fields=snowflake_default_fields(),
         exclude_events=exclude_events,
         include_events=include_events,
         destination_default_fields=snowflake_default_fields(),
         backfill_details=backfill_details,
         use_latest_schema=True,
-    ):
-        for record in record_batch.to_pylist():
+    )
+    while True:
+        record_batch = await get_record_batch_from_queue(queue, producer_task)
+
+        if record_batch is None:
+            break
+
+        select = record_batch.column_names
+        if expected_fields:
+            select = expected_fields
+
+        for record in record_batch.select(select).to_pylist():
             expected_record = {}
+
             for k, v in record.items():
-                if k not in schema_column_names or k == "_inserted_at":
+                if k == "_inserted_at":
                     # _inserted_at is not exported, only used for tracking progress.
                     continue
 
-                if k in json_columns and v is not None:
+                if k in json_columns and isinstance(v, str):
                     expected_record[k] = json.loads(v)
                 elif isinstance(v, dt.datetime):
                     # By default, Snowflake's `TIMESTAMP` doesn't include a timezone component.
@@ -966,6 +990,7 @@ async def assert_clickhouse_records_in_snowflake(
     assert len(inserted_records) == len(expected_records)
     assert inserted_records[0] == expected_records[0]
     assert inserted_records == expected_records
+    assert len(inserted_column_names) > 0
 
 
 REQUIRED_ENV_VARS = (
@@ -1115,7 +1140,7 @@ async def test_insert_into_snowflake_activity_inserts_data_into_snowflake_table(
 
 
 @SKIP_IF_MISSING_REQUIRED_ENV_VARS
-async def test_insert_into_snowflake_activity_merges_data_in_follow_up_runs(
+async def test_insert_into_snowflake_activity_merges_persons_data_in_follow_up_runs(
     clickhouse_client,
     activity_environment,
     snowflake_cursor,
@@ -1125,7 +1150,7 @@ async def test_insert_into_snowflake_activity_merges_data_in_follow_up_runs(
     data_interval_end,
     ateam,
 ):
-    """Test that the `insert_into_snowflake_activity` merges new versions of rows.
+    """Test that the `insert_into_snowflake_activity` merges new versions of person rows.
 
     This unit tests looks at the mutability handling capabilities of the aforementioned activity.
     We will generate a new entry in the persons table for half of the persons exported in a first
@@ -1134,7 +1159,7 @@ async def test_insert_into_snowflake_activity_merges_data_in_follow_up_runs(
     """
     model = BatchExportModel(name="persons", schema=None)
 
-    table_name = f"test_insert_activity_table_mutable_{ateam.pk}"
+    table_name = f"test_insert_activity_table_mutable_persons_{ateam.pk}"
     insert_inputs = SnowflakeInsertInputs(
         team_id=ateam.pk,
         table_name=table_name,
@@ -1192,6 +1217,98 @@ async def test_insert_into_snowflake_activity_merges_data_in_follow_up_runs(
         batch_export_model=model,
         sort_key="person_id",
     )
+
+
+@SKIP_IF_MISSING_REQUIRED_ENV_VARS
+async def test_insert_into_snowflake_activity_merges_sessions_data_in_follow_up_runs(
+    clickhouse_client,
+    activity_environment,
+    snowflake_cursor,
+    snowflake_config,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+):
+    """Test that the `insert_into_snowflake_activity` merges new versions of sessions rows.
+
+    This unit tests looks at the mutability handling capabilities of the aforementioned activity.
+    We will generate a new entry in the raw_sessions table for the one session exported in the first
+    run of the activity. We expect the new entries to have replaced the old ones in Snowflake after
+    the second run with the same time range.
+    """
+    model = BatchExportModel(name="sessions", schema=None)
+
+    table_name = f"test_insert_activity_table_mutable_sessions_{ateam.pk}"
+    insert_inputs = SnowflakeInsertInputs(
+        team_id=ateam.pk,
+        table_name=table_name,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        batch_export_model=model,
+        **snowflake_config,
+    )
+
+    await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
+
+    await assert_clickhouse_records_in_snowflake(
+        snowflake_cursor=snowflake_cursor,
+        clickhouse_client=clickhouse_client,
+        table_name=table_name,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_model=model,
+        sort_key="session_id",
+    )
+
+    events_to_export_created, _ = generate_test_data
+    event = events_to_export_created[0]
+
+    new_data_interval_start, new_data_interval_end = (
+        data_interval_start + dt.timedelta(hours=1),
+        data_interval_end + dt.timedelta(hours=1),
+    )
+
+    new_events, _, _ = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=ateam.pk,
+        start_time=new_data_interval_start,
+        end_time=new_data_interval_end,
+        count=1,
+        count_outside_range=0,
+        count_other_team=0,
+        duplicate=False,
+        properties=event["properties"],
+        person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
+        event_name=event["event"],
+        table="sharded_events",
+        insert_sessions=True,
+    )
+
+    insert_inputs.data_interval_start = new_data_interval_start.isoformat()
+    insert_inputs.data_interval_end = new_data_interval_end.isoformat()
+
+    await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
+
+    await assert_clickhouse_records_in_snowflake(
+        snowflake_cursor=snowflake_cursor,
+        clickhouse_client=clickhouse_client,
+        table_name=table_name,
+        team_id=ateam.pk,
+        data_interval_start=new_data_interval_start,
+        data_interval_end=new_data_interval_end,
+        batch_export_model=model,
+        sort_key="session_id",
+    )
+
+    snowflake_cursor.execute(f'SELECT "session_id", "end_timestamp" FROM "{table_name}"')
+    rows = list(snowflake_cursor.fetchall())
+    new_event = new_events[0]
+    new_event_properties = new_event["properties"] or {}
+    assert len(rows) == 1
+    assert rows[0][0] == new_event_properties["$session_id"]
+    assert rows[0][1] == dt.datetime.fromisoformat(new_event["timestamp"])
 
 
 @pytest.fixture

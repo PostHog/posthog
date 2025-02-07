@@ -520,14 +520,13 @@ class SnowflakeClient:
                     first_error or "NO ERROR MESSAGE",
                 )
 
-    async def amerge_person_tables(
+    async def amerge_mutable_tables(
         self,
         final_table: str,
         stage_table: str,
         merge_key: collections.abc.Iterable[SnowflakeField],
+        update_key: collections.abc.Iterable[str],
         update_when_matched: collections.abc.Iterable[SnowflakeField],
-        person_version_key: str = "person_version",
-        person_distinct_id_version_key: str = "person_distinct_id_version",
     ):
         """Merge two identical person model tables in Snowflake."""
 
@@ -542,6 +541,14 @@ class SnowflakeClient:
             if n > 0:
                 merge_condition += " AND "
             merge_condition += f'final."{field[0]}" = stage."{field[0]}"'
+
+        update_condition = "AND ("
+
+        for index, field_name in enumerate(update_key):
+            if index > 0:
+                update_condition += " OR "
+            update_condition += f'final."{field_name}" < stage."{field_name}"'
+        update_condition += ")"
 
         update_clause = ""
         values = ""
@@ -561,7 +568,7 @@ class SnowflakeClient:
         USING "{stage_table}" AS stage
         {merge_condition}
 
-        WHEN MATCHED AND (stage."{person_version_key}" > final."{person_version_key}" OR stage."{person_distinct_id_version_key}" > final."{person_distinct_id_version_key}") THEN
+        WHEN MATCHED {update_condition} THEN
             UPDATE SET
                 {update_clause}
         WHEN NOT MATCHED THEN
@@ -699,8 +706,11 @@ def get_snowflake_fields_from_record_schema(
         elif pa.types.is_timestamp(pa_field.type):
             snowflake_type = "TIMESTAMP"
 
+        elif pa.types.is_list(pa_field.type):
+            snowflake_type = "ARRAY"
+
         else:
-            raise TypeError(f"Unsupported type: {pa_field.type}")
+            raise TypeError(f"Unsupported type in field '{name}': '{pa_field.type}'")
 
         snowflake_schema.append((name, snowflake_type))
 
@@ -800,16 +810,23 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
             )
 
         requires_merge = False
-        merge_key = (
-            ("team_id", "INT64"),
-            ("distinct_id", "STRING"),
-        )
+        merge_key = []
+        update_key = []
         if isinstance(inputs.batch_export_model, BatchExportModel):
             if inputs.batch_export_model.name == "persons":
                 requires_merge = True
+                merge_key = [
+                    ("team_id", "INT64"),
+                    ("distinct_id", "STRING"),
+                ]
+                update_key = ["person_version", "person_distinct_id_version"]
+
             elif inputs.batch_export_model.name == "sessions":
                 requires_merge = True
-                merge_key = (("team_id", "INT64"), ("session_id", "STRING"))
+                merge_key = [("team_id", "INT64"), ("session_id", "STRING")]
+                update_key = [
+                    "end_timestamp",
+                ]
 
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
         stagle_table_name = (
@@ -852,11 +869,12 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                 )
 
                 if requires_merge:
-                    await snow_client.amerge_person_tables(
+                    await snow_client.amerge_mutable_tables(
                         final_table=snow_table,
                         stage_table=snow_stage_table,
                         update_when_matched=table_fields,
                         merge_key=merge_key,
+                        update_key=update_key,
                     )
 
         return records_completed
