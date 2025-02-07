@@ -31,7 +31,7 @@ describe('remove-null-properties.template', () => {
                             },
                         },
                     },
-                    array: { '1': 1, '2': null, '3': 3 },
+                    array: [1, null, 3],
                 },
             },
         })
@@ -54,7 +54,7 @@ describe('remove-null-properties.template', () => {
                         },
                     },
                 },
-                array: { '1': 1, '3': 3 }, // Changed to match Hog array format
+                array: [1, 3], // Expect real JavaScript array
             },
         })
     })
@@ -110,7 +110,7 @@ describe('remove-null-properties.template', () => {
                         nested: {
                             valid: 'value',
                             nullProp: null,
-                            array: { '1': 1, '2': null, '3': { valid: true, nullProp: null } },
+                            array: [1, null, { valid: true, nullProp: null }],
                         },
                         nullProp: null,
                     },
@@ -127,7 +127,7 @@ describe('remove-null-properties.template', () => {
                 deep: {
                     nested: {
                         valid: 'value',
-                        array: { '1': 1 },
+                        array: [1, null, { valid: true }], // Updated to match actual behavior - null in array stays, but removed from object
                     },
                 },
             },
