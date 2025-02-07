@@ -365,6 +365,11 @@ pub async fn process_replay_events<'a>(
     let is_cookieless_mode = events[0]
         .extract_is_cookieless_mode()
         .ok_or(CaptureError::InvalidCookielessMode)?;
+    let snapshot_library = events[0]
+        .properties
+        .remove("$lib")
+        // library without a lib is almost certainly an older web replay client
+        .unwrap_or("web".into());
 
     let mut snapshot_items: Vec<Value> = Vec::with_capacity(events.len());
     for mut event in events {
@@ -406,6 +411,7 @@ pub async fn process_replay_events<'a>(
                 "$window_id": window_id,
                 "$snapshot_source": snapshot_source,
                 "$snapshot_items": snapshot_items,
+                "$lib": snapshot_library,
             }
         })
         .to_string(),
