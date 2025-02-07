@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -24,6 +25,7 @@ import { FunnelStepsTable } from 'scenes/insights/views/Funnels/FunnelStepsTable
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import { Paths } from 'scenes/paths/Paths'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
+import { PathsV2 } from 'scenes/paths-v2/PathsV2'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { TrendInsight } from 'scenes/trends/Trends'
 
@@ -79,6 +81,9 @@ export function InsightVizDisplay({
         query,
     } = useValues(insightVizDataLogic(insightProps))
     const { exportContext, queryId } = useValues(insightDataLogic(insightProps))
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const isUsingPathsV2 = featureFlags['paths-v2']
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
@@ -156,7 +161,7 @@ export function InsightVizDisplay({
                     />
                 )
             case InsightType.PATHS:
-                return <Paths />
+                return isUsingPathsV2 ? <PathsV2 /> : <Paths />
             default:
                 return null
         }
