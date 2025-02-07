@@ -16,16 +16,20 @@ type BillingGaugeItemProps = {
     item: BillingGaugeItemType
     maxValue: number
     isWithinUsageLimit: boolean
+    isAddon: boolean
 }
 
-const BillingGaugeItem = ({ item, maxValue, isWithinUsageLimit }: BillingGaugeItemProps): JSX.Element => {
+const BillingGaugeItem = ({ item, maxValue, isWithinUsageLimit, isAddon }: BillingGaugeItemProps): JSX.Element => {
     const width = `${(item.value / maxValue) * 100}%`
 
     return (
         <div
             className={clsx(
                 `BillingGaugeItem BillingGaugeItem--${item.type}`,
-                { 'BillingGaugeItem--within-usage-limit': isWithinUsageLimit },
+                {
+                    'BillingGaugeItem--within-usage-limit': isWithinUsageLimit,
+                    'BillingGaugeItem--addon': isAddon,
+                },
                 'absolute top-0 left-0 bottom-0 h-2'
             )}
             // eslint-disable-next-line react/forbid-dom-props
@@ -62,11 +66,18 @@ export function BillingGauge({ items, product }: BillingGaugeProps): JSX.Element
         return Math.max(100, ...items.map((item) => item.value)) * 1.3
     }, [items])
     const isWithinUsageLimit = (product.percentage_usage ?? 0) <= 1
+    const isAddon = !('addons' in product)
 
     return (
         <div className="relative h-2 bg-border-light my-16">
             {items.map((item, i) => (
-                <BillingGaugeItem key={i} item={item} maxValue={maxValue} isWithinUsageLimit={isWithinUsageLimit} />
+                <BillingGaugeItem
+                    key={i}
+                    item={item}
+                    maxValue={maxValue}
+                    isWithinUsageLimit={isWithinUsageLimit}
+                    isAddon={isAddon}
+                />
             ))}
         </div>
     )
