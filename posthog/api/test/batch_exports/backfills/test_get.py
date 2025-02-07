@@ -9,43 +9,168 @@ from posthog.api.test.batch_exports.fixtures import (
     create_batch_export,
     create_destination,
     create_organization,
+    create_run,
 )
 from posthog.api.test.batch_exports.operations import get_batch_export_backfill_ok
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
+from posthog.batch_exports.models import BatchExportBackfill, BatchExportRun
 
 pytestmark = [
     pytest.mark.django_db,
 ]
 
+TEST_TIME = dt.datetime.now(tz=dt.UTC).replace(microsecond=0)
+
 
 @pytest.mark.parametrize(
-    "start_at, end_at, expected_total_runs",
+    "status, start_at, end_at, completed_runs, expected_progress",
     [
-        (dt.datetime(2021, 1, 1, 0, 0, 0, tzinfo=dt.UTC), dt.datetime(2021, 1, 1, 1, 0, 0, tzinfo=dt.UTC), 1),
-        (dt.datetime(2021, 1, 1, 0, 0, 0, tzinfo=dt.UTC), dt.datetime(2021, 1, 2, 0, 0, 0, tzinfo=dt.UTC), 24),
-        (None, dt.datetime(2021, 1, 2, 0, 0, 0, tzinfo=dt.UTC), None),
-        (dt.datetime(2021, 1, 1, 0, 0, 0, tzinfo=dt.UTC), None, None),
+        # a completed backfill with 1 run but no runs in the DB with backfill_id (this wasn't populated in the past, so
+        # useful to test backwards compatibility)
+        (
+            BatchExportBackfill.Status.COMPLETED,
+            dt.datetime(2021, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
+            dt.datetime(2021, 1, 1, 1, 0, 0, tzinfo=dt.UTC),
+            0,
+            {
+                "total_runs": 1,
+                "finished_runs": 1,
+                "progress": 1,
+            },
+        ),
+        (
+            BatchExportBackfill.Status.COMPLETED,
+            dt.datetime(2021, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
+            dt.datetime(2021, 1, 1, 1, 0, 0, tzinfo=dt.UTC),
+            1,
+            {
+                "total_runs": 1,
+                "finished_runs": 1,
+                "progress": 1,
+            },
+        ),
+        # backfill failed so progress is not meaningful
+        (
+            BatchExportBackfill.Status.FAILED,
+            dt.datetime(2021, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
+            dt.datetime(2021, 1, 1, 1, 0, 0, tzinfo=dt.UTC),
+            0,
+            None,
+        ),
+        # backfill was cancelled so progress is not meaningful
+        (
+            BatchExportBackfill.Status.CANCELLED,
+            dt.datetime(2021, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
+            dt.datetime(2021, 1, 1, 2, 0, 0, tzinfo=dt.UTC),
+            1,
+            None,
+        ),
+        # backfill is half way through so progress is 0.5
+        (
+            BatchExportBackfill.Status.RUNNING,
+            dt.datetime(2021, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
+            dt.datetime(2021, 1, 1, 2, 0, 0, tzinfo=dt.UTC),
+            1,
+            {
+                "total_runs": 2,
+                "finished_runs": 1,
+                "progress": 0.5,
+            },
+        ),
+        (
+            BatchExportBackfill.Status.STARTING,
+            dt.datetime(2021, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
+            dt.datetime(2021, 1, 1, 2, 0, 0, tzinfo=dt.UTC),
+            0,
+            {
+                "total_runs": 2,
+                "finished_runs": 0,
+                "progress": 0,
+            },
+        ),
+        # backfill is just a single run from earliest date so not possible to calculate progress
+        (BatchExportBackfill.Status.RUNNING, None, dt.datetime(2021, 1, 1, 2, 0, 0, tzinfo=dt.UTC), 0, None),
+        (
+            BatchExportBackfill.Status.COMPLETED,
+            None,
+            dt.datetime(2021, 1, 1, 2, 0, 0, tzinfo=dt.UTC),
+            1,
+            {
+                "total_runs": 1,
+                "finished_runs": 1,
+                "progress": 1,
+            },
+        ),
+        (
+            BatchExportBackfill.Status.COMPLETED,
+            None,
+            dt.datetime(2021, 1, 1, 2, 0, 0, tzinfo=dt.UTC),
+            1,
+            {
+                "total_runs": 1,
+                "finished_runs": 1,
+                "progress": 1,
+            },
+        ),
+        # backfill is a continuous hourly backfill up to the current time. It started 119 minutes ago so we expect there
+        # to be 2 runs, 1 of which is completed, so progress is 0.5
+        (
+            BatchExportBackfill.Status.RUNNING,
+            TEST_TIME - dt.timedelta(minutes=119),
+            None,
+            1,
+            {
+                "total_runs": 2,
+                "finished_runs": 1,
+                "progress": 0.5,
+            },
+        ),
+        # backfill is a continuous hourly backfill up to the current time. It started 119 minutes ago and has status completed
+        # so we expect there to be 2 runs (we round up) and we expect progress to be 1
+        # (we set completed runs to 0 to simulate legacy runs which didn't have backfill_id populated)
+        (
+            BatchExportBackfill.Status.COMPLETED,
+            TEST_TIME - dt.timedelta(minutes=119),
+            None,
+            0,
+            {
+                "total_runs": 2,
+                "finished_runs": 2,
+                "progress": 1,
+            },
+        ),
     ],
 )
-def test_can_get_backfills_for_your_organizations(client: HttpClient, start_at, end_at, expected_total_runs):
+def test_can_get_backfills_for_your_organizations(
+    client: HttpClient, status, start_at, end_at, completed_runs, expected_progress
+):
     """Test that we can get backfills for your own organization.
 
-    We parametrize this test so we can test the behaviour of the total_runs field.
+    We parametrize this test so we can test the behaviour of the total_runs, finished_runs and progress fields.
     """
     organization = create_organization("Test Org")
     team = create_team(organization)
     user = create_user("test@user.com", "Test User", organization)
     destination = create_destination()
     batch_export = create_batch_export(team, destination)
+    finished_at = TEST_TIME if status == BatchExportBackfill.Status.COMPLETED else None
     backfill = create_backfill(
-        team,
-        batch_export,
-        start_at,
-        end_at,
-        "COMPLETED",
-        dt.datetime(2025, 1, 1, 1, 0, 0, tzinfo=dt.UTC),
+        team=team,
+        batch_export=batch_export,
+        start_at=start_at,
+        end_at=end_at,
+        status=status,
+        finished_at=finished_at,
     )
+    for _ in range(completed_runs):
+        create_run(
+            batch_export=batch_export,
+            status=BatchExportRun.Status.COMPLETED,
+            data_interval_start=start_at if start_at else None,
+            data_interval_end=end_at if end_at else dt.datetime.now(tz=dt.UTC),
+            backfill=backfill,
+        )
 
     client.force_login(user)
 
@@ -63,9 +188,9 @@ def test_can_get_backfills_for_your_organizations(client: HttpClient, start_at, 
         "team": team.pk,
         "start_at": start_at.strftime("%Y-%m-%dT%H:%M:%SZ") if start_at else None,
         "end_at": end_at.strftime("%Y-%m-%dT%H:%M:%SZ") if end_at else None,
-        "status": "COMPLETED",
-        "finished_at": "2025-01-01T01:00:00Z",
-        "total_runs": expected_total_runs,
+        "status": status.value,
+        "finished_at": finished_at.strftime("%Y-%m-%dT%H:%M:%SZ") if finished_at else None,
+        "progress": expected_progress,
     }
 
 
@@ -79,7 +204,7 @@ def test_cannot_get_backfills_for_other_organizations(client: HttpClient):
         batch_export,
         dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
         dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.UTC),
-        "RUNNING",
+        BatchExportBackfill.Status.RUNNING,
         None,
     )
 
@@ -105,7 +230,7 @@ def test_backfills_are_partitioned_by_team(client: HttpClient):
         batch_export,
         dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
         dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.UTC),
-        "RUNNING",
+        BatchExportBackfill.Status.RUNNING,
         None,
     )
 
@@ -121,7 +246,7 @@ def test_backfills_are_partitioned_by_team(client: HttpClient):
         another_batch_export,
         dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
         dt.datetime(2023, 1, 2, 0, 0, 0, tzinfo=dt.UTC),
-        "RUNNING",
+        BatchExportBackfill.Status.RUNNING,
         None,
     )
 
