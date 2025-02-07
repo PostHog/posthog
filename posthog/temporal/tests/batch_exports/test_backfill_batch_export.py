@@ -595,6 +595,7 @@ async def test_backfill_batch_export_workflow_is_cancelled_on_repeated_failures(
             end_time=end_at,
             count=10,
             inserted_at=d,
+            table="sharded_events",
         )
 
     inputs = BackfillBatchExportInputs(
