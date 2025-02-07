@@ -294,7 +294,7 @@ export function AuthorizedUrlList({
                                                 dropdown: {
                                                     placement: 'bottom-start',
                                                     overlay: (
-                                                        <>
+                                                        <div className="px-2 py-1">
                                                             <h3>If launching the toolbar didn't work, </h3>
                                                             <p>
                                                                 You can copy the launch code and paste it into the
@@ -314,7 +314,7 @@ export function AuthorizedUrlList({
                                                             >
                                                                 Copy launch code
                                                             </LemonButton>
-                                                        </>
+                                                        </div>
                                                     ),
                                                 },
                                                 'data-attr': 'launch-toolbar-sideaction-dropdown',
