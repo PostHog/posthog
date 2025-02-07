@@ -219,6 +219,8 @@ class DeltaTableHelper:
         table.optimize().executeCompaction()
 
         self._logger.debug("Vacuuming table...")
-        table.vacuum(retentionHours=24)
+        table.vacuum(
+            retentionHours=168  # pyspark complains that anything less than 168 could corrupt the table if theres other operations running
+        )
 
         self._logger.debug("Compacting and vacuuming complete")
