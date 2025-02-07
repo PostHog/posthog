@@ -15,6 +15,8 @@ import { Paths } from './types'
 
 const FALLBACK_CANVAS_WIDTH = 1000
 const FALLBACK_CANVAS_HEIGHT = 0
+const CANVAS_PADDING_HORIZONTAL = 12
+const CANVAS_PADDING_VERTICAL = 12
 
 /*
  * Node
@@ -56,23 +58,23 @@ const createSankeyGenerator = (width: number, height: number): Sankey.SankeyLayo
     /** **Left canvas margin**
      * - Expanded by the border radius to make sure the nodes are not cut off.
      */
-    const marginLeft = 0 + NODE_BORDER_RADIUS
+    const marginLeft = CANVAS_PADDING_HORIZONTAL + NODE_BORDER_RADIUS
 
     /** **Top canvas margin**
      * - Expanded by the node label height and it's bottom margin, so that the
      * first label fits into the canvas.
      */
-    const marginTop = PATH_NODE_CARD_HEIGHT + PATH_NODE_CARD_MARGIN_BOTTOM
+    const marginTop = PATH_NODE_CARD_HEIGHT + PATH_NODE_CARD_MARGIN_BOTTOM + CANVAS_PADDING_VERTICAL
 
     /** **Right canvas margin**
      * - Expanded by the border radius to make sure the nodes are not cut off.
      * - Expanded by the width of the node label, minus the already existing
      * node width to make sure the node label fits into the canvas.
      */
-    const marginRight = 0 + NODE_BORDER_RADIUS + PATH_NODE_CARD_WIDTH - NODE_WIDTH
+    const marginRight = CANVAS_PADDING_HORIZONTAL + NODE_BORDER_RADIUS + PATH_NODE_CARD_WIDTH - NODE_WIDTH
 
     /** **Bottom canvas margin** */
-    const marginBottom = 0
+    const marginBottom = CANVAS_PADDING_VERTICAL
 
     // @ts-expect-error - d3 sankey typing things
     return new Sankey.sankey()
