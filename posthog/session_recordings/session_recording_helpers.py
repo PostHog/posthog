@@ -112,15 +112,18 @@ def preprocess_replay_events_for_blob_ingestion(
 
 
 def snapshot_library_fallback_from(user_agent: str | None) -> str | None:
-    if user_agent is None:
-        fallback = None
-    else:
-        fallback = "web"
-        if "posthog" in user_agent:
-            # mobile SDKs send e.g. posthog-android
-            fallback = user_agent
+    try:
+        if user_agent is None:
+            fallback = None
+        else:
+            fallback = "web"
+            if "posthog" in user_agent and "/" in user_agent:
+                # mobile SDKs send e.g. posthog-android/1.0.0
+                fallback = user_agent.split("/")[0]
 
-    return fallback
+        return fallback
+    except:
+        return None
 
 
 def preprocess_replay_events(

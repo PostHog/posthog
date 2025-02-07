@@ -231,7 +231,7 @@ def test_received_snapshot_source_is_respected_for_first_event(raw_snapshot_even
                 "$snapshot_data": {"type": 3, "timestamp": MILLISECOND_TIMESTAMP},
                 "distinct_id": "abc123",
                 "$snapshot_source": "mobile",
-                "$lib": "posthog-ios",
+                "$lib": "posthog-ios/1.0.0",
             },
         },
         {
@@ -258,7 +258,7 @@ def test_received_snapshot_source_is_respected_for_first_event(raw_snapshot_even
                     {"type": 3, "timestamp": 1546300800000},
                 ],
                 "$snapshot_source": "mobile",
-                "$lib": "posthog-ios",
+                "$lib": "posthog-ios/1.0.0",
             },
         }
     ]
