@@ -8,7 +8,6 @@ import { userLogic } from 'scenes/userLogic'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { HedgehogColorOptions, HedgehogConfig } from '~/types'
 
-import type { hedgehogBuddyLogicType } from './hedgehogBuddyLogicType'
 import type { hedgehogBuddyLogicType } from './hedgehogbuddyLogicType'
 
 export const COLOR_TO_FILTER_MAP: Record<HedgehogColorOptions, string> = {
