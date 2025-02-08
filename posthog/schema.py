@@ -149,6 +149,12 @@ class RetentionReference(StrEnum):
     PREVIOUS = "previous"
 
 
+class ShowMeanRetention(StrEnum):
+    SIMPLE = "simple"
+    WEIGHTED = "weighted"
+    NONE = "none"
+
+
 class AssistantSetPropertyFilterOperator(StrEnum):
     IS_SET = "is_set"
     IS_NOT_SET = "is_not_set"
@@ -1319,12 +1325,6 @@ class ResultCustomizationByValue(BaseModel):
 class RetentionEntityKind(StrEnum):
     ACTIONS_NODE = "ActionsNode"
     EVENTS_NODE = "EventsNode"
-
-
-class ShowMeanRetention(StrEnum):
-    SIMPLE = "simple"
-    WEIGHTED = "weighted"
-    NONE = "none"
 
 
 class RetentionPeriod(StrEnum):
@@ -6038,6 +6038,13 @@ class AssistantRetentionFilter(BaseModel):
         default=None, description="Retention event (event marking the user coming back)."
     )
     showMean: Optional[bool] = Field(
+        default=None,
+        description=(
+            "DEPRECATED: Whether an additional series should be shown, showing the mean conversion for each period"
+            " across cohorts."
+        ),
+    )
+    showMeanRetention: Optional[ShowMeanRetention] = Field(
         default=None,
         description=(
             "Whether an additional series should be shown, showing the mean conversion for each period across cohorts."
