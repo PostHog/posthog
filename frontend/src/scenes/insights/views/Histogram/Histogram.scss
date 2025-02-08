@@ -15,17 +15,17 @@
          */
         g#y-axis {
             .domain {
-                stroke: var(--funnel-axis);
+                stroke: var(--color-graph-axis-line);
             }
         }
 
         g#x-axis {
             .domain {
-                stroke: var(--funnel-axis);
+                stroke: var(--color-graph-axis-label);
             }
 
             .tick {
-                color: var(--funnel-axis);
+                color: var(--color-graph-axis-label);
             }
         }
 
@@ -35,7 +35,7 @@
                 font-family: var(--font-sans);
                 font-size: 0.75rem;
                 font-weight: 500;
-                fill: var(--text-3000);
+                fill: var(--color-graph-axis-label);
             }
         }
 
@@ -46,7 +46,7 @@
             stroke-dasharray: 4, 2;
 
             g.tick:not(:first-child) {
-                color: var(--funnel-grid);
+                color: var(--color-graph-axis-label);
             }
 
             .domain,
@@ -69,10 +69,10 @@
                 // same as chart-js
                 font-size: 12px;
                 font-weight: normal;
-                fill: var(--white);
+                fill: var(--text-primary);
 
                 &.outside {
-                    fill: #0f0f0f;
+                    fill: var(--color-graph-axis-label);
                 }
             }
         }
