@@ -1,4 +1,3 @@
-import laptophog from './laptophog.lottie'
 import musichog from './musichog.lottie'
 import sportshog from './sportshog.lottie'
 
@@ -12,13 +11,11 @@ import sportshog from './sportshog.lottie'
  */
 
 export enum AnimationType {
-    LaptopHog = 'laptophog',
     MusicHog = 'musichog',
     SportsHog = 'sportshog',
 }
 
 export const animations: Record<AnimationType, { url: string; width: number; height: number }> = {
-    laptophog: { url: laptophog, width: 800, height: 800 },
     musichog: { url: musichog, width: 800, height: 800 },
     sportshog: { url: sportshog, width: 800, height: 800 },
 }
