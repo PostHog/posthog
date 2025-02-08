@@ -103,6 +103,7 @@ class TestFirstTimeForUserEventsQueryAlternator:
         assert len(query.having.exprs) == 2
 
         first = query.having.exprs[0]
+        assert isinstance(first, ast.CompareOperation)
         assert first.op == ast.CompareOperationOp.Eq
         assert isinstance(first.left, ast.Field)
         assert first.left.chain == ["min_timestamp"]
@@ -110,6 +111,7 @@ class TestFirstTimeForUserEventsQueryAlternator:
         assert first.right.chain == ["min_timestamp_with_condition"]
 
         second = query.having.exprs[1]
+        assert isinstance(second, ast.CompareOperation)
         assert second.op == ast.CompareOperationOp.NotEq
         assert isinstance(second.left, ast.Field)
         assert second.left.chain == ["min_timestamp"]
