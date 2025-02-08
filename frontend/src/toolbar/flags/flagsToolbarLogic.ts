@@ -41,6 +41,7 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
         setDraftPayload: (flagKey: string, draftPayload: string) => ({ flagKey, draftPayload }),
         savePayloadOverride: (flagKey: string) => ({ flagKey }),
         setPayloadError: (flagKey: string, error: string | null) => ({ flagKey, error }),
+        setPayloadEditorOpen: (flagKey: string, isOpen: boolean) => ({ flagKey, isOpen }),
     }),
     loaders(({ values }) => ({
         userFlags: [
@@ -125,6 +126,20 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                 }),
             },
         ],
+        openPayloadEditors: [
+            {} as Record<string, boolean>,
+            {
+                setPayloadEditorOpen: (state, { flagKey, isOpen }) => ({
+                    ...state,
+                    [flagKey]: isOpen,
+                }),
+                deleteOverriddenUserFlag: (state, { flagKey }) => {
+                    const newState = { ...state }
+                    delete newState[flagKey]
+                    return newState
+                },
+            },
+        ],
     }),
     selectors({
         userFlagsWithOverrideInfo: [
@@ -205,9 +220,18 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
         savePayloadOverride: ({ flagKey }) => {
             try {
                 const draftPayload = values.draftPayloads[flagKey]
-                const payload = draftPayload ? JSON.parse(draftPayload) : null
+                if (!draftPayload || draftPayload.trim() === '') {
+                    actions.setPayloadError(flagKey, null)
+                    actions.setPayloadOverride(flagKey, null)
+                    actions.setOverriddenUserFlag(flagKey, true)
+                    actions.setPayloadEditorOpen(flagKey, false)
+                    return
+                }
+
+                const payload = JSON.parse(draftPayload)
                 actions.setPayloadError(flagKey, null)
                 actions.setOverriddenUserFlag(flagKey, true, payload)
+                actions.setPayloadEditorOpen(flagKey, false)
             } catch (e) {
                 actions.setPayloadError(flagKey, 'Invalid JSON')
                 console.error('Invalid JSON:', e)
