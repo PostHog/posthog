@@ -149,6 +149,12 @@ class RetentionReference(StrEnum):
     PREVIOUS = "previous"
 
 
+class ShowMeanRetention(StrEnum):
+    SIMPLE = "simple"
+    WEIGHTED = "weighted"
+    NONE = "none"
+
+
 class AssistantSetPropertyFilterOperator(StrEnum):
     IS_SET = "is_set"
     IS_NOT_SET = "is_not_set"
@@ -5959,7 +5965,8 @@ class RetentionFilter(BaseModel):
     )
     retentionType: Optional[RetentionType] = None
     returningEntity: Optional[RetentionEntity] = None
-    showMean: Optional[Union[str, bool]] = None
+    showMean: Optional[bool] = None
+    showMeanRetention: Optional[ShowMeanRetention] = None
     targetEntity: Optional[RetentionEntity] = None
     totalIntervals: Optional[int] = 8
 
@@ -5976,7 +5983,8 @@ class RetentionFilterLegacy(BaseModel):
     )
     retention_type: Optional[RetentionType] = None
     returning_entity: Optional[RetentionEntity] = None
-    show_mean: Optional[Union[str, bool]] = None
+    show_mean: Optional[bool] = None
+    show_mean_retention: Optional[ShowMeanRetention] = None
     target_entity: Optional[RetentionEntity] = None
     total_intervals: Optional[int] = None
 
@@ -6371,7 +6379,14 @@ class AssistantRetentionFilter(BaseModel):
     returningEntity: Optional[RetentionEntity] = Field(
         default=None, description="Retention event (event marking the user coming back)."
     )
-    showMean: Optional[Union[str, bool]] = Field(
+    showMean: Optional[bool] = Field(
+        default=None,
+        description=(
+            "DEPRECATED: Whether an additional series should be shown, showing the mean conversion for each period"
+            " across cohorts."
+        ),
+    )
+    showMeanRetention: Optional[ShowMeanRetention] = Field(
         default=None,
         description=(
             "Whether an additional series should be shown, showing the mean conversion for each period across cohorts."

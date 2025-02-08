@@ -573,12 +573,13 @@ export function isQueryTooLarge(query: Node<Record<string, any>>): boolean {
 function parseAndMigrateQuery<T>(query: string): T | null {
     try {
         const parsedQuery = JSON.parse(query)
-        // We made a database migration to convert showMean from a boolean to a string,
-        // to allow for weighted and simple mean in retention tables. This ensures older URLs
-        // are parsed correctly.
+        // We made a database migration to support weighted and simple mean in retention tables.
+        // To do this we created a new column showMeanRetention and deprecated showMean.
+        // This ensures older URLs are parsed correctly.
         const retentionFilter = parsedQuery?.source?.retentionFilter
         if (retentionFilter && 'showMean' in retentionFilter && typeof retentionFilter.showMean === 'boolean') {
-            retentionFilter.showMean = retentionFilter.showMean ? 'simple' : null
+            retentionFilter.showMeanRetention = retentionFilter.showMean ? 'simple' : 'none'
+            delete retentionFilter.showMean
         }
         return parsedQuery
     } catch (e) {
