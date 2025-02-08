@@ -3,6 +3,7 @@ import './RetentionTable.scss'
 import clsx from 'clsx'
 import { mean, sum } from 'd3'
 import { useActions, useValues } from 'kea'
+import { RETENTION_MEAN_NONE } from 'lib/constants'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { gradateColor, range } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -17,7 +18,7 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
     const { openModal } = useActions(retentionModalLogic(insightProps))
     const backgroundColor = theme?.['preset-1'] || '#000000' // Default to black if no color found
     const backgroundColorMean = theme?.['preset-2'] || '#000000' // Default to black if no color found
-    const showMean = retentionFilter?.showMean || 'none'
+    const showMeanRetention = retentionFilter?.showMeanRetention ?? RETENTION_MEAN_NONE
 
     return (
         <table
@@ -37,7 +38,7 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                     ))}
                 </tr>
 
-                {showMean === 'weighted' && tableRows.length > 0 ? (
+                {showMeanRetention === 'weighted' && tableRows.length > 0 ? (
                     <tr className="border-b" key={-2}>
                         {range(0, tableRows[0].length).map((columnIndex) => (
                             <td key={columnIndex} className="pb-2">
@@ -81,7 +82,7 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                     </tr>
                 ) : undefined}
 
-                {showMean === 'simple' && tableRows.length > 0 ? (
+                {showMeanRetention === 'simple' && tableRows.length > 0 ? (
                     <tr className="border-b" key={-1}>
                         {range(0, tableRows[0].length).map((columnIndex) => (
                             <td key={columnIndex} className="pb-2">
@@ -127,7 +128,10 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                         }}
                     >
                         {row.map((column, columnIndex) => (
-                            <td key={columnIndex} className={clsx({ 'pt-2': rowIndex === 0 && showMean })}>
+                            <td
+                                key={columnIndex}
+                                className={clsx({ 'pt-2': rowIndex === 0 && showMeanRetention !== 'none' })}
+                            >
                                 {columnIndex <= (hideSizeColumn ? 0 : 1) ? (
                                     <span className="RetentionTable__TextTab">{column}</span>
                                 ) : (

@@ -1504,7 +1504,8 @@ class TestFilterToQuery(BaseTest):
             },
             "target_entity": {"id": "$pageview", "name": "$pageview", "type": "events"},
             "period": "Week",
-            "show_mean": "simple",
+            "show_mean": True,
+            "show_mean_retention": "simple",
             "cumulative": True,
         }
 
@@ -1531,7 +1532,8 @@ class TestFilterToQuery(BaseTest):
                     "custom_name": None,
                     "order": None,
                 },
-                showMean="simple",
+                showMean=True,
+                showMeanRetention="simple",
                 cumulative=True,
             ),
         )

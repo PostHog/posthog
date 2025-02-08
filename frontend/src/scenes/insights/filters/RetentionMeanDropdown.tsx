@@ -8,11 +8,10 @@ export type RetentionMeanType = 'simple' | 'weighted' | typeof RETENTION_MEAN_NO
 
 export function RetentionMeanDropdown(): JSX.Element | null {
     const { insightProps, canEditInsight } = useValues(insightLogic)
-
     const { retentionFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
-    const showMean = retentionFilter?.showMean || RETENTION_MEAN_NONE
+    const showMeanRetention = retentionFilter?.showMeanRetention ?? RETENTION_MEAN_NONE
 
     if (!canEditInsight) {
         return null
@@ -22,9 +21,9 @@ export function RetentionMeanDropdown(): JSX.Element | null {
         <LemonSelect
             className="w-44"
             size="small"
-            value={showMean}
-            onChange={(showMean) => {
-                updateInsightFilter({ showMean })
+            value={showMeanRetention}
+            onChange={(showMeanRetention) => {
+                updateInsightFilter({ showMeanRetention })
             }}
             options={[
                 {
