@@ -53,7 +53,7 @@ export function ActionsTable(): JSX.Element {
                 trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
             },
         }
-        return urls.insightNew(undefined, undefined, query)
+        return urls.insightNew({ query })
     }
 
     const columns: LemonTableColumns<ActionType> = [

@@ -27,6 +27,8 @@ export function DestinationsFilters({
     const { filters } = useValues(destinationsFiltersLogic({ types }))
     const { setFilters, openFeedbackDialog } = useActions(destinationsFiltersLogic({ types }))
 
+    const isTransformationsOnly = types.includes('transformation')
+
     return (
         <div className="space-y-2">
             <div className="flex items-center gap-2">
@@ -53,7 +55,7 @@ export function DestinationsFilters({
                         onChange={(e) => setFilters({ showPaused: e ?? undefined })}
                     />
                 )}
-                {!hideKind && (
+                {!hideKind && !isTransformationsOnly && (
                     <LemonSelect
                         type="secondary"
                         size="small"

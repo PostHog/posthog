@@ -280,7 +280,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </div>
                             }
                         />
-                        {featureFlag.experiment_set && featureFlag.experiment_set?.length > 0 && (
+                        {featureFlag.experiment_set && featureFlag.experiment_set.length > 0 && (
                             <LemonBanner type="warning">
                                 This feature flag is linked to an experiment. Edit settings here only for advanced
                                 functionality. If unsure, go back to{' '}
@@ -329,7 +329,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 autoCorrect="off"
                                                 spellCheck={false}
                                             />
-                                            <span className="text-muted text-sm">Feature flag keys must be unique</span>
+                                            <span className="text-secondary text-sm">
+                                                Feature flag keys must be unique
+                                            </span>
                                         </>
                                     )}
                                 </LemonField>
@@ -382,7 +384,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     fullWidth
                                                     checked={value}
                                                 />
-                                                <div className="text-muted text-sm pl-7">
+                                                <div className="text-secondary text-sm pl-7">
                                                     If your feature flag is applied before identifying the user, use
                                                     this to ensure that the flag value remains consistent for the same
                                                     user. Depending on your setup, this option might not always be
@@ -427,7 +429,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     >
                                         <div>
                                             <h3 className="l4 mt-2">Advanced settings</h3>
-                                            <div className="text-muted mb-2 font-medium">
+                                            <div className="text-secondary mb-2 font-medium">
                                                 Define who can modify this flag.
                                             </div>
                                         </div>
@@ -438,7 +440,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
                                             <FeatureFlagAutoRollback />
                                         )}
-                                        <div className="border rounded bg-bg-light">
+                                        <div className="border rounded bg-surface-primary">
                                             <h3 className="p-2 mb-0">Permissions</h3>
                                             <LemonDivider className="my-0" />
                                             <div className="p-3">
@@ -486,7 +488,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     <div className="flex flex-wrap items-center gap-2">
                                         <div className="flex space-x-1">
                                             <div>
-                                                <span className="text-muted">Key:</span>{' '}
+                                                <span className="text-secondary">Key:</span>{' '}
                                                 <CopyToClipboardInline
                                                     tooltipMessage={null}
                                                     description="Feature flag key"
@@ -500,7 +502,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             {featureFlag?.tags && (
                                                 <>
                                                     {featureFlag.tags.length > 0 ? (
-                                                        <span className="text-muted">Tags:</span>
+                                                        <span className="text-secondary">Tags:</span>
                                                     ) : null}{' '}
                                                     {featureFlag.can_edit ? (
                                                         <ObjectTags
@@ -686,7 +688,7 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
             ) : (
                 <div>
                     <b>Dashboard</b>
-                    <div className="text-muted mb-2">
+                    <div className="text-secondary mb-2">
                         There is currently no connected dashboard to this feature flag. If there was previously a
                         connected dashboard, it may have been deleted.
                     </div>
@@ -701,7 +703,7 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
             )}
             <div className="mt-4 mb-4">
                 <b>Log</b>
-                <div className="text-muted">{`Feature flag calls for "${featureFlagKey}" will appear here`}</div>
+                <div className="text-secondary">{`Feature flag calls for "${featureFlagKey}" will appear here`}</div>
             </div>
             <Query
                 query={{
@@ -740,6 +742,8 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         recordingFilterForFlag,
         flagStatus,
         flagType,
+        hasExperiment,
+        isDraftExperiment,
     } = useValues(featureFlagLogic)
     const {
         distributeVariantsEqually,
@@ -779,6 +783,16 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
             properties.variant_key = variantKey
         }
         posthog.capture('viewed recordings from feature flag', properties)
+    }
+
+    const canEditVariant = (index: number): boolean => {
+        if (hasExperiment && !isDraftExperiment) {
+            return false
+        }
+        if (hasExperiment && isDraftExperiment && index === 0) {
+            return false
+        }
+        return true
     }
 
     return (
@@ -872,7 +886,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                     {featureFlag.filters.multivariate && (
                         <>
                             <h3 className="l3">Variant keys</h3>
-                            <div className="border rounded p-4 mb-4 bg-bg-light">
+                            <div className="border rounded p-4 mb-4 bg-surface-primary">
                                 <div className="grid grid-cols-10 gap-4 font-semibold">
                                     <div className="col-span-2">Key</div>
                                     <div className="col-span-2">Description</div>
@@ -891,7 +905,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                     style={{
                                                         marginLeft: '0.5rem',
                                                     }}
-                                                    iconStyle={{ color: 'var(--muted-alt)' }}
+                                                    iconStyle={{ color: 'var(--text-secondary)' }}
                                                 >
                                                     {variant.key}
                                                 </CopyToClipboardInline>
@@ -908,7 +922,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                         value={featureFlag.filters.payloads[index]}
                                                     />
                                                 ) : (
-                                                    <span className="text-muted">
+                                                    <span className="text-secondary">
                                                         No payload associated with this variant
                                                     </span>
                                                 )}
@@ -954,10 +968,9 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                 {
                                     label: 'Release toggle (boolean)',
                                     value: 'boolean',
-                                    disabledReason:
-                                        featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
-                                            ? 'This feature flag is associated with an experiment.'
-                                            : undefined,
+                                    disabledReason: hasExperiment
+                                        ? 'This feature flag is associated with an experiment.'
+                                        : undefined,
                                 },
                                 {
                                     label: <span>Multiple variants with rollout percentages (A/B/n test)</span>,
@@ -966,10 +979,9 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                 {
                                     label: <span>Remote config (single payload)</span>,
                                     value: 'remote_config',
-                                    disabledReason:
-                                        featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
-                                            ? 'This feature flag is associated with an experiment.'
-                                            : undefined,
+                                    disabledReason: hasExperiment
+                                        ? 'This feature flag is associated with an experiment.'
+                                        : undefined,
                                 },
                             ]}
                             onChange={(value) => {
@@ -984,7 +996,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             value={flagType}
                         />
                     </div>
-                    <div className="text-muted mb-4">
+                    <div className="text-secondary mb-4">
                         {featureFlag.is_remote_configuration ? (
                             <span>
                                 Remote config flags provide runtime configuration values in your app. Read more in the{' '}
@@ -1019,11 +1031,11 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             featureFlag.filters.payloads?.['true'] ? (
                                 <JSONEditorInput readOnly={readOnly} value={featureFlag.filters.payloads?.['true']} />
                             ) : (
-                                <span className="text-muted">No payload associated with this flag</span>
+                                <span className="text-secondary">No payload associated with this flag</span>
                             )
                         ) : (
                             <div className="w-1/2">
-                                <div className="text-muted mb-4">
+                                <div className="text-secondary mb-4">
                                     {featureFlag.is_remote_configuration ? (
                                         <>Specify a valid JSON payload to be returned for the config flag</>
                                     ) : (
@@ -1039,12 +1051,12 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                     <LemonField name="true">
                                         <JSONEditorInput
                                             readOnly={readOnly}
-                                            placeholder={'Examples: "A string", 2500, {"key": "value"}'}
+                                            placeholder='Examples: "A string", 2500, {"key": "value"}'
                                         />
                                     </LemonField>
                                 </Group>
                                 {featureFlag.is_remote_configuration && (
-                                    <div className="text-sm text-muted mt-4">
+                                    <div className="text-sm text-secondary mt-4">
                                         Note: remote config flags must be accessed through payloads, e.g.{' '}
                                         <span className="font-mono font-bold">getFeatureFlagPayload</span>. Using
                                         standard SDK methods such as{' '}
@@ -1089,7 +1101,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             <div className="col-span-8">
                                 <div className="flex flex-col">
                                     <b>Payload</b>
-                                    <span className="text-muted font-normal">
+                                    <span className="text-secondary font-normal">
                                         Specify return payload when the variant key matches
                                     </span>
                                 </div>
@@ -1121,12 +1133,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                 autoCapitalize="off"
                                                 autoCorrect="off"
                                                 spellCheck={false}
-                                                disabled={
-                                                    !!(
-                                                        featureFlag.experiment_set &&
-                                                        featureFlag.experiment_set?.length > 0
-                                                    )
-                                                }
+                                                disabled={!canEditVariant(index)}
                                             />
                                         </LemonField>
                                     </div>
@@ -1146,7 +1153,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                     <JSONEditorInput
                                                         onChange={onChange}
                                                         value={value}
-                                                        placeholder={'{"key": "value"}'}
+                                                        placeholder='{"key": "value"}'
                                                     />
                                                 )
                                             }}
@@ -1175,7 +1182,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                     />
                                                     {filterGroups.filter((group) => group.variant === variant.key)
                                                         .length > 0 && (
-                                                        <span className="text-muted text-xs">
+                                                        <span className="text-secondary text-xs">
                                                             Overridden by{' '}
                                                             <strong>
                                                                 {variantConcatWithPunctuation(
@@ -1209,8 +1216,10 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                 noPadding
                                                 onClick={() => removeVariant(index)}
                                                 disabledReason={
-                                                    featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
-                                                        ? 'Cannot delete variants from a feature flag that is part of an experiment'
+                                                    !canEditVariant(index)
+                                                        ? isDraftExperiment
+                                                            ? 'Cannot delete the control variant from an experiment.'
+                                                            : 'Cannot delete variants from a feature flag that is part of a launched experiment.'
                                                         : undefined
                                                 }
                                                 tooltipPlacement="top-end"
@@ -1235,8 +1244,8 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             }}
                             icon={<IconPlus />}
                             disabledReason={
-                                featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
-                                    ? 'Cannot add variants to a feature flag that is part of an experiment. To update variants, create a new experiment.'
+                                hasExperiment && !isDraftExperiment
+                                    ? 'Cannot add variants to a feature flag that is part of a launched experiment. To update variants, reset the experiment to draft.'
                                     : undefined
                             }
                             tooltipPlacement="top-start"

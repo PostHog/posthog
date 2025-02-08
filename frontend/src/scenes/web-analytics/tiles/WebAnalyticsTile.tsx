@@ -439,7 +439,7 @@ export const WebStatsTrendTile = ({
     }, [onWorldMapClick, insightProps])
 
     return (
-        <div className="border rounded bg-bg-light flex-1 flex flex-col">
+        <div className="border rounded bg-surface-primary flex-1 flex flex-col">
             {showIntervalTile && (
                 <div className="flex flex-row items-center justify-end m-2 mr-4">
                     <div className="flex flex-row items-center">
@@ -515,7 +515,7 @@ export const WebStatsTableTile = ({
     }, [onClick, insightProps])
 
     return (
-        <div className="border rounded bg-bg-light flex-1 flex flex-col">
+        <div className="border rounded bg-surface-primary flex-1 flex flex-col">
             {control != null && <div className="flex flex-row items-center justify-end m-2 mr-4">{control}</div>}
             <Query query={query} readOnly={true} context={context} />
         </div>
@@ -586,7 +586,7 @@ export const WebGoalsTile = ({ query, insightProps }: QueryWithInsightProps<Data
     }
 
     return (
-        <div className="border rounded bg-bg-light flex-1">
+        <div className="border rounded bg-surface-primary flex-1">
             <div className="flex flex-row-reverse p-2">
                 <LemonButton to={urls.actions()} sideIcon={<IconOpenInNew />} type="secondary" size="small">
                     Manage actions
@@ -604,7 +604,7 @@ export const WebExternalClicksTile = ({
     const { shouldStripQueryParams } = useValues(webAnalyticsLogic)
     const { setShouldStripQueryParams } = useActions(webAnalyticsLogic)
     return (
-        <div className="border rounded bg-bg-light flex-1 flex flex-col">
+        <div className="border rounded bg-surface-primary flex-1 flex flex-col">
             <div className="flex flex-row items-center justify-end m-2 mr-4">
                 <div className="flex flex-row items-center space-x-2">
                     <LemonSwitch

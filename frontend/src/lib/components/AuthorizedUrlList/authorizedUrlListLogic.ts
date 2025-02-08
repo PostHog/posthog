@@ -17,8 +17,10 @@ import { loaders } from 'kea-loaders'
 import { encodeParams, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { isDomain, isURL } from 'lib/utils'
 import { apiHostOrigin } from 'lib/utils/apiHost'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -98,14 +100,12 @@ export const validateProposedUrl = (
     return
 }
 
-/** defaultIntent: whether to launch with empty intent (i.e. toolbar mode is default) */
-export function appEditorUrl(
-    appUrl: string,
-    options?: { actionId?: number | null; experimentId?: ExperimentIdType; userIntent?: ToolbarUserIntent }
-): string {
-    // See https://github.com/PostHog/posthog-js/blob/f7119c/src/extensions/toolbar.ts#L52 for where these params
-    // are passed. `appUrl` is an extra `redirect_to_site` param.
-    const params: ToolbarParams & { appUrl: string } = {
+function buildToolbarParams(options?: {
+    actionId?: number | null
+    experimentId?: ExperimentIdType
+    userIntent?: ToolbarUserIntent
+}): ToolbarParams {
+    return {
         userIntent:
             options?.userIntent ??
             (options?.actionId ? 'edit-action' : options?.experimentId ? 'edit-experiment' : 'add-action'),
@@ -114,10 +114,26 @@ export function appEditorUrl(
         // we require e.g. SSO login to the app, which will not work when placed
         // behind a proxy unless we register each domain with the OAuth2 client.
         apiURL: apiHostOrigin(),
-        appUrl,
         ...(options?.actionId ? { actionId: options.actionId } : {}),
         ...(options?.experimentId ? { experimentId: options.experimentId } : {}),
     }
+}
+
+/** defaultIntent: whether to launch with empty intent (i.e. toolbar mode is default) */
+export function appEditorUrl(
+    appUrl: string,
+    options?: {
+        actionId?: number | null
+        experimentId?: ExperimentIdType
+        userIntent?: ToolbarUserIntent
+        generateOnly?: boolean
+    }
+): string {
+    const params = buildToolbarParams(options)
+    // See https://github.com/PostHog/posthog-js/blob/f7119c/src/extensions/toolbar.ts#L52 for where these params
+    // are passed. `appUrl` is an extra `redirect_to_site` param.
+    params['appUrl'] = appUrl
+    params['generateOnly'] = options?.generateOnly
     return '/api/user/redirect_to_site/' + encodeParams(params, '?')
 }
 
@@ -190,19 +206,17 @@ export interface AuthorizedUrlListLogicProps {
     actionId: number | null
     experimentId: ExperimentIdType | null
     type: AuthorizedUrlListType
-    query: string | null | undefined
     allowWildCards?: boolean
 }
 
 export const defaultAuthorizedUrlProperties = {
     actionId: null,
     experimentId: null,
-    query: null,
 }
 
 export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
     path((key) => ['lib', 'components', 'AuthorizedUrlList', 'authorizedUrlListLogic', key]),
-    key((props) => (props.experimentId ? `${props.type}-${props.experimentId}` : `${props.type}-${props.actionId}`)),
+    key((props) => `${props.type}-${props.experimentId}-${props.actionId}`), // Some will be undefined but that's ok, this avoids experiment/action with same ID sharing same store
     props({} as AuthorizedUrlListLogicProps),
     connect({
         values: [teamLogic, ['currentTeam', 'currentTeamId']],
@@ -218,8 +232,9 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
         setSearchTerm: (term: string) => ({ term }),
         setEditUrlIndex: (originalIndex: number | null) => ({ originalIndex }),
         cancelProposingUrl: true,
+        copyLaunchCode: (url: string) => ({ url }),
     })),
-    loaders(({ values }) => ({
+    loaders(({ values, props }) => ({
         suggestions: {
             __default: [] as SuggestedDomain[],
             loadSuggestions: async () => {
@@ -230,6 +245,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                            where event = '$pageview'
                            and timestamp >= now() - interval 3 day 
                             and timestamp <= now()
+                           and properties.$current_url is not null
                          group by properties.$current_url
                          order by count() desc
                         limit 25`,
@@ -248,6 +264,27 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                 )
 
                 return suggestedDomains.slice(0, 20)
+            },
+        },
+        manualLaunchParams: {
+            loadManualLaunchParams: async (url: string): Promise<string | undefined> => {
+                const response = await api.get(
+                    appEditorUrl(url, {
+                        ...(props?.actionId ? { actionId: props.actionId } : {}),
+                        ...(props?.experimentId ? { experimentId: props.experimentId } : {}),
+                        generateOnly: true,
+                    })
+                )
+
+                let decoded: string | undefined = undefined
+                try {
+                    if (response?.toolbarParams) {
+                        decoded = decodeURIComponent(response.toolbarParams)
+                    }
+                } catch {
+                    lemonToast.error('Failed to generate toolbar params')
+                }
+                return decoded
             },
         },
     })),
@@ -370,6 +407,21 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
         submitProposedUrlSuccess: () => {
             actions.setEditUrlIndex(null)
             actions.resetProposedUrl()
+        },
+        copyLaunchCode: ({ url }) => {
+            actions.loadManualLaunchParams(url)
+        },
+        loadManualLaunchParamsSuccess: async ({ manualLaunchParams }) => {
+            if (manualLaunchParams) {
+                const templateScript = `
+                if (!window?.posthog) {
+                    console.warn('PostHog must be added to the window object on this page, for this to work. This is normally done in the loaded callback of your posthog init code.')
+                } else {
+                    window.posthog.loadToolbar(${manualLaunchParams})
+                }
+                `
+                await copyToClipboard(templateScript, 'code to paste into the console')
+            }
         },
     })),
     selectors({
