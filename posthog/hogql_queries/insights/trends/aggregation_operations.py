@@ -297,12 +297,12 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             parse_select(
                 """
                 SELECT
-                    timestamp,
+                    toTimeZone(t, {timezone}) AS timestamp,
                     count() AS counts
                 FROM (
                     SELECT
                         e.actor_id,
-                        groupUniqArray(d.timestamp) AS timestamps  -- NOTE: timestamp info is lost here
+                        groupUniqArray(d.timestamp) AS timestamps  -- note: timestamp info is lost here, type is Array(DateTime)
                     FROM {cross_join_select_query} e
                     CROSS JOIN (
                         SELECT
@@ -315,7 +315,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                         e.timestamp > d.timestamp - {exclusive_lookback}
                     GROUP BY e.actor_id
                 ) et
-                ARRAY JOIN et.timestamps AS timestamp
+                ARRAY JOIN et.timestamps AS t
                 GROUP BY timestamp
                 ORDER BY timestamp
             """,
@@ -323,6 +323,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                     **self.query_date_range.to_placeholders(),
                     **self._interval_placeholders(),
                     "cross_join_select_query": cross_join_select_query,
+                    "timezone": ast.Constant(value=self.team.timezone),
                 },
             ),
         )
