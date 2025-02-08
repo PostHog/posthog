@@ -172,12 +172,22 @@ class TestFunnelAggregationOperations(ClickhouseTestMixin, APIBaseTest):
         query = cast(ast.SelectQuery, query.select_from.table)
 
         assert query.having is not None
-        assert isinstance(query.having, ast.CompareOperation)
-        assert query.having.op == ast.CompareOperationOp.Eq
-        assert isinstance(query.having.left, ast.Field)
-        assert query.having.left.chain == ["min_timestamp"]
-        assert isinstance(query.having.right, ast.Field)
-        assert query.having.right.chain == ["min_timestamp_with_condition"]
+        assert isinstance(query.having, ast.And)
+
+        assert len(query.having.exprs) == 2
+
+        first = query.having.exprs[0]
+        assert first.op == ast.CompareOperationOp.Eq
+        assert isinstance(first.left, ast.Field)
+        assert first.left.chain == ["min_timestamp"]
+        assert isinstance(first.right, ast.Field)
+        assert first.right.chain == ["min_timestamp_with_condition"]
+
+        second = query.having.exprs[1]
+        assert second.op == ast.CompareOperationOp.NotEq
+        assert isinstance(second.left, ast.Field)
+        assert second.left.chain == ["min_timestamp"]
+        assert isinstance(second.right, ast.Call)
 
     def test_first_time_for_user_aggregation_query_sampling_factor(self):
         funnels_query = FunnelsQuery(
