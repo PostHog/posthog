@@ -196,7 +196,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         set_tag("client_query_id", query_id)
 
 
-ASYNC_FALLBACK_TO_POLLING_TIMEOUT = 20
+MAX_QUERY_TIMEOUT = 600
 
 
 async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpResponse:
@@ -225,7 +225,7 @@ async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpRespo
         assert kwargs.get("team_id") is not None
         manager = QueryStatusManager(data["query_status"]["id"], cast(int, kwargs["team_id"]))
         start_time = time.time()
-        last_update_time = 0
+        last_update_time: float = start_time
 
         # For things to feel snappy we want to frequently check initially, then back off so we don't overload redis
         FAST_POLL_DURATION = 3.0  # First 3 seconds
@@ -235,7 +235,7 @@ async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpRespo
         SLOW_POLL_INTERVAL = 1.0
         UPDATE_INTERVAL = 1.0  # How often to send updates to client
 
-        while time.time() - start_time < ASYNC_FALLBACK_TO_POLLING_TIMEOUT:
+        while time.time() - start_time < MAX_QUERY_TIMEOUT:
             try:
                 status = await sync_to_async(manager.get_query_status)(show_progress=True)
                 current_time = time.time()

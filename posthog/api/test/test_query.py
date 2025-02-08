@@ -1019,10 +1019,10 @@ class TestQueryAwaited(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response["Content-Type"], "text/event-stream")
 
-        # Read and parse the streaming response
-        content = b"".join(response.streaming_content)
-        error_data = content.decode().strip()
-        error_data = json.loads(error_data.split("data: ")[1])
+        content = b"".join(response.streaming_content)  # type: ignore[attr-defined]
+        error_data_str = content.decode().strip()
+        error_data = json.loads(error_data_str.split("data: ")[1])
+        assert isinstance(error_data, dict)  # Type guard for mypy
         self.assertEqual(error_data.get("type"), "invalid_request")
         self.assertEqual(error_data.get("code"), "parse_error")
 
