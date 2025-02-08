@@ -231,7 +231,7 @@ def test_received_snapshot_source_is_respected_for_first_event(raw_snapshot_even
                 "$snapshot_data": {"type": 3, "timestamp": MILLISECOND_TIMESTAMP},
                 "distinct_id": "abc123",
                 "$snapshot_source": "mobile",
-                "$lib": "posthog-ios/1.0.0",
+                "$lib": "posthog-ios",
             },
         },
         {
@@ -674,6 +674,55 @@ def test_snapshot_library_from_user_agent_defaults_to_web(raw_snapshot_events, m
                 ],
                 "$snapshot_source": "web",
                 "$lib": "web",
+            },
+        },
+    ]
+
+
+def test_snapshot_library_from_user_agent_splits_version_from_value(raw_snapshot_events, mocker: MockerFixture):
+    mocker.patch(
+        "posthog.models.utils.UUIDT",
+        return_value="0178495e-8521-0000-8e1c-2652fa57099b",
+    )
+    mocker.patch("time.time", return_value=0)
+
+    small_event = {
+        "type": 7,
+        "timestamp": 234,
+        "something": "small",
+    }
+
+    events: list[Any] = [
+        {
+            "event": "$snapshot",
+            "properties": {
+                "$session_id": "1234",
+                "$window_id": "1",
+                "$snapshot_bytes": len(json.dumps([small_event, small_event])),
+                "$snapshot_data": [small_event, small_event],
+                "distinct_id": "abc123",
+                "$snapshot_source": "web",
+                # event has no $lib so will fall back to user agent
+            },
+        }
+    ]
+
+    space_with_headroom = math.ceil((106 + 1072 + 50) * 1.10)
+    assert list(
+        mock_capture_flow(events, max_size_bytes=space_with_headroom, user_agent="posthog-react-native/2.2.1")[1]
+    ) == [
+        {
+            "event": "$snapshot_items",
+            "properties": {
+                "distinct_id": "abc123",
+                "$session_id": "1234",
+                "$window_id": "1",
+                "$snapshot_items": [
+                    small_event,
+                    small_event,
+                ],
+                "$snapshot_source": "web",
+                "$lib": "posthog-react-native",
             },
         },
     ]
