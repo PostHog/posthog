@@ -142,6 +142,7 @@ const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOpts): In
             toggledLifecycles: undefined,
             showLabelsOnSeries: undefined,
             showMean: undefined,
+            showMeanRetention: undefined,
             cumulative: undefined,
             yAxisScaleType: undefined,
             hiddenLegendIndexes: undefined,
