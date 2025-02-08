@@ -155,12 +155,14 @@ async function executeQuery<N extends DataNode>(
                 }).catch(reject)
             })
         }
-        const response = await api
-            .query(queryNode, methodOptions, queryId, refreshParam, filtersOverride, variablesOverride)
-            .catch((error) => {
-                error.detail = error.data?.query_status?.error_message
-                throw error
-            })
+        const response = await api.query(
+            queryNode,
+            methodOptions,
+            queryId,
+            refreshParam,
+            filtersOverride,
+            variablesOverride
+        )
 
         if (!isAsyncResponse(response)) {
             // Executed query synchronously or from cache
