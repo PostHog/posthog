@@ -71,6 +71,8 @@ def to_dict(query: BaseModel) -> dict:
                                 "toggledLifecycles",
                                 "showLabelsOnSeries",
                                 "showMean",
+                                "cumulative",
+                                "showMeanRetention",
                                 "yAxisScaleType",
                                 "hiddenLegendIndexes",
                                 "hiddenLegendBreakdowns",
