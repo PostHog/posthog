@@ -1,7 +1,11 @@
 import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 
-import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../../_tests/helpers/clickhouse'
+import {
+    clickhouseQuery,
+    delayUntilEventIngested,
+    resetTestDatabaseClickhouse,
+} from '../../../_tests/helpers/clickhouse'
 import { createOrganization, createTeam, getFirstTeam, insertRow, resetTestDatabase } from '../../../_tests/helpers/sql'
 import { defaultConfig } from '../../../config/config'
 import { fetchTeam, fetchTeamByToken } from '../../../services/team-manager'
@@ -9,7 +13,7 @@ import { Hub, Person, PropertyUpdateOperation, Team } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/errors'
 import { closeHub, createHub } from '../../../utils/hub'
 import { PostgresRouter, PostgresUse } from '../../../utils/postgres'
-import { RaceConditionError, UUIDT } from '../../../utils/utils'
+import { UUIDT } from '../../../utils/utils'
 import { PersonsDB } from './persons-db'
 import { generateKafkaPersonUpdateMessage } from './utils'
 
@@ -71,7 +75,7 @@ describe('DB', () => {
 
         test('without properties', async () => {
             const person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, false, uuid, [{ distinctId }])
-            const fetched_person = await fetchPersonByPersonId(team.id, person.id)
+            const fetched_person = (await fetchPersonByPersonId(team.id, person.id)) as any
 
             expect(fetched_person!.is_identified).toEqual(false)
             expect(fetched_person!.properties).toEqual({})
@@ -83,7 +87,7 @@ describe('DB', () => {
 
         test('without properties indentified true', async () => {
             const person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, [{ distinctId }])
-            const fetched_person = await fetchPersonByPersonId(team.id, person.id)
+            const fetched_person = (await fetchPersonByPersonId(team.id, person.id)) as any
             expect(fetched_person!.is_identified).toEqual(true)
             expect(fetched_person!.properties).toEqual({})
             expect(fetched_person!.properties_last_operation).toEqual({})
@@ -104,7 +108,7 @@ describe('DB', () => {
                 uuid,
                 [{ distinctId }]
             )
-            const fetched_person = await fetchPersonByPersonId(team.id, person.id)
+            const fetched_person = (await fetchPersonByPersonId(team.id, person.id)) as any
             expect(fetched_person!.is_identified).toEqual(false)
             expect(fetched_person!.properties).toEqual({ a: 123, b: false, c: 'bbb' })
             expect(fetched_person!.properties_last_operation).toEqual({
@@ -124,7 +128,7 @@ describe('DB', () => {
 
     describe('updatePerson', () => {
         it('Clickhouse and Postgres are in sync if multiple updates concurrently', async () => {
-            jest.spyOn(db.kafkaProducer!, 'queueMessages')
+            jest.spyOn(hub.kafkaProducer!, 'queueMessages')
             const team = await getFirstTeam(hub)
             const uuid = new UUIDT().toString()
             const distinctId = 'distinct_id1'
@@ -137,7 +141,7 @@ describe('DB', () => {
             const updateTs = DateTime.fromISO('2000-04-04T11:42:06.502Z').toUTC()
             const update = { created_at: updateTs }
             const [updatedPerson, kafkaMessages] = await db.updatePersonDeprecated(personProvided, update)
-            await hub.db.kafkaProducer.queueMessages(kafkaMessages)
+            await hub.kafkaProducer.queueMessages(kafkaMessages)
 
             // verify we have the correct update in Postgres db
             const personDbAfter = await fetchPersonByPersonId(personDbBefore.team_id, personDbBefore.id)
@@ -150,7 +154,7 @@ describe('DB', () => {
             expect(updatedPerson.properties).toEqual({ c: 'aaa' })
 
             // verify correct Kafka message was sent
-            expect(db.kafkaProducer!.queueMessages).toHaveBeenLastCalledWith([
+            expect(hub.kafkaProducer!.queueMessages).toHaveBeenLastCalledWith([
                 generateKafkaPersonUpdateMessage(updatedPerson),
             ])
         })
@@ -175,16 +179,16 @@ describe('DB', () => {
             beforeEach(async () => {
                 await resetTestDatabaseClickhouse()
                 // :TRICKY: Avoid collapsing rows before we are able to read them in the below tests.
-                await db.clickhouseQuery('SYSTEM STOP MERGES')
+                await clickhouseQuery('SYSTEM STOP MERGES')
             })
 
             afterEach(async () => {
-                await db.clickhouseQuery('SYSTEM START MERGES')
+                await clickhouseQuery('SYSTEM START MERGES')
             })
 
             async function fetchPersonsRows(options: { final?: boolean } = {}) {
                 const query = `SELECT * FROM person ${options.final ? 'FINAL' : ''} WHERE id = '${uuid}'`
-                return (await db.clickhouseQuery(query)).data
+                return (await clickhouseQuery(query)).data
             }
 
             it('marks person as deleted in clickhouse', async () => {
@@ -197,13 +201,13 @@ describe('DB', () => {
                 const [_p, updatePersonKafkaMessages] = await db.updatePersonDeprecated(person, {
                     properties: { foo: 'bar' },
                 })
-                await hub.db.kafkaProducer.queueMessages(updatePersonKafkaMessages)
-                await db.kafkaProducer.flush()
+                await hub.kafkaProducer.queueMessages(updatePersonKafkaMessages)
+                await hub.kafkaProducer.flush()
                 await delayUntilEventIngested(fetchPersonsRows, 2)
 
                 const kafkaMessages = await db.deletePerson(person)
-                await db.kafkaProducer.queueMessages(kafkaMessages)
-                await db.kafkaProducer.flush()
+                await hub.kafkaProducer.queueMessages(kafkaMessages)
+                await hub.kafkaProducer.flush()
 
                 const persons = await delayUntilEventIngested(fetchPersonsRows, 3)
 
@@ -246,7 +250,7 @@ describe('DB', () => {
     describe('fetchPerson()', () => {
         it('returns undefined if person does not exist', async () => {
             const team = await getFirstTeam(hub)
-            const person = await hub.db.fetchPerson(team.id, 'some_id')
+            const person = await db.fetchPerson(team.id, 'some_id')
 
             expect(person).toEqual(undefined)
         })
@@ -271,115 +275,6 @@ describe('DB', () => {
                     version: 0,
                 })
             )
-        })
-    })
-
-    describe('fetchGroup(), insertGroup() and updateGroup()', () => {
-        it('returns undefined if no group type exists', async () => {
-            await db.insertGroup(
-                2,
-                0,
-                'group_key',
-                { prop: 'val' },
-                TIMESTAMP,
-                { prop: TIMESTAMP.toISO() },
-                { prop: PropertyUpdateOperation.Set },
-                1
-            )
-
-            expect(await db.fetchGroup(3, 0, 'group_key')).toEqual(undefined)
-            expect(await db.fetchGroup(2, 1, 'group_key')).toEqual(undefined)
-            expect(await db.fetchGroup(2, 1, 'group_key2')).toEqual(undefined)
-        })
-
-        it('allows inserts and fetches', async () => {
-            await db.insertGroup(
-                2,
-                0,
-                'group_key',
-                { prop: 'val' },
-                TIMESTAMP,
-                { prop: TIMESTAMP.toISO()! },
-                { prop: PropertyUpdateOperation.Set },
-                1
-            )
-
-            expect(await db.fetchGroup(2, 0, 'group_key')).toEqual({
-                id: expect.any(Number),
-                team_id: 2,
-                group_type_index: 0,
-                group_key: 'group_key',
-                group_properties: { prop: 'val' },
-                created_at: TIMESTAMP,
-                properties_last_updated_at: { prop: TIMESTAMP.toISO() },
-                properties_last_operation: { prop: PropertyUpdateOperation.Set },
-                version: 1,
-            })
-        })
-
-        it('insertGroup raises RaceConditionErrors if inserting in parallel', async () => {
-            await db.insertGroup(
-                2,
-                0,
-                'group_key',
-                { prop: 'val' },
-                TIMESTAMP,
-                { prop: TIMESTAMP.toISO() },
-                { prop: PropertyUpdateOperation.Set },
-                1
-            )
-
-            await expect(
-                db.insertGroup(
-                    2,
-                    0,
-                    'group_key',
-                    { prop: 'newval' },
-                    TIMESTAMP,
-                    { prop: TIMESTAMP.toISO() },
-                    { prop: PropertyUpdateOperation.Set },
-                    1
-                )
-            ).rejects.toEqual(new RaceConditionError('Parallel posthog_group inserts, retry'))
-        })
-
-        it('handles updates', async () => {
-            await db.insertGroup(
-                2,
-                0,
-                'group_key',
-                { prop: 'val' },
-                TIMESTAMP,
-                { prop: TIMESTAMP.toISO() },
-                { prop: PropertyUpdateOperation.Set },
-                1
-            )
-
-            const originalGroup = await db.fetchGroup(2, 0, 'group_key')
-
-            const timestamp2 = DateTime.fromISO('2000-10-14T12:42:06.502Z').toUTC()
-            await db.updateGroup(
-                2,
-                0,
-                'group_key',
-                { prop: 'newVal', prop2: 2 },
-                TIMESTAMP,
-                { prop: timestamp2.toISO(), prop2: timestamp2.toISO() },
-                { prop: PropertyUpdateOperation.Set, prop2: PropertyUpdateOperation.Set },
-                2
-            )
-
-            expect(await db.fetchGroup(2, 0, 'group_key')).toEqual({
-                id: originalGroup!.id,
-                team_id: 2,
-                group_type_index: 0,
-                group_key: 'group_key',
-                group_properties: { prop: 'newVal', prop2: 2 },
-                created_at: TIMESTAMP,
-                properties_last_updated_at: { prop: timestamp2.toISO(), prop2: timestamp2.toISO() },
-                properties_last_operation: { prop: PropertyUpdateOperation.Set, prop2: PropertyUpdateOperation.Set },
-                version: 2,
-            })
         })
     })
 

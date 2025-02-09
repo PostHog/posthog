@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { delayUntilEventIngested } from '../../../_tests/helpers/clickhouse'
+import { clickhouseQuery, delayUntilEventIngested } from '../../../_tests/helpers/clickhouse'
 import { createOrganization, createTeam, fetchPostgresPersons, insertRow } from '../../../_tests/helpers/sql'
 import { Database, Hub, InternalPerson } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/errors'
@@ -36,7 +36,7 @@ describe('PersonState.update()', () => {
 
     beforeAll(async () => {
         hub = await createHub({})
-        await hub.db.clickhouseQuery('SYSTEM STOP MERGES')
+        await clickhouseQuery('SYSTEM STOP MERGES')
 
         organizationId = await createOrganization(hub.postgres)
     })
@@ -62,7 +62,7 @@ describe('PersonState.update()', () => {
 
     afterAll(async () => {
         await closeHub(hub)
-        await hub.db.clickhouseQuery('SYSTEM START MERGES')
+        await clickhouseQuery('SYSTEM START MERGES')
     })
 
     function personState(
@@ -78,6 +78,7 @@ describe('PersonState.update()', () => {
         }
 
         return new PersonState(
+            hub,
             fullEvent as any,
             teamId,
             event.distinct_id!,
@@ -88,22 +89,22 @@ describe('PersonState.update()', () => {
     }
 
     async function fetchPostgresPersonsH() {
-        return await fetchPostgresPersons(hub.db, teamId)
+        return await fetchPostgresPersons(hub.postgres, teamId)
     }
 
     async function fetchPersonsRows() {
         const query = `SELECT * FROM person FINAL WHERE team_id = ${teamId} ORDER BY _offset`
-        return (await hub.db.clickhouseQuery(query)).data
+        return (await clickhouseQuery(query)).data
     }
 
     async function fetchOverridesForDistinctId(distinctId: string) {
         const query = `SELECT * FROM person_distinct_id_overrides_mv FINAL WHERE team_id = ${teamId} AND distinct_id = '${distinctId}'`
-        return (await hub.db.clickhouseQuery(query)).data
+        return (await clickhouseQuery(query)).data
     }
 
     async function fetchPersonsRowsWithVersionHigerEqualThan(version = 1) {
         const query = `SELECT * FROM person FINAL WHERE team_id = ${teamId} AND version >= ${version}`
-        return (await hub.db.clickhouseQuery(query)).data
+        return (await clickhouseQuery(query)).data
     }
 
     async function fetchDistinctIdsClickhouse(person: InternalPerson) {
@@ -112,7 +113,7 @@ describe('PersonState.update()', () => {
 
     async function fetchDistinctIdsClickhouseVersion1() {
         const query = `SELECT distinct_id FROM person_distinct_id2 FINAL WHERE team_id = ${teamId} AND version = 1`
-        return (await hub.db.clickhouseQuery(query)).data
+        return (await clickhouseQuery(query)).data
     }
 
     describe('on person creation', () => {

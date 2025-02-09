@@ -1,4 +1,4 @@
-import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../_tests/helpers/clickhouse'
+import { clickhouseQuery, delayUntilEventIngested, resetTestDatabaseClickhouse } from '../_tests/helpers/clickhouse'
 import { Hub, LogLevel } from '../types'
 import { closeHub, createHub } from './hub'
 import { captureIngestionWarning } from './ingestion-warnings'
@@ -18,7 +18,7 @@ describe('captureIngestionWarning()', () => {
     })
 
     async function fetchWarnings() {
-        const { data } = await hub.db.clickhouseQuery('SELECT * FROM ingestion_warnings')
+        const { data } = await clickhouseQuery('SELECT * FROM ingestion_warnings')
         return data
     }
 

@@ -321,9 +321,9 @@ export const createOrganizationMembership = async (pg: PostgresRouter, organizat
     return membership.id
 }
 
-export async function fetchPostgresPersons(db: PersonsDB, teamId: number) {
+export async function fetchPostgresPersons(pg: PostgresRouter, teamId: number) {
     const query = `SELECT * FROM posthog_person WHERE team_id = ${teamId} ORDER BY id`
-    return (await db.postgres.query(PostgresUse.COMMON_READ, query, undefined, 'persons')).rows.map(
+    return (await pg.query(PostgresUse.COMMON_READ, query, undefined, 'persons')).rows.map(
         // NOTE: we map to update some values here to maintain
         // compatibility with `hub.db.fetchPersons`.
         // TODO: remove unnecessary property translation operation.
