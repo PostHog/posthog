@@ -4,7 +4,6 @@ import { Pool } from 'pg'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../../_tests/helpers/clickhouse'
 import { createOrganization, createTeam, getFirstTeam, insertRow, resetTestDatabase } from '../../../_tests/helpers/sql'
 import { defaultConfig } from '../../../config/config'
-import { fetchTeam, fetchTeamByToken } from '../../../services/team-manager'
 import { Hub, Person, PropertyUpdateOperation, Team } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/errors'
 import { closeHub, createHub } from '../../../utils/hub'
@@ -539,70 +538,6 @@ describe('DB', () => {
                     },
                 ])
             )
-        })
-    })
-
-    describe('fetchTeam()', () => {
-        it('fetches a team by id', async () => {
-            const organizationId = await createOrganization(hub.postgres)
-            const teamId = await createTeam(hub.postgres, organizationId, 'token1')
-
-            const fetchedTeam = await fetchTeam(hub.postgres, teamId)
-            expect(fetchedTeam).toEqual({
-                anonymize_ips: false,
-                api_token: 'token1',
-                id: teamId,
-                project_id: teamId as Team['project_id'],
-                ingested_event: true,
-                name: 'TEST PROJECT',
-                organization_id: organizationId,
-                session_recording_opt_in: true,
-                person_processing_opt_out: null,
-                heatmaps_opt_in: null,
-                slack_incoming_webhook: null,
-                uuid: expect.any(String),
-                person_display_name_properties: [],
-                test_account_filters: {} as any, // NOTE: Test insertion data gets set as an object weirdly
-                cookieless_server_hash_mode: null,
-                timezone: 'UTC',
-            } as Team)
-        })
-
-        it('returns null if the team does not exist', async () => {
-            const fetchedTeam = await fetchTeam(hub.postgres, 99999)
-            expect(fetchedTeam).toEqual(null)
-        })
-    })
-
-    describe('fetchTeamByToken()', () => {
-        it('fetches a team by token', async () => {
-            const organizationId = await createOrganization(hub.postgres)
-            const teamId = await createTeam(hub.postgres, organizationId, 'token2')
-
-            const fetchedTeam = await fetchTeamByToken(hub.postgres, 'token2')
-            expect(fetchedTeam).toEqual({
-                anonymize_ips: false,
-                api_token: 'token2',
-                id: teamId,
-                project_id: teamId as Team['project_id'],
-                ingested_event: true,
-                name: 'TEST PROJECT',
-                organization_id: organizationId,
-                session_recording_opt_in: true,
-                person_processing_opt_out: null,
-                person_display_name_properties: [],
-                heatmaps_opt_in: null,
-                slack_incoming_webhook: null,
-                uuid: expect.any(String),
-                test_account_filters: {} as any, // NOTE: Test insertion data gets set as an object weirdly
-                cookieless_server_hash_mode: null,
-                timezone: 'UTC',
-            } as Team)
-        })
-
-        it('returns null if the team does not exist', async () => {
-            const fetchedTeam = await fetchTeamByToken(hub.postgres, 'token2')
-            expect(fetchedTeam).toEqual(null)
         })
     })
 })
