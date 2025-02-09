@@ -1,8 +1,21 @@
-import { createEvent } from '@posthog/plugin-scaffold/test/utils'
+import { ProcessedPluginEvent } from '~/src/types'
 
 import { onEvent, PatternsMeta, setupPlugin } from './index'
 
 const testWebhookUrl = 'https://api-staging.patterns.app/api/app/webhooks/wh1234'
+
+const createEvent = (event: Partial<ProcessedPluginEvent>): ProcessedPluginEvent => {
+    return {
+        event: '$pageView',
+        properties: {},
+        distinct_id: '1234',
+        timestamp: new Date().toISOString(),
+        ip: '127.0.0.1',
+        team_id: 1,
+        uuid: '1234',
+        ...event,
+    } as ProcessedPluginEvent
+}
 
 describe('Patterns: onEvent', () => {
     const fetchMock = jest.fn()

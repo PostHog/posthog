@@ -1,6 +1,7 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { DateTime, Duration } from 'luxon'
+
+import { PluginEvent } from '~/src/types'
 
 import { status } from '../../../utils/status'
 

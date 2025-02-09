@@ -1,8 +1,7 @@
-import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
-import { RetryError } from '@posthog/plugin-scaffold'
-
+import { ProcessedPluginEvent } from '~/src/types'
 import { Response } from '~/src/utils/fetch'
 
+import { RetryError } from '../../../../utils/errors'
 import { LegacyDestinationPluginMeta } from '../../types'
 
 const DEFAULT_HOST = 'track.customer.io'

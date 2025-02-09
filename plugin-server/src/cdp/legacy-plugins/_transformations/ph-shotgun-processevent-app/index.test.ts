@@ -1,5 +1,6 @@
-import { PluginEvent, PluginInput, PluginMeta } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/src/types'
 
+import { LegacyTransformationPluginMeta } from '../../types'
 import { processEvent } from './index'
 
 /**
@@ -22,8 +23,8 @@ function buildEventWithName(eventName: string): PluginEvent {
     return event
 }
 
-function getMeta(): PluginMeta<PluginInput> {
-    return {} as unknown as PluginMeta<PluginInput>
+function getMeta(): LegacyTransformationPluginMeta {
+    return {} as unknown as LegacyTransformationPluginMeta
 }
 
 describe('ph-shotgun-processevent-app', () => {

@@ -1,8 +1,10 @@
 import { Bucket, Storage } from '@google-cloud/storage'
-import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 import { randomBytes } from 'crypto'
 import { PassThrough } from 'stream'
 
+import { ProcessedPluginEvent } from '~/src/types'
+
+import { RetryError } from '../../../../utils/errors'
 import { LegacyDestinationPluginMeta } from '../../types'
 
 type gcsMeta = LegacyDestinationPluginMeta & {

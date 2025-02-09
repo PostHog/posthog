@@ -5,8 +5,6 @@ Rather than add tests here, consider improving event-pipeline-integration test s
 unit tests to appropriate classes/functions.
 */
 
-import { Properties } from '@posthog/plugin-scaffold'
-import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 
@@ -17,7 +15,7 @@ import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../_tes
 import { resetKafka } from '../../_tests/helpers/kafka'
 import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabase } from '../../_tests/helpers/sql'
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../config/kafka-topics'
-import { ClickHouseEvent, Config, Hub, LogLevel, Person, Team } from '../../types'
+import { ClickHouseEvent, Config, Hub, LogLevel, Person, PluginEvent, Properties, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/hub'
 import { PostgresUse } from '../../utils/postgres'
 import { posthog } from '../../utils/posthog'

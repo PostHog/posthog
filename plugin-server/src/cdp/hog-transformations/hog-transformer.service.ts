@@ -1,4 +1,3 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
 import { Counter } from 'prom-client'
 
 import {
@@ -11,7 +10,7 @@ import {
 import { CDP_TEST_ID, createInvocation, fixLogDeduplication, isLegacyPluginHogFunction } from '../../cdp/utils'
 import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../config/kafka-topics'
 import { safeClickhouseString } from '../../ingestion/event-pipeline-runner/utils/utils'
-import { AppMetric2Type, Hub, TimestampFormat } from '../../types'
+import { AppMetric2Type, Hub, PluginEvent, TimestampFormat } from '../../types'
 import { runInstrumentedFunction } from '../../utils/instrument'
 import { status } from '../../utils/status'
 import { castTimestampOrNow } from '../../utils/utils'

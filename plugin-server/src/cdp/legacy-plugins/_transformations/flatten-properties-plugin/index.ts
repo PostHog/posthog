@@ -1,5 +1,4 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
-
+import { PluginEvent } from '~/src/types'
 import { LegacyTransformationPluginMeta } from '../../types'
 /**
  * Some events will always create very large numbers of flattened properties

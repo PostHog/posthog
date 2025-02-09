@@ -1,4 +1,3 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { QueryResult } from 'pg'
 import { Counter } from 'prom-client'
@@ -8,6 +7,7 @@ import { KafkaProducerWrapper, TopicMessage } from '../../../kafka/producer'
 import {
     InternalPerson,
     PersonDistinctId,
+    Properties,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
     RawPerson,

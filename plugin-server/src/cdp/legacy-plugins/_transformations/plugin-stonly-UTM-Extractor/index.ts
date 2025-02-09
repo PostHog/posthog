@@ -1,5 +1,4 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
-import { URL } from 'url'
+import { PluginEvent } from '~/src/types'import { URL } from 'url'
 
 import { LegacyTransformationPluginMeta } from '../../types'
 

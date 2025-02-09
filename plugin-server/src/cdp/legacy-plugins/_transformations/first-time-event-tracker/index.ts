@@ -1,4 +1,4 @@
-import { PluginEvent, StorageExtension } from '@posthog/plugin-scaffold'
+import { PluginEvent, StorageExtension } from '~/src/types'
 
 import { LegacyTransformationPluginMeta } from '../../types'
 

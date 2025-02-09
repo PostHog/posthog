@@ -1,4 +1,3 @@
-import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import LRU from 'lru-cache'
 import { DateTime } from 'luxon'
@@ -7,7 +6,7 @@ import { Counter } from 'prom-client'
 import { PersonsDB } from '~/src/ingestion/event-pipeline-runner/utils/persons-db'
 
 import { TopicMessage } from '../../../kafka/producer'
-import { Hub, InternalPerson, Person, PropertyUpdateOperation } from '../../../types'
+import { Hub, InternalPerson, Person, PluginEvent, Properties, PropertyUpdateOperation } from '../../../types'
 import { captureIngestionWarning } from '../../../utils/ingestion-warnings'
 import { PostgresUse, TransactionClient } from '../../../utils/postgres'
 import { promiseRetry } from '../../../utils/retries'

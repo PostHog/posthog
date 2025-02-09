@@ -1,9 +1,9 @@
-import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
-import { CacheExtension, Properties, RetryError } from '@posthog/plugin-scaffold'
 import { URL } from 'url'
 
+import { ProcessedPluginEvent } from '~/src/types'
 import type { Response } from '~/src/utils/fetch'
 
+import { RetryError } from '../../../../utils/errors'
 import { LegacyDestinationPluginMeta } from '../../types'
 
 export interface EventSink {

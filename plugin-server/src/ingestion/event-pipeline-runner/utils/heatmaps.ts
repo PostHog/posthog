@@ -1,7 +1,6 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
 import { URL } from 'url'
 
-import { RawClickhouseHeatmapEvent, TimestampFormat } from '../../../types'
+import { PluginEvent, RawClickhouseHeatmapEvent, TimestampFormat } from '../../../types'
 import { eventDroppedCounter } from '../../../utils/metrics'
 import { status } from '../../../utils/status'
 import { castTimestampOrNow } from '../../../utils/utils'

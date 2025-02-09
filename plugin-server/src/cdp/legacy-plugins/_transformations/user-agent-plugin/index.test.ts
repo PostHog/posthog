@@ -1,5 +1,4 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
-
+import { PluginEvent } from '~/src/types'
 import { processEvent, UserAgentMeta } from './index'
 
 function makeMeta(options?: {

@@ -1,4 +1,3 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
 import { toPerson } from '../../ingestion/event-pipeline-runner/utils/persons-db'
@@ -13,6 +12,7 @@ import {
     Hub,
     InternalPerson,
     PersonDistinctId,
+    Properties,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
     RawClickHouseEvent,

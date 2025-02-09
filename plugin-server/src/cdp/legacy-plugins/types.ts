@@ -1,5 +1,4 @@
-import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
-
+import { PluginEvent, ProcessedPluginEvent } from '~/src/types'
 import { Response, trackedFetch } from '~/src/utils/fetch'
 
 import { HogFunctionTemplate } from '../templates/types'

@@ -1,7 +1,5 @@
-import { CacheOptions } from '@posthog/plugin-scaffold'
-
 import { timeoutGuard } from '../ingestion/event-pipeline-runner/utils/utils'
-import { Config, RedisPool } from '../types'
+import { CacheOptions, Config, RedisPool } from '../types'
 import { instrumentQuery } from './metrics'
 import { createRedisPool } from './redis'
 import { UUIDT } from './utils'

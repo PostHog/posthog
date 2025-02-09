@@ -1,8 +1,8 @@
-import { PluginEvent, ProcessedPluginEvent, RetryError, StorageExtension } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 
-import { Hub } from '~/src/types'
+import { Hub, PluginEvent, ProcessedPluginEvent, StorageExtension } from '~/src/types'
+import { RetryError } from '~/src/utils/errors'
 
 import { Response, trackedFetch } from '../../utils/fetch'
 import { PostgresUse } from '../../utils/postgres'

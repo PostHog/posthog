@@ -1,4 +1,4 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/src/types'
 
 import { UUIDT } from '../../../utils/utils'
 import { parseDate, parseEventTimestamp } from './timestamps'

@@ -1,11 +1,10 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { Counter } from 'prom-client'
 
 import { defaultConfig } from '../../../config/config'
 import { KAFKA_PERSON } from '../../../config/kafka-topics'
 import { TopicMessage } from '../../../kafka/producer'
-import { BasePerson, ClickHousePerson, InternalPerson, RawPerson, TimestampFormat } from '../../../types'
+import { BasePerson, ClickHousePerson, InternalPerson, Properties, RawPerson, TimestampFormat } from '../../../types'
 import { status } from '../../../utils/status'
 import { areMapsEqual, castTimestampOrNow } from '../../../utils/utils'
 

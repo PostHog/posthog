@@ -1,5 +1,4 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
-import { randomBytes } from 'crypto'
+import { PluginEvent } from '~/src/types'import { randomBytes } from 'crypto'
 
 import { LegacyTransformationPluginMeta } from '../../types'
 import { processEvent, setupPlugin } from './index'

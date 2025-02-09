@@ -1,4 +1,3 @@
-import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as siphashDouble from '@posthog/siphash/lib/siphash-double'
 import { Pool as GenericPool } from 'generic-pool'
 import Redis from 'ioredis'
@@ -7,7 +6,7 @@ import { Counter } from 'prom-client'
 import { getDomain } from 'tldts'
 
 import { TeamManager } from '../../services/team-manager'
-import { Config, CookielessServerHashMode } from '../../types'
+import { Config, CookielessServerHashMode, PluginEvent, Properties } from '../../types'
 import { ConcurrencyController } from '../../utils/concurrencyController'
 import { RedisOperationError } from '../../utils/errors'
 import { runInstrumentedFunction } from '../../utils/instrument'

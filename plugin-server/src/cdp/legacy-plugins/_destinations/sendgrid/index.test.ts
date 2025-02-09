@@ -1,18 +1,18 @@
-import { getMeta, resetMeta } from '@posthog/plugin-scaffold/test/utils.js'
-
+import { LegacyDestinationPluginMeta } from '../../types'
 import { onEvent, setupPlugin } from './index'
 
 describe('sendgrid', () => {
     const mockFetch = jest.fn()
+    let meta: LegacyDestinationPluginMeta = {} as any
 
     beforeEach(() => {
-        resetMeta({
+        meta = {
             config: {
                 sendgridApiKey: 'SENDGRID_API_KEY',
             },
             global: global,
             fetch: mockFetch,
-        })
+        } as any
 
         mockFetch.mockClear()
         mockFetch.mockImplementation((url) => ({
@@ -32,7 +32,7 @@ describe('sendgrid', () => {
     test('setupPlugin uses sendgridApiKey', async () => {
         expect(mockFetch).toHaveBeenCalledTimes(0)
 
-        await setupPlugin(getMeta())
+        await setupPlugin(meta)
         expect(mockFetch).toHaveBeenCalledTimes(1)
         expect(mockFetch).toHaveBeenCalledWith('https://api.sendgrid.com/v3/marketing/field_definitions', {
             method: 'GET',
@@ -43,54 +43,53 @@ describe('sendgrid', () => {
     })
 
     test('setupPlugin fails if bad customFields format', async () => {
-        resetMeta({
+        meta = {
             config: {
                 sendgridApiKey: 'SENDGRID_API_KEY',
                 customFields: 'asf=asdf=asf',
             },
             fetch: mockFetch,
-        })
+        } as any
 
-        await expect(setupPlugin(getMeta())).rejects.toThrow()
+        await expect(setupPlugin(meta)).rejects.toThrow()
     })
 
     test('setupPlugin fails if custom field not defined in Sendgrid', async () => {
-        resetMeta({
+        meta = {
             config: {
                 sendgridApiKey: 'SENDGRID_API_KEY',
                 customFields: 'not_defined_custom_field',
             },
             fetch: mockFetch,
-        })
+        } as any
 
-        await expect(setupPlugin(getMeta())).rejects.toThrow()
+        await expect(setupPlugin(meta)).rejects.toThrow()
     })
 
     test('setupPlugin to accept valid customFields and parse them correctly', async () => {
-        resetMeta({
+        meta = {
             config: {
                 sendgridApiKey: 'SENDGRID_API_KEY',
                 customFields: 'myProp1=my_prop1,my_prop2',
             },
             fetch: mockFetch,
-        })
+        } as any
 
-        await setupPlugin(getMeta())
-        const { global } = getMeta()
-        expect(global.customFieldsMap).toStrictEqual({
+        await setupPlugin(meta)
+        expect(meta.global.customFieldsMap).toStrictEqual({
             myProp1: 'field1',
             my_prop2: 'field2',
         })
     })
 
     test('onEvent to send contacts with custom fields', async () => {
-        resetMeta({
+        meta = {
             config: {
                 sendgridApiKey: 'SENDGRID_API_KEY',
                 customFields: 'myProp1=my_prop1,my_prop2',
             },
             fetch: mockFetch,
-        })
+        } as any
 
         const event = {
             event: '$identify',
@@ -109,9 +108,9 @@ describe('sendgrid', () => {
         }
 
         expect(mockFetch).toHaveBeenCalledTimes(0)
-        await setupPlugin(getMeta())
+        await setupPlugin(meta)
         expect(mockFetch).toHaveBeenCalledTimes(1)
-        await onEvent(event as any, getMeta())
+        await onEvent(event as any, meta)
         expect(mockFetch).toHaveBeenCalledTimes(2)
         expect(mockFetch).toHaveBeenCalledWith('https://api.sendgrid.com/v3/marketing/contacts', {
             method: 'PUT',
@@ -129,7 +128,7 @@ describe('sendgrid', () => {
                 ],
             }),
         })
-        await onEvent(event2 as any, getMeta())
+        await onEvent(event2 as any, meta)
         expect(mockFetch).toHaveBeenCalledTimes(3)
         expect(mockFetch).toHaveBeenCalledWith('https://api.sendgrid.com/v3/marketing/contacts', {
             method: 'PUT',

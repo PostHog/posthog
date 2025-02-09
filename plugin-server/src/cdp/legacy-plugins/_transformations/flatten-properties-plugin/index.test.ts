@@ -1,5 +1,15 @@
-const { createEvent } = require('@posthog/plugin-scaffold/test/utils.js')
-const { processEvent } = require('./index')
+import { PluginEvent } from '~/src/types'
+
+import { processEvent } from './index'
+
+const createEvent = (event: Partial<PluginEvent>): PluginEvent =>
+    ({
+        distinct_id: '1',
+        event: '$pageview',
+        properties: {
+            ...event.properties,
+        },
+    } as unknown as PluginEvent)
 
 const nestedEventProperties = {
     a: {
@@ -25,10 +35,10 @@ const nestedEventProperties = {
 }
 
 describe('the property flattener', () => {
-    test('flattens all nested properties', async () => {
+    test('flattens all nested properties', () => {
         const event = createEvent({ event: 'test', properties: nestedEventProperties })
 
-        const eventsOutput = await processEvent(event, { config: { separator: '__' } })
+        const eventsOutput = processEvent(event, { config: { separator: '__' } })
 
         const expectedProperties = {
             a: nestedEventProperties.a,
@@ -46,7 +56,7 @@ describe('the property flattener', () => {
         expect(eventsOutput).toEqual(createEvent({ event: 'test', properties: expectedProperties }))
     })
 
-    test('autocapture is ignored', async () => {
+    test('autocapture is ignored', () => {
         const event = createEvent({
             event: '$autocapture',
             properties: {
@@ -58,7 +68,7 @@ describe('the property flattener', () => {
             },
         })
 
-        const eventsOutput = await processEvent(event, { config: { separator: '__' } })
+        const eventsOutput = processEvent(event, { config: { separator: '__' } })
 
         const expectedProperties = {
             $elements: [
@@ -71,7 +81,7 @@ describe('the property flattener', () => {
         expect(eventsOutput).toEqual(createEvent({ event: '$autocapture', properties: expectedProperties }))
     })
 
-    test('organization usage report is ignored because it causes very many flattened properties', async () => {
+    test('organization usage report is ignored because it causes very many flattened properties', () => {
         const event = createEvent({
             event: 'organization usage report',
             properties: {
@@ -79,7 +89,7 @@ describe('the property flattener', () => {
             },
         })
 
-        const eventsOutput = await processEvent(event, { config: { separator: '__' } })
+        const eventsOutput = processEvent(event, { config: { separator: '__' } })
 
         const expectedProperties = {
             any: [{ nested: 'property' }],
@@ -90,7 +100,7 @@ describe('the property flattener', () => {
         )
     })
 
-    test('set and set once', async () => {
+    test('set and set once', () => {
         const event = createEvent({
             event: '$identify',
             properties: {
@@ -109,7 +119,7 @@ describe('the property flattener', () => {
             },
         })
 
-        const eventsOutput = await processEvent(event, { config: { separator: '__' } })
+        const eventsOutput = processEvent(event, { config: { separator: '__' } })
 
         const expectedProperties = {
             $set: {
@@ -135,7 +145,7 @@ describe('the property flattener', () => {
         expect(eventsOutput.properties).toEqual(expectedProperties)
     })
 
-    test('$group_set', async () => {
+    test('$group_set', () => {
         const event = createEvent({
             event: '$groupidentify',
             properties: {
@@ -160,7 +170,7 @@ describe('the property flattener', () => {
             },
         })
 
-        const eventsOutput = await processEvent(event, { config: { separator: '__' } })
+        const eventsOutput = processEvent(event, { config: { separator: '__' } })
 
         const expectedProperties = {
             $group_set: {

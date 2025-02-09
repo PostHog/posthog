@@ -1,5 +1,4 @@
 import { ReaderModel } from '@maxmind/geoip2-node'
-import { Element, PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
 import { Redis } from 'ioredis'
 import { DateTime } from 'luxon'
@@ -15,7 +14,79 @@ import { Celery } from './utils/celery'
 import { ObjectStorage } from './utils/object_storage'
 import { PostgresRouter } from './utils/postgres'
 
-export { Element } from '@posthog/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
+export type Properties = Record<string, any>
+
+// Autocaptur element type
+export interface Element {
+    text?: string
+    tag_name?: string
+    href?: string
+    attr_id?: string
+    attr_class?: string[]
+    nth_child?: number
+    nth_of_type?: number
+    attributes?: Record<string, any>
+    event_id?: number
+    order?: number
+    group_id?: number
+}
+
+export interface PluginPerson {
+    uuid: string
+    team_id: number
+    properties: Properties
+    created_at: string
+}
+
+export interface PluginEvent {
+    distinct_id: string
+    ip: string | null
+    site_url: string
+    team_id: number
+    now: string
+    event: string
+    sent_at?: string
+    properties?: Properties
+    timestamp?: string
+    offset?: number
+    $set?: Properties
+    $set_once?: Properties
+    uuid: string
+    person?: PluginPerson
+}
+export interface ProcessedPluginEvent {
+    distinct_id: string
+    ip: string | null
+    team_id: number
+    event: string
+    properties: Properties
+    timestamp: string
+    $set?: Properties
+    $set_once?: Properties
+    uuid: string
+    person?: PluginPerson
+    elements?: Element[]
+}
+
+export interface CacheOptions {
+    jsonSerialize?: boolean
+}
+export interface CacheExtension {
+    set: (key: string, value: unknown, ttlSeconds?: number, options?: CacheOptions) => Promise<void>
+    get: (key: string, defaultValue: unknown, options?: CacheOptions) => Promise<unknown>
+    incr: (key: string) => Promise<number>
+    expire: (key: string, ttlSeconds: number) => Promise<boolean>
+    lpush: (key: string, elementOrArray: unknown[]) => Promise<number>
+    lrange: (key: string, startIndex: number, endIndex: number) => Promise<string[]>
+    llen: (key: string) => Promise<number>
+    lpop: (key: string, count: number) => Promise<string[]>
+    lrem: (key: string, count: number, elementKey: string) => Promise<number>
+}
+export interface StorageExtension {
+    set: (key: string, value: unknown) => Promise<void>
+    get: (key: string, defaultValue: unknown) => Promise<unknown>
+    del: (key: string) => Promise<void>
+}
 
 type Brand<K, T> = K & { __brand: T }
 

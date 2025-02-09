@@ -1,8 +1,6 @@
-import { Properties } from '@posthog/plugin-scaffold'
-import { PluginEvent } from '@posthog/plugin-scaffold'
 import { Counter } from 'prom-client'
 
-import { Element, PipelineEvent } from '../../../types'
+import { Element, PipelineEvent, PluginEvent, Properties } from '../../../types'
 import { hasDifferenceWithProposedNewNormalisationMode, personInitialAndUTMProperties, sanitizeString } from './utils'
 
 // Values of the $lib property that have been seen in the wild

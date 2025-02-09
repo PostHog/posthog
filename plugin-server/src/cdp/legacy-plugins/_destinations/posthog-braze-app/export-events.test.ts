@@ -1,6 +1,5 @@
-import { RetryError } from '@posthog/plugin-scaffold'
-
-import { BrazePluginMeta, onEvent } from '../index'
+import { RetryError } from '../../../../utils/errors'
+import { BrazePluginMeta, onEvent } from './index'
 
 describe('Braze: export-events', () => {
     const fetchMock = jest.fn()

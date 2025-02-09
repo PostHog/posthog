@@ -1,4 +1,3 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
 import { DBHelpers } from '~/src/_tests/helpers/db'
@@ -6,7 +5,7 @@ import { DBHelpers } from '~/src/_tests/helpers/db'
 import { createPromise } from '../../../_tests/helpers/promises'
 import { getFirstTeam, resetTestDatabase } from '../../../_tests/helpers/sql'
 import { MessageSizeTooLarge } from '../../../kafka/producer'
-import { Group, Hub, Team } from '../../../types'
+import { Group, Hub, Properties, Team } from '../../../types'
 import { closeHub, createHub } from '../../../utils/hub'
 import { UUIDT } from '../../../utils/utils'
 import { upsertGroup } from './groups-updater'

@@ -1,7 +1,5 @@
-import type { PluginEvent } from '@posthog/plugin-scaffold'
-
 import { createOrganization, createTeam } from '../../_tests/helpers/sql'
-import { CookielessServerHashMode, Hub } from '../../types'
+import { CookielessServerHashMode, Hub, PluginEvent } from '../../types'
 import { RedisOperationError } from '../../utils/errors'
 import { closeHub, createHub } from '../../utils/hub'
 import { PostgresUse } from '../../utils/postgres'

@@ -1,4 +1,3 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
 import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
@@ -7,7 +6,7 @@ import { HogTransformerService } from '../../cdp/hog-transformations/hog-transfo
 import { KAFKA_INGESTION_WARNINGS } from '../../config/kafka-topics'
 import { MessageSizeTooLarge } from '../../kafka/producer'
 import { GroupTypeManager, MAX_GROUP_TYPES_PER_TEAM } from '../../services/group-type-manager'
-import { Hub, Person, PersonMode, PipelineEvent, RawKafkaEvent, Team, TimestampFormat } from '../../types'
+import { Hub, Person, PersonMode, PipelineEvent, PluginEvent, RawKafkaEvent, Team, TimestampFormat } from '../../types'
 import { processAiEvent } from '../../utils/ai-costs/process-ai-event'
 import { captureIngestionWarning } from '../../utils/ingestion-warnings'
 import { eventDroppedCounter } from '../../utils/metrics'

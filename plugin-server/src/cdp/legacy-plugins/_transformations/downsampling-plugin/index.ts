@@ -1,5 +1,4 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
-import { createHash } from 'crypto'
+import { PluginEvent } from '~/src/types'import { createHash } from 'crypto'
 
 import { LegacyTransformationPluginMeta } from '../../types'
 
