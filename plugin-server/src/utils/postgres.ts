@@ -2,8 +2,8 @@
 
 import { Client, Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow } from 'pg'
 
-import { Config } from '../types'
 import { timeoutGuard } from '../ingestion/event-pipeline-runner/utils/utils'
+import { Config } from '../types'
 import { DependencyUnavailableError } from './errors'
 import { instrumentQuery } from './metrics'
 import { status } from './status'

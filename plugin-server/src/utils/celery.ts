@@ -1,10 +1,10 @@
 import { CacheOptions } from '@posthog/plugin-scaffold'
 
+import { timeoutGuard } from '../ingestion/event-pipeline-runner/utils/utils'
 import { Config, RedisPool } from '../types'
 import { instrumentQuery } from './metrics'
 import { createRedisPool } from './redis'
 import { UUIDT } from './utils'
-import { timeoutGuard } from '../ingestion/event-pipeline-runner/utils/utils'
 
 const CELERY_DEFAULT_QUEUE = 'celery'
 

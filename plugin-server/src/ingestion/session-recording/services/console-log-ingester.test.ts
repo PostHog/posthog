@@ -39,6 +39,7 @@ describe('console log ingester', () => {
     })
     describe('when enabled on team', () => {
         test('it truncates large console logs', async () => {
+            // eslint-disable-next-line @typescript-eslint/no-floating-promises
             await consoleLogIngester.consume(
                 makeIncomingMessage(
                     [
@@ -74,6 +75,7 @@ describe('console log ingester', () => {
         })
 
         test('it handles multiple console logs', async () => {
+            // eslint-disable-next-line @typescript-eslint/no-floating-promises
             await consoleLogIngester.consume(
                 makeIncomingMessage(
                     [
@@ -129,6 +131,7 @@ describe('console log ingester', () => {
         })
 
         test('it de-duplicates console logs', async () => {
+            // eslint-disable-next-line @typescript-eslint/no-floating-promises
             await consoleLogIngester.consume(
                 makeIncomingMessage(
                     [
@@ -169,10 +172,12 @@ describe('console log ingester', () => {
 
     describe('when disabled on team', () => {
         test('it drops console logs', async () => {
+            // eslint-disable-next-line @typescript-eslint/no-floating-promises
             await consoleLogIngester.consume(makeIncomingMessage([{ plugin: 'rrweb/console@1' }], false))
             expect(jest.mocked(mockProducer.queueMessages)).not.toHaveBeenCalled()
         })
         test('it does not drop events with no console logs', async () => {
+            // eslint-disable-next-line @typescript-eslint/no-floating-promises
             await consoleLogIngester.consume(makeIncomingMessage([{ plugin: 'some-other-plugin' }], false))
             expect(jest.mocked(status.debug).mock.calls).toEqual([])
             expect(jest.mocked(mockProducer.queueMessages)).not.toHaveBeenCalled()

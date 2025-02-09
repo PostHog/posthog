@@ -51,6 +51,7 @@ describe('replay events ingester', () => {
         const twoMonthsFromNow = now.plus({ months: 2 })
         const expectedDaysFromNow = twoMonthsFromNow.diff(now, 'days').days
 
+        // eslint-disable-next-line @typescript-eslint/no-floating-promises
         await ingester.consume(makeIncomingMessage("mickey's fun house", twoMonthsFromNow.toMillis()))
 
         expect(jest.mocked(status.debug).mock.calls).toEqual([])
@@ -76,6 +77,7 @@ describe('replay events ingester', () => {
 
     test('it passes snapshot source along', async () => {
         const ts = new Date().getTime()
+        // eslint-disable-next-line @typescript-eslint/no-floating-promises
         await ingester.consume(makeIncomingMessage("mickey's fun house", ts))
 
         expect(jest.mocked(status.debug).mock.calls).toEqual([])
@@ -111,6 +113,7 @@ describe('replay events ingester', () => {
 
     test('it defaults snapshot source to web when absent', async () => {
         const ts = new Date().getTime()
+        // eslint-disable-next-line @typescript-eslint/no-floating-promises
         await ingester.consume(makeIncomingMessage(null, ts))
 
         expect(jest.mocked(status.debug).mock.calls).toEqual([])
@@ -144,6 +147,7 @@ describe('replay events ingester', () => {
 
     test('it adds URLs', async () => {
         const ts = new Date().getTime()
+        // eslint-disable-next-line @typescript-eslint/no-floating-promises
         await ingester.consume(
             makeIncomingMessage("mickey's fun house", ts, {
                 anotherwindow: [

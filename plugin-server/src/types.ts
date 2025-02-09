@@ -1,5 +1,4 @@
 import { ReaderModel } from '@maxmind/geoip2-node'
-import ClickHouse from '@posthog/clickhouse'
 import { Element, PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
 import { Redis } from 'ioredis'
@@ -28,7 +27,6 @@ export enum LogLevel {
     Warn = 'warn',
     Error = 'errosr',
 }
-
 
 export enum KafkaSecurityProtocol {
     Plaintext = 'PLAINTEXT',
@@ -71,7 +69,7 @@ export type PluginServerService = {
     batchConsumer?: BatchConsumer
 }
 
- type CdpConfig = {
+type CdpConfig = {
     CDP_WATCHER_COST_ERROR: number // The max cost of an erroring function
     CDP_WATCHER_COST_TIMING: number // The max cost of a slow function
     CDP_WATCHER_COST_TIMING_LOWER_MS: number // The lower bound in ms where the timing cost is not incurred
@@ -92,7 +90,7 @@ export type PluginServerService = {
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
 }
 
- type IngestionConsumerConfig = {
+type IngestionConsumerConfig = {
     // New config variables used by the new IngestionConsumer
     INGESTION_CONSUMER_GROUP_ID: string
     INGESTION_CONSUMER_CONSUME_TOPIC: string
@@ -612,7 +610,6 @@ export interface ClickHousePersonDistinctId2 {
     version: number
 }
 
-
 /** Sync with posthog/frontend/src/types.ts */
 export enum PropertyOperator {
     Exact = 'exact',
@@ -683,7 +680,6 @@ export type PropertyFilter =
     | DataWarehousePropertyFilter
     | DataWarehousePersonPropertyFilter
 
-
 /** Raw session recording event row from ClickHouse. */
 export interface RawSessionRecordingEvent {
     uuid: string
@@ -710,7 +706,6 @@ export enum TimestampFormat {
     ClickHouse = 'clickhouse',
     ISO = 'iso',
 }
-
 
 export enum UnixTimestampPropertyTypeFormat {
     UNIX_TIMESTAMP = 'unix_timestamp',
@@ -780,7 +775,6 @@ export type RawClickhouseHeatmapEvent = {
     type: string
     team_id: number
 }
-
 
 export type AppMetric2Type = {
     team_id: number

@@ -4,7 +4,7 @@ import { DateTime } from 'luxon'
 import { clickhouseQuery, delayUntilEventIngested } from '../../../_tests/helpers/clickhouse'
 import { Database, DBHelpers } from '../../../_tests/helpers/db'
 import { createOrganization, createTeam, fetchPostgresPersons, insertRow } from '../../../_tests/helpers/sql'
-import {  Hub, InternalPerson, PropertyUpdateOperation, TimestampFormat } from '../../../types'
+import { Hub, InternalPerson, PropertyUpdateOperation, TimestampFormat } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/errors'
 import { closeHub, createHub } from '../../../utils/hub'
 import { PostgresUse } from '../../../utils/postgres'
@@ -834,6 +834,7 @@ describe('PersonState.update()', () => {
 
             // Second call no-update
             personS.updateIsIdentified = true // double just in case
+            // eslint-disable-next-line @typescript-eslint/no-floating-promises
             await personS.updateProperties()
             expect(db.updatePersonDeprecated).toHaveBeenCalledTimes(1)
         })
@@ -1432,6 +1433,7 @@ describe('PersonState.update()', () => {
             jest.spyOn(state, 'merge').mockImplementation(() => {
                 return Promise.resolve([undefined, Promise.resolve()])
             })
+            // eslint-disable-next-line @typescript-eslint/no-floating-promises
             await state.handleIdentifyOrAlias()
             expect(state.merge).toHaveBeenCalledWith(oldUserDistinctId, newUserDistinctId, teamId, timestamp)
             jest.spyOn(state, 'merge').mockRestore()
@@ -1450,6 +1452,7 @@ describe('PersonState.update()', () => {
                 return Promise.resolve([undefined, Promise.resolve()])
             })
 
+            // eslint-disable-next-line @typescript-eslint/no-floating-promises
             await state.handleIdentifyOrAlias()
             expect(state.merge).toHaveBeenCalledWith(oldUserDistinctId, newUserDistinctId, teamId, timestamp)
             jest.spyOn(state, 'merge').mockRestore()
@@ -1468,6 +1471,7 @@ describe('PersonState.update()', () => {
                 return Promise.resolve([undefined, Promise.resolve()])
             })
 
+            // eslint-disable-next-line @typescript-eslint/no-floating-promises
             await state.handleIdentifyOrAlias()
             expect(state.merge).toHaveBeenCalledWith(oldUserDistinctId, newUserDistinctId, teamId, timestamp)
             jest.spyOn(state, 'merge').mockRestore()
@@ -1644,6 +1648,7 @@ describe('PersonState.update()', () => {
 
             // this event means the person will be merged
             // so hashkeyoverride should be updated to the new person id whichever way we merged
+            // eslint-disable-next-line @typescript-eslint/no-floating-promises
             await personState({
                 event: '$identify',
                 distinct_id: 'new_distinct_id',
@@ -1729,6 +1734,7 @@ describe('PersonState.update()', () => {
             // this event means the person will be merged
             // so hashkeyoverride should be updated to be either
             // we're optimizing on updates to not write on conflict and ordering is not guaranteed
+            // eslint-disable-next-line @typescript-eslint/no-floating-promises
             await personState({
                 event: '$identify',
                 distinct_id: 'new_distinct_id',
@@ -1803,6 +1809,7 @@ describe('PersonState.update()', () => {
                 hash_key: 'different_id',
             })
 
+            // eslint-disable-next-line @typescript-eslint/no-floating-promises
             await personState({
                 event: '$identify',
                 distinct_id: 'new_distinct_id',
@@ -2102,6 +2109,7 @@ describe('PersonState.update()', () => {
                 throw error
             })
             jest.spyOn(hub.kafkaProducer, 'queueMessages')
+            // eslint-disable-next-line @typescript-eslint/no-floating-promises
             await state.handleIdentifyOrAlias()
             await hub.kafkaProducer.flush()
 

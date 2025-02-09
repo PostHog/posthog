@@ -5,8 +5,8 @@ import { EventEmitter } from 'node:events'
 
 import { Config, RedisPool } from '../../../types'
 import { createRedis } from '../../../utils/redis'
-import { timeoutGuard } from '../../event-pipeline-runner/utils/utils'
 import { status } from '../../../utils/status'
+import { timeoutGuard } from '../../event-pipeline-runner/utils/utils'
 
 const Keys = {
     snapshots(prefix: string, teamId: number, suffix: string): string {

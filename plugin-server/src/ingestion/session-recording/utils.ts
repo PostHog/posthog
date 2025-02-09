@@ -6,9 +6,9 @@ import { Counter } from 'prom-client'
 
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { PipelineEvent, RawEventMessage, RRWebEvent, TeamIDWithConfig } from '../../types'
+import { captureIngestionWarning } from '../../utils/ingestion-warnings'
 import { eventDroppedCounter } from '../../utils/metrics'
 import { status } from '../../utils/status'
-import { captureIngestionWarning } from '../../utils/ingestion-warnings'
 import { IncomingRecordingMessage, ParsedBatch, PersistedRecordingMessage } from './types'
 
 const { promisify } = require('node:util')

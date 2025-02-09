@@ -4,8 +4,8 @@ import { Histogram } from 'prom-client'
 
 import { Hub } from '~/src/types'
 
-import { PostgresUse } from '../../utils/postgres'
 import { Response, trackedFetch } from '../../utils/fetch'
+import { PostgresUse } from '../../utils/postgres'
 import { status } from '../../utils/status'
 import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { firstTimeEventTrackerPluginProcessEventAsync } from '../legacy-plugins/_transformations/first-time-event-tracker'

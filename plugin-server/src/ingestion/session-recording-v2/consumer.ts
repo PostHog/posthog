@@ -16,9 +16,9 @@ import { PostgresRouter } from '~/src/utils/postgres'
 import { buildIntegerMatcher } from '../../config/config'
 import { BatchConsumer } from '../../kafka/batch-consumer'
 import { Config, PluginServerService, ValueMatcher } from '../../types'
+import { captureIngestionWarning } from '../../utils/ingestion-warnings'
 import { runInstrumentedFunction } from '../../utils/instrument'
 import { status as logger } from '../../utils/status'
-import { captureIngestionWarning } from '../../utils/ingestion-warnings'
 import { BatchConsumerFactory } from './batch-consumer-factory'
 import {
     KAFKA_CONSUMER_GROUP_ID,
