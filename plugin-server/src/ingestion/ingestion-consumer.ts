@@ -9,6 +9,7 @@ import { KafkaProducerWrapper } from '../kafka/producer'
 import { Hub, PipelineEvent, PluginServerService } from '../types'
 import { runInstrumentedFunction } from '../utils/instrument'
 import { eventDroppedCounter } from '../utils/metrics'
+import { setupMmdb } from '../utils/mmdb'
 import { status } from '../utils/status'
 import { EventDroppedError, EventPipelineRunnerV2 } from './event-pipeline-runner/event-pipeline-runner'
 import { normalizeEvent } from './event-pipeline-runner/utils/event-utils'
@@ -126,6 +127,7 @@ export class IngestionConsumer {
                 groupId: this.groupId,
                 handleBatch: async (messages) => this.handleKafkaBatch(messages),
             }),
+            setupMmdb(this.hub),
             this.hogTransformer.start(),
         ])
     }
