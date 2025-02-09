@@ -146,33 +146,45 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
             runInstrumentedFunction({
                 statsKey: `cdpConsumer.handleEachBatch.parseKafkaMessages`,
                 func: async () => {
-                    const events: HogFunctionInvocationGlobals[] = []
-                    await Promise.all(
-                        messages.map(async (message) => {
-                            try {
-                                const clickHouseEvent = JSON.parse(message.value!.toString()) as RawClickHouseEvent
+                    const parsedMessages = messages.reduce((acc, message) => {
+                        try {
+                            const parsed = JSON.parse(message.value!.toString()) as RawClickHouseEvent
 
-                                if (!this.hogFunctionManager.teamHasHogDestinations(clickHouseEvent.team_id)) {
-                                    // No need to continue if the team doesn't have any functions
-                                    return
-                                }
-
-                                const team = await this.hub.teamManager.fetchTeam(clickHouseEvent.team_id)
-                                if (!team) {
-                                    return
-                                }
-                                events.push(
-                                    convertToHogFunctionInvocationGlobals(
-                                        clickHouseEvent,
-                                        team,
-                                        this.hub.SITE_URL ?? 'http://localhost:8000'
-                                    )
-                                )
-                            } catch (e) {
-                                status.error('Error parsing message', e)
+                            if (!this.hogFunctionManager.teamHasHogDestinations(parsed.team_id)) {
+                                // No need to continue if the team doesn't have any functions
+                                return acc
                             }
-                        })
-                    )
+
+                            return [...acc, parsed]
+                        } catch (e) {
+                            status.error('Error parsing message', e)
+                        }
+
+                        return acc
+                    }, [] as RawClickHouseEvent[])
+
+                    const teams = (
+                        await this.hub.teamManager.getTeams(
+                            [],
+                            parsedMessages.map((x) => x.team_id)
+                        )
+                    ).byId
+
+                    const events = parsedMessages.reduce((acc, event) => {
+                        const team = teams[event.team_id]
+                        if (!team) {
+                            return acc
+                        }
+
+                        return [
+                            ...acc,
+                            convertToHogFunctionInvocationGlobals(
+                                event,
+                                team,
+                                this.hub.SITE_URL ?? 'http://localhost:8000'
+                            ),
+                        ]
+                    }, [] as HogFunctionInvocationGlobals[])
 
                     return events
                 },

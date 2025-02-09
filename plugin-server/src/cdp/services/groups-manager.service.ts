@@ -29,21 +29,11 @@ export class GroupsManagerService {
         this.groupTypesMappingCache = new LRUCache({ max: 1_000_000, maxAge: GROUP_TYPES_CACHE_AGE_MS })
     }
 
-    private async filterTeamsWithGroups(teams: Team['id'][]): Promise<Team['id'][]> {
-        const teamIds = await Promise.all(
-            teams.map(async (teamId) => {
-                if (await this.hub.organizationManager.hasAvailableFeature(teamId, 'group_analytics')) {
-                    return teamId
-                }
-            })
-        )
-
-        return teamIds.filter((x) => x !== undefined) as Team['id'][]
-    }
-
-    private async fetchGroupTypesMapping(teams: Team['id'][]): Promise<GroupIndexByTeamType> {
+    private async fetchGroupTypesMapping(teams: Team[]): Promise<GroupIndexByTeamType> {
         // Get from cache otherwise load and save
-        const teamsWithGroupAnalytics = await this.filterTeamsWithGroups(teams)
+        const teamsWithGroupAnalytics = teams.filter((team) => {
+            return team.available_product_features.includes('group_analytics')
+        })
 
         // Load teams from cache where possible
         // Any teams that aren't in the cache we load from the DB, and then add to the cache
@@ -51,17 +41,17 @@ export class GroupsManagerService {
         const groupTypesMapping: GroupIndexByTeamType = {}
 
         // Load the cached values so we definitely have them
-        teamsWithGroupAnalytics.forEach((teamId) => {
-            const cached = this.groupTypesMappingCache.get(teamId)
+        teamsWithGroupAnalytics.forEach((team) => {
+            const cached = this.groupTypesMappingCache.get(team.id)
 
             if (cached) {
                 cached.forEach((row) => {
-                    groupTypesMapping[`${teamId}:${row.type}`] = row.index
+                    groupTypesMapping[`${team.id}:${row.type}`] = row.index
                 })
             }
         })
 
-        const teamsToLoad = teamsWithGroupAnalytics.filter((teamId) => !this.groupTypesMappingCache.get(teamId))
+        const teamsToLoad = teamsWithGroupAnalytics.filter((team) => !this.groupTypesMappingCache.get(team.id))
 
         if (teamsToLoad.length) {
             const result = await this.hub.postgres.query(
@@ -125,6 +115,13 @@ export class GroupsManagerService {
      * Once loaded, the objects are mutated in place.
      */
     public async enrichGroups(items: HogFunctionInvocationGlobals[]): Promise<HogFunctionInvocationGlobals[]> {
+        const teamsById = (
+            await this.hub.teamManager.getTeams(
+                [],
+                items.map((x) => x.project.id)
+            )
+        ).byId
+
         const itemsNeedingGroups = items.filter((x) => !x.groups)
         const byTeamType = await this.fetchGroupTypesMapping(
             Array.from(new Set(itemsNeedingGroups.map((global) => global.project.id)))

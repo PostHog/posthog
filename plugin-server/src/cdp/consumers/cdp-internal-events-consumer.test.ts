@@ -1,4 +1,4 @@
-import '../_tests/helpers/producer.mock'
+import '../../_tests/helpers/producer.mock'
 
 import { getFirstTeam, resetTestDatabase } from '../../_tests/helpers/sql'
 import { Hub, Team } from '../../types'

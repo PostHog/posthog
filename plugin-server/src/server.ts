@@ -26,7 +26,6 @@ import { closeHub, createHub } from './utils/hub'
 import { getObjectStorage } from './utils/object_storage'
 import { PostgresRouter } from './utils/postgres'
 import { posthog } from './utils/posthog'
-import { PubSub } from './utils/pubsub'
 import { createRedisClient } from './utils/redis'
 import { status } from './utils/status'
 import { delay } from './utils/utils'
@@ -38,7 +37,6 @@ const pluginServerStartupTimeMs = new Counter({
 
 export class PluginServer {
     config: Config
-    pubsub?: PubSub
     services: PluginServerService[] = []
     httpServer?: Server
     stopping = false
@@ -59,15 +57,6 @@ export class PluginServer {
 
         const capabilities = getPluginServerCapabilities(this.config)
         const hub = (this.hub = await createHub(this.config, capabilities))
-
-        this.pubsub = new PubSub(this.hub, {
-            'reset-available-product-features-cache': (message) => {
-                // TODO: Can we make this nicer?
-                this.hub?.organizationManager.resetAvailableProductFeaturesCache(JSON.parse(message).organization_id)
-            },
-        })
-
-        await this.pubsub.start()
 
         // // Creating a dedicated single-connection redis client to this Redis, as it's not relevant for hobby
         // // and cloud deploys don't have concurrent uses. We should abstract multi-Redis into a router util.
@@ -309,11 +298,7 @@ export class PluginServer {
             job.cancel()
         })
 
-        await Promise.allSettled([
-            this.pubsub?.stop(),
-            ...this.services.map((s) => s.onShutdown()),
-            posthog.shutdownAsync(),
-        ])
+        await Promise.allSettled([...this.services.map((s) => s.onShutdown()), posthog.shutdownAsync()])
 
         if (this.hub) {
             // Wait 2 seconds to flush the last queues and caches

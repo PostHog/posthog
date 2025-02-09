@@ -264,7 +264,7 @@ export class IngestionConsumer {
         }
 
         // Add all teams to our context
-        context.teamsByToken = (await this.hub.teamManager.getTeams(Array.from(tokens))).byId
+        context.teamsByToken = (await this.hub.teamManager.getTeams(Array.from(tokens))).byToken
         return context
     }
 

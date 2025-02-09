@@ -1,11 +1,32 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import LRU from 'lru-cache'
 
-import { Config, ProjectId, Team, TeamId, TeamIDWithConfig } from '../types'
+import {
+    Config,
+    ORG_AVAILABLE_FEATURES,
+    OrganizationProductFeature,
+    OrgAvailableFeature,
+    ProjectId,
+    Team,
+    TeamId,
+    TeamIDWithConfig,
+} from '../types'
 import { PostgresRouter, PostgresUse } from '../utils/postgres'
 import { posthog } from '../utils/posthog'
 
 export const ONE_MINUTE = 60 * 1000
+
+const parseTeam = (row: Team): Team => {
+    // NOTE: The available_product_features is a JSONB array of objects, so we need to parse it and simplify it to just the keys
+    const rawFeatures = row.available_product_features as unknown as OrganizationProductFeature[]
+
+    return {
+        ...row,
+        available_product_features: rawFeatures
+            .filter((feature) => ORG_AVAILABLE_FEATURES.includes(feature.key as OrgAvailableFeature))
+            .map((feature) => feature.key as OrgAvailableFeature),
+    }
+}
 
 export class TeamManager {
     teamCache: LRU<TeamId, Team | null>
@@ -71,48 +92,47 @@ export class TeamManager {
         let fetchedTeams: Team[] = []
 
         const BASE_QUERY = `SELECT
-                id,
-                project_id,
-                uuid,
-                organization_id,
-                name,
-                anonymize_ips,
-                api_token,
-                slack_incoming_webhook,
-                session_recording_opt_in,
-                person_processing_opt_out,
-                heatmaps_opt_in,
-                ingested_event,
-                person_display_name_properties,
-                test_account_filters,
-                cookieless_server_hash_mode,
-                timezone
-            FROM posthog_team`
-
-        // TODO: Also get the org info
+                team.id as id,
+                team.project_id as project_id,
+                team.uuid as uuid,
+                team.organization_id as organization_id,
+                team.name as name,
+                team.anonymize_ips as anonymize_ips,
+                team.api_token as api_token,
+                team.slack_incoming_webhook as slack_incoming_webhook,
+                team.session_recording_opt_in as session_recording_opt_in,
+                team.person_processing_opt_out as person_processing_opt_out,
+                team.heatmaps_opt_in as heatmaps_opt_in,
+                team.ingested_event as ingested_event,
+                team.person_display_name_properties as person_display_name_properties,
+                team.test_account_filters as test_account_filters,
+                team.cookieless_server_hash_mode as cookieless_server_hash_mode,
+                team.timezone as timezone,
+                org.available_product_features as available_product_features
+            FROM posthog_team as team join posthog_organization org on team.organization_id = org.id`
 
         if (tokensToFetch.size) {
             // Fetch only the teams we don't have in the cache
             const selectResult = await this.postgres.query<Team>(
                 PostgresUse.COMMON_READ,
-                `${BASE_QUERY} WHERE api_token = ANY($1)`,
+                `${BASE_QUERY} WHERE team.api_token = ANY($1)`,
                 [Array.from(tokensToFetch)],
                 'fetchTeamsByToken'
             )
 
-            fetchedTeams = fetchedTeams.concat(selectResult.rows)
+            fetchedTeams = fetchedTeams.concat(selectResult.rows.map(parseTeam))
         }
 
         if (teamIdsToFetch.size) {
             // Fetch only the teams we don't have in the cache
             const selectResult = await this.postgres.query<Team>(
                 PostgresUse.COMMON_READ,
-                `${BASE_QUERY} WHERE id = ANY($1)`,
+                `${BASE_QUERY} WHERE team.id = ANY($1)`,
                 [Array.from(teamIdsToFetch)],
                 'fetchTeamsById'
             )
 
-            fetchedTeams = fetchedTeams.concat(selectResult.rows)
+            fetchedTeams = fetchedTeams.concat(selectResult.rows.map(parseTeam))
         }
 
         // Add all found teams to our caches and results

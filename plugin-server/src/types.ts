@@ -10,7 +10,6 @@ import { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { BatchConsumer } from './kafka/batch-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { GroupTypeManager } from './services/group-type-manager'
-import { OrganizationManager } from './services/organization-manager'
 import { TeamManager } from './services/team-manager'
 import { Celery } from './utils/celery'
 import { ObjectStorage } from './utils/object_storage'
@@ -288,7 +287,6 @@ export interface Hub extends Config {
     objectStorage?: ObjectStorage
     // tools
     teamManager: TeamManager
-    organizationManager: OrganizationManager
     groupTypeManager: GroupTypeManager
     celery: Celery
     // geoip database, setup in workers
@@ -349,7 +347,7 @@ export interface PropertyUsage {
     volume: number | null
 }
 
-export interface ProductFeature {
+export interface OrganizationProductFeature {
     key: string
     name: string
 }
@@ -360,8 +358,11 @@ export interface RawOrganization {
     name: string
     created_at: string
     updated_at: string
-    available_product_features: ProductFeature[]
+    available_product_features: OrganizationProductFeature[]
 }
+
+export const ORG_AVAILABLE_FEATURES = ['group_analytics'] as const
+export type OrgAvailableFeature = (typeof ORG_AVAILABLE_FEATURES)[number]
 
 /** Usable Team model. */
 export interface Team {
@@ -383,6 +384,8 @@ export interface Team {
         | null
     cookieless_server_hash_mode: CookielessServerHashMode | null
     timezone: string
+    // NOTE: This is added by the TeamManager
+    available_product_features: OrgAvailableFeature[]
 }
 
 export interface TeamIDWithConfig {

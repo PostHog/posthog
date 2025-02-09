@@ -2,11 +2,11 @@ import { Message } from 'node-rdkafka'
 import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { KAFKA_APP_METRICS_2, KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_LOG_ENTRIES } from '../../config/kafka-topics'
+import { safeClickhouseString } from '../../ingestion/event-pipeline-runner/utils/utils'
 import { BatchConsumer, startBatchConsumer } from '../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { AppMetric2Type, Hub, PluginServerService, TimestampFormat } from '../../types'
-import { safeClickhouseString } from '../../ingestion/event-pipeline-runner/utils/utils'
 import { runInstrumentedFunction } from '../../utils/instrument'
 import { status } from '../../utils/status'
 import { castTimestampOrNow, UUIDT } from '../../utils/utils'
@@ -222,7 +222,9 @@ export abstract class CdpConsumerBase {
                         delete result.capturedPostHogEvents
 
                         for (const event of capturedEvents ?? []) {
-                            const team = await this.hub.teamManager.fetchTeam(event.team_id)
+                            // NOTE: We should improve this by adding the team to the hogFunction so that the lookup is easier
+                            const teamsById = await this.hub.teamManager.getTeams([], [result.invocation.teamId])
+                            const team = teamsById.byId[result.invocation.teamId]
                             if (!team) {
                                 continue
                             }

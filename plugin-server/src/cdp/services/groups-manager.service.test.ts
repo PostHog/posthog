@@ -13,9 +13,6 @@ describe('Groups Manager', () => {
         postgres: {
             query: jest.fn(),
         },
-        organizationManager: {
-            hasAvailableFeature: jest.fn(() => Promise.resolve(true)),
-        },
     }
 
     beforeEach(() => {

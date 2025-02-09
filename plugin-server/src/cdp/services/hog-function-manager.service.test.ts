@@ -1,5 +1,4 @@
-import { createTeam, resetTestDatabase } from '../../_tests/helpers/sql'
-import { fetchTeam } from '../../services/team-manager'
+import { createTeam, getTeamById, resetTestDatabase } from '../../_tests/helpers/sql'
 import { Hub } from '../../types'
 import { closeHub, createHub } from '../../utils/hub'
 import { PostgresUse } from '../../utils/postgres'
@@ -22,8 +21,7 @@ describe('HogFunctionManager', () => {
         await resetTestDatabase()
         manager = new HogFunctionManagerService(hub)
 
-        const teams = await hub.teamManager.getTeams([], [2])
-        const team = teams.byId[2]
+        const team = await getTeamById(hub, 2)
 
         teamId1 = await createTeam(hub.postgres, team!.organization_id)
         teamId2 = await createTeam(hub.postgres, team!.organization_id)
@@ -239,8 +237,7 @@ describe('Hogfunction Manager - Execution Order', () => {
         await resetTestDatabase()
         manager = new HogFunctionManagerService(hub)
 
-        const teams = await hub.teamManager.getTeams([], [2])
-        const team = teams.byId[2]
+        const team = await getTeamById(hub, 2)
         teamId = await createTeam(hub.postgres, team!.organization_id)
         teamId2 = await createTeam(hub.postgres, team!.organization_id)
 

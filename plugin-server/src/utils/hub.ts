@@ -11,7 +11,6 @@ import { EncryptedFields } from '../cdp/encryption-utils'
 import { defaultConfig } from '../config/config'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { GroupTypeManager } from '../services/group-type-manager'
-import { OrganizationManager } from '../services/organization-manager'
 import { TeamManager } from '../services/team-manager'
 import { Config, Hub, PluginServerCapabilities } from '../types'
 import { Celery } from './celery'
@@ -104,7 +103,6 @@ export async function createHub(
     }
 
     const teamManager = new TeamManager(postgres, serverConfig)
-    const organizationManager = new OrganizationManager(postgres, teamManager)
     const groupTypeManager = new GroupTypeManager(postgres, teamManager)
     const cookielessManager = new CookielessManager(serverConfig, redisPool)
 
@@ -117,9 +115,7 @@ export async function createHub(
         kafkaProducer,
         objectStorage: objectStorage,
         groupTypeManager,
-
         teamManager,
-        organizationManager,
         eventsToDropByToken: createEventsToDropByToken(serverConfig.DROP_EVENTS_BY_TOKEN_DISTINCT_ID),
         eventsToSkipPersonsProcessingByToken: createEventsToDropByToken(
             serverConfig.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID

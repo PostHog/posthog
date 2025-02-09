@@ -21,36 +21,48 @@ export class CdpInternalEventsConsumer extends CdpProcessedEventsConsumer {
             runInstrumentedFunction({
                 statsKey: `cdpConsumer.handleEachBatch.parseKafkaMessages`,
                 func: async () => {
-                    const events: HogFunctionInvocationGlobals[] = []
-                    await Promise.all(
-                        messages.map(async (message) => {
-                            try {
-                                const kafkaEvent = JSON.parse(message.value!.toString()) as unknown
-                                // This is the input stream from elsewhere so we want to do some proper validation
-                                const event = CdpInternalEventSchema.parse(kafkaEvent)
+                    const parsedMessages = messages.reduce((acc, message) => {
+                        try {
+                            const kafkaEvent = JSON.parse(message.value!.toString()) as unknown
+                            // This is the input stream from elsewhere so we want to do some proper validation
+                            const event = CdpInternalEventSchema.parse(kafkaEvent)
 
-                                if (!this.hogFunctionManager.teamHasHogDestinations(event.team_id)) {
-                                    // No need to continue if the team doesn't have any functions
-                                    return
-                                }
-
-                                const team = await this.hub.teamManager.fetchTeam(event.team_id)
-                                if (!team) {
-                                    return
-                                }
-                                events.push(
-                                    convertInternalEventToHogFunctionInvocationGlobals(
-                                        event,
-                                        team,
-                                        this.hub.SITE_URL ?? 'http://localhost:8000'
-                                    )
-                                )
-                            } catch (e) {
-                                status.error('Error parsing message', e)
-                                counterParseError.labels({ error: e.message }).inc()
+                            if (!this.hogFunctionManager.teamHasHogDestinations(event.team_id)) {
+                                // No need to continue if the team doesn't have any functions
+                                return acc
                             }
-                        })
-                    )
+
+                            return [...acc, event]
+                        } catch (e) {
+                            status.error('Error parsing message', e)
+                            counterParseError.labels({ error: e.message }).inc()
+                        }
+
+                        return acc
+                    }, [] as ReturnType<typeof CdpInternalEventSchema.parse>[])
+
+                    const teams = (
+                        await this.hub.teamManager.getTeams(
+                            [],
+                            parsedMessages.map((x) => x.team_id)
+                        )
+                    ).byId
+
+                    const events = parsedMessages.reduce((acc, event) => {
+                        const team = teams[event.team_id]
+                        if (!team) {
+                            return acc
+                        }
+
+                        return [
+                            ...acc,
+                            convertInternalEventToHogFunctionInvocationGlobals(
+                                event,
+                                team,
+                                this.hub.SITE_URL ?? 'http://localhost:8000'
+                            ),
+                        ]
+                    }, [] as HogFunctionInvocationGlobals[])
 
                     return events
                 },
