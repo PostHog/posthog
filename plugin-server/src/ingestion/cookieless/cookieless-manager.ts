@@ -6,8 +6,7 @@ import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 import { getDomain } from 'tldts'
 
-import { TeamManager } from '../../services/team-manager'
-import { Config, CookielessServerHashMode } from '../../types'
+import { Config, CookielessServerHashMode, Team } from '../../types'
 import { ConcurrencyController } from '../../utils/concurrencyController'
 import { RedisOperationError } from '../../utils/errors'
 import { runInstrumentedFunction } from '../../utils/instrument'
@@ -108,7 +107,7 @@ export class CookielessManager {
     private readonly mutex = new ConcurrencyController(1)
     private cleanupInterval: NodeJS.Timeout | null = null
 
-    constructor(config: Config, redis: GenericPool<Redis.Redis>, private teamManager: TeamManager) {
+    constructor(config: Config, redis: GenericPool<Redis.Redis>) {
         this.config = {
             disabled: config.COOKIELESS_DISABLED,
             forceStatelessMode: config.COOKIELESS_FORCE_STATELESS_MODE,
@@ -248,7 +247,7 @@ export class CookielessManager {
         )
     }
 
-    async processEvent(event: PluginEvent): Promise<PluginEvent | undefined> {
+    async processEvent(event: PluginEvent, team: Team): Promise<PluginEvent | undefined> {
         // if events aren't using this mode, skip all processing
         if (!event.properties?.[COOKIELESS_MODE_FLAG_PROPERTY]) {
             return event
@@ -267,7 +266,7 @@ export class CookielessManager {
 
         try {
             return await runInstrumentedFunction({
-                func: () => this.cookielessServerHashStepInner(event as PluginEvent & { properties: Properties }),
+                func: () => this.cookielessServerHashStepInner(event as PluginEvent & { properties: Properties }, team),
                 statsKey: 'cookieless.process_event',
             })
         } catch (e) {
@@ -293,11 +292,11 @@ export class CookielessManager {
     }
 
     async cookielessServerHashStepInner(
-        event: PluginEvent & { properties: Properties }
+        event: PluginEvent & { properties: Properties },
+        team: Team
     ): Promise<PluginEvent | undefined> {
         // if the team isn't allowed to use this mode, drop the event
-        const team = await this.teamManager.getTeamForEvent(event)
-        if (!team?.cookieless_server_hash_mode) {
+        if (!team.cookieless_server_hash_mode) {
             eventDroppedCounter
                 .labels({
                     event_type: 'analytics',

@@ -22,7 +22,8 @@ describe('HogFunctionManager', () => {
         await resetTestDatabase()
         manager = new HogFunctionManagerService(hub)
 
-        const team = await fetchTeam(hub.postgres, 2)
+        const teams = await hub.teamManager.getTeams([], [2])
+        const team = teams.byId[2]
 
         teamId1 = await createTeam(hub.postgres, team!.organization_id)
         teamId2 = await createTeam(hub.postgres, team!.organization_id)
@@ -238,7 +239,8 @@ describe('Hogfunction Manager - Execution Order', () => {
         await resetTestDatabase()
         manager = new HogFunctionManagerService(hub)
 
-        const team = await fetchTeam(hub.postgres, 2)
+        const teams = await hub.teamManager.getTeams([], [2])
+        const team = teams.byId[2]
         teamId = await createTeam(hub.postgres, team!.organization_id)
         teamId2 = await createTeam(hub.postgres, team!.organization_id)
 

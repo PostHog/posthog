@@ -14,12 +14,11 @@ import {
     resetMockProducer,
 } from '../_tests/helpers/producer.mock'
 import { forSnapshot } from '../_tests/helpers/snapshots'
-import { createTeam, getFirstTeam, resetTestDatabase } from '../_tests/helpers/sql'
+import { createTeam, getFirstTeam, getTeamById, resetTestDatabase } from '../_tests/helpers/sql'
 import { insertHogFunction as _insertHogFunction } from '../cdp/_tests/fixtures'
 import { template as geoipTemplate } from '../cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '../cdp/templates/compiler'
 import { HogFunctionType } from '../cdp/types'
-import { fetchTeam } from '../services/team-manager'
 import { status } from '../utils/status'
 import { UUIDT } from '../utils/utils'
 import { EventDroppedError } from './event-pipeline-runner/event-pipeline-runner'
@@ -114,7 +113,7 @@ describe('IngestionConsumer', () => {
         hub.kafkaProducer = mockProducer
         team = await getFirstTeam(hub)
         const team2Id = await createTeam(hub.postgres, team.organization_id)
-        team2 = (await fetchTeam(hub.postgres, team2Id)) as Team
+        team2 = await getTeamById(hub, team2Id)
 
         resetMockProducer()
     })

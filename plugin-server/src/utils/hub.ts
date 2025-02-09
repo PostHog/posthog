@@ -105,10 +105,8 @@ export async function createHub(
 
     const teamManager = new TeamManager(postgres, serverConfig)
     const organizationManager = new OrganizationManager(postgres, teamManager)
-
     const groupTypeManager = new GroupTypeManager(postgres, teamManager)
-
-    const cookielessManager = new CookielessManager(serverConfig, redisPool, teamManager)
+    const cookielessManager = new CookielessManager(serverConfig, redisPool)
 
     const hub: Hub = {
         ...serverConfig,

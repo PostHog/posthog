@@ -1,5 +1,5 @@
 import { timeoutGuard } from '../ingestion/event-pipeline-runner/utils/utils'
-import { GroupTypeIndex, GroupTypeToColumnIndex, ProjectId, Team, TeamId } from '../types'
+import { GroupTypeIndex, GroupTypeToColumnIndex, ProjectId, Team } from '../types'
 import { PostgresRouter, PostgresUse } from '../utils/postgres'
 import { captureTeamEvent } from '../utils/posthog'
 import { getByAge } from '../utils/utils'
@@ -46,38 +46,32 @@ export class GroupTypeManager {
         }
     }
 
-    public async fetchGroupTypeIndex(
-        teamId: TeamId,
-        projectId: ProjectId,
-        groupType: string
-    ): Promise<GroupTypeIndex | null> {
-        const groupTypes = await this.fetchGroupTypes(projectId)
+    public async fetchGroupTypeIndex(team: Team, groupType: string): Promise<GroupTypeIndex | null> {
+        const groupTypes = await this.fetchGroupTypes(team.project_id)
 
         if (groupType in groupTypes) {
             return groupTypes[groupType]
         } else {
             const [groupTypeIndex, isInsert] = await this.insertGroupType(
-                teamId,
-                projectId,
+                team,
                 groupType,
                 Object.keys(groupTypes).length
             )
             if (groupTypeIndex !== null) {
-                this.groupTypesCache.delete(projectId)
+                this.groupTypesCache.delete(team.project_id)
             }
 
             if (isInsert && groupTypeIndex !== null) {
                 // TODO: Is the `group type ingested` event being valuable? If not, we can remove
                 // `captureGroupTypeInsert()`. If yes, we should move this capture to use the project instead of team
-                await this.captureGroupTypeInsert(teamId, groupType, groupTypeIndex)
+                this.captureGroupTypeInsert(team, groupType, groupTypeIndex)
             }
             return groupTypeIndex
         }
     }
 
     public async insertGroupType(
-        teamId: TeamId,
-        projectId: ProjectId,
+        team: Team,
         groupType: string,
         index: number
     ): Promise<[GroupTypeIndex | null, boolean]> {
@@ -98,12 +92,12 @@ export class GroupTypeManager {
             UNION
             SELECT group_type_index, 0 AS is_insert FROM posthog_grouptypemapping WHERE project_id = $2 AND group_type = $3;
             `,
-            [teamId, projectId, groupType, index],
+            [team.id, team.project_id, groupType, index],
             'insertGroupType'
         )
 
         if (insertGroupTypeResult.rows.length == 0) {
-            return await this.insertGroupType(teamId, projectId, groupType, index + 1)
+            return await this.insertGroupType(team, groupType, index + 1)
         }
 
         const { group_type_index, is_insert } = insertGroupTypeResult.rows[0]
@@ -111,13 +105,7 @@ export class GroupTypeManager {
         return [group_type_index, is_insert === 1]
     }
 
-    private async captureGroupTypeInsert(teamId: TeamId, groupType: string, groupTypeIndex: GroupTypeIndex) {
-        const team: Team | null = await this.teamManager.fetchTeam(teamId)
-
-        if (!team) {
-            return
-        }
-
+    private captureGroupTypeInsert(team: Team, groupType: string, groupTypeIndex: GroupTypeIndex) {
         captureTeamEvent(team, 'group type ingested', { groupType, groupTypeIndex })
     }
 }

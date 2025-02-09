@@ -211,6 +211,17 @@ export async function getFirstTeam(hub: Hub): Promise<Team> {
     return (await getTeams(hub))[0]
 }
 
+export async function getTeamById(hub: Hub, id: number): Promise<Team> {
+    const selectResult = await hub.postgres.query<Team>(
+        PostgresUse.COMMON_READ,
+        'SELECT * FROM posthog_team WHERE id = $1',
+        [id],
+        'fetchTeamById'
+    )
+    selectResult.rows[0].project_id = parseInt(selectResult.rows[0].project_id as unknown as string) as ProjectId
+    return selectResult.rows[0]
+}
+
 export const createOrganization = async (pg: PostgresRouter) => {
     const organizationId = new UUIDT().toString()
     await insertRow(pg, 'posthog_organization', {

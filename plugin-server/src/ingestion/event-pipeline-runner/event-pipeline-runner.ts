@@ -308,11 +308,7 @@ export class EventPipelineRunnerV2 {
 
         // Adds group_0 etc values to properties
         for (const [groupType, groupIdentifier] of Object.entries(this.event.properties!.$groups || {})) {
-            const columnIndex = await this.groupTypeManager.fetchGroupTypeIndex(
-                this.team!.id,
-                this.team!.project_id,
-                groupType
-            )
+            const columnIndex = await this.groupTypeManager.fetchGroupTypeIndex(this.team!, groupType)
             if (columnIndex !== null) {
                 // :TODO: Update event column instead
                 this.event.properties![`$group_${columnIndex}`] = groupIdentifier
@@ -329,11 +325,7 @@ export class EventPipelineRunnerV2 {
                 $group_key: groupKey,
                 $group_set: groupPropertiesToSet,
             } = this.event.properties!
-            const groupTypeIndex = await this.groupTypeManager.fetchGroupTypeIndex(
-                this.team!.id,
-                this.team!.project_id,
-                groupType
-            )
+            const groupTypeIndex = await this.groupTypeManager.fetchGroupTypeIndex(this.team!, groupType)
 
             if (groupTypeIndex !== null) {
                 await upsertGroup(
