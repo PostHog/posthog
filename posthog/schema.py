@@ -236,13 +236,7 @@ class AssistantTrendsFilter(BaseModel):
             " `$geoip_country_name`, and only then."
         ),
     )
-    formula: Optional[str] = Field(
-        default=None, description="If the formula is provided, apply it here. Kept for backwards compatibility."
-    )
-    formulas: Optional[list[str]] = Field(
-        default=None,
-        description="List of formulas to apply to the data. Takes precedence over formula if both are set.",
-    )
+    formulas: Optional[list[str]] = Field(default=None, description="If the formula is provided, apply it here.")
     showLegend: Optional[bool] = Field(
         default=False, description="Whether to show the legend describing series and breakdowns."
     )
@@ -2752,9 +2746,7 @@ class TrendsFilter(BaseModel):
     breakdown_histogram_bin_count: Optional[float] = None
     decimalPlaces: Optional[float] = None
     display: Optional[ChartDisplayType] = ChartDisplayType.ACTIONS_LINE_GRAPH
-    formula: Optional[str] = Field(
-        default=None, description="If the formula is provided, apply it here. Kept for backwards compatibility."
-    )
+    formula: Optional[str] = None
     formulas: Optional[list[str]] = Field(
         default=None,
         description="List of formulas to apply to the data. Takes precedence over formula if both are set.",
