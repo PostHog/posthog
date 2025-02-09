@@ -195,13 +195,13 @@ describe('process-event', () => {
         const p0 = await createPerson(team, ['person_0'], { $os: 'Microsoft' })
         await delayUntilEventIngested(() => dbHelpers.fetchPersons(Database.ClickHouse), 1)
 
-        const [_person0, kafkaMessages0] = await personsDB.updatePersonDeprecated(p0, {
+        const [_person0, kafkaMessages0] = await personsDB.updatePersonDeprecated(p0 as any, {
             created_at: DateTime.fromISO('2020-01-01T00:00:00Z'),
         })
 
         const p1 = await createPerson(team, ['person_1'], { $os: 'Chrome', $browser: 'Chrome' })
         await delayUntilEventIngested(() => dbHelpers.fetchPersons(Database.ClickHouse), 2)
-        const [_person1, kafkaMessages1] = await personsDB.updatePersonDeprecated(p1, {
+        const [_person1, kafkaMessages1] = await personsDB.updatePersonDeprecated(p1 as any, {
             created_at: DateTime.fromISO('2019-07-01T00:00:00Z'),
         })
 

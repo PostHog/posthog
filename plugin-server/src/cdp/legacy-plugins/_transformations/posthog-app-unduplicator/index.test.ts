@@ -33,7 +33,7 @@ describe('`Event and Timestamp` mode', () => {
                 event: 'myPageview',
                 timestamp: '2020-05-02T20:59:59.999999Z',
                 differentProperty: 'indeed',
-            },
+            } as any,
             meta
         )
         expect(event1?.uuid).toBeTruthy()

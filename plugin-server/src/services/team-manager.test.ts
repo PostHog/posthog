@@ -21,7 +21,7 @@ describe('TeamManager()', () => {
         await resetTestDatabase()
         postgres = new PostgresRouter(defaultConfig)
         teamManager = new TeamManager(postgres, defaultConfig)
-        Settings.defaultZoneName = 'utc'
+        Settings.defaultZone = 'utc'
     })
 
     afterEach(async () => {

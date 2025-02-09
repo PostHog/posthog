@@ -451,7 +451,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
 
                 // all replay events should be watermarked up until the 3rd message as they HAVE been processed
                 // whereas the commited kafka offset should be the 1st message as the 2nd message HAS not been processed
-                const expectedWaterMarks = {
+                const expectedWaterMarks: Record<string, number> = {
                     session_replay_console_logs_events_ingester: 3,
                     session_replay_events_ingester: 3,
                 }

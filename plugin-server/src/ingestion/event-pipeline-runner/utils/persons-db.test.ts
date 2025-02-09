@@ -100,7 +100,7 @@ describe('DB', () => {
             const person = await db.createPerson(
                 TIMESTAMP,
                 { a: 123, b: false, c: 'bbb' },
-                { a: TIMESTAMP.toISO(), b: TIMESTAMP.toISO(), c: TIMESTAMP.toISO() },
+                { a: TIMESTAMP.toISO(), b: TIMESTAMP.toISO(), c: TIMESTAMP.toISO() } as any,
                 { a: PropertyUpdateOperation.Set, b: PropertyUpdateOperation.Set, c: PropertyUpdateOperation.SetOnce },
                 team.id,
                 null,
@@ -510,8 +510,8 @@ describe('PostgresRouter()', () => {
             return Promise.reject(new Error(errorMessage))
         })
 
-        const router = new PostgresRouter(defaultConfig, null)
-        await expect(router.query(PostgresUse.COMMON_WRITE, 'SELECT 1;', null, 'testing')).rejects.toEqual(
+        const router = new PostgresRouter(defaultConfig)
+        await expect(router.query(PostgresUse.COMMON_WRITE, 'SELECT 1;', [], 'testing')).rejects.toEqual(
             new DependencyUnavailableError(errorMessage, 'Postgres', new Error(errorMessage))
         )
         pgQueryMock.mockRestore()
