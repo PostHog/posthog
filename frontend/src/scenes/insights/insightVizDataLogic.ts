@@ -74,9 +74,9 @@ import { BaseMathType, ChartDisplayType, FilterType, InsightLogicProps } from '~
 
 import type { insightVizDataLogicType } from './insightVizDataLogicType'
 
-type QuerySourceUpdate = Partial<TrendsQuery | FunnelsQuery>
-
 const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
+
+export type QuerySourceUpdate = Omit<Partial<InsightQueryNode>, 'kind'>
 
 export const insightVizDataLogic = kea<insightVizDataLogicType>([
     props({} as InsightLogicProps),
@@ -132,12 +132,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
     selectors({
         querySource: [
             (s) => [s.query],
-            (query): InsightQueryNode | null =>
-                isNodeWithSource(query) && isInsightQueryNode(query.source) ? query.source : null,
+            (query) => (isNodeWithSource(query) && isInsightQueryNode(query.source) ? query.source : null),
         ],
         localQuerySource: [
             (s) => [s.querySource, s.filterTestAccountsDefault],
-            (querySource, filterTestAccountsDefault): InsightQueryNode =>
+            (querySource, filterTestAccountsDefault) =>
                 querySource ? querySource : queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault).source,
         ],
 
@@ -373,14 +372,19 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         validationError: [
             (s) => [s.insightDataError],
             (insightDataError): string | null => {
+                // We use 512 for query timeouts
+                // Async queries put the error message on data.error_message, while synchronous ones use detail
                 return insightDataError?.status === 400 || insightDataError?.status === 512
-                    ? (insightDataError.detail || insightDataError.data?.error_message)?.replace('Try ', 'Try ')
+                    ? (insightDataError.detail || insightDataError.data?.error_message)?.replace('Try ', 'Try ') // Add unbreakable space for better line breaking
                     : null
             },
         ],
 
         timezone: [(s) => [s.insightData], (insightData) => insightData?.timezone || 'UTC'],
 
+        /*
+         * Funnels
+         */
         isFunnelWithEnoughSteps: [
             (s) => [s.series],
             (series) => {
@@ -388,6 +392,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             },
         ],
 
+        // Exclusion filters
         exclusionDefaultStepRange: [
             (s) => [s.querySource],
             (querySource: FunnelsQuery): FunnelExclusionSteps => ({
@@ -407,6 +412,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             }),
         ],
 
+        // all events used in the insight (useful for fetching only relevant property definitions)
         allEventNames: [
             (s) => [s.querySource, actionsModel.selectors.actions],
             (querySource, actions) => (querySource ? getAllEventNames(querySource, actions) : []),
@@ -416,9 +422,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
+        // query
         setQuery: ({ query }) => {
             if (isInsightVizNode(query)) {
                 if (query.source.kind === NodeKind.TrendsQuery) {
+                    // Disable filter test account when using a data warehouse series
                     const hasWarehouseSeries = query.source.series?.some((node) => isDataWarehouseNode(node))
                     const filterTestAccountsEnabled = query.source.filterTestAccounts ?? false
                     if (hasWarehouseSeries && filterTestAccountsEnabled) {
@@ -432,6 +440,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             }
         },
 
+        // query source
         updateQuerySource: ({ querySource }) => {
             actions.setQuery({
                 ...values.query,
@@ -446,6 +455,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             } as Node)
         },
 
+        // query source properties
         updateDateRange: async ({ dateRange }, breakpoint) => {
             await breakpoint(300)
             actions.updateQuerySource({
@@ -457,16 +467,17 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             })
         },
         updateBreakdownFilter: async ({ breakdownFilter }, breakpoint) => {
-            await breakpoint(500)
+            await breakpoint(500) // extra debounce time because of number input
             const update: Partial<TrendsQuery> = { breakdownFilter: { ...values.breakdownFilter, ...breakdownFilter } }
             actions.updateQuerySource(update)
         },
         updateCompareFilter: async ({ compareFilter }, breakpoint) => {
-            await breakpoint(500)
+            await breakpoint(500) // extra debounce time because of number input
             const update: Partial<TrendsQuery> = { compareFilter: { ...values.compareFilter, ...compareFilter } }
             actions.updateQuerySource(update)
         },
 
+        // insight filter
         updateInsightFilter: async ({ insightFilter }, breakpoint) => {
             await breakpoint(300)
             const filterProperty = filterKeyForQuery(values.localQuerySource)
@@ -475,6 +486,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             })
         },
 
+        // insight filter properties
         updateDisplay: ({ display }) => {
             actions.updateInsightFilter({ display })
         },
@@ -482,10 +494,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             actions.updateInsightFilter({ hiddenLegendIndexes })
         },
 
+        // data loading side effects i.e. diplaying loading screens for queries with longer duration
         loadData: async ({ queryId }, breakpoint) => {
             actions.setTimedOutQueryId(null)
 
-            await breakpoint(SHOW_TIMEOUT_MESSAGE_AFTER)
+            await breakpoint(SHOW_TIMEOUT_MESSAGE_AFTER) // By timeout we just mean long loading time here
 
             if (values.insightDataLoading) {
                 actions.setTimedOutQueryId(queryId)
@@ -544,6 +557,9 @@ const handleQuerySourceUpdateSideEffects = (
      * Series change side effects.
      */
 
+    // If the user just flipped an event action to use WAUs/MAUs math and their
+    // current interval is unsupported by the math type, switch their interval
+    // to an appropriate allowed interval and inform them of the change via a toast
     if (
         maybeChangedActiveUsersMath !== null &&
         (interval === 'hour' || interval === 'month' || interval === 'minute')
@@ -566,12 +582,12 @@ const handleQuerySourceUpdateSideEffects = (
      */
     if (
         !isRetentionQuery(currentState) &&
-        !isPathsQuery(currentState) &&
+        !isPathsQuery(currentState) && // TODO: Apply side logic more elegantly
         update.dateRange &&
         update.dateRange.date_from &&
         (update.dateRange.date_from !== currentState.dateRange?.date_from ||
             update.dateRange.date_to !== currentState.dateRange?.date_to) &&
-        !isIntervalManuallySet
+        !isIntervalManuallySet // Only auto-adjust interval if not manually set
     ) {
         const { date_from, date_to } = { ...currentState.dateRange, ...update.dateRange }
 
@@ -584,6 +600,7 @@ const handleQuerySourceUpdateSideEffects = (
                 ;(mergedUpdate as TrendsQuery).interval = 'month'
             }
         } else {
+            // get a defaultInterval for dateOptions that have a default value
             const selectedDateMapping = dateMapping.find(
                 ({ key, values, defaultInterval }) =>
                     values[0] === date_from &&
@@ -609,6 +626,7 @@ const handleQuerySourceUpdateSideEffects = (
     const maybeChangedDisplay =
         (maybeChangedInsightFilter as Partial<TrendsFilter>)?.display || ChartDisplayType.ActionsLineGraph
 
+    // For the map, make sure we are breaking down by country
     if (
         kind === NodeKind.TrendsQuery &&
         display !== maybeChangedDisplay &&
@@ -622,6 +640,7 @@ const handleQuerySourceUpdateSideEffects = (
         }
     }
 
+    // if mixed, clear breakdown and trends filter
     if (
         kind === NodeKind.TrendsQuery &&
         (mergedUpdate as TrendsQuery).series?.length >= 0 &&
@@ -632,10 +651,12 @@ const handleQuerySourceUpdateSideEffects = (
         mergedUpdate['properties'] = []
     }
 
+    // Remove breakdown filter if display type is BoldNumber because it is not supported
     if (kind === NodeKind.TrendsQuery && maybeChangedDisplay === ChartDisplayType.BoldNumber) {
         mergedUpdate['breakdownFilter'] = null
     }
 
+    // Don't allow minutes on anything other than Trends
     if (
         currentState.kind == NodeKind.TrendsQuery &&
         kind !== NodeKind.TrendsQuery &&
@@ -644,11 +665,14 @@ const handleQuerySourceUpdateSideEffects = (
         ;(mergedUpdate as TrendsQuery).interval = 'hour'
     }
 
+    // If the user changes the interval to 'minute' and the date_range is more than 12 hours, reset it to 1 hour
     if (kind == NodeKind.TrendsQuery && (mergedUpdate as TrendsQuery)?.interval == 'minute' && interval !== 'minute') {
         const { date_from, date_to } = { ...currentState.dateRange, ...update.dateRange }
 
         if (
+            // When insights are created, they might not have an explicit dateRange set. Change it to an hour if the interval is minute.
             (!date_from && !date_to) ||
+            // If the interval is set manually to a range greater than 12 hours, change it to an hour
             (date_from &&
                 date_to &&
                 dayjs(date_from).isValid() &&
@@ -663,6 +687,7 @@ const handleQuerySourceUpdateSideEffects = (
         }
     }
 
+    // If we've changed interval, clear smoothings
     if (kind == NodeKind.TrendsQuery) {
         if (
             (currentState as Partial<TrendsQuery>)?.trendsFilter?.smoothingIntervals !== undefined &&
