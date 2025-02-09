@@ -13,14 +13,14 @@ import { captureIngestionWarning } from '../../utils/ingestion-warnings'
 import { eventDroppedCounter } from '../../utils/metrics'
 import { status } from '../../utils/status'
 import { castTimestampOrNow, UUID } from '../../utils/utils'
+import { EventIngestionBatchContext } from '../types'
 import { getElementsChain, normalizeEvent, normalizeProcessPerson } from './utils/event-utils'
 import { upsertGroup } from './utils/groups-updater'
 import { extractHeatmapData } from './utils/heatmaps'
 import { PersonState } from './utils/person-state'
 import { PersonsDB } from './utils/persons-db'
 import { parseEventTimestamp } from './utils/timestamps'
-import { safeClickhouseString, sanitizeEventName, sanitizeString } from './utils/utils'
-
+import { safeClickhouseString, sanitizeEventName } from './utils/utils'
 export class EventDroppedError extends Error {
     public doNotSendToDLQ: boolean = false
     public ingestionWarningDetails?: Record<string, any>
@@ -57,7 +57,8 @@ export class EventPipelineRunnerV2 {
         private hub: Hub,
         private originalEvent: PipelineEvent,
         private db: PersonsDB,
-        private hogTransformer: HogTransformerService
+        private hogTransformer: HogTransformerService,
+        private context: EventIngestionBatchContext
     ) {
         this.event = {
             ...this.originalEvent,
@@ -134,7 +135,7 @@ export class EventPipelineRunnerV2 {
 
     private async _run(): Promise<void> {
         // First of all lets get the team
-        this.team = (await this.getTeam()) ?? undefined
+        this.team = this.context.teamsByToken[this.originalEvent.token!] ?? undefined
 
         if (!this.team) {
             return this.dropEvent('invalid_token')
@@ -162,7 +163,7 @@ export class EventPipelineRunnerV2 {
         }
 
         // TODO: This needs better testing
-        const postCookielessEvent = await this.hub.cookielessManager.processEvent(this.event)
+        const postCookielessEvent = await this.hub.cookielessManager.processEvent(this.event, this.team!)
         if (postCookielessEvent == null) {
             droppedEventFromTransformationsCounter.inc()
             // NOTE: In this case we just return as it is expected, not an ingestion error
@@ -192,21 +193,6 @@ export class EventPipelineRunnerV2 {
         }
 
         this.produceEventToKafka(kafkaEvent)
-    }
-
-    async getTeam(): Promise<Team | null> {
-        const { token, team_id } = this.originalEvent
-        // Events with no token or team_id are dropped, they should be blocked by capture
-        if (team_id) {
-            return await this.hub.teamManager.fetchTeam(team_id)
-        }
-        if (token) {
-            // HACK: we've had null bytes end up in the token in the ingest pipeline before, for some reason. We should try to
-            // prevent this generally, but if it happens, we should at least simply fail to lookup the team, rather than crashing
-            return await this.hub.teamManager.getTeamByToken(sanitizeString(token))
-        }
-
-        return null
     }
 
     private validateUuid(): void {
