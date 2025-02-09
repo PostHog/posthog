@@ -1,5 +1,3 @@
-// NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
-
 import { CyclotronJob, CyclotronJobUpdate } from '@posthog/cyclotron'
 import { Bytecodes } from '@posthog/hogvm'
 import { captureException } from '@sentry/node'

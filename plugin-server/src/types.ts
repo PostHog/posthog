@@ -452,40 +452,6 @@ export interface ClickHouseEvent extends BaseEvent {
     person_mode: PersonMode
 }
 
-/** Event structure before initial ingestion.
- * This is what is used for all ingestion steps that run _before_ the clickhouse events topic.
- */
-export interface PreIngestionEvent {
-    eventUuid: string
-    event: string
-    teamId: TeamId
-    projectId: ProjectId
-    distinctId: string
-    properties: Properties
-    timestamp: ISOTimestamp
-}
-
-/** Parsed event structure after initial ingestion.
- * This is what is used for all ingestion steps that run _after_ the clickhouse events topic.
- */
-
-export interface PostIngestionEvent extends PreIngestionEvent {
-    elementsList?: Element[]
-    person_id?: string // This is not optional, but BaseEvent needs to be fixed first
-    person_created_at: ISOTimestamp | null
-    person_properties: Properties
-
-    groups?: Record<
-        string,
-        {
-            key: string
-            type: string
-            index: number
-            properties: Properties
-        }
-    >
-}
-
 export interface DeadLetterQueueEvent {
     id: string
     event_uuid: string
