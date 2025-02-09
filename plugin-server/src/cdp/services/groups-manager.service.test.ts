@@ -1,4 +1,4 @@
-import { Hub } from '../../types'
+import { Hub, Team } from '../../types'
 import { createHogExecutionGlobals } from '../_tests/fixtures'
 import { GroupsManagerService } from './groups-manager.service'
 
@@ -12,6 +12,17 @@ describe('Groups Manager', () => {
     const mockHub = {
         postgres: {
             query: jest.fn(),
+        },
+        teamManager: {
+            getTeams: jest.fn(() =>
+                Promise.resolve({
+                    byId: {
+                        1: { id: 1, available_product_features: ['group_analytics'] } as Team,
+                        2: { id: 2, available_product_features: ['group_analytics'] } as Team,
+                        3: { id: 3, available_product_features: ['group_analytics'] } as Team,
+                    },
+                })
+            ),
         },
     }
 
@@ -188,38 +199,39 @@ describe('Groups Manager', () => {
                 }
             `)
         })
-    })
 
-    it('cached group type queries', async () => {
-        const globals = [
-            createHogExecutionGlobals({
-                groups: undefined,
-                project: { id: 1 } as any,
-                event: { properties: { $groups: { GroupA: 'id-1', GroupB: 'id-2' } } } as any,
-            }),
-            createHogExecutionGlobals({
-                groups: undefined,
-                project: { id: 2 } as any,
-                event: { properties: { $groups: { GroupA: 'id-1', GroupB: 'id-2' } } } as any,
-            }),
-        ]
-        await groupsManager.enrichGroups(globals)
-        expect(mockHub.postgres.query).toHaveBeenCalledTimes(2)
-        mockHub.postgres.query.mockClear()
+        it('cached group type queries', async () => {
+            const globals = [
+                createHogExecutionGlobals({
+                    groups: undefined,
+                    project: { id: 1 } as any,
+                    event: { properties: { $groups: { GroupA: 'id-1', GroupB: 'id-2' } } } as any,
+                }),
+                createHogExecutionGlobals({
+                    groups: undefined,
+                    project: { id: 2 } as any,
+                    event: { properties: { $groups: { GroupA: 'id-1', GroupB: 'id-2' } } } as any,
+                }),
+            ]
+            expect(mockHub.postgres.query).toHaveBeenCalledTimes(0)
+            await groupsManager.enrichGroups(globals)
+            expect(mockHub.postgres.query).toHaveBeenCalledTimes(2)
+            mockHub.postgres.query.mockClear()
 
-        await groupsManager.enrichGroups(globals)
-        expect(mockHub.postgres.query).toHaveBeenCalledTimes(1)
-        mockHub.postgres.query.mockClear()
+            await groupsManager.enrichGroups(globals)
+            expect(mockHub.postgres.query).toHaveBeenCalledTimes(1)
+            mockHub.postgres.query.mockClear()
 
-        globals.push(
-            createHogExecutionGlobals({
-                groups: undefined,
-                project: { id: 3 } as any,
-                event: { properties: { $groups: { GroupA: 'id-1', GroupB: 'id-2' } } } as any,
-            })
-        )
+            globals.push(
+                createHogExecutionGlobals({
+                    groups: undefined,
+                    project: { id: 3 } as any,
+                    event: { properties: { $groups: { GroupA: 'id-1', GroupB: 'id-2' } } } as any,
+                })
+            )
 
-        await groupsManager.enrichGroups(globals)
-        expect(mockHub.postgres.query).toHaveBeenCalledTimes(2)
+            await groupsManager.enrichGroups(globals)
+            expect(mockHub.postgres.query).toHaveBeenCalledTimes(2)
+        })
     })
 })

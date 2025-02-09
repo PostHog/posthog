@@ -115,16 +115,11 @@ export class GroupsManagerService {
      * Once loaded, the objects are mutated in place.
      */
     public async enrichGroups(items: HogFunctionInvocationGlobals[]): Promise<HogFunctionInvocationGlobals[]> {
-        const teamsById = (
-            await this.hub.teamManager.getTeams(
-                [],
-                items.map((x) => x.project.id)
-            )
-        ).byId
-
         const itemsNeedingGroups = items.filter((x) => !x.groups)
+        const teamIdsNeedingGroups = Array.from(new Set(itemsNeedingGroups.map((global) => global.project.id)))
+        const teamsById = (await this.hub.teamManager.getTeams([], teamIdsNeedingGroups)).byId
         const byTeamType = await this.fetchGroupTypesMapping(
-            Array.from(new Set(itemsNeedingGroups.map((global) => global.project.id)))
+            teamIdsNeedingGroups.map((id) => teamsById[id]).filter((team) => !!team)
         )
 
         const groupsByTeamTypeId: Record<string, Group> = {}
