@@ -904,7 +904,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             subdomain = request.data.get("subdomain", "")
 
             subdomain_regex = re.compile("^[a-zA-Z-]+$")
-            if not subdomain_regex.match(subdomain):
+            if region == "US" and not subdomain_regex.match(subdomain):
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Invalid credentials: Vitally subdomain is incorrect"},

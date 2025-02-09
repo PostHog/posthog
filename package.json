@@ -254,6 +254,7 @@
         "@types/papaparse": "^5.3.8",
         "@types/pixelmatch": "^5.2.4",
         "@types/pngjs": "^6.0.1",
+        "@types/prettier": "^2.7.3",
         "@types/query-selector-shadow-dom": "^1.0.0",
         "@types/react": "^17.0.39",
         "@types/react-color": "^3.0.12",

@@ -381,7 +381,7 @@ describe('CookielessManager', () => {
                 expect(actual1).toBeUndefined()
             })
 
-            it('should work even if redis is cleared (as it can use the local cache))', async () => {
+            it('should work even if redis is cleared (as it can use the local cache)', async () => {
                 const actual1 = await hub.cookielessManager.processEvent(event)
                 await clearRedis()
                 const actual2 = await hub.cookielessManager.processEvent(eventABitLater)

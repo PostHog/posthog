@@ -583,6 +583,9 @@ importers:
       '@types/pngjs':
         specifier: ^6.0.1
         version: 6.0.1
+      '@types/prettier':
+        specifier: ^2.7.3
+        version: 2.7.3
       '@types/query-selector-shadow-dom':
         specifier: ^1.0.0
         version: 1.0.0

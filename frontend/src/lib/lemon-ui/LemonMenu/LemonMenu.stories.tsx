@@ -36,7 +36,7 @@ export default meta
 
 const Template: StoryFn<typeof LemonMenuOverlayComponent> = (props: LemonMenuOverlayProps) => {
     return (
-        <div className="rounded border p-1 bg-bg-light">
+        <div className="rounded border p-1 bg-surface-primary">
             <LemonMenuOverlayComponent {...props} />
         </div>
     )
@@ -101,7 +101,9 @@ NestedMenu.args = {
                 },
             ],
             footer: (
-                <div className="flex items-center h-10 px-2 rounded bg-bg-3000 text-muted">I am a custom footer!</div>
+                <div className="flex items-center h-10 px-2 rounded bg-primary text-secondary">
+                    I am a custom footer!
+                </div>
             ),
         },
         {
