@@ -167,7 +167,7 @@ describe('HogTransformer', () => {
                 `,
             })
             fn.bytecode = await compileHog(fn.hog)
-            await insertHogFunction(hub.db.postgres, teamId, fn)
+            await insertHogFunction(hub.postgres, teamId, fn)
             await hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
 
             const event: PluginEvent = createPluginEvent({}, teamId)
