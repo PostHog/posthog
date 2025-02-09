@@ -8,7 +8,7 @@ import { userLogic } from 'scenes/userLogic'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { HedgehogColorOptions, HedgehogConfig } from '~/types'
 
-import type { hedgehogBuddyLogicType } from './hedgehogbuddyLogicType'
+import type { hedgehogBuddyLogicType } from './hedgehogBuddyLogicType'
 
 export const COLOR_TO_FILTER_MAP: Record<HedgehogColorOptions, string> = {
     red: 'hue-rotate(340deg) saturate(300%) brightness(90%)',
