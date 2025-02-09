@@ -13,6 +13,7 @@ import { status } from '../utils/status'
 import { EventDroppedError, EventPipelineRunnerV2 } from './event-pipeline-runner/event-pipeline-runner'
 import { normalizeEvent } from './event-pipeline-runner/utils/event-utils'
 import { PersonsDB } from './event-pipeline-runner/utils/persons-db'
+import { EventIngestionBatchContext, IncomingEventsByTokenDistinctId, TokenDistinctId } from './types'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
@@ -45,20 +46,6 @@ export const ingestionPartitionKeyOverflowed = new Counter({
     help: 'Indicates that a given key has overflowed capacity and been redirected to a different topic. Value incremented once a minute.',
     labelNames: ['partition_key'],
 })
-
-type IncomingEvent = { message: Message; event: PipelineEvent }
-
-type IncomingEventsByDistinctId = {
-    [key: string]: IncomingEvent[]
-}
-
-const PERSON_EVENTS = new Set(['$set', '$identify', '$create_alias', '$merge_dangerously', '$groupidentify'])
-const KNOWN_SET_EVENTS = new Set([
-    '$feature_interaction',
-    '$feature_enrollment_update',
-    'survey dismissed',
-    'survey sent',
-])
 
 export class IngestionConsumer {
     protected name = 'ingestion-consumer'
@@ -162,71 +149,12 @@ export class IngestionConsumer {
 
     public async handleKafkaBatch(messages: Message[]) {
         const parsedMessages = await this.runInstrumented('parseKafkaMessages', () => this.parseKafkaBatch(messages))
-
-        await this.runInstrumented('processBatch', async () => {
-            await Promise.all(
-                Object.values(parsedMessages).map(async (x) => {
-                    return await this.runInstrumented('processEventsForDistinctId', () =>
-                        this.processEventsForDistinctId(x)
-                    )
-                })
-            )
-        })
+        const context = await this.runInstrumented('prepareContext', () => this.prepareContext(parsedMessages))
+        await this.runInstrumented('processBatch', () => this.processBatch(context))
 
         status.debug('🔁', `Waiting for promises`, { promises: this.promises.size })
         await this.runInstrumented('awaitScheduledWork', () => Promise.all(this.promises))
         status.debug('🔁', `Processed batch`)
-    }
-
-    private async processEventsForDistinctId(incomingEvents: IncomingEvent[]): Promise<void> {
-        // Process every message sequentially, stash promises to await on later
-        for (const { message, event } of incomingEvents) {
-            // Track $set usage in events that aren't known to use it, before ingestion adds anything there
-            if (
-                event.properties &&
-                !PERSON_EVENTS.has(event.event) &&
-                !KNOWN_SET_EVENTS.has(event.event) &&
-                ('$set' in event.properties || '$set_once' in event.properties || '$unset' in event.properties)
-            ) {
-                setUsageInNonPersonEventsCounter.inc()
-            }
-
-            try {
-                status.debug('🔁', `Processing event`, {
-                    event,
-                })
-                const eventKey = `${event.token}:${event.distinct_id}`
-                // Check the rate limiter and emit to overflow if necessary
-                const isBelowRateLimit = this.overflowRateLimiter.consume(eventKey, 1, message.timestamp)
-                if (this.overflowEnabled() && !isBelowRateLimit) {
-                    status.debug('🔁', `Sending to overflow`, {
-                        event,
-                    })
-                    ingestionPartitionKeyOverflowed.labels(`${event.team_id ?? event.token}`).inc()
-                    if (this.ingestionWarningLimiter.consume(eventKey, 1)) {
-                        status.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)
-                    }
-
-                    void this.scheduleWork(this.emitToOverflow([message]))
-                    continue
-                }
-
-                const runner = this.getEventPipelineRunner(event)
-                try {
-                    await runner.run()
-                } catch (error) {
-                    await this.handleProcessingError(error, message, event)
-                }
-
-                // TRICKY: We want to later catch anything that goes wrong with flushing
-                // the promises so we can send the event to the DLQ
-                this.scheduleWork(Promise.all(runner.getPromises())).catch((error) => {
-                    return this.handleProcessingError(error, message, event)
-                })
-            } catch (error) {
-                await this.handleProcessingError(error, message, event)
-            }
-        }
     }
 
     private getEventPipelineRunner(event: PipelineEvent): EventPipelineRunnerV2 {
@@ -234,8 +162,89 @@ export class IngestionConsumer {
         return new EventPipelineRunnerV2(this.hub, event, this.personsDB, this.hogTransformer)
     }
 
-    private parseKafkaBatch(messages: Message[]): Promise<IncomingEventsByDistinctId> {
-        const batches: IncomingEventsByDistinctId = {}
+    private async processBatch(context: EventIngestionBatchContext) {
+        // TODO: Implement
+
+        // TODO: Pre-extract events like ingestion warnings, heatmaps and group identify - basically anything where we don't need to worry about
+        // the order of events
+
+        for (const incomingEvents of Object.values(context.eventsByTokenDistinctId)) {
+            for (const { message, event } of incomingEvents) {
+                try {
+                    status.debug('🔁', `Processing event`, {
+                        event,
+                    })
+                    const runner = this.getEventPipelineRunner(event)
+                    try {
+                        await runner.run()
+                    } catch (error) {
+                        await this.handleProcessingError(error, message, event)
+                    }
+
+                    // TRICKY: We want to later catch anything that goes wrong with flushing
+                    // the promises so we can send the event to the DLQ
+                    this.scheduleWork(Promise.all(runner.getPromises())).catch((error) => {
+                        return this.handleProcessingError(error, message, event)
+                    })
+                } catch (error) {
+                    await this.handleProcessingError(error, message, event)
+                }
+            }
+        }
+
+        // Batch works in phases
+        // 1. Process all events without persons - just focusing on parsing, and extracting things like ingestion warnings, heatmaps and group identify
+        // 2. Fetch all persons and now iterate and apply all person processing
+        // 3. Once batch is run we do the DB updates
+
+        // If any conflicts occur in the DB writes then we retry the whole batch from the point of person processing
+    }
+
+    private async prepareContext(
+        eventsByTokenDistinctId: IncomingEventsByTokenDistinctId
+    ): Promise<EventIngestionBatchContext> {
+        const context: EventIngestionBatchContext = {
+            eventsByTokenDistinctId,
+            personsByTokenDistinctId: {},
+            personlessDistinctIdsByTokenDistinctId: {},
+            results: {
+                events: [],
+                ingestionWarnings: [],
+                persons: [],
+            },
+        }
+
+        if (this.overflowEnabled()) {
+            context.eventsByTokenDistinctId = {}
+            for (const [teamDistinctId, incomingEvents] of Object.entries(eventsByTokenDistinctId)) {
+                // If overflow is enabled and the rate limiter kicks in send all the events to overflow
+                const timestamp = incomingEvents[0].message.timestamp
+                const isBelowRateLimit = this.overflowRateLimiter.consume(
+                    teamDistinctId,
+                    incomingEvents.length,
+                    timestamp
+                )
+
+                if (!isBelowRateLimit) {
+                    void this.scheduleWork(this.emitToOverflow(incomingEvents.map((x) => x.message)))
+                    continue
+                }
+
+                context.eventsByTokenDistinctId[teamDistinctId as TokenDistinctId] = incomingEvents
+            }
+        }
+
+        // TODO: Batch load all the relevant info
+
+        // for (const message of messages) {
+        //     const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
+        // }
+
+        return Promise.resolve(context)
+    }
+
+    private parseKafkaBatch(messages: Message[]): Promise<IncomingEventsByTokenDistinctId> {
+        const batches: IncomingEventsByTokenDistinctId = {}
 
         for (const message of messages) {
             let distinctId: string | undefined
@@ -269,7 +278,7 @@ export class IngestionConsumer {
                 continue
             }
 
-            const eventKey = `${event.token}:${event.distinct_id}`
+            const eventKey = `${event.token}:${event.distinct_id}` as TokenDistinctId
 
             // We collect the events grouped by token and distinct_id so that we can process batches in parallel whilst keeping the order of events
             // for a given distinct_id
