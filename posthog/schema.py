@@ -236,7 +236,13 @@ class AssistantTrendsFilter(BaseModel):
             " `$geoip_country_name`, and only then."
         ),
     )
-    formula: Optional[str] = Field(default=None, description="If the formula is provided, apply it here.")
+    formula: Optional[str] = Field(
+        default=None, description="If the formula is provided, apply it here. Kept for backwards compatibility."
+    )
+    formulas: Optional[list[str]] = Field(
+        default=None,
+        description="List of formulas to apply to the data. Takes precedence over formula if both are set.",
+    )
     showLegend: Optional[bool] = Field(
         default=False, description="Whether to show the legend describing series and breakdowns."
     )
@@ -1125,7 +1131,6 @@ class PropertyMathType(StrEnum):
     MEDIAN = "median"
     P75 = "p75"
     P90 = "p90"
-    P95 = "p95"
     P99 = "p99"
 
 
@@ -2746,7 +2751,13 @@ class TrendsFilter(BaseModel):
     breakdown_histogram_bin_count: Optional[float] = None
     decimalPlaces: Optional[float] = None
     display: Optional[ChartDisplayType] = ChartDisplayType.ACTIONS_LINE_GRAPH
-    formula: Optional[str] = None
+    formula: Optional[str] = Field(
+        default=None, description="If the formula is provided, apply it here. Kept for backwards compatibility."
+    )
+    formulas: Optional[list[str]] = Field(
+        default=None,
+        description="List of formulas to apply to the data. Takes precedence over formula if both are set.",
+    )
     goalLines: Optional[list[GoalLine]] = Field(default=None, description="Goal Lines")
     hiddenLegendIndexes: Optional[list[int]] = None
     resultCustomizationBy: Optional[ResultCustomizationBy] = Field(
