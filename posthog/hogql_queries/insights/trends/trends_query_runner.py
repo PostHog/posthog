@@ -407,6 +407,7 @@ class TrendsQueryRunner(QueryRunner):
                             formula_results.extend(previous_formula_results)
                             final_result.extend(formula_results)
                     else:
+                        assert isinstance(self.query.trendsFilter.formula, str)  # help mypy understand the type
                         final_result = self.apply_formula(
                             self.query.trendsFilter.formula, current_results
                         ) + self.apply_formula(self.query.trendsFilter.formula, previous_results)
@@ -418,6 +419,7 @@ class TrendsQueryRunner(QueryRunner):
                             # Create a new list for each formula's results
                             final_result.extend(formula_results)
                     else:
+                        assert isinstance(self.query.trendsFilter.formula, str)  # help mypy understand the type
                         final_result = self.apply_formula(self.query.trendsFilter.formula, returned_results)
         else:
             final_result = []

@@ -574,20 +574,20 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             self.default_date_to,
             IntervalType.DAY,
             [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
-            TrendsFilter(formulas=["A+B", "A-B"]),
+            TrendsFilter(formulas=["A+2*B", "A-B"]),
         )
 
         self.assertEqual(2, len(response.results))
 
         # First formula A+B
-        self.assertEqual(14, response.results[0]["count"])
-        self.assertEqual("Formula (A+B)", response.results[0]["label"])
-        self.assertEqual([1, 0, 2, 3, 4, 0, 2, 2, 1, 0, 1], response.results[0]["data"])
+        self.assertEqual(22, response.results[0]["count"])
+        self.assertEqual("Formula (A+2*B)", response.results[0]["label"])
+        self.assertEqual([1, 0, 3, 5, 7, 0, 2, 2, 1, 0, 1], response.results[0]["data"])
 
         # Second formula A-B
-        self.assertEqual(2, response.results[1]["count"])
+        self.assertEqual(4, response.results[1]["count"])
         self.assertEqual("Formula (A-B)", response.results[1]["label"])
-        self.assertEqual([-1, 0, 0, 1, 2, 0, 0, 0, -1, 0, 1], response.results[1]["data"])
+        self.assertEqual([1, 0, 0, 2, -2, 0, 2, -1, 1, 0, 1], response.results[1]["data"])
 
     def test_formula_with_compare(self):
         self._create_test_events()
@@ -5212,19 +5212,19 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # First formula current
         self.assertEqual("current", response.results[0]["compare_label"])
         self.assertEqual("Formula (A+B)", response.results[0]["label"])
-        self.assertEqual([2, 2, 1, 0, 1], response.results[0]["data"])
+        self.assertEqual([2, 1, 1, 0, 1], response.results[0]["data"])
 
         # First formula previous
         self.assertEqual("previous", response.results[1]["compare_label"])
         self.assertEqual("Formula (A+B)", response.results[1]["label"])
-        self.assertEqual([0, 1, 0, 2, 3], response.results[1]["data"])
+        self.assertEqual([0, 1, 0, 2, 4], response.results[1]["data"])
 
         # Second formula current
         self.assertEqual("current", response.results[2]["compare_label"])
         self.assertEqual("Formula (A-B)", response.results[2]["label"])
-        self.assertEqual([0, 0, -1, 0, 1], response.results[2]["data"])
+        self.assertEqual([2, -1, 1, 0, 1], response.results[2]["data"])
 
         # Second formula previous
         self.assertEqual("previous", response.results[3]["compare_label"])
         self.assertEqual("Formula (A-B)", response.results[3]["label"])
-        self.assertEqual([0, -1, 0, 0, 1], response.results[3]["data"])
+        self.assertEqual([0, 1, 0, 0, 2], response.results[3]["data"])
