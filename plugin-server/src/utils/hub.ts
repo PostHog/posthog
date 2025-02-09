@@ -1,7 +1,4 @@
-import ClickHouse from '@posthog/clickhouse'
-import * as fs from 'fs'
 import { DateTime } from 'luxon'
-import * as path from 'path'
 import { types as pgTypes } from 'pg'
 
 import { CookielessManager } from '~/src/ingestion/cookieless/cookieless-manager'
