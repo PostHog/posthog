@@ -1,12 +1,8 @@
 import { TopicPartition } from 'kafkajs'
 
-import {
-    OffsetHighWaterMarker,
-    offsetHighWaterMarkKey,
-    OffsetHighWaterMarks,
-} from '../../../../../src/main/ingestion-queues/session-recording/services/offset-high-water-marker'
-import { Hub } from '../../../../../src/types'
-import { closeHub, createHub } from '../../../../../src/utils/hub'
+import { Hub } from '../../../types'
+import { closeHub, createHub } from '../../../utils/hub'
+import { OffsetHighWaterMarker, offsetHighWaterMarkKey, OffsetHighWaterMarks } from './offset-high-water-marker'
 
 describe('session offset high-water mark', () => {
     jest.setTimeout(1000)

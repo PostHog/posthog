@@ -1,5 +1,7 @@
 import { DateTime } from 'luxon'
 
+import { RRWebEvent, TimestampFormat } from '../../types'
+import { castTimestampToClickhouseFormat } from '../../utils/utils'
 import {
     ConsoleLogEntry,
     createSessionReplayEvent,
@@ -7,9 +9,7 @@ import {
     getTimestampsFrom,
     LogLevel,
     SummarizedSessionRecordingEvent,
-} from '../../../../src/main/ingestion-queues/session-recording/process-event'
-import { RRWebEvent, TimestampFormat } from '../../../../src/types'
-import { castTimestampToClickhouseFormat } from '../../../../src/utils/utils'
+} from './process-event'
 
 describe('session recording process event', () => {
     const sessionReplayEventTestCases: {

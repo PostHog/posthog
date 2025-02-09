@@ -1,11 +1,11 @@
-import { ConsoleLogsIngester } from '../../../../../src/main/ingestion-queues/session-recording/services/console-logs-ingester'
-import { OffsetHighWaterMarker } from '../../../../../src/main/ingestion-queues/session-recording/services/offset-high-water-marker'
-import { IncomingRecordingMessage } from '../../../../../src/main/ingestion-queues/session-recording/types'
-import { status } from '../../../../../src/utils/status'
+import { status } from '../../../utils/status'
+import { IncomingRecordingMessage } from '../types'
+import { ConsoleLogsIngester } from './console-logs-ingester'
+import { OffsetHighWaterMarker } from './offset-high-water-marker'
 
-jest.mock('../../../../../src/utils/status')
+jest.mock('../../../utils/status')
 
-import { getParsedQueuedMessages, mockProducer } from '../../../../helpers/mocks/producer.mock'
+import { getParsedQueuedMessages, mockProducer } from '../../../_tests/helpers/producer.mock'
 
 const makeIncomingMessage = (
     data: Record<string, unknown>[],

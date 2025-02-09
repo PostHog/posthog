@@ -4,19 +4,19 @@ import { mkdirSync, readdirSync, rmSync } from 'node:fs'
 import { Message, TopicPartitionOffset } from 'node-rdkafka'
 import path from 'path'
 
-import { waitForExpect } from '../../../../functional_tests/expectations'
-import { defaultConfig } from '../../../../src/config/config'
-import { SessionRecordingIngester } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-consumer'
-import { Hub, PluginsServerConfig, Team } from '../../../../src/types'
-import { closeHub, createHub } from '../../../../src/utils/hub'
-import { deleteKeysWithPrefix } from '../../../helpers/redis'
-import { getFirstTeam, resetTestDatabase } from '../../../helpers/sql'
-import { createIncomingRecordingMessage, createKafkaMessage, createTP } from './fixtures'
+import { waitForExpect } from '../../../functional_tests/expectations'
+import { deleteKeysWithPrefix } from '../../_tests/helpers/redis'
+import { getFirstTeam, resetTestDatabase } from '../../_tests/helpers/sql'
+import { defaultConfig } from '../../config/config'
+import { Config, Hub, Team } from '../../types'
+import { closeHub, createHub } from '../../utils/hub'
+import { createIncomingRecordingMessage, createKafkaMessage, createTP } from './_tests/fixtures'
+import { SessionRecordingIngester } from './session-recordings-consumer'
 
 const SESSION_RECORDING_REDIS_PREFIX = '@posthog-tests/replay/'
 const CAPTURE_OVERFLOW_REDIS_KEY = '@posthog/capture-overflow/replay'
 
-const config: PluginsServerConfig = {
+const config: Config = {
     ...defaultConfig,
     SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION: true,
     SESSION_RECORDING_OVERFLOW_ENABLED: true,
@@ -57,7 +57,7 @@ jest.mock('@aws-sdk/lib-storage', () => {
     }
 })
 
-jest.mock('../../../../src/kafka/batch-consumer', () => {
+jest.mock('../../kafka/batch-consumer', () => {
     return {
         startBatchConsumer: jest.fn(() =>
             Promise.resolve({
@@ -188,7 +188,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
             const config = {
                 SESSION_RECORDING_DEBUG_PARTITION: partition_config,
                 KAFKA_HOSTS: 'localhost:9092',
-            } satisfies Partial<PluginsServerConfig> as PluginsServerConfig
+            } satisfies Partial<Config> as Config
 
             const ingester = new SessionRecordingIngester(
                 config,
@@ -203,7 +203,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
         it('can parse absence of debug partition config', () => {
             const config = {
                 KAFKA_HOSTS: 'localhost:9092',
-            } satisfies Partial<PluginsServerConfig> as PluginsServerConfig
+            } satisfies Partial<Config> as Config
 
             const ingester = new SessionRecordingIngester(
                 config,

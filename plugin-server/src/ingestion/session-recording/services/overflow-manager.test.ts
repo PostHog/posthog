@@ -1,12 +1,12 @@
 import { Redis } from 'ioredis'
 
-import { OverflowManager } from '../../../../../src/main/ingestion-queues/session-recording/services/overflow-manager'
-import { Hub } from '../../../../../src/types'
-import { closeHub, createHub } from '../../../../../src/utils/hub'
+import { Hub } from '../../../types'
+import { closeHub, createHub } from '../../../utils/hub'
+import { OverflowManager } from './overflow-manager'
 
-jest.mock('../../../../../src/utils/status')
+jest.mock('../../../utils/status')
 
-import '../../../../helpers/mocks/producer.mock'
+import '../../../_tests/helpers/producer.mock'
 
 const CAPTURE_OVERFLOW_REDIS_KEY = '@posthog/capture-overflow/replay'
 

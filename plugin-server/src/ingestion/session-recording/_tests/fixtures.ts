@@ -1,6 +1,6 @@
 import { Message } from 'node-rdkafka'
 
-import { IncomingRecordingMessage } from '../../../../src/main/ingestion-queues/session-recording/types'
+import { IncomingRecordingMessage } from '../types'
 import jsonFullSnapshot from './data/snapshot-full.json'
 
 export function createIncomingRecordingMessage(

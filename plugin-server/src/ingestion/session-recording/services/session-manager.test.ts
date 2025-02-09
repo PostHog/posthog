@@ -2,10 +2,10 @@ import { Upload } from '@aws-sdk/lib-storage'
 import { createReadStream, createWriteStream } from 'fs'
 import { DateTime, Settings } from 'luxon'
 
-import { defaultConfig } from '../../../../../src/config/config'
-import { SessionManager } from '../../../../../src/main/ingestion-queues/session-recording/services/session-manager'
-import { now } from '../../../../../src/main/ingestion-queues/session-recording/utils'
-import { createIncomingRecordingMessage } from '../fixtures'
+import { defaultConfig } from '../../../config/config'
+import { createIncomingRecordingMessage } from '../_tests/fixtures'
+import { now } from '../utils'
+import { SessionManager } from './session-manager'
 
 class MockStream {
     write = jest.fn(() => true)

@@ -1,7 +1,8 @@
 import { Settings } from 'luxon'
 import { Message, MessageHeader } from 'node-rdkafka'
 
-import { KafkaProducerWrapper } from '../../../../src/kafka/producer'
+import { KafkaProducerWrapper } from '../../kafka/producer'
+import { UUIDT } from '../../utils/utils'
 import {
     allSettledWithConcurrency,
     getLagMultiplier,
@@ -9,8 +10,7 @@ import {
     minDefined,
     parseKafkaBatch,
     parseKafkaMessage,
-} from '../../../../src/main/ingestion-queues/session-recording/utils'
-import { UUIDT } from '../../../../src/utils/utils'
+} from './utils'
 
 describe('session-recording utils', () => {
     const validMessage = (distinctId: number | string, headers?: MessageHeader[], value?: Record<string, any>) =>

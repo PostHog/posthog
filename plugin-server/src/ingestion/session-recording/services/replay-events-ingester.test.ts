@@ -1,15 +1,15 @@
 import { DateTime } from 'luxon'
 
-import { OffsetHighWaterMarker } from '../../../../../src/main/ingestion-queues/session-recording/services/offset-high-water-marker'
-import { ReplayEventsIngester } from '../../../../../src/main/ingestion-queues/session-recording/services/replay-events-ingester'
-import { IncomingRecordingMessage } from '../../../../../src/main/ingestion-queues/session-recording/types'
-import { TimestampFormat } from '../../../../../src/types'
-import { status } from '../../../../../src/utils/status'
-import { castTimestampOrNow } from '../../../../../src/utils/utils'
+import { TimestampFormat } from '../../../types'
+import { status } from '../../../utils/status'
+import { castTimestampOrNow } from '../../../utils/utils'
+import { IncomingRecordingMessage } from '../types'
+import { OffsetHighWaterMarker } from './offset-high-water-marker'
+import { ReplayEventsIngester } from './replay-events-ingester'
 
-jest.mock('../../../../../src/utils/status')
+jest.mock('../../../utils/status')
 
-import { getParsedQueuedMessages, mockProducer } from '../../../../helpers/mocks/producer.mock'
+import { getParsedQueuedMessages, mockProducer } from '../../../_tests/helpers/producer.mock'
 
 const makeIncomingMessage = (
     source: string | null,
