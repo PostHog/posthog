@@ -9,7 +9,7 @@ import { EditorFilterProps } from '~/types'
 
 export function TrendsSeriesLabel({ insightProps }: EditorFilterProps): JSX.Element {
     const { hasFormula, isTrends, display, series } = useValues(insightVizDataLogic(insightProps))
-    const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
+    const { toggleFormulaMode } = useActions(insightVizDataLogic(insightProps))
 
     const canDisableFormula: boolean =
         !isTrends || !display || !SINGLE_SERIES_DISPLAY_TYPES.includes(display) || series?.length === 1
@@ -29,9 +29,7 @@ export function TrendsSeriesLabel({ insightProps }: EditorFilterProps): JSX.Elem
                 <div className="-my-1">
                     <LemonButton
                         size="small"
-                        onClick={() =>
-                            updateInsightFilter({ formula: hasFormula ? undefined : '', formulas: undefined })
-                        }
+                        onClick={() => toggleFormulaMode()}
                         disabled={formulaModeButtonDisabled}
                         icon={<IconCalculator />}
                         id="trends-formula-switch"

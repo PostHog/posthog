@@ -108,6 +108,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateHiddenLegendIndexes: (hiddenLegendIndexes: number[] | undefined) => ({ hiddenLegendIndexes }),
         setTimedOutQueryId: (id: string | null) => ({ id }),
         setIsIntervalManuallySet: (isIntervalManuallySet: boolean) => ({ isIntervalManuallySet }),
+        toggleFormulaMode: true,
     }),
 
     reducers({
@@ -125,6 +126,12 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     return 'interval' in querySource ? true : state
                 },
                 setIsIntervalManuallySet: (_, { isIntervalManuallySet }) => isIntervalManuallySet,
+            },
+        ],
+        isFormulaModeOpenedExplicitly: [
+            false,
+            {
+                toggleFormulaMode: (state) => !state,
             },
         ],
     }),
@@ -320,8 +327,15 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         hasFormula: [
-            (s) => [s.formula, s.formulas],
-            (formula: string | undefined, formulas: string[] | undefined): boolean => {
+            (s) => [s.formula, s.formulas, s.isFormulaModeOpenedExplicitly],
+            (
+                formula: string | undefined,
+                formulas: string[] | undefined,
+                isFormulaModeOpenedExplicitly: boolean
+            ): boolean => {
+                if (isFormulaModeOpenedExplicitly) {
+                    return true
+                }
                 return formula !== undefined || (formulas !== undefined && formulas.length > 0)
             },
         ],
@@ -514,6 +528,12 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         },
         loadDataFailure: () => {
             actions.setTimedOutQueryId(null)
+        },
+        toggleFormulaMode: () => {
+            // Only if formula mode is already open should we trigger a query.
+            if (values.hasFormula) {
+                actions.updateInsightFilter({ formula: undefined, formulas: undefined })
+            }
         },
     })),
 ])

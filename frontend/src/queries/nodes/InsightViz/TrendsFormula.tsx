@@ -13,7 +13,8 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
     const { formula, formulas, hasFormula } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
-    const [values, setValues] = useState<string[]>(formulas || (formula ? [formula] : []))
+    // Initialize with at least one empty value
+    const [values, setValues] = useState<string[]>(formulas || (formula ? [formula] : ['']))
     const [localValues, setLocalValues] = useState<string[]>(values)
 
     useEffect(() => {
@@ -45,8 +46,14 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
                 }
                 return newValues
             })
+        } else if (hasFormula) {
+            // Always ensure at least one empty value when formula mode is enabled
+            if (values.length === 0) {
+                setValues([''])
+                setLocalValues([''])
+            }
         }
-    }, [formula, formulas])
+    }, [formula, formulas, hasFormula])
 
     const updateFormulas = (newValues: string[]): void => {
         // Filter out empty values when updating the query but keep them in local state
@@ -100,6 +107,10 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
 
     const removeFormula = (index: number): void => {
         const newValues = localValues.filter((_, i) => i !== index)
+        // Always ensure at least one empty value
+        if (newValues.length === 0) {
+            newValues.push('')
+        }
         setLocalValues(newValues)
         // Only update if there are non-empty values
         if (newValues.some((v) => v.trim() !== '')) {
