@@ -61,26 +61,6 @@ export async function createHub(
     }
     status.updatePrompt(serverConfig.PLUGIN_SERVER_MODE)
 
-    status.info('🤔', `Connecting to ClickHouse...`)
-    const clickhouse = new ClickHouse({
-        // We prefer to run queries on the offline cluster.
-        host: serverConfig.CLICKHOUSE_OFFLINE_CLUSTER_HOST ?? serverConfig.CLICKHOUSE_HOST,
-        port: serverConfig.CLICKHOUSE_SECURE ? 8443 : 8123,
-        protocol: serverConfig.CLICKHOUSE_SECURE ? 'https:' : 'http:',
-        user: serverConfig.CLICKHOUSE_USER,
-        password: serverConfig.CLICKHOUSE_PASSWORD || undefined,
-        dataObjects: true,
-        queryOptions: {
-            database: serverConfig.CLICKHOUSE_DATABASE,
-            output_format_json_quote_64bit_integers: false,
-        },
-        ca: serverConfig.CLICKHOUSE_CA
-            ? fs.readFileSync(path.join(serverConfig.BASE_DIR, serverConfig.CLICKHOUSE_CA)).toString()
-            : undefined,
-        rejectUnauthorized: serverConfig.CLICKHOUSE_CA ? false : undefined,
-    })
-    status.info('👍', `ClickHouse ready`)
-
     status.info('🤔', `Connecting to Kafka...`)
 
     const kafkaProducer = await KafkaProducerWrapper.create(serverConfig)
@@ -115,7 +95,6 @@ export async function createHub(
         capabilities,
         postgres,
         redisPool,
-        clickhouse,
         kafkaProducer,
         objectStorage: objectStorage,
         groupTypeManager,

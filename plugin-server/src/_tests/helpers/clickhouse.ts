@@ -1,8 +1,6 @@
 import ClickHouse from '@posthog/clickhouse'
 import { performance } from 'perf_hooks'
 
-import { defaultConfig } from '../../config/config'
-import { Config } from '../../types'
 import { status } from '../../utils/status'
 import { delay } from '../../utils/utils'
 
@@ -20,17 +18,7 @@ const clickhouse = new ClickHouse({
     },
 })
 
-export async function resetTestDatabaseClickhouse(extraServerConfig?: Partial<Config>): Promise<void> {
-    const config = { ...defaultConfig, ...extraServerConfig }
-    const clickhouse = new ClickHouse({
-        host: config.CLICKHOUSE_HOST,
-        port: 8123,
-        dataObjects: true,
-        queryOptions: {
-            database: config.CLICKHOUSE_DATABASE,
-            output_format_json_quote_64bit_integers: false,
-        },
-    })
+export async function resetTestDatabaseClickhouse(): Promise<void> {
     await Promise.all([
         clickhouse.querying('TRUNCATE sharded_events'),
         clickhouse.querying('TRUNCATE person'),

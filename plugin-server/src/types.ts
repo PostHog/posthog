@@ -26,17 +26,9 @@ export enum LogLevel {
     Info = 'info',
     Log = 'log',
     Warn = 'warn',
-    Error = 'error',
+    Error = 'errosr',
 }
 
-export const logLevelToNumber: Record<LogLevel, number> = {
-    [LogLevel.None]: 0,
-    [LogLevel.Debug]: 10,
-    [LogLevel.Info]: 20,
-    [LogLevel.Log]: 30,
-    [LogLevel.Warn]: 40,
-    [LogLevel.Error]: 50,
-}
 
 export enum KafkaSecurityProtocol {
     Plaintext = 'PLAINTEXT',
@@ -79,7 +71,7 @@ export type PluginServerService = {
     batchConsumer?: BatchConsumer
 }
 
-export type CdpConfig = {
+ type CdpConfig = {
     CDP_WATCHER_COST_ERROR: number // The max cost of an erroring function
     CDP_WATCHER_COST_TIMING: number // The max cost of a slow function
     CDP_WATCHER_COST_TIMING_LOWER_MS: number // The lower bound in ms where the timing cost is not incurred
@@ -100,7 +92,7 @@ export type CdpConfig = {
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
 }
 
-export type IngestionConsumerConfig = {
+ type IngestionConsumerConfig = {
     // New config variables used by the new IngestionConsumer
     INGESTION_CONSUMER_GROUP_ID: string
     INGESTION_CONSUMER_CONSUME_TOPIC: string
@@ -121,13 +113,6 @@ export interface Config extends CdpConfig, IngestionConsumerConfig {
     POSTHOG_DB_PASSWORD: string
     POSTHOG_POSTGRES_HOST: string
     POSTHOG_POSTGRES_PORT: number
-    CLICKHOUSE_HOST: string
-    CLICKHOUSE_OFFLINE_CLUSTER_HOST: string | null
-    CLICKHOUSE_DATABASE: string
-    CLICKHOUSE_USER: string
-    CLICKHOUSE_PASSWORD: string | null
-    CLICKHOUSE_CA: string | null // ClickHouse CA certs
-    CLICKHOUSE_SECURE: boolean // whether to secure ClickHouse connection
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string // (advanced) topic to send events for clickhouse ingestion
     CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string // (advanced) topic to send heatmap data for clickhouse ingestion
     EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC: string // (advanced) topic to send exception event data for stack trace processing
@@ -283,7 +268,6 @@ export interface Hub extends Config {
     capabilities: PluginServerCapabilities
     postgres: PostgresRouter
     redisPool: GenericPool<Redis>
-    clickhouse: ClickHouse
     kafkaProducer: KafkaProducerWrapper
     objectStorage?: ObjectStorage
     // tools
@@ -331,21 +315,6 @@ export enum CookielessServerHashMode {
     Disabled = 0,
     Stateless = 1,
     Stateful = 2,
-}
-
-export enum Service {
-    PluginServer = 'plugin_server',
-    DjangoServer = 'django_server',
-    Redis = 'redis',
-    Postgres = 'postgres',
-    ClickHouse = 'clickhouse',
-    Kafka = 'kafka',
-}
-
-export interface PropertyUsage {
-    key: string
-    usage_count: number | null
-    volume: number | null
 }
 
 export interface ProductFeature {
@@ -643,42 +612,6 @@ export interface ClickHousePersonDistinctId2 {
     version: number
 }
 
-/** Usable Cohort model. */
-export interface Cohort {
-    id: number
-    name: string
-    description: string
-    deleted: boolean
-    groups: any[]
-    team_id: Team['id']
-    created_at: string
-    created_by_id: number
-    is_calculating: boolean
-    last_calculation: string
-    errors_calculating: number
-    is_static: boolean
-    version: number | null
-    pending_version: number
-}
-
-/** Usable CohortPeople model. */
-export interface CohortPeople {
-    id: number
-    cohort_id: number
-    person_id: number
-}
-
-/** Usable Hook model. */
-export interface Hook {
-    id: string
-    team_id: number
-    user_id: number
-    resource_id: number | null
-    event: string
-    target: string
-    created: string
-    updated: string
-}
 
 /** Sync with posthog/frontend/src/types.ts */
 export enum PropertyOperator {
@@ -750,12 +683,6 @@ export type PropertyFilter =
     | DataWarehousePropertyFilter
     | DataWarehousePersonPropertyFilter
 
-/** Sync with posthog/frontend/src/types.ts */
-export enum StringMatching {
-    Contains = 'contains',
-    Regex = 'regex',
-    Exact = 'exact',
-}
 
 /** Raw session recording event row from ClickHouse. */
 export interface RawSessionRecordingEvent {
@@ -784,21 +711,6 @@ export enum TimestampFormat {
     ISO = 'iso',
 }
 
-export enum Database {
-    ClickHouse = 'clickhouse',
-    Postgres = 'postgres',
-}
-
-export interface EventDefinitionType {
-    id: string
-    name: string
-    volume_30_day: number | null
-    query_usage_30_day: number | null
-    team_id: number
-    project_id: number | null
-    last_seen_at: string // DateTime
-    created_at: string // DateTime
-}
 
 export enum UnixTimestampPropertyTypeFormat {
     UNIX_TIMESTAMP = 'unix_timestamp',
@@ -822,36 +734,11 @@ export enum PropertyType {
     Boolean = 'Boolean',
 }
 
-export enum PropertyDefinitionTypeEnum {
-    Event = 1,
-    Person = 2,
-    Group = 3,
-}
-
-export interface PropertyDefinitionType {
-    id: string
-    name: string
-    is_numerical: boolean
-    volume_30_day: number | null
-    query_usage_30_day: number | null
-    team_id: number
-    project_id: number | null
-    property_type?: PropertyType
-    type: PropertyDefinitionTypeEnum
-    group_type_index: number | null
-}
-
 export type GroupTypeToColumnIndex = Record<string, GroupTypeIndex>
 
 export enum PropertyUpdateOperation {
     Set = 'set',
     SetOnce = 'set_once',
-}
-
-export enum OrganizationMembershipLevel {
-    Member = 1,
-    Admin = 8,
-    Owner = 15,
 }
 
 export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
@@ -894,25 +781,6 @@ export type RawClickhouseHeatmapEvent = {
     team_id: number
 }
 
-export interface HookPayload {
-    hook: Pick<Hook, 'id' | 'event' | 'target'>
-
-    data: {
-        eventUuid: string
-        event: string
-        teamId: TeamId
-        distinctId: string
-        properties: Properties
-        timestamp: ISOTimestamp
-        elementsList?: Element[]
-
-        person: {
-            uuid: string
-            properties: Properties
-            created_at: ISOTimestamp | null
-        }
-    }
-}
 
 export type AppMetric2Type = {
     team_id: number

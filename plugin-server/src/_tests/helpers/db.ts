@@ -7,7 +7,6 @@ import {
     ClickhouseGroup,
     ClickHousePerson,
     ClickHousePersonDistinctId2,
-    Database,
     DeadLetterQueueEvent,
     Group,
     GroupTypeIndex,
@@ -24,6 +23,13 @@ import {
 import { PostgresUse, TransactionClient } from '../../utils/postgres'
 import { clickHouseTimestampToDateTime, escapeClickHouseString, RaceConditionError } from '../../utils/utils'
 import { clickhouseQuery } from './clickhouse'
+
+
+export enum Database {
+    ClickHouse = 'clickhouse',
+    Postgres = 'postgres',
+}
+
 
 export function parseRawClickHouseEvent(rawEvent: RawClickHouseEvent): ClickHouseEvent {
     return {

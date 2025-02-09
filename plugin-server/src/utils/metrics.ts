@@ -23,7 +23,7 @@ export async function instrumentQuery<T>(
     )
 }
 
-export function instrument<T>(
+ function instrument<T>(
     options: {
         metricName: string
         key?: string
