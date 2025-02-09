@@ -10,7 +10,7 @@ import { status } from '../utils/status'
 
 // TODO: Fix all of this to be super simple
 export async function setupMmdb(hub: Hub): Promise<void> {
-    if (!hub.DISABLE_MMDB && hub.capabilities.mmdb) {
+    if (!hub.DISABLE_MMDB) {
         // TODO: use local GeoLite2 on container at share/GeoLite2-City.mmdb instead of downloading it each time
         status.info('⏳', 'Downloading GeoLite2 database from PostHog servers...')
         const response = await fetch(MMDB_ENDPOINT, { compress: false })

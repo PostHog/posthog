@@ -6,7 +6,6 @@ export function getPluginServerCapabilities(config: Config): PluginServerCapabil
         : null
 
     const singleProcessCapabilities: PluginServerCapabilities = {
-        mmdb: true,
         sessionRecordingBlobIngestion: true,
         sessionRecordingBlobOverflowIngestion: config.SESSION_RECORDING_OVERFLOW_ENABLED,
         sessionRecordingBlobIngestionV2: true,
@@ -31,7 +30,6 @@ export function getPluginServerCapabilities(config: Config): PluginServerCapabil
             // NOTE: this mode will be removed in the future and replaced with
             // `analytics-ingestion` and `recordings-ingestion` modes.
             return {
-                mmdb: true,
                 ingestionV2: true,
             }
 
