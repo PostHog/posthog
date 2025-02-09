@@ -1,4 +1,5 @@
 import { PluginEvent } from '~/src/types'
+
 import { LocalMeta, PluginConfig, processEvent, setupPlugin } from './index'
 
 /**

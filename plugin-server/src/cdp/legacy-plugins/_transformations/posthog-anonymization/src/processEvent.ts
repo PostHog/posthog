@@ -1,4 +1,5 @@
 import { PluginEvent } from '~/src/types'
+
 import { LegacyTransformationPluginMeta } from '../../../types'
 import { encodePrivateField } from './encodePrivateField'
 import { normalizePath } from './normalizePath'

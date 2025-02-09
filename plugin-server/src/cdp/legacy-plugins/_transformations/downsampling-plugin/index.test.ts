@@ -1,4 +1,6 @@
-import { PluginEvent } from '~/src/types'import { randomBytes } from 'crypto'
+import { randomBytes } from 'crypto'
+
+import { PluginEvent } from '~/src/types'
 
 import { LegacyTransformationPluginMeta } from '../../types'
 import { processEvent, setupPlugin } from './index'

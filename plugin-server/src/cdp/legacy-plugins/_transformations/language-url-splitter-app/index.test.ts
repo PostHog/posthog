@@ -1,4 +1,5 @@
 import { PluginEvent } from '~/src/types'
+
 import { LegacyTransformationPluginMeta } from '../../types'
 import { processEvent } from './index'
 import pluginJson from './plugin.json'

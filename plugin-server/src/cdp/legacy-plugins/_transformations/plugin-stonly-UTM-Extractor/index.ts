@@ -1,4 +1,6 @@
-import { PluginEvent } from '~/src/types'import { URL } from 'url'
+import { URL } from 'url'
+
+import { PluginEvent } from '~/src/types'
 
 import { LegacyTransformationPluginMeta } from '../../types'
 

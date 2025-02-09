@@ -1,4 +1,6 @@
-import { PluginEvent } from '~/src/types'import { detect } from 'detect-browser'
+import { detect } from 'detect-browser'
+
+import { PluginEvent } from '~/src/types'
 
 import { LegacyTransformationPluginMeta } from '../../types'
 

@@ -1,4 +1,5 @@
 import { PluginEvent } from '~/src/types'
+
 import { LegacyTransformationPluginMeta } from '../../types'
 
 export function setupPlugin({ config, global }: LegacyTransformationPluginMeta) {

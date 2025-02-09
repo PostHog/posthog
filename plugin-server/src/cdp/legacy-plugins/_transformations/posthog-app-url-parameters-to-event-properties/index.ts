@@ -1,4 +1,6 @@
-import { PluginEvent } from '~/src/types'import { URLSearchParams } from 'url'
+import { URLSearchParams } from 'url'
+
+import { PluginEvent } from '~/src/types'
 
 import { LegacyTransformationPluginMeta } from '../../types'
 

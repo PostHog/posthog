@@ -1,6 +1,7 @@
 // Learn more about plugins at: https://posthog.com/docs/plugins/build/overview
 
 import { PluginEvent } from '~/src/types'
+
 import { LegacyTransformationPluginMeta } from '../../types'
 
 // Processes each event, optionally transforming it
