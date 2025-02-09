@@ -6,7 +6,6 @@ import { Counter } from 'prom-client'
 import { KAFKA_PERSON_DISTINCT_ID } from '../../../config/kafka-topics'
 import { KafkaProducerWrapper, TopicMessage } from '../../../kafka/producer'
 import {
-    Database,
     InternalPerson,
     PersonDistinctId,
     PropertiesLastOperation,
@@ -24,6 +23,14 @@ export const personUpdateVersionMismatchCounter = new Counter({
     help: 'Person update version mismatch',
 })
 
+export const toPerson = (row: RawPerson): InternalPerson => {
+    return {
+        ...row,
+        created_at: DateTime.fromISO(row.created_at).toUTC(),
+        version: Number(row.version || 0),
+    }
+}
+
 /** The recommended way of accessing the database. */
 export class PersonsDB {
     constructor(private postgres: PostgresRouter, private kafkaProducer: KafkaProducerWrapper) {}
@@ -31,46 +38,8 @@ export class PersonsDB {
     // These are all methods to with persons
 
     private toPerson(row: RawPerson): InternalPerson {
-        return {
-            ...row,
-            created_at: DateTime.fromISO(row.created_at).toUTC(),
-            version: Number(row.version || 0),
-        }
+        return toPerson(row)
     }
-
-    // public async fetchPersons(database?: Database.Postgres): Promise<InternalPerson[]>
-    // public async fetchPersons(database: Database.ClickHouse): Promise<ClickHousePerson[]>
-    // public async fetchPersons(database: Database = Database.Postgres): Promise<InternalPerson[] | ClickHousePerson[]> {
-    //     if (database === Database.ClickHouse) {
-    //         const query = `
-    //         SELECT id, team_id, is_identified, ts as _timestamp, properties, created_at, is_del as is_deleted, _offset
-    //         FROM (
-    //             SELECT id,
-    //                 team_id,
-    //                 max(is_identified) as is_identified,
-    //                 max(_timestamp) as ts,
-    //                 argMax(properties, _timestamp) as properties,
-    //                 argMin(created_at, _timestamp) as created_at,
-    //                 max(is_deleted) as is_del,
-    //                 argMax(_offset, _timestamp) as _offset
-    //             FROM person
-    //             FINAL
-    //             GROUP BY team_id, id
-    //             HAVING max(is_deleted)=0
-    //         )
-    //         `
-    //         return (await this.clickhouseQuery(query)).data.map((row) => {
-    //             const { 'person_max._timestamp': _discard1, 'person_max.id': _discard2, ...rest } = row
-    //             return rest
-    //         }) as ClickHousePerson[]
-    //     } else if (database === Database.Postgres) {
-    //         return await this.postgres
-    //             .query<RawPerson>(PostgresUse.COMMON_WRITE, 'SELECT * FROM posthog_person', undefined, 'fetchPersons')
-    //             .then(({ rows }) => rows.map(this.toPerson))
-    //     } else {
-    //         throw new Error(`Can't fetch persons for database: ${database}`)
-    //     }
-    // }
 
     public async fetchPerson(
         teamId: number,

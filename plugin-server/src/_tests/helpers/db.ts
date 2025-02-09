@@ -1,6 +1,8 @@
 import { DateTime } from 'luxon'
 
+import { toPerson } from '../../ingestion/event-pipeline-runner/utils/persons-db'
 import {
+    ClickHousePerson,
     ClickHousePersonDistinctId2,
     Database,
     Group,
@@ -9,6 +11,7 @@ import {
     InternalPerson,
     PersonDistinctId,
     RawGroup,
+    RawPerson,
     TeamId,
 } from '../../types'
 import { PostgresUse, TransactionClient } from '../../utils/postgres'
@@ -17,6 +20,40 @@ import { clickhouseQuery } from './clickhouse'
 
 export class DBHelpers {
     constructor(private hub: Hub) {}
+
+    public async fetchPersons(database?: Database.Postgres): Promise<InternalPerson[]>
+    public async fetchPersons(database: Database.ClickHouse): Promise<ClickHousePerson[]>
+    public async fetchPersons(database: Database = Database.Postgres): Promise<InternalPerson[] | ClickHousePerson[]> {
+        if (database === Database.ClickHouse) {
+            const query = `
+            SELECT id, team_id, is_identified, ts as _timestamp, properties, created_at, is_del as is_deleted, _offset
+            FROM (
+                SELECT id,
+                    team_id,
+                    max(is_identified) as is_identified,
+                    max(_timestamp) as ts,
+                    argMax(properties, _timestamp) as properties,
+                    argMin(created_at, _timestamp) as created_at,
+                    max(is_deleted) as is_del,
+                    argMax(_offset, _timestamp) as _offset
+                FROM person
+                FINAL
+                GROUP BY team_id, id
+                HAVING max(is_deleted)=0
+            )
+            `
+            return (await clickhouseQuery(query)).data.map((row) => {
+                const { 'person_max._timestamp': _discard1, 'person_max.id': _discard2, ...rest } = row
+                return rest
+            }) as ClickHousePerson[]
+        } else if (database === Database.Postgres) {
+            return await this.hub.postgres
+                .query<RawPerson>(PostgresUse.COMMON_WRITE, 'SELECT * FROM posthog_person', undefined, 'fetchPersons')
+                .then(({ rows }) => rows.map(toPerson))
+        } else {
+            throw new Error(`Can't fetch persons for database: ${database}`)
+        }
+    }
 
     public async fetchDistinctIds(person: InternalPerson, database?: Database.Postgres): Promise<PersonDistinctId[]>
     public async fetchDistinctIds(
