@@ -6,6 +6,7 @@ import { Counter } from 'prom-client'
 import { KAFKA_PERSON_DISTINCT_ID } from '../../../config/kafka-topics'
 import { KafkaProducerWrapper, TopicMessage } from '../../../kafka/producer'
 import {
+    Database,
     InternalPerson,
     PersonDistinctId,
     PropertiesLastOperation,

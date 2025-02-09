@@ -8,12 +8,12 @@ import { PersonsDB } from '~/src/ingestion/event-pipeline-runner/utils/persons-d
 
 import { TopicMessage } from '../../../kafka/producer'
 import { Hub, InternalPerson, Person, PropertyUpdateOperation } from '../../../types'
-import { eventToPersonProperties, initialEventToPersonProperties, timeoutGuard } from './utils'
 import { captureIngestionWarning } from '../../../utils/ingestion-warnings'
 import { PostgresUse, TransactionClient } from '../../../utils/postgres'
 import { promiseRetry } from '../../../utils/retries'
 import { status } from '../../../utils/status'
 import { uuidFromDistinctId } from './person-uuid'
+import { eventToPersonProperties, initialEventToPersonProperties, timeoutGuard } from './utils'
 
 export const mergeFinalFailuresCounter = new Counter({
     name: 'person_merge_final_failure_total',

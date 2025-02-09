@@ -1,21 +1,23 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
+import { DBHelpers } from '~/src/_tests/helpers/db'
+
 import { createPromise } from '../../../_tests/helpers/promises'
 import { getFirstTeam, resetTestDatabase } from '../../../_tests/helpers/sql'
 import { MessageSizeTooLarge } from '../../../kafka/producer'
 import { Group, Hub, Team } from '../../../types'
-// import { DB } from '../../../utils/db/db'
 import { closeHub, createHub } from '../../../utils/hub'
 import { UUIDT } from '../../../utils/utils'
 import { upsertGroup } from './groups-updater'
+import { PersonsDB } from './persons-db'
 
 jest.mock('../../../utils/status')
 
 describe('groups-updater', () => {
     let hub: Hub
-    let db: DB
-
+    let dbHelpers: DBHelpers
+    let personsDB: PersonsDB
     let team: Team
     const uuid = new UUIDT().toString()
     const distinctId = 'distinct_id_update_person_properties'
@@ -23,16 +25,22 @@ describe('groups-updater', () => {
     const FUTURE_TIMESTAMP = DateTime.fromISO('2050-10-14T11:42:06.502Z')
     const PAST_TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z')
 
+    let postgresQuerySpy: jest.SpyInstance
+    let actualQuery: (...args: any[]) => Promise<any>
+    const getSqlCallsType = () => postgresQuerySpy.mock.calls.map((x) => x[1].trim().split(' ')[0])
+
     beforeEach(async () => {
         hub = await createHub()
         await resetTestDatabase()
-        db = hub.db
+        dbHelpers = new DBHelpers(hub)
+        personsDB = new PersonsDB(hub.postgres, hub.kafkaProducer)
 
         team = await getFirstTeam(hub)
-        await db.createPerson(PAST_TIMESTAMP, {}, {}, {}, team.id, null, false, uuid, [{ distinctId }])
+        await personsDB.createPerson(PAST_TIMESTAMP, {}, {}, {}, team.id, null, false, uuid, [{ distinctId }])
 
-        jest.spyOn(hub.db, 'updateGroup')
-        jest.spyOn(hub.db, 'insertGroup')
+        actualQuery = hub.postgres.query
+
+        postgresQuerySpy = jest.spyOn(hub.postgres, 'query')
     })
 
     afterEach(async () => {
@@ -41,11 +49,11 @@ describe('groups-updater', () => {
 
     describe('upsertGroup()', () => {
         async function upsert(properties: Properties, timestamp: DateTime) {
-            await upsertGroup(hub.db, team.id, team.project_id, 0, 'group_key', properties, timestamp)
+            await upsertGroup(hub, team.id, team.project_id, 0, 'group_key', properties, timestamp)
         }
 
         async function fetchGroup(): Promise<Group> {
-            return (await hub.db.fetchGroup(team.id, 0, 'group_key'))!
+            return (await dbHelpers.fetchGroup(team.id, 0, 'group_key'))!
         }
 
         it('creates a row if one does not yet exist with empty properties', async () => {
@@ -55,8 +63,13 @@ describe('groups-updater', () => {
 
             expect(group.version).toEqual(1)
             expect(group.group_properties).toEqual({})
-            expect(hub.db.insertGroup).toHaveBeenCalledTimes(1)
-            expect(hub.db.updateGroup).not.toHaveBeenCalled()
+            expect(getSqlCallsType()).toMatchInlineSnapshot(`
+                [
+                  "SELECT",
+                  "INSERT",
+                  "SELECT",
+                ]
+            `)
         })
 
         it('handles initial properties', async () => {
@@ -66,8 +79,14 @@ describe('groups-updater', () => {
 
             expect(group.version).toEqual(1)
             expect(group.group_properties).toEqual({ foo: 'bar' })
-            expect(hub.db.insertGroup).toHaveBeenCalledTimes(1)
-            expect(hub.db.updateGroup).not.toHaveBeenCalled()
+
+            expect(getSqlCallsType()).toMatchInlineSnapshot(`
+                [
+                  "SELECT",
+                  "INSERT",
+                  "SELECT",
+                ]
+            `)
         })
 
         it('handles updating properties as new ones come in', async () => {
@@ -78,8 +97,16 @@ describe('groups-updater', () => {
 
             expect(group.version).toEqual(2)
             expect(group.group_properties).toEqual({ foo: 'zeta', a: 1, b: 2 })
-            expect(hub.db.insertGroup).toHaveBeenCalledTimes(1)
-            expect(hub.db.updateGroup).toHaveBeenCalledTimes(1)
+
+            expect(getSqlCallsType()).toMatchInlineSnapshot(`
+                [
+                  "SELECT",
+                  "INSERT",
+                  "SELECT",
+                  "UPDATE",
+                  "SELECT",
+                ]
+            `)
         })
 
         it('handles updating when processing old events', async () => {
@@ -90,8 +117,16 @@ describe('groups-updater', () => {
 
             expect(group.version).toEqual(2)
             expect(group.group_properties).toEqual({ foo: 'zeta', a: 1, b: 2 })
-            expect(hub.db.insertGroup).toHaveBeenCalledTimes(1)
-            expect(hub.db.updateGroup).toHaveBeenCalledTimes(1)
+
+            expect(getSqlCallsType()).toMatchInlineSnapshot(`
+                [
+                  "SELECT",
+                  "INSERT",
+                  "SELECT",
+                  "UPDATE",
+                  "SELECT",
+                ]
+            `)
         })
 
         it('handles updating when processing equal timestamped events', async () => {
@@ -102,8 +137,15 @@ describe('groups-updater', () => {
 
             expect(group.version).toEqual(2)
             expect(group.group_properties).toEqual({ foo: '2' })
-            expect(hub.db.insertGroup).toHaveBeenCalledTimes(1)
-            expect(hub.db.updateGroup).toHaveBeenCalledTimes(1)
+            expect(getSqlCallsType()).toMatchInlineSnapshot(`
+                [
+                  "SELECT",
+                  "INSERT",
+                  "SELECT",
+                  "UPDATE",
+                  "SELECT",
+                ]
+            `)
         })
 
         it('does nothing if newer timestamp but no properties change', async () => {
@@ -114,8 +156,15 @@ describe('groups-updater', () => {
 
             expect(group.version).toEqual(1)
             expect(group.group_properties).toEqual({ foo: 'bar' })
-            expect(hub.db.insertGroup).toHaveBeenCalledTimes(1)
-            expect(hub.db.updateGroup).not.toHaveBeenCalled()
+
+            expect(getSqlCallsType()).toMatchInlineSnapshot(`
+                [
+                  "SELECT",
+                  "INSERT",
+                  "SELECT",
+                  "SELECT",
+                ]
+            `)
         })
 
         it('handles race conditions as inserts happen in parallel', async () => {
@@ -125,10 +174,10 @@ describe('groups-updater', () => {
             const firstFetchIsDonePromise = createPromise()
             const firstInsertShouldStartPromise = createPromise()
 
-            jest.spyOn(db, 'insertGroup').mockImplementationOnce(async (...args) => {
+            jest.spyOn(hub.postgres, 'query').mockImplementationOnce(async (...args) => {
                 firstFetchIsDonePromise.resolve()
                 await firstInsertShouldStartPromise.promise
-                return await db.insertGroup(...args)
+                return await actualQuery(...args)
             })
 
             // First, we start first update, and wait until first fetch is done (and returns that group does not exist)
@@ -149,7 +198,7 @@ describe('groups-updater', () => {
         })
 
         it('handles message size too large errors', async () => {
-            jest.spyOn(db, 'upsertGroupClickhouse').mockImplementationOnce((): Promise<void> => {
+            jest.spyOn(hub.kafkaProducer, 'queueMessages').mockImplementationOnce((): Promise<void> => {
                 const error = new Error('message size too large')
                 throw new MessageSizeTooLarge(error.message, error)
             })
