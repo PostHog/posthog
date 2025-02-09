@@ -9,7 +9,6 @@ import { MessageSizeTooLarge } from '../../kafka/producer'
 import { GroupTypeManager, MAX_GROUP_TYPES_PER_TEAM } from '../../services/group-type-manager'
 import { Hub, Person, PersonMode, PipelineEvent, RawKafkaEvent, Team, TimestampFormat } from '../../types'
 import { processAiEvent } from '../../utils/ai-costs/process-ai-event'
-import { safeClickhouseString, sanitizeEventName, sanitizeString } from './utils/utils'
 import { captureIngestionWarning } from '../../utils/ingestion-warnings'
 import { eventDroppedCounter } from '../../utils/metrics'
 import { status } from '../../utils/status'
@@ -20,6 +19,7 @@ import { extractHeatmapData } from './utils/heatmaps'
 import { PersonState } from './utils/person-state'
 import { PersonsDB } from './utils/persons-db'
 import { parseEventTimestamp } from './utils/timestamps'
+import { safeClickhouseString, sanitizeEventName, sanitizeString } from './utils/utils'
 
 export class EventDroppedError extends Error {
     public doNotSendToDLQ: boolean = false
