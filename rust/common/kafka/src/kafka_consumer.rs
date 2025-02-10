@@ -1,7 +1,10 @@
-use std::sync::{Arc, Weak};
+use std::{
+    fmt,
+    sync::{Arc, Weak},
+};
 
 use rdkafka::{
-    consumer::{Consumer, StreamConsumer},
+    consumer::{Consumer, ConsumerGroupMetadata, StreamConsumer},
     error::KafkaError,
     ClientConfig, Message,
 };
@@ -61,6 +64,10 @@ impl SingleTopicConsumer {
                 .set("enable.ssl.certificate.verification", "false");
         };
 
+        if !consumer_config.kafka_consumer_auto_commit {
+            client_config.set("enable.auto.offset.store", "false");
+        }
+
         let consumer: StreamConsumer = client_config.create()?;
         consumer.subscribe(&[consumer_config.kafka_consumer_topic.as_str()])?;
 
@@ -83,6 +90,7 @@ impl SingleTopicConsumer {
             handle: Arc::downgrade(&self.inner),
             partition: message.partition(),
             offset: message.offset(),
+            topic: self.inner.topic.clone(),
         };
 
         let Some(payload) = message.payload() else {
@@ -129,12 +137,20 @@ impl SingleTopicConsumer {
 
         results
     }
+
+    pub fn metadata(&self) -> ConsumerGroupMetadata {
+        self.inner
+            .consumer
+            .group_metadata()
+            .expect("It is impossible to construct a stream consumer without a group id")
+    }
 }
 
 pub struct Offset {
     handle: Weak<Inner>,
-    partition: i32,
-    offset: i64,
+    pub(crate) topic: String,
+    pub(crate) partition: i32,
+    pub(crate) offset: i64,
 }
 
 impl Offset {
@@ -142,7 +158,21 @@ impl Offset {
         let inner = self.handle.upgrade().ok_or(OffsetErr::Gone)?;
         inner
             .consumer
-            .store_offset(&inner.topic, self.partition, self.offset)?;
+            .store_offset(&self.topic, self.partition, self.offset)?;
         Ok(())
+    }
+
+    pub fn get_value(&self) -> i64 {
+        self.offset
+    }
+}
+
+impl fmt::Debug for Offset {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{{ partition: {}, offset: {} }}",
+            self.partition, self.offset
+        )
     }
 }

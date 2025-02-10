@@ -10,7 +10,7 @@ export const Overview = (): JSX.Element => {
 
     const TableRow = ({ label, value }: { label: string; value: string | undefined }): JSX.Element => (
         <tr>
-            <td className="text-muted">{label}</td>
+            <td className="text-secondary">{label}</td>
             <td>{value ?? <div className="italic">unknown</div>}</td>
         </tr>
     )

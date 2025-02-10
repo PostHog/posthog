@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import date, datetime
 from typing import Any, Literal, Optional, cast
 from uuid import UUID
@@ -502,12 +503,8 @@ class Resolver(CloningVisitor):
             signatures = HOGQL_CLICKHOUSE_FUNCTIONS[node.name].signatures
             if signatures:
                 for sig_arg_types, sig_return_type in signatures:
-                    if sig_arg_types is None:
-                        return_type = sig_return_type
-                        break
-
-                    if compare_types(arg_types, sig_arg_types):
-                        return_type = sig_return_type
+                    if sig_arg_types is None or compare_types(arg_types, sig_arg_types):
+                        return_type = dataclasses.replace(sig_return_type)
                         break
 
         if return_type is None:

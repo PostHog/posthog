@@ -19,7 +19,7 @@ from posthog.batch_exports.service import (
     BatchExportSchema,
     RedshiftBatchExportInputs,
 )
-from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
     FinishBatchExportRunInputs,
     RecordsCompleted,
@@ -448,7 +448,9 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
         )
         data_interval_end_str = dt.datetime.fromisoformat(inputs.data_interval_end).strftime("%Y-%m-%d_%H-%M-%S")
         stagle_table_name = (
-            f"stage_{inputs.table_name}_{data_interval_end_str}" if requires_merge else inputs.table_name
+            f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}"
+            if requires_merge
+            else inputs.table_name
         )
 
         if requires_merge:

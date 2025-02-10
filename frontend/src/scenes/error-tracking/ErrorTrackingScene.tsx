@@ -15,6 +15,7 @@ import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { humanFriendlyLargeNumber } from 'lib/utils'
+import { posthog } from 'posthog-js'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -85,7 +86,7 @@ const ErrorTrackingListActions = (): JSX.Element => {
     const { mergeIssues } = useActions(errorTrackingDataNodeLogic)
 
     return (
-        <div className="sticky top-[var(--breadcrumbs-height-compact)] z-20 py-2 bg-bg-3000 flex space-x-1">
+        <div className="sticky top-[var(--breadcrumbs-height-compact)] z-20 py-2 bg-primary flex space-x-1">
             <LemonButton type="secondary" size="small" onClick={() => setSelectedIssueIds([])}>
                 Unselect all
             </LemonButton>
@@ -221,7 +222,7 @@ const Header = (): JSX.Element => {
                     {user?.is_staff ? (
                         <LemonButton
                             onClick={() => {
-                                throw Error('Oh my!')
+                                posthog.captureException(new Error('Oh my!'))
                             }}
                         >
                             Send an exception

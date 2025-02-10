@@ -130,10 +130,18 @@ pub struct ClickHouseEvent {
 impl ClickHouseEvent {
     pub fn take_raw_properties(&mut self) -> Result<HashMap<String, Value>, serde_json::Error> {
         // Sometimes properties are REALLY big, so we may as well do this.
-        let props = self.properties.take();
-        match props {
-            Some(properties) => serde_json::from_str(&properties),
+        let props_str = self.properties.take();
+        let parsed = match &props_str {
+            Some(properties) => serde_json::from_str(properties),
             None => Ok(HashMap::new()),
+        };
+
+        match parsed {
+            Ok(properties) => Ok(properties),
+            Err(e) => {
+                self.properties = props_str;
+                Err(e)
+            }
         }
     }
 

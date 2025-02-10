@@ -436,7 +436,7 @@ export function LemonInputSelect({
                             ))}
                         </>
                     ) : (
-                        <p className="text-muted italic p-1">
+                        <p className="text-secondary italic p-1">
                             {allowCustomValues
                                 ? 'Start typing and press Enter to add options'
                                 : `No options matching "${inputValue}"`}
@@ -468,7 +468,7 @@ export function LemonInputSelect({
                 autoFocus={autoFocus}
                 transparentBackground={transparentBackground}
                 className={clsx(
-                    'h-auto leading-7', // leading-7 means line height aligned with LemonSnack height
+                    '!h-auto leading-7', // leading-7 means line height aligned with LemonSnack height
                     // Putting button-like text styling on the single-select unfocused placeholder
                     // NOTE: We need font-medium on both the input (for autosizing) and its placeholder (for display)
                     mode === 'multiple' && 'flex-wrap',

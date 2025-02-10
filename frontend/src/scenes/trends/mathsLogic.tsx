@@ -296,9 +296,9 @@ export const PROPERTY_MATH_DEFINITIONS: Record<PropertyMathType, MathDefinition>
 }
 export const HOGQL_MATH_DEFINITIONS: Record<HogQLMathType, MathDefinition> = {
     [HogQLMathType.HogQL]: {
-        name: 'HogQL expression',
-        shortName: 'HogQL expression',
-        description: <>Aggregate with a custom HogQL expression.</>,
+        name: 'SQL expression',
+        shortName: 'SQL expression',
+        description: <>Aggregate with a custom SQL expression.</>,
         category: MathCategory.HogQLExpression,
     },
 }
