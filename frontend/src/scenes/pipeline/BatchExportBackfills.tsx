@@ -116,7 +116,12 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                             const progress = backfill.progress
                             if (progress && progress.progress !== null && progress.progress !== undefined) {
                                 let label = ''
-                                if (progress.finished_runs && progress.total_runs) {
+                                if (
+                                    progress.finished_runs !== null &&
+                                    progress.total_runs !== null &&
+                                    progress.finished_runs !== undefined &&
+                                    progress.total_runs !== undefined
+                                ) {
                                     const runsLabel = progress.total_runs === 1 ? 'run' : 'runs'
                                     label = `(${progress.finished_runs}/${progress.total_runs} ${runsLabel})`
                                 }
