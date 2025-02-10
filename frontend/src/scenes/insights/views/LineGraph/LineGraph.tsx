@@ -324,7 +324,19 @@ export function LineGraph_({
 
         if (canvas) {
             const handleEvent = (event: Event): void => {
-                console.error(event)
+                if ((window.performance as any)?.memory) {
+                    console.error(event, {
+                        usedJSHeapSize:
+                            ((window.performance as any)?.memory.usedJSHeapSize / 1024 / 1024).toFixed(2) + ' MB',
+                        totalJSHeapSize:
+                            ((window.performance as any)?.memory.totalJSHeapSize / 1024 / 1024).toFixed(2) + ' MB',
+                        jsHeapSizeLimit:
+                            ((window.performance as any)?.memory.jsHeapSizeLimit / 1024 / 1024).toFixed(2) + ' MB',
+                    })
+                } else {
+                    console.error(event)
+                }
+
                 Sentry.captureException(event)
             }
 
