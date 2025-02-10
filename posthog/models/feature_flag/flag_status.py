@@ -42,7 +42,7 @@ class FeatureFlagStatusChecker:
     def get_status(self) -> tuple[FeatureFlagStatus, FeatureFlagStatusReason]:
         flag = self.feature_flag
 
-        if flag is None:
+        if flag is None and self.feature_flag_id is not None:
             try:
                 flag = FeatureFlag.objects.get(pk=self.feature_flag_id)
             except FeatureFlag.DoesNotExist:
