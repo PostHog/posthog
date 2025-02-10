@@ -2,6 +2,7 @@ use anyhow::Error;
 use async_trait::async_trait;
 
 pub mod folder;
+pub mod s3;
 pub mod url_list;
 
 #[async_trait]
