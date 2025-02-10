@@ -25,6 +25,16 @@ export const hogTransformationDroppedEvents = new Counter({
     help: 'Indicates how many events are dropped by hog transformations',
 })
 
+export const hogTransformationAndMessageInvocations = new Counter({
+    name: 'hog_transformation_and_message_invocations_total',
+    help: 'Number of times transformEventAndProduceMessages was called',
+})
+
+export const hogTransformationInvocations = new Counter({
+    name: 'hog_transformation_invocations_total',
+    help: 'Number of times transformEvent was called directly',
+})
+
 export interface TransformationResultPure {
     event: PluginEvent | null
     invocationResults: HogFunctionInvocationResult[]
@@ -162,6 +172,7 @@ export class HogTransformerService {
         event: PluginEvent,
         runTestFunctions: boolean = false
     ): Promise<TransformationResult> {
+        hogTransformationAndMessageInvocations.inc()
         return runInstrumentedFunction({
             statsKey: `hogTransformer.transformEventAndProduceMessages`,
             func: async () => {
@@ -181,6 +192,7 @@ export class HogTransformerService {
     }
 
     public transformEvent(event: PluginEvent, runTestFunctions: boolean = false): Promise<TransformationResultPure> {
+        hogTransformationInvocations.inc()
         return runInstrumentedFunction({
             statsKey: `hogTransformer.transformEvent`,
 
