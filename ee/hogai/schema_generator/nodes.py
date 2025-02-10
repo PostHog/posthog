@@ -195,7 +195,8 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
                             question=message.content
                         )
                     )
-                # Otherwise, just append the human message.
+                # Otherwise, just append the human message. This is most likely a human-in-the-loop or just
+                # a message that didn't require an insight.
                 else:
                     conversation.append(LangchainHumanMessage(content=message.content))
             # Summary, human-in-the-loop messages.
@@ -205,6 +206,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
                 conversation.append(LangchainAssistantMessage(content=message.answer.model_dump_json()))
         # Add the initiator message and the generated plan to the end, so instructions are clear.
         if isinstance(initiator_message, HumanMessage):
+            insight_plan = self._get_insight_plan(state) or initiator_message.content
             if generated_plan:
                 plan_prompt = PLAN_PROMPT if messages[0] == initiator_message else NEW_PLAN_PROMPT
                 conversation.append(
@@ -214,7 +216,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
                 )
             conversation.append(
                 HumanMessagePromptTemplate.from_template(QUESTION_PROMPT, template_format="mustache").format(
-                    question=initiator_message.content
+                    question=insight_plan
                 )
             )
 
@@ -227,6 +229,11 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
             )
 
         return conversation
+
+    def _get_insight_plan(self, state: AssistantState) -> str | None:
+        if not state.root_tool_call_args:
+            return None
+        return state.root_tool_call_args.get("query_description")
 
 
 class SchemaGeneratorToolsNode(AssistantNode):

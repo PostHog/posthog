@@ -205,6 +205,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
         """
         start_id = state.start_id
         filtered_messages = filter_messages(slice_messages_to_conversation_start(state.messages, start_id))
+        human_messages = filter_messages(filtered_messages, (HumanMessage,))
         conversation = []
 
         for idx, message in enumerate(filtered_messages):
@@ -212,20 +213,27 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                 format_reminder = REACT_FORMAT_REMINDER_PROMPT if message.id == start_id else None
                 # Add initial instructions.
                 if idx == 0:
+                    # If there's only one human message, it's the initial question. Replace the initial question with the one from the tool call if it exists.
+                    human_question = (
+                        self._get_tool_insight_description(state) if len(human_messages) == 1 else None
+                    ) or message.content
+
                     conversation.append(
                         HumanMessagePromptTemplate.from_template(REACT_USER_PROMPT, template_format="mustache").format(
-                            question=message.content,
+                            question=human_question,
                             react_format_reminder=format_reminder,
                         )
                     )
                 # Add follow-up instructions only for the human message that initiated a generation.
                 elif message.id == start_id:
+                    # follow-ups are always coming from the tool call
+                    human_question = self._get_tool_insight_description(state) or message.content
                     conversation.append(
                         HumanMessagePromptTemplate.from_template(
                             REACT_FOLLOW_UP_PROMPT,
                             template_format="mustache",
                         ).format(
-                            feedback=message.content,
+                            feedback=human_question,
                             react_format_reminder=format_reminder,
                         )
                     )
@@ -249,6 +257,11 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                 continue
             actions.append((action, observation))
         return format_log_to_str(actions)
+
+    def _get_tool_insight_description(self, state: AssistantState) -> str | None:
+        if not state.root_tool_call_args:
+            return None
+        return state.root_tool_call_args.get("query_description")
 
 
 class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
