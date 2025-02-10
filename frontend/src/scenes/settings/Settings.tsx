@@ -188,7 +188,7 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
                                 )}
                             </h2>
                         )}
-                        {x.description && <p>{x.description}</p>}
+                        {x.description && <p className="max-w-160">{x.description}</p>}
 
                         {x.component}
                     </div>

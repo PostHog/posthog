@@ -40,6 +40,7 @@ export type SettingSectionId =
     | 'project-access-control' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'project-role-based-access-control' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'project-danger-zone'
+    | 'organization-ai-consent'
     | 'organization-details'
     | 'organization-members'
     | 'organization-billing'
@@ -95,6 +96,7 @@ export type SettingId =
     | 'members'
     | 'email-members'
     | 'authentication-domains'
+    | 'organization-ai-consent'
     | 'organization-roles'
     | 'organization-delete'
     | 'organization-proxy'
