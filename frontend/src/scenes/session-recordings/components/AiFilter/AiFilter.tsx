@@ -133,11 +133,11 @@ export function AiFilter({ logic }: { logic: BuiltLogic<sessionRecordingsPlaylis
                                                 className="mb-1"
                                                 type="secondary"
                                                 onClick={() =>
-                                                    setInput('Show me recordings of people who are frustarated')
+                                                    setInput('Show me recordings of people who are frustrated')
                                                 }
                                             >
                                                 <span className="font-normal text-sx italic">
-                                                    Show me recordings of people who are frustarated
+                                                    Show me recordings of people who are frustrated
                                                 </span>
                                             </LemonButton>
                                             <LemonButton
