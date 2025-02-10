@@ -505,7 +505,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     </>
                 ),
                 component: <OrganizationAI />,
-                flag: 'ARTIFICIAL_HOG',
             },
         ],
     },
