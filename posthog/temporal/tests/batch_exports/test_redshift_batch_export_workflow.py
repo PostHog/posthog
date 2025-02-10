@@ -983,6 +983,112 @@ async def test_insert_into_redshift_activity_merges_persons_data_in_follow_up_ru
     )
 
 
+async def test_insert_into_redshift_activity_merges_sessions_data_in_follow_up_runs(
+    clickhouse_client,
+    activity_environment,
+    psycopg_connection,
+    redshift_config,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+):
+    """Test that the `insert_into_redshift_activity` merges new versions of rows.
+
+    This unit test looks at the mutability handling capabilities of the aforementioned activity.
+    We will generate a new entry in the raw_sessions table for the only row exported in a first
+    run of the activity. We expect the new entry to have replaced the old one in Redshift after
+    the second run.
+    """
+    if MISSING_REQUIRED_ENV_VARS:
+        pytest.skip("Sessions batch export cannot be tested in PostgreSQL")
+
+    model = BatchExportModel(name="persons", schema=None)
+    table_name = f"test_insert_activity_mutability_table_sessions_{ateam.pk}"
+
+    insert_inputs = RedshiftInsertInputs(
+        team_id=ateam.pk,
+        table_name=table_name,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        batch_export_model=model,
+        **redshift_config,
+    )
+
+    await activity_environment.run(insert_into_redshift_activity, insert_inputs)
+
+    await assert_clickhouse_records_in_redshfit(
+        redshift_connection=psycopg_connection,
+        clickhouse_client=clickhouse_client,
+        schema_name=redshift_config["schema"],
+        table_name=table_name,
+        team_id=ateam.pk,
+        date_ranges=[(data_interval_start, data_interval_end)],
+        batch_export_model=model,
+        sort_key="session_id",
+    )
+
+    events_to_export_created, _ = generate_test_data
+    event = events_to_export_created[0]
+
+    new_data_interval_start, new_data_interval_end = (
+        data_interval_start + dt.timedelta(hours=1),
+        data_interval_end + dt.timedelta(hours=1),
+    )
+
+    new_events, _, _ = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=ateam.pk,
+        start_time=new_data_interval_start,
+        end_time=new_data_interval_end,
+        count=1,
+        count_outside_range=0,
+        count_other_team=0,
+        duplicate=False,
+        properties=event["properties"],
+        person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
+        event_name=event["event"],
+        table="sharded_events",
+        insert_sessions=True,
+    )
+
+    insert_inputs.data_interval_start = new_data_interval_start.isoformat()
+    insert_inputs.data_interval_end = new_data_interval_end.isoformat()
+
+    await activity_environment.run(insert_into_redshift_activity, insert_inputs)
+
+    await assert_clickhouse_records_in_redshfit(
+        redshift_connection=psycopg_connection,
+        clickhouse_client=clickhouse_client,
+        schema_name=redshift_config["schema"],
+        table_name=table_name,
+        team_id=ateam.pk,
+        date_ranges=[(new_data_interval_start, new_data_interval_end)],
+        batch_export_model=model,
+        sort_key="session_id",
+    )
+
+    rows = []
+    async with psycopg_connection.cursor() as cursor:
+        await cursor.execute(sql.SQL("SELECT * FROM {}").format(sql.Identifier(redshift_config["schema"], table_name)))
+
+        columns = [column.name for column in cursor.description]
+
+        for row in await cursor.fetchall():
+            event = dict(zip(columns, row))
+            rows.append(event)
+
+    new_event = new_events[0]
+    new_event_properties = new_event["properties"] or {}
+    assert len(rows) == 1, "Previous session row still present in Redshift"
+    assert (
+        rows[0]["session_id"] == new_event_properties["$session_id"]
+    ), "Redshift row does not match expected `session_id`"
+    assert rows[0]["end_timestamp"] == dt.datetime.fromisoformat(new_event["timestamp"]).replace(
+        tzinfo=dt.UTC
+    ), "Redshift data was not updated with new timestamp"
+
+
 async def test_insert_into_redshift_activity_handles_person_schema_changes(
     clickhouse_client,
     activity_environment,
