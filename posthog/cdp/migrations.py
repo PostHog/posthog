@@ -86,11 +86,6 @@ def migrate_batch(legacy_plugins: Any, kind: str, test_mode: bool, dry_run: bool
                 plugin_config["plugin__icon"] or f"https://raw.githubusercontent.com/PostHog/{plugin_id}/main/logo.png"
             )
 
-            # Check it doesn't already exist
-            if HogFunction.objects.filter(template_id=f"plugin-{plugin_id}", type=kind, team_id=team.id).exists():
-                print(f"Skipping plugin {plugin_name} as it already exists as a hog function")  # noqa: T201
-                continue
-
             data = {
                 "template_id": f"plugin-{plugin_id}",
                 "type": kind,

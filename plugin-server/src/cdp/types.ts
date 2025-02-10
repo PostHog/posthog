@@ -297,6 +297,7 @@ export type HogFunctionType = {
     team_id: number
     name: string
     enabled: boolean
+    deleted: boolean
     hog: string
     bytecode: HogBytecode
     inputs_schema?: HogFunctionInputSchemaType[]
@@ -309,6 +310,7 @@ export type HogFunctionType = {
     template_id?: string
     execution_order?: number
     created_at: string
+    updated_at: string
 }
 
 export type HogFunctionInputType = {
