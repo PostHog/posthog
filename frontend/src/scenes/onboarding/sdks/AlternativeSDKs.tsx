@@ -1,6 +1,7 @@
-import { IconArrowLeft, IconArrowRight, IconChatHelp } from '@posthog/icons'
+import { IconArrowLeft, IconArrowRight, IconChatHelp, IconCopy } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonInput, LemonModal, LemonTabs, SpinnerOverlay } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { SurprisedHog } from 'lib/components/hedgehogs'
 import { useInterval } from 'lib/hooks/useInterval'
 import { useEffect, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
@@ -9,7 +10,8 @@ import { InviteMembersButton } from '~/layout/navigation/TopBar/AccountPopover'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { type SDK, SDKInstructionsMap, SDKTag, SidePanelTab } from '~/types'
 
-import { onboardingLogic, OnboardingStepKey } from '../onboardingLogic'
+import { OnboardingStepKey } from '../onboardingLogic'
+import { onboardingLogic } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
 import { RealtimeCheckIndicator } from './RealtimeCheckIndicator'
 import type { SDKsProps } from './SDKs'
@@ -41,7 +43,34 @@ const NextButton = ({ installationComplete }: { installationComplete: boolean })
     )
 }
 
-function SDKInstructionsModal({
+const LLMCallout = (): JSX.Element => {
+    const prompt =
+        'Prompt: Install PostHog using the provided instructions. Let your LLM configure the setup automatically.'
+    const handleCopy = () => {
+        navigator.clipboard.writeText(prompt)
+    }
+
+    return (
+        <div className="flex items-center gap-4 p-4 bg-bg-light dark:bg-bg-depth rounded-lg border border-dashed border-gray-accent">
+            <div className="flex-shrink-0">
+                <SurprisedHog className="w-16 h-16 object-contain" />
+            </div>
+            <div className="flex-grow">
+                <h4 className="text-lg font-bold text-gray-800 dark:text-gray-100">Prompt an LLM to setup PostHog</h4>
+                <p className="text-sm text-gray-600 dark:text-gray-300">
+                    Get setup faster - let your LLM install PostHog for you.
+                </p>
+            </div>
+            <div>
+                <LemonButton type="primary" size="small" icon={<IconCopy />} onClick={handleCopy}>
+                    Copy prompt
+                </LemonButton>
+            </div>
+        </div>
+    )
+}
+
+export function SDKInstructionsModal({
     isOpen,
     onClose,
     sdk,
@@ -61,7 +90,9 @@ function SDKInstructionsModal({
     const { loadCurrentTeam } = useActions(teamLogic)
     const [checking, setChecking] = useState(false)
     const [hasChecked, setHasChecked] = useState(false)
-    const installationComplete = !!currentTeam?.[verifyingProperty]
+    const installationComplete = Boolean(currentTeam?.[verifyingProperty])
+    const { hasNextStep } = useValues(onboardingLogic)
+    const { completeOnboarding, goToNextStep } = useActions(onboardingLogic)
 
     useInterval(() => {
         if (!installationComplete) {
@@ -89,6 +120,9 @@ function SDKInstructionsModal({
                     </header>
                     <section className="p-4 flex flex-col h-full">
                         <div className="flex-grow overflow-y-auto pb-24">
+                            <div className="my-4">
+                                <LLMCallout />
+                            </div>
                             <SDKSnippet sdk={sdk} sdkInstructions={sdkInstructionMap[sdk.key]} />
                         </div>
                         <div className="sticky bottom-0 w-full bg-bg-light dark:bg-bg-depth p-2 flex justify-between items-center gap-2">
@@ -104,7 +138,6 @@ function SDKInstructionsModal({
         </LemonModal>
     )
 }
-
 export function AlternativeSDKs({
     sdkInstructionMap,
     stepKey = OnboardingStepKey.INSTALL,
