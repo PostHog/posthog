@@ -17,8 +17,8 @@ export interface PathRegexModalProps {
 }
 
 export function PathRegexModal({ filter, isOpen, onSave, onClose }: PathRegexModalProps): JSX.Element {
-    const [alias, setAlias] = useState(() => filter?.alias)
-    const [regex, setRegex] = useState(() => filter?.regex)
+    const [alias, setAlias] = useState(filter?.alias ?? '')
+    const [regex, setRegex] = useState(filter?.regex ?? '')
 
     const isNew = !filter
     const disabledReason = !alias

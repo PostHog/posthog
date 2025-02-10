@@ -24,7 +24,7 @@ export function PathCleanFilterAddItemButton({ onAdd }: PathCleanFilterAddItemBu
             />
 
             <LemonButton
-                onClick={() => setVisible(!visible)}
+                onClick={() => setVisible(true)}
                 type="secondary"
                 size="small"
                 icon={<IconPlus />}
