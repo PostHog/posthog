@@ -938,12 +938,12 @@ class BatchExportInsertInputs:
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
     run_id: str | None = None
-    # TODO: Remove after updating existing batch exports to use backfill_details
-    is_backfill: bool = False
     backfill_details: BackfillDetails | None = None
     batch_export_model: BatchExportModel | None = None
     # TODO: Remove after updating existing batch exports
     batch_export_schema: BatchExportSchema | None = None
+    # TODO: Remove after updating existing batch exports to use backfill_details
+    is_backfill: bool = False
 
     def get_is_backfill(self) -> bool:
         """Needed for backwards compatibility with existing batch exports.

@@ -180,11 +180,11 @@ async def iter_model_records(
     interval_start: str | None,
     interval_end: str,
     destination_default_fields: list[BatchExportField] | None = None,
+    backfill_details: BackfillDetails | None = None,
     # TODO - remove this once all batch exports are using the latest schema
     use_latest_schema: bool = False,
     # TODO: this can be removed once all backfill inputs are migrated
     is_backfill: bool = False,
-    backfill_details: BackfillDetails | None = None,
     **parameters,
 ) -> AsyncRecordsGenerator:
     # TODO: this can be simplified once all backfill inputs are migrated
