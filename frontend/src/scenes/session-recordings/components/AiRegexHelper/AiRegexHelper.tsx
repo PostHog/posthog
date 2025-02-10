@@ -2,9 +2,10 @@
  * @fileoverview A component that helps you to generate regex for your settings using Max AI
  */
 
-import { IconCopy, IconPlus } from '@posthog/icons'
+import { IconAI, IconCopy, IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
@@ -105,5 +106,30 @@ export function AiRegexHelper({ onApply }: AiRegexHelperProps): JSX.Element {
                 )}
             </LemonModal>
         </>
+    )
+}
+
+export function AiRegexHelperButton(): JSX.Element {
+    const { setIsOpen } = useActions(aiRegexHelperLogic)
+    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
+
+    const disabledReason = !dataProcessingAccepted
+        ? dataProcessingApprovalDisabledReason || 'You must accept the data processing agreement to use AI features'
+        : null
+
+    return (
+        <AIConsentPopoverWrapper showArrow>
+            <LemonButton
+                type="tertiary"
+                icon={<IconAI />}
+                onClick={() => {
+                    setIsOpen(true)
+                    posthog.capture('ai_regex_helper_open')
+                }}
+                disabledReason={disabledReason}
+            >
+                Help me with Regex
+            </LemonButton>
+        </AIConsentPopoverWrapper>
     )
 }
