@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use app_context::AppContext;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use common_types::ClickHouseEvent;
 use error::{EventError, UnhandledError};
 use fingerprinting::generate_fingerprint;
@@ -179,8 +179,12 @@ pub fn add_error_to_event(
 }
 
 // "Clickhouse format" timestamps are in UTC, with no timezone information, e.g. "2021-08-02 12:34:56.789"
+// TODO - we could make use of common_kafka::kafka_messages::de/serialise_datetime here, but that drops
+// the fractional seconds, which we might want to keep? For now, go with this, we can consolidate later.
 pub fn get_event_timestamp(event: &ClickHouseEvent) -> Option<DateTime<Utc>> {
-    event.timestamp.parse::<DateTime<Utc>>().ok()
+    NaiveDateTime::parse_from_str(&event.timestamp, "%Y-%m-%d %H:%M:%S%.f")
+        .map(|ndt| ndt.and_utc())
+        .ok()
 }
 
 #[cfg(test)]
