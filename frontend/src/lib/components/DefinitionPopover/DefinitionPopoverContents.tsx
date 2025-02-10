@@ -292,7 +292,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             label: column.name + ' (' + column.type + ')',
             value: column.name,
         }))
-        const hogqlOption = { label: 'HogQL Expression', value: '' }
+        const hogqlOption = { label: 'SQL Expression', value: '' }
         const itemValue = localDefinition ? group?.getValue?.(localDefinition) : null
 
         const isUsingHogQLExpression = (value: string | undefined): boolean => {

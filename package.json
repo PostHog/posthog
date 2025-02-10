@@ -160,6 +160,7 @@
         "md5": "^2.3.0",
         "monaco-editor": "^0.49.0",
         "natural-orderby": "^3.0.2",
+        "openai": "^4.81.0",
         "papaparse": "^5.4.1",
         "pmtiles": "^2.11.0",
         "postcss": "^8.4.31",
