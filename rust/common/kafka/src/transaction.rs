@@ -33,12 +33,7 @@ impl TransactionalProducer<DefaultClientContext> {
         transactional_id: &str,
         timeout: Duration,
     ) -> Result<Self, KafkaError> {
-        Self::with_context(
-            config,
-            transactional_id,
-            timeout,
-            DefaultClientContext::default(),
-        )
+        Self::with_context(config, transactional_id, timeout, DefaultClientContext)
     }
 }
 
