@@ -6,6 +6,7 @@ import { IconCopy, IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { AiConsentPopover } from '../AiConsentPopover'
 import { aiRegexHelperLogic } from './aiRegexHelperLogic'
@@ -14,7 +15,10 @@ export function AiRegexHelper({ type }: { type: 'trigger' | 'blocklist' }): JSX.
     const logic = aiRegexHelperLogic()
     const { isOpen, input, generatedRegex, error, isLoading } = useValues(logic)
     const { setInput, handleGenerateRegex, handleApplyRegex, onClose, handleCopyToClipboard } = useActions(logic)
-    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
+
+    const { preflight } = useValues(preflightLogic)
+    const aiAvailable = preflight?.openai_available
 
     return (
         <>
@@ -38,7 +42,18 @@ export function AiRegexHelper({ type }: { type: 'trigger' | 'blocklist' }): JSX.
                     <LemonButton
                         type={generatedRegex ? 'secondary' : 'primary'}
                         onClick={handleGenerateRegex}
-                        disabled={!input.length || isLoading || !dataProcessingAccepted}
+                        disabledReason={
+                            !aiAvailable
+                                ? 'To use AI features, set environment variable OPENAI_API_KEY for this instance of PostHog'
+                                : !dataProcessingAccepted
+                                ? dataProcessingApprovalDisabledReason ||
+                                  'You must accept the data processing agreement to use AI features'
+                                : isLoading
+                                ? 'Generating...'
+                                : !input.length
+                                ? 'Provide a prompt first'
+                                : null
+                        }
                         loading={isLoading}
                     >
                         {generatedRegex ? 'Regenerate' : 'Generate Regex'}
