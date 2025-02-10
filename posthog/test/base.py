@@ -77,7 +77,7 @@ from posthog.models.raw_sessions.sql import (
     DROP_RAW_SESSION_TABLE_SQL,
     DROP_RAW_SESSION_VIEW_SQL,
     RAW_SESSIONS_TABLE_MV_SQL,
-    RAW_SESSIONS_VIEW_SQL,
+    RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL,
     RAW_SESSIONS_TABLE_SQL,
 )
 from posthog.session_recordings.sql.session_recording_event_sql import (
@@ -1067,7 +1067,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 SESSIONS_TABLE_MV_SQL(),
                 RAW_SESSIONS_TABLE_MV_SQL(),
                 SESSIONS_VIEW_SQL(),
-                RAW_SESSIONS_VIEW_SQL(),
+                RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL(),
             ]
         )
 
@@ -1126,7 +1126,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 SESSIONS_TABLE_MV_SQL(),
                 RAW_SESSIONS_TABLE_MV_SQL(),
                 SESSIONS_VIEW_SQL(),
-                RAW_SESSIONS_VIEW_SQL(),
+                RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL(),
                 CHANNEL_DEFINITION_DATA_SQL(),
             ]
         )
