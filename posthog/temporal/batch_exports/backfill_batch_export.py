@@ -15,11 +15,8 @@ from asgiref.sync import sync_to_async
 from django.conf import settings
 
 from posthog.batch_exports.models import BatchExportBackfill
-from posthog.batch_exports.service import (
-    BackfillBatchExportInputs,
-    unpause_batch_export,
-)
-from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.batch_exports.service import BackfillBatchExportInputs, unpause_batch_export
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
     CreateBatchExportBackfillInputs,
     UpdateBatchExportBackfillStatusInputs,

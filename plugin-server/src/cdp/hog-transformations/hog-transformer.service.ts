@@ -25,6 +25,23 @@ export const hogTransformationDroppedEvents = new Counter({
     help: 'Indicates how many events are dropped by hog transformations',
 })
 
+export const hogTransformationInvocations = new Counter({
+    name: 'hog_transformation_invocations_total',
+    help: 'Number of times transformEvent was called directly',
+})
+
+export const hogTransformationAttempts = new Counter({
+    name: 'hog_transformation_attempts_total',
+    help: 'Number of transformation attempts before any processing',
+    labelNames: ['type'],
+})
+
+export const hogTransformationCompleted = new Counter({
+    name: 'hog_transformation_completed_total',
+    help: 'Number of successfully completed transformations',
+    labelNames: ['type'],
+})
+
 export interface TransformationResultPure {
     event: PluginEvent | null
     invocationResults: HogFunctionInvocationResult[]
@@ -165,6 +182,7 @@ export class HogTransformerService {
         return runInstrumentedFunction({
             statsKey: `hogTransformer.transformEventAndProduceMessages`,
             func: async () => {
+                hogTransformationAttempts.inc({ type: 'with_messages' })
                 const transformationResult = await this.transformEvent(event, runTestFunctions)
                 const messagePromises: Promise<void>[] = []
 
@@ -172,6 +190,7 @@ export class HogTransformerService {
                     messagePromises.push(...this.processInvocationResult(result))
                 })
 
+                hogTransformationCompleted.inc({ type: 'with_messages' })
                 return {
                     ...transformationResult,
                     messagePromises,
@@ -185,6 +204,7 @@ export class HogTransformerService {
             statsKey: `hogTransformer.transformEvent`,
 
             func: async () => {
+                hogTransformationInvocations.inc()
                 const teamHogFunctions = this.hogFunctionManager.getTeamHogFunctions(event.team_id)
                 const results: HogFunctionInvocationResult[] = []
                 const transformationsSucceeded: string[] = event.properties?.$transformations_succeeded || []

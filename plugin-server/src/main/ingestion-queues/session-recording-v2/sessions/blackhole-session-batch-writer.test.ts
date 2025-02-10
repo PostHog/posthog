@@ -1,68 +1,56 @@
-import { BlackholeSessionBatchWriter } from './blackhole-session-batch-writer'
+import { BlackholeSessionBatchFileStorage } from './blackhole-session-batch-writer'
 
-jest.setTimeout(1000)
-
-describe('BlackholeSessionBatchWriter', () => {
-    let writer: BlackholeSessionBatchWriter
+describe('BlackholeSessionBatchFileStorage', () => {
+    let storage: BlackholeSessionBatchFileStorage
+    let writer: ReturnType<BlackholeSessionBatchFileStorage['newBatch']>
 
     beforeEach(() => {
-        writer = new BlackholeSessionBatchWriter()
+        storage = new BlackholeSessionBatchFileStorage()
+        writer = storage.newBatch()
     })
 
-    it('should create a writable stream', () => {
-        const { stream } = writer.newBatch()
-        expect(stream.writable).toBe(true)
+    it('should write session data and return bytes written', async () => {
+        const buffer = Buffer.from('test data')
+        const result = await writer.writeSession(buffer)
+
+        expect(result.bytesWritten).toBe(buffer.length)
+        expect(result.url).toBeNull()
+
+        await expect(writer.finish()).resolves.not.toThrow()
     })
 
-    it('should drain the stream', async () => {
-        const { stream } = writer.newBatch()
-        const largeData = Buffer.alloc(1024 * 1024, 'x') // 1MB of data
+    it('should handle empty buffers', async () => {
+        const buffer = Buffer.from('')
+        const result = await writer.writeSession(buffer)
 
-        // Write 100MB of data
-        for (let i = 0; i < 5; i++) {
-            let canWrite = true
-            while (canWrite) {
-                canWrite = stream.write(largeData)
-                if (!canWrite) {
-                    // Handle backpressure by waiting for drain event
-                    await new Promise<void>((resolve) => stream.once('drain', resolve))
-                }
-            }
-        }
+        expect(result.bytesWritten).toBe(0)
+        expect(result.url).toBeNull()
+
+        await expect(writer.finish()).resolves.not.toThrow()
     })
 
-    it('should resolve finish immediately', async () => {
-        const { stream, finish } = writer.newBatch()
+    it('should handle large buffers', async () => {
+        const buffer = Buffer.alloc(100 * 1024 * 1024, 'x') // 100MB of data
+        const result = await writer.writeSession(buffer)
 
-        // Write some data before finishing
-        stream.write('test data')
-        stream.end()
+        expect(result.bytesWritten).toBe(buffer.length)
+        expect(result.url).toBeNull()
 
-        const startTime = Date.now()
-        await finish()
-        const duration = Date.now() - startTime
-
-        // finish() should resolve almost immediately
-        expect(duration).toBeLessThan(100) // Should take less than 100ms
+        await expect(writer.finish()).resolves.not.toThrow()
     })
 
-    it('should handle multiple writes and end correctly', async () => {
-        const { stream, finish } = writer.newBatch()
+    it('should handle multiple writes before finish', async () => {
+        const buffer1 = Buffer.from('data1')
+        const buffer2 = Buffer.from('data2')
 
-        const writes = ['data1', 'data2', 'data3'].map((data) => {
-            return new Promise<void>((resolve, reject) => {
-                stream.write(data, (error) => {
-                    if (error) {
-                        reject(error)
-                    } else {
-                        resolve()
-                    }
-                })
-            })
-        })
+        const result1 = await writer.writeSession(buffer1)
+        const result2 = await writer.writeSession(buffer2)
 
-        await Promise.all(writes)
-        stream.end()
-        await finish()
+        expect(result1.bytesWritten).toBe(buffer1.length)
+        expect(result2.bytesWritten).toBe(buffer2.length)
+        expect(result1.url).toBeNull()
+        expect(result2.url).toBeNull()
+
+        await expect(writer.finish()).resolves.not.toThrow()
     })
 })
