@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::Error;
-use aws_config::{BehaviorVersion, Region};
+use aws_config::{retry::RetryConfig, timeout::TimeoutConfig, BehaviorVersion, Region};
 use base64::{prelude::BASE64_URL_SAFE, Engine};
 use fernet::MultiFernet;
 use serde::{Deserialize, Serialize};
@@ -222,6 +222,12 @@ impl S3SourceConfig {
             .region(Region::new(self.region.clone()))
             .credentials_provider(aws_credentials)
             .behavior_version(BehaviorVersion::latest())
+            .timeout_config(
+                TimeoutConfig::builder()
+                    .operation_timeout(Duration::from_secs(30))
+                    .build(),
+            )
+            .retry_config(RetryConfig::standard())
             .build();
         let client = aws_sdk_s3::Client::from_conf(aws_conf);
 
