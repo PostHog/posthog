@@ -1109,7 +1109,14 @@ export interface RetentionQuery extends InsightsQueryBase<RetentionQueryResponse
     retentionFilter: RetentionFilter
 }
 
-export interface PathsQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
+export type PathsLink = {
+    source: string
+    target: string
+    value: number
+    average_conversion_time: number
+}
+
+export interface PathsQueryResponse extends AnalyticsQueryResponseBase<PathsLink[]> {}
 
 export type CachedPathsQueryResponse = CachedQueryResponse<PathsQueryResponse>
 
