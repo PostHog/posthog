@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use app_context::AppContext;
+use chrono::{DateTime, Utc};
 use common_types::ClickHouseEvent;
 use error::{EventError, UnhandledError};
 use fingerprinting::generate_fingerprint;
@@ -63,7 +64,13 @@ pub async fn handle_event(
     props.exception_list = results;
     let fingerprinted = props.to_fingerprinted(fingerprint.clone());
 
-    let mut output = resolve_issue(&context.pool, event.team_id, fingerprinted).await?;
+    let event_timestamp = get_event_timestamp(&event).unwrap_or_else(|| {
+        warn!("Failed to get event timestamp, using current time");
+        Utc::now()
+    });
+
+    let mut output =
+        resolve_issue(&context.pool, event.team_id, fingerprinted, event_timestamp).await?;
 
     // TODO - I'm not sure we actually want to do this? Maybe junk drawer stuff should end up in clickhouse, and
     // be directly queryable by users? Stripping it for now, so it only ends up in postgres
@@ -169,4 +176,54 @@ pub fn add_error_to_event(
     );
     event.set_raw_properties(props)?;
     Ok(())
+}
+
+// "Clickhouse format" timestamps are in UTC, with no timezone information, e.g. "2021-08-02 12:34:56.789"
+pub fn get_event_timestamp(event: &ClickHouseEvent) -> Option<DateTime<Utc>> {
+    event.timestamp.parse::<DateTime<Utc>>().ok()
+}
+
+#[cfg(test)]
+mod test {
+    use common_types::{ClickHouseEvent, PersonMode};
+    use uuid::Uuid;
+
+    use crate::get_event_timestamp;
+
+    #[test]
+    pub fn test_timestamp_parsing() {
+        let mut event = ClickHouseEvent {
+            uuid: Uuid::now_v7(),
+            team_id: 1,
+            project_id: 1,
+            event: "test".to_string(),
+            distinct_id: "test".to_string(),
+            properties: None,
+            person_id: None,
+            timestamp: "2021-08-02 12:34:56.789".to_string(),
+            created_at: "2021-08-02 12:34:56.789".to_string(),
+            elements_chain: "".to_string(),
+            person_created_at: None,
+            person_properties: None,
+            group0_properties: None,
+            group1_properties: None,
+            group2_properties: None,
+            group3_properties: None,
+            group4_properties: None,
+            group0_created_at: None,
+            group1_created_at: None,
+            group2_created_at: None,
+            group3_created_at: None,
+            group4_created_at: None,
+            person_mode: PersonMode::Propertyless,
+        };
+
+        let ts = get_event_timestamp(&event).unwrap();
+        assert_eq!(ts.to_rfc3339(), "2021-08-02T12:34:56.789+00:00");
+
+        event.timestamp = "invalid".to_string();
+
+        let ts = get_event_timestamp(&event);
+        assert!(ts.is_none());
+    }
 }
