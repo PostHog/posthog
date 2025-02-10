@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            INSERT INTO posthog_errortrackingissuefingerprintv2 (id, team_id, issue_id, fingerprint, version, created_at)\n            VALUES ($1, $2, $3, $4, 0, NOW())\n            ON CONFLICT (team_id, fingerprint) DO NOTHING\n            RETURNING id, team_id, issue_id, fingerprint, version\n            ",
+  "query": "\n            INSERT INTO posthog_errortrackingissuefingerprintv2 (id, team_id, issue_id, fingerprint, version, first_seen, created_at)\n            VALUES ($1, $2, $3, $4, 0, $5, NOW())\n            ON CONFLICT (team_id, fingerprint) DO NOTHING\n            RETURNING id, team_id, issue_id, fingerprint, version\n            ",
   "describe": {
     "columns": [
       {
@@ -34,7 +34,8 @@
         "Uuid",
         "Int4",
         "Uuid",
-        "Text"
+        "Text",
+        "Timestamptz"
       ]
     },
     "nullable": [
@@ -45,5 +46,5 @@
       false
     ]
   },
-  "hash": "fd6745e4ed7575699286d9828c9f6c959ba804dab9c1e5ba39979d19782582ea"
+  "hash": "8e537cd2e8a8aacd0b14ce10911d84a50ffccd4753d64ce6ed8ed5b23880b44e"
 }

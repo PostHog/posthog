@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use sqlx::postgres::any::AnyConnectionBackend;
 use uuid::Uuid;
 
@@ -116,6 +117,7 @@ impl IssueFingerprintOverride {
         team_id: i32,
         fingerprint: &str,
         issue: &Issue,
+        first_seen: DateTime<Utc>,
     ) -> Result<Self, UnhandledError>
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
@@ -125,15 +127,16 @@ impl IssueFingerprintOverride {
         let res = sqlx::query_as!(
             IssueFingerprintOverride,
             r#"
-            INSERT INTO posthog_errortrackingissuefingerprintv2 (id, team_id, issue_id, fingerprint, version, created_at)
-            VALUES ($1, $2, $3, $4, 0, NOW())
+            INSERT INTO posthog_errortrackingissuefingerprintv2 (id, team_id, issue_id, fingerprint, version, first_seen, created_at)
+            VALUES ($1, $2, $3, $4, 0, $5, NOW())
             ON CONFLICT (team_id, fingerprint) DO NOTHING
             RETURNING id, team_id, issue_id, fingerprint, version
             "#,
             Uuid::new_v4(),
             team_id,
             issue.id,
-            fingerprint
+            fingerprint,
+            first_seen
         ).fetch_one(executor).await?;
 
         Ok(res)
@@ -144,6 +147,7 @@ pub async fn resolve_issue<'c, A>(
     con: A,
     team_id: i32,
     fingerprinted: FingerprintedErrProps,
+    event_timestamp: DateTime<Utc>,
 ) -> Result<OutputErrProps, UnhandledError>
 where
     A: sqlx::Acquire<'c, Database = sqlx::Postgres>,
@@ -174,6 +178,7 @@ where
         team_id,
         &fingerprinted.fingerprint,
         &issue,
+        event_timestamp,
     )
     .await?;
 
