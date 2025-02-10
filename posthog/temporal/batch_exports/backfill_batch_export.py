@@ -19,7 +19,7 @@ from posthog.batch_exports.service import (
     BackfillBatchExportInputs,
     unpause_batch_export,
 )
-from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
     CreateBatchExportBackfillInputs,
     UpdateBatchExportBackfillStatusInputs,

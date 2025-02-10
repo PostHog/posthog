@@ -38,6 +38,7 @@ go = { pkg-path = "go", version = "1.22", pkg-group = "go" }
 # Top level
 mprocs.pkg-path = "mprocs"
 xmlsec = { pkg-path = "xmlsec", version = "1.3.6" }
+openjdk17.pkg-path = "openjdk17"
 
 # Set environment variables in the `[vars]` section. These variables may not
 # reference one another, and are added to the environment without first

@@ -178,7 +178,8 @@
                 "KAFKA_HOSTS": "localhost",
                 "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
                 "SKIP_SERVICE_VERSION_REQUIREMENTS": "1",
-                "PRINT_SQL": "1"
+                "PRINT_SQL": "1",
+                "_JAVA_OPTIONS": "-Djava.security.manager=allow"
             },
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",

@@ -21,7 +21,7 @@ from posthog.batch_exports.service import (
     BatchExportSchema,
     BigQueryBatchExportInputs,
 )
-from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
     FinishBatchExportRunInputs,
     RecordsCompleted,

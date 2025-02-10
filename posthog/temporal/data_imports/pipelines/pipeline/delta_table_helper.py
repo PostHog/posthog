@@ -1,87 +1,157 @@
 from collections.abc import Sequence
-from conditional_cache import lru_cache
+import gc
+from pyspark.sql import SparkSession, DataFrame
+from pyspark.conf import SparkConf
+from delta import configure_spark_with_delta_pip
+from delta.tables import DeltaTable
 from typing import Any
-import deltalake.exceptions
 import pyarrow as pa
-from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from dlt.common.normalizers.naming.snake_case import NamingConvention
-import deltalake as deltalake
 from django.conf import settings
 from posthog.exceptions_capture import capture_exception
-from posthog.settings.base_variables import TEST
+from posthog.settings.base_variables import DEBUG, TEST
 from posthog.temporal.common.logger import FilteringBoundLogger
+from posthog.temporal.data_imports.pipelines.pipeline.utils import arrow_to_spark_schema, spark_to_arrow_schema
 from posthog.warehouse.models import ExternalDataJob
 from posthog.warehouse.s3 import get_s3_client
+
+
+def _get_pod_memory():
+    try:
+        with open("/sys/fs/cgroup/memory.max") as f:
+            memory_bytes = int(f.read().strip())
+        memory_gb = memory_bytes / (1024**3)
+
+        return memory_gb
+    except Exception as e:
+        raise Exception(f"Could not read pod memory limit: {e}")
+
+
+def _get_credentials():
+    if TEST:
+        return {
+            "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
+            "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
+            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            "region_name": settings.AIRBYTE_BUCKET_REGION,
+            "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
+            "AWS_ALLOW_HTTP": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+        }
+
+    return {
+        "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
+        "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
+        "region_name": settings.AIRBYTE_BUCKET_REGION,
+        "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
+        "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+    }
+
+
+def _get_spark_session_singleton(logger: FilteringBoundLogger) -> SparkSession:
+    if hasattr(_get_spark_session_singleton, "_spark"):
+        return _get_spark_session_singleton._spark
+
+    credentials = _get_credentials()
+
+    if DEBUG or TEST:
+        spark_memory = 2  # Use 2 GB when running locally or in unit tests
+    else:
+        total_memory_gb = _get_pod_memory()
+        spark_memory = int(total_memory_gb * 0.8)  # Use 80% of available memory
+
+    logger.debug(f"PySpark: spark.driver.memory = {spark_memory}g")
+
+    spark_conf = SparkConf()
+    spark_conf.set("spark.hadoop.security.authentication", "simple")
+    spark_conf.set("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
+    spark_conf.set("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+    spark_conf.set("spark.sql.execution.arrow.pyspark.enabled", "true")
+
+    spark_conf.set("spark.driver.memory", f"{spark_memory}g")
+    spark_conf.set("spark.driver.memoryOverhead", "1g")
+    spark_conf.set("spark.executor.memoryOverhead", "1g")
+    spark_conf.set("spark.kubernetes.memoryOverheadFactor", "0.1")
+
+    spark_conf.set("spark.memory.fraction", "0.6")
+    spark_conf.set("spark.memory.storageFraction", "0.3")
+    spark_conf.set("spark.sql.shuffle.partitions", "16")
+
+    spark_conf.set(
+        "spark.hadoop.fs.s3a.aws.credentials.provider", "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"
+    )
+    spark_conf.set("spark.hadoop.fs.s3a.access.key", credentials["aws_access_key_id"])
+    spark_conf.set("spark.hadoop.fs.s3a.secret.key", credentials["aws_secret_access_key"])
+    spark_conf.set("spark.hadoop.fs.s3a.endpoint.region", credentials["region_name"])
+    spark_conf.set("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
+
+    if TEST:
+        spark_conf.set("spark.hadoop.fs.s3a.endpoint", credentials.get("endpoint_url", "s3.amazonaws.com"))
+        spark_conf.set("spark.hadoop.fs.s3a.path.style.access", "true")
+
+    spark_session = configure_spark_with_delta_pip(
+        SparkSession.Builder().appName("DeltaTableHelper").master("local[*]").config(conf=spark_conf),
+        ["org.apache.hadoop:hadoop-aws:3.3.4", "com.amazonaws:aws-java-sdk-bundle:1.12.262"],
+    ).getOrCreate()
+
+    setattr(_get_spark_session_singleton, "_spark", spark_session)  # noqa: B010
+
+    return spark_session
 
 
 class DeltaTableHelper:
     _resource_name: str
     _job: ExternalDataJob
     _logger: FilteringBoundLogger
+    _spark: SparkSession
 
     def __init__(self, resource_name: str, job: ExternalDataJob, logger: FilteringBoundLogger) -> None:
         self._resource_name = resource_name
         self._job = job
         self._logger = logger
-
-    def _get_credentials(self):
-        if TEST:
-            return {
-                "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
-                "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
-                "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-                "region_name": settings.AIRBYTE_BUCKET_REGION,
-                "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
-                "AWS_ALLOW_HTTP": "true",
-                "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-            }
-
-        return {
-            "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
-            "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
-            "region_name": settings.AIRBYTE_BUCKET_REGION,
-            "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
-            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-        }
+        self._spark = _get_spark_session_singleton(logger)
 
     def _get_delta_table_uri(self) -> str:
         normalized_resource_name = NamingConvention().normalize_identifier(self._resource_name)
-        return f"{settings.BUCKET_URL}/{self._job.folder_path()}/{normalized_resource_name}"
+        uri = f"{settings.BUCKET_URL}/{self._job.folder_path()}/{normalized_resource_name}"
 
-    def _evolve_delta_schema(self, schema: pa.Schema) -> deltalake.DeltaTable:
+        return uri.replace("s3://", "s3a://")
+
+    def _evolve_delta_schema(self, data_frame: DataFrame) -> None:
         delta_table = self.get_delta_table()
         if delta_table is None:
             raise Exception("Deltalake table not found")
 
-        delta_table_schema = delta_table.schema().to_pyarrow()
+        existing_schema = delta_table.toDF().schema
+        new_schema = data_frame.schema
 
-        new_fields = [
-            deltalake.Field.from_pyarrow(field)
-            for field in ensure_delta_compatible_arrow_schema(schema)
-            if field.name not in delta_table_schema.names
-        ]
+        new_fields = [field for field in new_schema.fields if field.name not in existing_schema.fieldNames()]
+
         if new_fields:
-            delta_table.alter.add_columns(new_fields)
+            empty_df = self._spark.createDataFrame([], new_schema)
+            empty_df.write.format("delta").mode("append").option("mergeSchema", "true").save(
+                self._get_delta_table_uri()
+            )
 
-        return delta_table
-
-    @lru_cache(maxsize=1, condition=lambda result: result is not None)
-    def get_delta_table(self) -> deltalake.DeltaTable | None:
+    def get_delta_table(self) -> DeltaTable | None:
         delta_uri = self._get_delta_table_uri()
-        storage_options = self._get_credentials()
 
-        if deltalake.DeltaTable.is_deltatable(table_uri=delta_uri, storage_options=storage_options):
-            try:
-                return deltalake.DeltaTable(table_uri=delta_uri, storage_options=storage_options)
-            except Exception as e:
-                # Temp fix for bugged tables
-                capture_exception(e)
-                if "parse decimal overflow" in "".join(e.args):
-                    s3 = get_s3_client()
-                    s3.delete(delta_uri, recursive=True)
-                    return None
+        try:
+            return DeltaTable.forPath(self._spark, delta_uri)
+        except Exception as e:
+            error_msg = str(e).lower()
+            if "not a Delta table" in error_msg or "delta_missing_delta_table" in error_msg:
+                return None
 
-        return None
+            capture_exception(e)
+            raise
+
+    def to_arrows_schema(self) -> pa.Schema:
+        table = self.get_delta_table()
+        if table is None:
+            raise Exception("Deltatable not found")
+
+        return spark_to_arrow_schema(table.toDF().schema)
 
     def reset_table(self):
         table = self.get_delta_table()
@@ -95,59 +165,42 @@ class DeltaTableHelper:
         s3 = get_s3_client()
         s3.delete(delta_uri, recursive=True)
 
-        self.get_delta_table.cache_clear()
-
     def write_to_deltalake(
         self, data: pa.Table, is_incremental: bool, chunk_index: int, primary_keys: Sequence[Any] | None
-    ) -> deltalake.DeltaTable:
+    ) -> DeltaTable:
+        table_size_mb = data.nbytes / (1024 * 1024)
+
+        self._logger.debug(f"PySpark: table_size_mb = {table_size_mb}")
+
+        data_frame = self._spark.createDataFrame(data.to_pandas(), schema=arrow_to_spark_schema(data))
+        data_frame = data_frame.coalesce(1)
+
         delta_table = self.get_delta_table()
 
         if delta_table:
-            delta_table = self._evolve_delta_schema(data.schema)
+            self._evolve_delta_schema(data_frame)
+            delta_table = self.get_delta_table()
 
         if is_incremental and delta_table is not None:
             if not primary_keys or len(primary_keys) == 0:
                 raise Exception("Primary key required for incremental syncs")
 
-            delta_table.merge(
-                source=data,
-                source_alias="source",
-                target_alias="target",
-                predicate=" AND ".join([f"source.{c} = target.{c}" for c in primary_keys]),
-            ).when_matched_update_all().when_not_matched_insert_all().execute()
+            predicate = " AND ".join([f"source.{c} = target.{c}" for c in primary_keys])
+
+            delta_table.alias("target").merge(
+                data_frame.alias("source"), predicate
+            ).whenMatchedUpdateAll().whenNotMatchedInsertAll().execute()
+
         else:
             mode = "append"
-            schema_mode = "merge"
             if chunk_index == 0 or delta_table is None:
                 mode = "overwrite"
-                schema_mode = "overwrite"
 
-            if delta_table is None:
-                storage_options = self._get_credentials()
-                delta_table = deltalake.DeltaTable.create(
-                    table_uri=self._get_delta_table_uri(), schema=data.schema, storage_options=storage_options
-                )
-            try:
-                deltalake.write_deltalake(
-                    table_or_uri=delta_table,
-                    data=data,
-                    partition_by=None,
-                    mode=mode,
-                    schema_mode=schema_mode,
-                    engine="rust",
-                )  # type: ignore
-            except deltalake.exceptions.SchemaMismatchError as e:
-                self._logger.debug("SchemaMismatchError: attempting to overwrite schema instead", exc_info=e)
-                capture_exception(e)
+            data_frame.write.format("delta").mode(mode).option("mergeSchema", "true").save(self._get_delta_table_uri())
 
-                deltalake.write_deltalake(
-                    table_or_uri=delta_table,
-                    data=data,
-                    partition_by=None,
-                    mode=mode,
-                    schema_mode="overwrite",
-                    engine="rust",
-                )  # type: ignore
+        # Remove the data frame from memory once its written
+        data_frame.unpersist(blocking=True)
+        gc.collect()
 
         delta_table = self.get_delta_table()
         assert delta_table is not None
@@ -160,9 +213,11 @@ class DeltaTableHelper:
             raise Exception("Deltatable not found")
 
         self._logger.debug("Compacting table...")
-        table.optimize.compact()
+        table.optimize().executeCompaction()
 
         self._logger.debug("Vacuuming table...")
-        table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
+        table.vacuum(
+            retentionHours=168  # pyspark complains that anything less than 168 could corrupt the table if theres other operations running
+        )
 
         self._logger.debug("Compacting and vacuuming complete")

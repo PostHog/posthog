@@ -10,7 +10,7 @@ from temporalio.common import RetryPolicy
 
 
 # TODO: remove dependency
-from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.data_imports.workflow_activities.check_billing_limits import (
     CheckBillingLimitsActivityInputs,
     check_billing_limits_activity,

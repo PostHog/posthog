@@ -5,7 +5,7 @@ from typing import Any, Optional, cast
 from unittest import mock
 
 import aioboto3
-from deltalake import DeltaTable
+from delta.tables import DeltaTable
 import posthoganalytics
 import psycopg
 import pytest

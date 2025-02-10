@@ -1,19 +1,13 @@
-import dataclasses
 import datetime as dt
 import json
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
+from posthog.temporal.data_imports.util import DeltalakeCompactionJobWorkflowInputs
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
-
-
-@dataclasses.dataclass
-class DeltalakeCompactionJobWorkflowInputs:
-    team_id: int
-    external_data_job_id: str
 
 
 @activity.defn
@@ -41,7 +35,7 @@ class DeltalakeCompactionJobWorkflow(PostHogWorkflow):
         await workflow.execute_activity(
             run_compaction,
             inputs,
-            start_to_close_timeout=dt.timedelta(minutes=5),
+            start_to_close_timeout=dt.timedelta(minutes=60),
             retry_policy=RetryPolicy(
                 maximum_attempts=1,
             ),
