@@ -821,7 +821,7 @@ function useMathSelectorOptions({
     ) {
         options.push({
             value: HogQLMathType.HogQL,
-            label: 'HogQL expression',
+            label: 'SQL expression',
             tooltip: 'Aggregate events by custom SQL expression.',
             'data-attr': `math-node-hogql-expression-${index}`,
         })
