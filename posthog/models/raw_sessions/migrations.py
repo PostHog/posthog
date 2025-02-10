@@ -55,3 +55,30 @@ DISTRIBUTED_RAW_SESSIONS_ADD_VITALS_LCP_COLUMN_SQL = lambda: ADD_VITALS_LCP_COLU
     table_name=RAW_SESSIONS_DATA_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,
 )
+
+# irclid and _kx
+ADD_IRCLID_KX_COLUMNS_SQL = """
+ALTER TABLE {table_name} on CLUSTER '{cluster}'
+ADD COLUMN IF NOT EXISTS
+initial__kx
+AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+ADD COLUMN IF NOT EXISTS
+initial_irclid
+AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))
+AFTER initial_ttclid
+"""
+
+BASE_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL = lambda: ADD_IRCLID_KX_COLUMNS_SQL.format(
+    table_name=TABLE_BASE_NAME,
+    cluster=settings.CLICKHOUSE_CLUSTER,
+)
+
+WRITABLE_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL = lambda: ADD_IRCLID_KX_COLUMNS_SQL.format(
+    table_name="writable_raw_sessions",
+    cluster=settings.CLICKHOUSE_CLUSTER,
+)
+
+DISTRIBUTED_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL = lambda: ADD_IRCLID_KX_COLUMNS_SQL.format(
+    table_name=RAW_SESSIONS_DATA_TABLE(),
+    cluster=settings.CLICKHOUSE_CLUSTER,
+)
