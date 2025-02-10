@@ -91,7 +91,7 @@ export const aiRegexHelperLogic = kea<aiRegexHelperLogicType>([
                     await replayTriggersLogic.asyncActions.addUrlBlocklist(payload)
                 }
             } catch (error) {
-                lemonToast.error('Failed to copy regex to clipboard')
+                lemonToast.error('Failed to apply regex')
             }
         },
         onClose: () => {
