@@ -62,15 +62,22 @@ export const aiRegexHelperLogic = kea<aiRegexHelperLogicType>([
             actions.setError('')
             actions.setGeneratedRegex('')
 
-            const content = await api.recordings.aiRegex(values.input)
+            try {
+                const content = await api.recordings.aiRegex(values.input)
 
-            if (content.hasOwnProperty('result') && content.result === 'success') {
-                posthog.capture('ai_regex_helper_generate_regex_success')
-                actions.setGeneratedRegex(content.data.output)
-            }
-            if (content.hasOwnProperty('result') && content.result === 'error') {
-                posthog.capture('ai_regex_helper_generate_regex_error')
-                actions.setError(content.data.output)
+                if (content.hasOwnProperty('result') && content.result === 'success') {
+                    posthog.capture('ai_regex_helper_generate_regex_success')
+                    actions.setGeneratedRegex(content.data.output)
+                } else if (content.hasOwnProperty('result') && content.result === 'error') {
+                    posthog.capture('ai_regex_helper_generate_regex_error')
+                    actions.setError(content.data.output)
+                } else {
+                    posthog.capture('ai_regex_helper_generate_regex_unknown_error')
+                    actions.setError('Failed to generate regex. Try again?')
+                }
+            } catch {
+                posthog.capture('ai_regex_helper_generate_regex_unknown_error')
+                actions.setError('Failed to generate regex. Try again?')
             }
 
             actions.setIsLoading(false)
