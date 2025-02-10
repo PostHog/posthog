@@ -286,7 +286,7 @@ export function Customization({
                                         })
                                     }
                                 }}
-                                className="w-1 ignore-error-border"
+                                className="w-12 ignore-error-border"
                             />{' '}
                             seconds.
                         </div>
