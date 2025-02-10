@@ -4,6 +4,7 @@
 # - `uv pip compile requirements.in -o requirements.txt`
 # - `uv pip compile requirements-dev.in -o requirements-dev.txt`
 #
+memray==1.15.0
 objgraph==3.6.2
 aiohttp==3.11.10
 aioboto3==12.0.0
